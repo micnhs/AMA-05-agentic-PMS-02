@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using Azure;
 using Azure.Storage.Blobs;
@@ -11,18 +12,18 @@ public sealed class LocalObjectStore(string directory) : IObjectStore
 {
     public async Task<string> Put(string content, CancellationToken ct = default)
     {
+        var bytes = StoredObjectText.Encode(content);
         Directory.CreateDirectory(directory);
         var hash = Canonical.HashText(content);
         var path = Path.Combine(directory, hash);
         try
         {
             await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, true);
-            await stream.WriteAsync(Encoding.UTF8.GetBytes(content), ct);
+            await stream.WriteAsync(bytes, ct);
         }
         catch (IOException) when (File.Exists(path))
         {
-            var existing = await File.ReadAllTextAsync(path, ct);
-            Guard.Against(Canonical.HashText(existing) != hash, "object_integrity", "Evidenzobjekt wurde veraendert.", 409);
+            StoredObjectText.Decode(await File.ReadAllBytesAsync(path, ct), hash);
         }
         return hash;
     }
@@ -30,9 +31,7 @@ public sealed class LocalObjectStore(string directory) : IObjectStore
     public async Task<string> Read(string hash, CancellationToken ct = default)
     {
         Guard.Against(hash.Length != 64 || hash.Any(ch => !char.IsAsciiHexDigit(ch)), "object_id", "Ungueltige Objekt-ID.");
-        var value = await File.ReadAllTextAsync(Path.Combine(directory, hash), ct);
-        Guard.Against(Canonical.HashText(value) != hash, "object_integrity", "Hashpruefung der Evidenz fehlgeschlagen.", 409);
-        return value;
+        return StoredObjectText.Decode(await File.ReadAllBytesAsync(Path.Combine(directory, hash), ct), hash);
     }
 }
 
@@ -40,11 +39,12 @@ public sealed class AzureObjectStore(BlobContainerClient container) : IObjectSto
 {
     public async Task<string> Put(string content, CancellationToken ct = default)
     {
+        var bytes = StoredObjectText.Encode(content);
         var hash = Canonical.HashText(content);
         var blob = container.GetBlobClient(hash);
         try
         {
-            await blob.UploadAsync(BinaryData.FromString(content),
+            await blob.UploadAsync(BinaryData.FromBytes(bytes),
                 new BlobUploadOptions { Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All } }, ct);
         }
         catch (RequestFailedException e) when (e.Status == 409 || e.Status == 412)
@@ -58,8 +58,31 @@ public sealed class AzureObjectStore(BlobContainerClient container) : IObjectSto
     {
         Guard.Against(hash.Length != 64 || hash.Any(ch => !char.IsAsciiHexDigit(ch)), "object_id", "Ungueltige Objekt-ID.");
         var response = await container.GetBlobClient(hash).DownloadContentAsync(ct);
-        var content = response.Value.Content.ToString();
-        Guard.Against(Canonical.HashText(content) != hash, "object_integrity", "Blob-Hashpruefung fehlgeschlagen.", 409);
-        return content;
+        return StoredObjectText.Decode(response.Value.Content.ToMemory().Span, hash);
+    }
+}
+
+internal static class StoredObjectText
+{
+    private static readonly UTF8Encoding Utf8 = new(false, true);
+
+    public static byte[] Encode(string content)
+    {
+        try { return Utf8.GetBytes(content); }
+        catch (EncoderFallbackException)
+        {
+            throw new DomainException("object_encoding", "Objektinhalt enthaelt ungueltige Unicode-Zeichen.");
+        }
+    }
+
+    public static string Decode(ReadOnlySpan<byte> bytes, string hash)
+    {
+        Guard.Against(Convert.ToHexStringLower(SHA256.HashData(bytes)) != hash, "object_integrity",
+            "SHA-256 der gespeicherten Rohbytes stimmt nicht mit der Objekt-ID ueberein.", 409);
+        try { return Utf8.GetString(bytes); }
+        catch (DecoderFallbackException)
+        {
+            throw new DomainException("object_encoding", "Gespeichertes Objekt ist kein gueltiger UTF-8-Text.", 409);
+        }
     }
 }
