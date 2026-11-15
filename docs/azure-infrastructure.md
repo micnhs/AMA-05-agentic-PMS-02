@@ -557,6 +557,117 @@ Nach Uebernahme in die Anwendungssession zwingend:
    MI-TokenCallback, Durable B/Q/T, unabhaengigen SQL-Watchdog und Alarmzustellung,
    Backup-/Ledger-/Unknown-Reconcile-Drills abnehmen.
 
+### Isolierter lokaler T12-Hostlauf
+
+`infra/scripts/local_runtime.py` ist ein **separater lokaler Harness**, kein
+Aufruf oder Ersatz fuer `Invoke-CohorsCi.ps1`. Er verweigert Actions-Kontext und
+baut ausschliesslich einen frischen Git-Export von
+`245b3b049228c3d4e01883bec56babca2012b91b` mit Parent
+`a5c75454553e1325246546578a8ab3ef624ab119`. Der laufende Demo-Arbeitsbaum, dessen
+`.local`-Dateien und die eigenstaendige T20-Recovery-Pruefung werden nicht
+verwendet. Der Export wird nicht um Anwendungscode, Debug-Endpunkte oder
+veraenderte Zeitgeber ergaenzt.
+
+Voraussetzungen: Python 3.13, Git, Docker Linux, mindestens 8 GiB beobachteter
+freier Docker-Speicher und 15 GiB freier lokaler Plattenplatz. Die Beobachtung
+ist keine exklusive Reservierung; bei Ressourcenmangel abbrechen, nicht fremde
+Container stoppen. Benoetigte lokale Images sind
+`mcr.microsoft.com/mssql/server:2022-latest`,
+`mcr.microsoft.com/azure-storage/azurite:3.35.0`,
+`node:22-bookworm-slim` und die im Quellstand gepinnten Host-Buildimages.
+Fehlende Images nur ueber den normalen Docker-Pull-/Buildweg bereitstellen;
+Virenschutz, Docker-, Firewall- und sonstige Schutzkonfiguration bleiben
+unveraendert. Die vier App-Images werden aus dem angegebenen Commit gebaut;
+ihre tatsaechlichen Image-IDs und die Quellidentitaet werden im Ergebnis gebunden.
+Ein lokaler Build ist kein freigegebener Supply-Chain-Nachweis.
+
+Beispielaufruf mit **noch nicht existierenden**, getrennten Verzeichnissen
+ausserhalb des Repositorys:
+
+```powershell
+py -3.13 infra\scripts\local_runtime.py `
+  --workspace C:\Temp\cohors-t12-new-run `
+  --artifacts C:\Temp\cohors-t12-new-evidence
+```
+
+Keine Hostports werden veroeffentlicht. SQL besitzt einen eigenen
+`network=none`-Namespace; API, AgentHost, beide Functions-Hosts, Azurite und der
+Testtreiber teilen nur dessen Loopback. Dadurch bleiben die vorhandenen
+Development-/Loopback-Authguards unveraendert und es existiert keine externe
+Route fuer Live-Foundry oder oeffentliche Quellen. Die Prozesse und Container
+sind getrennt; dies ist **kein** Azure-VNet-, MI-, TLS- oder Identitaetsabnahmenachweis.
+Die lokalen Functions-Hosts bekommen `WEBSITE_HOSTNAME=127.0.0.1:8082` bzw.
+`:8083` passend zu ihren tatsaechlichen Loopback-Listenern. Ohne diese lokale
+Webhook-Basis konnte der originale Workflows-Container den Durable-Client
+nicht initialisieren; weder Azure-Hostname noch Actions-Umgebung werden
+vorgegeben.
+SQL und beide Azurite-Konten erhalten neue Zufallszugaenge und ausschliesslich
+eigene Volumes. Lokale SQL-Admin-/Migrationsrechte dienen nur diesem Bootstrap,
+nicht als vorgeschlagene Azure-Runtimeberechtigung. Die Functions-Dockerfiles
+bleiben lokale Testhelfer; Azure verwendet weiterhin zwei Flex-Codepakete.
+Alle Testcontainer behalten `no-new-privileges` und `cap-drop=ALL`; lediglich
+der eigene SQL-Container benoetigt `NET_BIND_SERVICE`, weil das unveraenderte
+Microsoft-Binary genau diese File-Capability traegt (per `getcap` geprueft).
+Die kurzlebige Initialisierung des eigenen API-Volumes erhaelt nur `CHOWN`.
+Keine dieser eng begrenzten Containeroptionen veraendert Hostschutz,
+Docker-Standardkonfiguration oder Systemrichtlinien; insbesondere kein
+`privileged`, `SYS_ADMIN`, Seccomp-Abschalten oder Virenschutz-Workaround.
+
+Der Node-Treiber `infra/scripts/local-runtime-driver.mjs` fuehrt eine echte
+lokale PMS-Anmeldung und eine synthetische Replay-Anforderung aus.
+`DispatchOutbox`, der Durable-Orchestrator und `ProcessOutbox` muessen danach
+selbst laufen. Eine begrenzte Loopback-Transportbarriere leitet Requests und
+echte Antworten unveraendert weiter, haelt aber die ausgewahlte erfolgreiche
+ProcessOutbox-Antwort **nach** fachlichem SQL-Commit und **vor** Durable-Ack
+zurueck. Erst mit persistierter `Running`-Instanz und echter Activity-History
+darf der ausschliesslich eigene Workflows-Container hart beendet werden.
+Dies ist ein verlorener Zustellungsabschluss, kein simulierter
+Agenten-/Timererfolg. Default-Storage-Leases/Visibility werden nicht durch
+SQL-/Azurite-Manipulation oder einen virtuellen Zeitsprung abgekuerzt.
+
+Die Abnahme verlangt Wiederanlauf derselben gespeicherten Durable-Ausfuehrung,
+nachgewiesene Activity-Wiederzustellung, genau eine Inbox-Quittung/einen
+Assessmententwurf sowie unveraenderte abgeschlossene Replay-Modellauftraege.
+Operations muss waehrend des Workflows-Ausfalls und separat bei gestoppter
+API/AgentHost weiter ticken. Ein Operations-Stopp wird mit echter UTC-Zeit bis
+zur Drei-Minuten-Grenze beobachtet: kein Heartbeat vor dem ersten Timerstart,
+fehlender Herzschlag erst bei `>3m`, frischer Herzschlag nach eigenem Neustart.
+Direkte `/internal/watchdog`-Aufrufe, direkte Activity-Aufrufe aus dem Treiber
+und gefaelschte erfolgreiche Antworten sind kein Bestandteil dieses Tests.
+
+Das allowlist-orientierte Ergebnis `t12-runtime-results.json` enthaelt nur
+Quell-/Image-/Hostidentitaeten, Timerzaehler, selektierte Durable-Metadaten,
+fachliche Zaehler/Hashes, Zeitmessungen und Cleanup-Ergebnis. Es enthaelt keine
+Zugangsdaten, Quellpayloads, klinischen Texte, Cookies oder rohen Hostlogs.
+Fehler/Timeouts ergeben `blocked` und einen Fehlerexit, niemals einen Ersatzpass.
+Cleanup verifiziert Runlabel und exakte eigene Container-IDs bzw. Volumen- und
+Image-Tagnamen. Fremde Ressourcen, globale Caches und Basisimages werden nicht
+entfernt.
+
+**Tatsaechlicher Stand: Lauf 06 vom 2026-11-15 ist `blocked`, kein T12-Pass.**
+
+| Kontrollziel | Gefilterter realer Befund |
+|---|---|
+| Quellen/Hosts | Commit/Parent/Tree und Archivhash gebunden; vier originale Images gebaut, vier getrennte Prozesse tatsaechlich gestartet. API, AgentHost und Operations bereit. |
+| Operations-Timer | Persistierte Heartbeats Version 1/2 um 19:17:30.218Z und 19:18:00.022Z; zuvor `heartbeat=null`, `heartbeatMissing=true`. Kein direkter Watchdog-Aufruf. |
+| Workflows | Readiness nach 180 Sekunden weiterhin nicht bereit. Die konkrete verbliebene Fehlerklasse wurde vom damaligen Filter nicht aufgenommen; daraus folgt kein nachgewiesener App-Defekt. |
+| Wiederanlauf/Idempotenz | Noch nicht erreicht: keine bestandene Activity-/Agenten-Kette, kontrollierte Unterbrechung, Wiederzustellung oder Operations-Neustart-/Drei-Minuten-Abnahme aus diesem Lauf ableiten. |
+| Cleanup | Acht eigene Container, drei Volumes, vier Image-Tags sowie private Konfiguration und Testexport bereinigt. Nachkontrolle fuer das eigene Runlabel: keine Container, Volumes oder Image-Tags mehr. |
+
+Der nachfolgende Diagnose-Fix erfasst den letzten echten Readiness-HTTP-Status,
+Workflows-Fehlerklassen, RPC-Statuscodes und zaehlende HTTP-Ergebnisse des
+festen lokalen API-Transports. Exception-Details, Webhook-/SAS-Codes, Header und
+Payloads werden nicht zum Diagnosebestandteil. Diese Aenderung ist
+**offline** geprueft, noch nicht in einem weiteren Hostlauf: der naechste schwere
+T12-Versuch wird nach dem getrennten T20-Lauf neu koordiniert. Auch das erneute
+Antworten der zwischenzeitlich nicht erreichbaren Docker-Engine beweist weder
+deren Stabilitaet noch T12.
+
+Ein T12-Ergebnis darf erst nach dem vollstaendigen erfolgreichen Hostlauf als
+bestanden gelten. Azure/Flex, Entra, Kusto-Ingestion,
+Benachrichtigungszustellung, Actions und T20 werden dadurch nicht abgenommen;
+der separate Checkov-Gate bleibt unveraendert.
+
 ## Bewusst manueller Deploymentworkflow
 
 Nur `workflow_dispatch`; Standardoperation `what-if`. Repositoryvariable
