@@ -4,16 +4,21 @@ Dieser Pfad sichert ausschliesslich den synthetischen Cohors-Piloten: echte loka
 SQL-Server-Datenbanken und lokale inhaltsadressierte Objektdateien. Ausgangspunkt
 ist `a5c75454553e1325246546578a8ab3ef624ab119`, einschliesslich des unveraendert
 uebernommenen [Byte-Integritaetsfixes](object-integrity.md)
-`245b3b049228c3d4e01883bec56babca2012b91b`. Retention, Fachfunktionen, HTTP/UI und
-der getrennte Functions-Host-/Neustartnachweis sind nicht Bestandteil dieses Abschnitts.
+`245b3b049228c3d4e01883bec56babca2012b91b`. Der uebergebene Recovery-Abschnitt
+`09e3807` ist als `e46f5b4` integriert. Die Arbeitsfassung erweitert ihn um den
+unten beschriebenen T18-Datenklassen-/Loeschkatalogvertrag. HTTP/UI und der
+getrennte Functions-Host-/Neustartnachweis bleiben separate Pruefungen.
 
 ## Isolierter Gesamtablauf
 
 Voraussetzungen: Docker Desktop mit Linux-Engine, das gepinnte .NET-SDK und
 **PowerShell 7.6 auf .NET 10**. `RecoveryTests` gehoert zu `Category=Sql` und
 startet selbst Docker; dies gilt auch bei einem allgemeinen SQL-Testfilter.
-Der lokale Runner fuehrt `Category=Recovery` vollstaendig aus: acht echte
-SQL-/Docker-Faelle und einen getrennten Pfadtest ohne SQL. Der fruehere
+Der lokale Runner verlangt `Category=Recovery` vollstaendig: zehn echte
+SQL-/Docker-Faelle und drei getrennte Pfad-/Retention-Vertragstests ohne SQL.
+Diese **13er-Gesamtselektion wurde lokal bestanden**; sie ist nicht der
+unten dokumentierte historische 9er-Lauf. Ihr konkreter Quellenstand und
+die noch offene abschliessende Wiederholung sind unten getrennt benannt. Der fruehere
 Linux-Runner mit PowerShell 7.5 belegt keine Kompatibilitaet dieses neuen Pfads.
 
 ```powershell
@@ -73,6 +78,25 @@ $digest = '<RECOVERY_MANIFEST_SHA256-aus-dem-erfolgreichen-Backup>'
     -BackupDirectory .local\mein-lauf\backup -ManifestSha256 $digest
 ```
 
+Enthaelt der Cut Rohdaten-Aufbewahrungseintraege, verlangt Restore zusaetzlich
+einen **aktuell menschlich geprueften** Katalog aus einem erfolgreichen,
+quieszierten Format-v2-Backup und dessen separat aufbewahrten Digest:
+
+```powershell
+.\scripts\Restore-Local.ps1 -ConfigurationPath .local\mein-lauf\private\target.json `
+    -BackupDirectory .local\mein-lauf\backup -ManifestSha256 $digest `
+    -CurrentRetentionManifestPath .local\aktueller-cut\manifest.json `
+    -CurrentRetentionManifestSha256 '<separat-gesicherter-aktueller-Digest>' `
+    -CurrentRetentionConfirmed
+```
+
+Nicht automatisch den Digest des gerade gewaehlten alten Backups als
+Aktualitaetsnachweis einsetzen. Derselbe Manifestpfad ist nur dann sachlich
+geeignet, wenn der Operator ihn tatsaechlich als letzten relevanten
+Aufbewahrungsstand bestaetigen kann. Nachtraegliche Retention-Aenderungen,
+einschliesslich Holds, duerfen nicht uebersehen werden. Ist kein zuverlaessig
+aktueller Katalog verfuegbar, bleibt der Rohdaten-Restore gesperrt.
+
 Die Zielkonfiguration benennt einen eigenen frischen SQL-Server mit eigenen
 Zugangsdaten, einen **noch nicht existierenden** Datenbanknamen und eine **noch
 nicht existierende** Objektwurzel. Backup- und Objektwurzeln muessen disjunkt sein.
@@ -116,9 +140,80 @@ beibehalten. Auf keinen Fall Quellkonfigurationen oder Sendeauftraege kopieren.
 Leases, Backoff-Zeitpunkte und erledigte Arbeit werden nicht zurueckgesetzt.
 Fristen werden nicht neu berechnet und Annahmen nicht erfunden.
 
-## Ausgefuehrter Stand am 15.11.2026
+## T18: Explizite Rohdaten- und Loeschklassen
 
-Der aktuelle Stand wurde auf `245b3b0` mit den vier im jeweiligen Bericht
+Neue Backups verwenden `cohors-local-recovery-2`. Bestehende flache
+Format-v1-Backups ohne Rohdatenklassen bleiben lesbar; bestehende regulatorische
+Objekt-IDs und eingefrorene Bytes werden nicht umgeformt.
+
+Das Inventar unterscheidet unveraenderte regulatorische Hash-Dateien,
+`raw-quarantine/<hash>` und `.deletion-receipts/<raw-hash>.json`.
+Bei Journalen ist `hash` der SHA256 ihrer wirklichen Dateibytes,
+`objectHash` der Hash des betroffenen Rohobjekts. Nur diese benannten
+Unterverzeichnisse und regulaere Dateien sind erlaubt; keine Links,
+beliebigen Verzeichnisbaeume oder Namensausnahmen.
+
+Die verifizierten aktuellen SQL-Aufbewahrungszeilen bilden
+`cohors-retention-cut-1`. Historische eigene Rohdaten-Aufbewahrungspayloads
+muessen dieselbe unveraenderliche Identitaet und Objektbindung haben.
+Nur ein aktueller `Deleted`-Stand mit passender menschlicher Scope-Freigabe,
+abgelaufenem Mindestintervall, SQL-Abschlussbeleg und bytegenau identischem
+kanonischem physischem Journal hebt **seinen eigenen** alten Rohbytes-Bezug auf.
+Aktive Rohobjekte bleiben erforderlich. Unabhaengige Objektbindungen,
+regulatorische Evidenz, Agentenkontexte oder historische Shared-Hash-Referenzen
+bleiben Loesch-/Recovery-Blocker, auch bei vorhandenen Loeschbelegen.
+
+Fehlende Journale, nicht inventarisierte Rohobjekte, wieder aufgetauchte Bytes
+in beiden Objektbereichen und `Deleting`-/`DeletionFailed`-Cuts werden abgewiesen.
+Ein Teilvorgang muss vor dem Backup ueber den autorisierten Anwendungsabgleich
+aufgeloest werden; Backup/Restore behauptet keinen nachtraeglichen Abschluss.
+Nach dem nativen SQL-Restore wird der Retention-Cut nochmals aus den echten
+SQL-Zeilen aufgebaut und mit dem Manifest verglichen.
+
+Ein altes Backup kann spaetere Loeschungen nicht selbst kennen. Deshalb muss
+sein Rohdaten-Katalog exakt zum separat bestaetigten aktuellen Katalog passen.
+Bei Abweichung wird ein neuer konsistenter Cut verlangt, statt alte SQL-Historie
+mit neuen Metadaten zu ueberlagern. Das ist bewusst konservativ: Auch andere
+Aenderungen/Ergaenzungen am Rohdaten-Katalog koennen einen alten Cut sperren.
+Das Skript prueft Bindungen und Digests, **nicht automatisch die Wahrheit der
+Aktualitaetsbestaetigung**. `automaticFreshnessProof=false` bleibt im Ready-Marker.
+Dies ersetzt keinen externen Witness, keine Backup-Loeschung und keine
+Bereinigung fremder Kopien.
+
+Die erweiterte SQL-Fixture nimmt ein echtes Backup vor der Testroh-Loeschung
+und einen zweiten Cut danach. Der alte Cut ist benanntes, isoliertes
+Negativtestmaterial; seine physische Vernichtung wird nicht behauptet.
+Der Positivfall muss aktive Rohbytes, geloeschte Abwesenheit, exaktes Journal
+sowie alle bisherigen Evidenz-/Fristen-/Unknown-/Receipt-Invarianten erhalten.
+Negative Varianten pruefen fehlenden aktuellen Katalog, den alten nativen
+Cut, fehlendes Journal, wieder aufgetauchte Bytes und unabhaengige Bindungen.
+
+Zunaechst bestanden **20/20** gezielt ausgewaehlte
+Nicht-Docker-Tests, ohne Skips: neun Store-Integritaet, vier Retention-Regeln,
+vier lokale Retention-Objekttests sowie drei Recovery-Pfad-/Vertragstests.
+Der echte PowerShell-Helper musste dabei an die kanonische Journalserialisierung
+angebunden werden; die fehlgeschlagenen Vorlaeufe waren kein Erfolg.
+Aktueller TRX: `.local\test-results\retention-recovery-integration-offline.trx`.
+Danach bestand die vollstaendige integrierte Kategorie mit **13/13**,
+ohne Skips: `.local\t18-t20-integrated-current\recovery-results.json`.
+Vier Implementierungsdateien und fuenf tatsaechlich ausgefuehrte
+Anwendungsassemblies sind gehasht, ein schmutziger Quellbaum ist separat
+vom HEAD gekennzeichnet. Die 13 erwarteten Tests und zehn
+SQL-Fixture-Abschlusspruefungen wurden nicht reduziert. Nach Abschluss
+bestanden keine mit dem exakten Eigentuemerlabel verbundenen eigenen
+Container oder Volumes mehr.
+
+Dieser Nachweis liegt vor spaeteren Retention-Fehlerdiagnostikaenderungen.
+Ein anderer kompletter Anwendungslauf scheiterte einmal im parallelen
+Raw-Delete-Test an bisher ungeklaerter I/O; der gruene 110er-Wiederholungslauf
+erklaert diese Ursache nicht. Aktuelle Recovery-Wiederholung,
+Linux-Gesamtintegration und Cloud-DR bleiben offen. Die qualifizierte
+Replay-UI-Teilabnahme mit deaktivierter physischer Loeschung ersetzt diese
+Gates nicht; siehe [Nachweisstand](validation.md).
+
+## Historischer Owner-Nachweis am 15.11.2026, vor T18-Integration
+
+Der uebergebene Stand wurde auf `245b3b0` mit den vier im jeweiligen Bericht
 gehashten Implementierungsdateien ausgefuehrt. Der erzwungene Solution-Neubau
 bestand ohne Warnungen/Fehler. Die Windows-Partitionen sind disjunkt und
 zusammen vollstaendig: **86/86 in zwei Laeufen**, nicht ein einzelner 86er-Lauf.
@@ -137,7 +232,7 @@ veraendert. Er prueft den echten Linux-Zweig der C#-/PowerShell-Pfadgrenze,
 SDK-Aufruf ohne Assets/ohne TRX wurde nicht als Test gewertet; erst nach
 nachgewiesenem `NETSDK1004` und Locked Restore entstand der bestandene TRX.
 
-Der aktuelle Positivfall stellte 39 Objektdateien mit historischer und aktueller
+Der damalige Positivfall stellte 39 Objektdateien mit historischer und aktueller
 Spezifikationsrevision, byteidentischem
 MIR-Paket, offener NI-Pflicht und offener fester Folgeberichtspflicht wieder her.
 Der zugesagte Termin `2026-11-22T23:59:59.9999999Z` und dessen SafetyDue
@@ -160,7 +255,7 @@ nie allein ueber einen Namen. Unbekannte/mehrdeutige Identitaet bleibt ein Fehle
 kein Cleanup-Erfolg. `owned-resources.json` haelt nur gefilterte Identitaeten fest;
 der Fehlstarttest prueft wirkliche Abwesenheit und den erhaltenen SQL-Sentinel.
 
-Aktuelle bereinigte Nachweise:
+Bereinigte Nachweise im damaligen Recovery-Owner-Arbeitsbereich:
 `.local\t20-windows-current\recovery-results.json` und `resource-cleanup.json`,
 `.local\t20-windows-regressions\results.json`,
 `.local\t20-linux-current\results.json`.

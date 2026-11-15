@@ -33,7 +33,7 @@ public sealed record Actor(string Id, string Name, string[] Roles, string[] Prod
     }
 }
 
-public sealed class DomainException(string code, string message, int status = 422) : Exception(message)
+public sealed class DomainException(string code, string message, int status = 422, Exception? innerException = null) : Exception(message, innerException)
 {
     public string Code { get; } = code;
     public int Status { get; } = status;

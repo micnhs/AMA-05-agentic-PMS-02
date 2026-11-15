@@ -6,7 +6,7 @@ KI entwirft und begruendet. Medical Safety und Regulatory Affairs entscheiden mi
 
 ## Lokal starten (Windows / PowerShell)
 
-Voraussetzungen: Node.js 22.12 oder neuer, .NET SDK gemaess `global.json`, Docker Desktop mit Linux-Engine. SQL Server Developer benoetigt ausreichend Docker-Arbeitsspeicher. Fuer Browserabnahmen wird lokal Microsoft Edge verwendet.
+Voraussetzungen: PowerShell 7.6 oder neuer (Recovery-/Browserhelfer laden .NET-10-Assemblies), Node.js 22.12 oder neuer, .NET SDK gemaess `global.json`, Docker Desktop mit Linux-Engine. SQL Server Developer benoetigt ausreichend Docker-Arbeitsspeicher. Fuer Browserabnahmen wird lokal Microsoft Edge verwendet.
 
 ```powershell
 .\scripts\Initialize-Local.ps1
@@ -57,7 +57,16 @@ Der erste End-to-End-Schnitt wurde mit echter lokaler SQL-Persistenz und Browser
 .\scripts\Test-Local.ps1
 ```
 
-SQL-Tests verwenden eine **eigene zufaellig benannte Testdatenbank**, niemals die Demo-Datenbank. Sie verweigern nicht lokale SQL-Server. Browserabnahmen erzeugen gekennzeichnete synthetische Demoakten in der laufenden lokalen Anwendung. XML-Testberichte und Screenshots liegen in `.local`.
+SQL-Tests verwenden eine **eigene zufaellig benannte Testdatenbank**, niemals die Demo-Datenbank. Sie verweigern nicht lokale SQL-Server. Die Recovery-Kategorie startet zusaetzlich eigene Docker-SQL-Instanzen; `Test-Local.ps1` ist deshalb kein leichter Preview-Check.
+
+Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich eines auf eine Familie beschraenkten Kontos. Die laufende Demo auf 5187 wird nicht neu initialisiert oder veraendert. Das explizite `Preview`-Profil umfasst fuenf Szenarien mit **`Retention:PhysicalMode=Disabled`**; der getrennte `PhysicalRetention`-Test gehoert nicht zu dieser Teilabnahme und ist damit nicht freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist moeglich:
+
+```powershell
+.\.tools\dotnet\dotnet.exe publish src\Cohors.Api\Cohors.Api.csproj --configuration Debug --no-build --no-restore --output .local\ui-package
+.\scripts\Test-Ui.ps1 -ApplicationDirectory .local\ui-package -ArtifactDirectory .local\ui-results-01 -Profile Preview
+```
+
+Fuer jeden Lauf einen neuen Ergebnisordner verwenden. JUnit, Screenshots und Quellen-/Assemblybindung liegen darin. Der Runner beendet nur seinen eigenen API-Prozess, entfernt seine Datenbank und privaten Testkonfigurationen und prueft den Datenbankabschluss. Private Logs und Zugangsdaten duerfen nicht geteilt werden. Die normale Vorschau emuliert Outbox/Watchdog lokal; sie ist kein aktueller Nachweis getrennter Functions-Hosts, Live-KI, Azure, Lastprofil oder vollstaendiger T18/T20-Abnahme.
 
 Weitere Informationen:
 

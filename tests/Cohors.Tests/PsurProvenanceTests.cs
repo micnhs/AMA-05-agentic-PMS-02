@@ -63,6 +63,11 @@ public sealed class PsurProvenanceTests : IAsyncLifetime
                 DateTimeOffset.Parse("2025-06-10T10:00:00Z"), DateTimeOffset.Parse("2025-06-11T10:00:00Z"));
         var start = new DateOnly(2025, 1, 1);
         var end = new DateOnly(2025, 12, 31);
+        var profile = (await fixture.Store.Get<ProductGovernance>("productGovernance", "ortho"))!;
+        await fixture.Store.Execute<ProductGovernance>(new(profile.Id, "productGovernance", profile.ProductId, profile.Version,
+            CaseScenario.Key(), "IndependentPsurSchedule", "Eigener synthetischer Zulassungs- und Zeitplan fuer die unveraenderte Kalenderjahr-Referenz.",
+            SqlFixture.Quality, start, clock.Now), value => value! with { Version = value.Version + 1,
+                FirstPeriodStart = start, Device = value.Device with { CertificationDate = start }, FirstSubmissionDate = end.AddDays(30) });
         await Exposure("reference-worldwide", "Worldwide", start, end, r.GetProperty("expectedWorldwideExposureDeviceYears").GetInt32());
         await Exposure("reference-subset", "EEA-Turkey-NI", start, end, r.GetProperty("subset").GetProperty("matchedExposureDeviceYears").GetInt32());
         var psur = await Service().Freeze(new("ortho", "ortho", start, end, "EEA-Turkey-NI"), SqlFixture.Pms, CaseScenario.Key());
@@ -147,15 +152,82 @@ public sealed class PsurProvenanceTests : IAsyncLifetime
             original.Content + "\nSYNTHETISCH: Neuer kontrollierter Spezifikationsnachtrag ab explizitem Wirksamkeitsdatum.",
             effective, "Vorversion bleibt unveraendert lesbar; Folgeversion wird erst ab dem freigegebenen Datum wirksam."),
             SqlFixture.Quality, CaseScenario.Key());
-        var before = await service.Freeze(input, SqlFixture.Pms, CaseScenario.Key());
+        var before = await service.Freeze(input with { PreviousReportId = earlier.Id, PreviousReportVersion = earlier.Version,
+            RevisionReason = "Wirksamkeitsvergleich vor der freigegebenen Folgeversion als eigene gebundene Fassung." }, SqlFixture.Pms, CaseScenario.Key());
         Assert.Equal(original.Version, Assert.Single(before.Snapshot.Documents, d => d.Id == original.Id).Version);
+        Assert.Contains(before.Snapshot.Directory!.Entries, entry => entry.Kind == "evidence" && entry.Source.Id == revised.Id &&
+            entry.Source.Version == revised.Version && entry.Selection == "ExcludedNotYetEffective");
         clock.Now = effective;
-        var after = await service.Freeze(input, SqlFixture.Pms, CaseScenario.Key());
+        var after = await service.Freeze(input with { PreviousReportId = before.Id, PreviousReportVersion = before.Version,
+            RevisionReason = "Wirksamkeitsvergleich ab der freigegebenen Folgeversion als neue gebundene Fassung." }, SqlFixture.Pms, CaseScenario.Key());
         Assert.Equal(revised.Version, Assert.Single(after.Snapshot.Documents, d => d.Id == original.Id).Version);
         Assert.Equal(revised.Hash, after.Snapshot.Documents.Single(d => d.Id == original.Id).Hash);
+        Assert.Contains(after.Snapshot.Directory!.Entries, entry => entry.Kind == "evidence" && entry.Source.Id == original.Id &&
+            entry.Source.Version == original.Version && entry.Selection == "ExcludedSuperseded");
         Assert.Equal(earlierBytes, Canonical.Serialize(await fixture.Store.Get<Psur>("psur", earlier.Id)));
         Assert.Equal(original.Version, Assert.Single(earlier.Snapshot.Documents, d => d.Id == original.Id).Version);
         await fixture.Store.Manifest(earlier.Id, kind: "psur");
+    }
+
+    [Fact]
+    public async Task T16_ActionStatesUseActualCutoffVersionsAndExplainClosedExclusionsAndLateAddenda()
+    {
+        var s = new CaseScenario(fixture);
+        s.Clock.Now = DateTimeOffset.Parse("2025-11-08T12:00:00Z");
+        s.Case = await s.Service.Register(s.Input with { OccurredAt = s.Clock.Now.AddDays(-2),
+            AwarenessAt = s.Clock.Now.AddDays(-1) }, SqlFixture.Pms, CaseScenario.Key());
+        clock.Now = s.Clock.Now;
+        var quality = new QualityService(fixture.Store, fixture.Objects, clock);
+        Task<Capa> Open(string title) => quality.OpenCapa(new(s.Case.Id, "ortho", title,
+            "Synthetische dokumentierte Untersuchung mit messbarer Prozesskorrektur.",
+            "Offene sicherheitsbezogene Prozessabweichung nachvollziehbar untersuchen.",
+            SqlFixture.Pms.Id, "Drei dokumentierte Folgepruefungen ohne die festgestellte Abweichung.", clock.Now.AddYears(2)),
+            SqlFixture.Pms, CaseScenario.Key());
+        var closedBefore = await Open("Vor der Periode abgeschlossene Massnahme");
+        var carryOver = await Open("Am Stichtag offene alte Massnahme");
+        clock.Now = DateTimeOffset.Parse("2025-11-12T12:00:00Z");
+        closedBefore = await quality.Verify(closedBefore.Id, new(closedBefore.Version,
+            "Drei unabhaengig dokumentierte Folgepruefungen belegen die Beseitigung der synthetischen Abweichung.", true,
+            "Begruendete unabhhaengige Wirksamkeitsbewertung der synthetischen Massnahme."), SqlFixture.Quality, CaseScenario.Key());
+        clock.Now = DateTimeOffset.Parse("2026-11-15T12:00:00Z");
+        carryOver = await quality.Verify(carryOver.Id, new(carryOver.Version,
+            "Wirksamkeitsnachweis erst nach dem Berichtsende dokumentiert; frueherer offener Status bleibt erhalten.", true,
+            "Nachperiodischen Wirksamkeitsnachweis ausdruecklich als spaetere Fortschreibung speichern."), SqlFixture.Quality, CaseScenario.Key());
+        var late = await quality.OpenChange(new(s.Case.Id, "ortho", "ortho-risk-v4", 1,
+            "Neue synthetische Information als kontrollierten Risikodatei-Nachtrag pruefen.",
+            "Erst nach dem Berichtsende angestossene Aenderung darf keinen alten Status fingieren."), SqlFixture.Pms, CaseScenario.Key());
+        clock.Now = DateTimeOffset.Parse("2026-11-16T15:00:00Z");
+        var p = await Service().Freeze(new("ortho", "ortho", new(2025, 11, 15), new(2026, 11, 14), "Worldwide"), SqlFixture.Pms, CaseScenario.Key());
+        var action = p.Snapshot.Actions!.Capas.Single(a => a.CurrentSource.Id == carryOver.Id);
+        Assert.Equal("OpenCarryOver", action.Selection);
+        Assert.Equal("Open", action.StatusAtCutoff);
+        Assert.Equal(1, action.CutoffSource!.Version);
+        Assert.Equal("Verified", action.CurrentAtFreeze.Status);
+        Assert.Equal(2, action.CurrentSource.Version);
+        Assert.DoesNotContain(p.Snapshot.Capas, c => c.Id == closedBefore.Id);
+        Assert.Contains(p.Snapshot.Directory!.Entries, e => e.Kind == "capa" && e.Source.Id == closedBefore.Id &&
+            e.Selection == "ExcludedClosedBeforePeriod");
+        var change = p.Snapshot.Actions.Changes.Single(a => a.CurrentSource.Id == late.Id);
+        Assert.Equal("PostCutoffAddendum", change.Selection);
+        Assert.Equal("NotRecordedAtCutoff", change.StatusAtCutoff);
+        Assert.Null(change.CutoffSource);
+        Assert.DoesNotContain(p.Findings, f => f.Severity is "Critical" or "Major");
+        Assert.Contains("Status am N-Stichtag Open", p.Draft);
+        var approved = await Service().Approve(p.Id, new(p.Version,
+            "Historische offene Massnahme, nachperiodischer Abschluss und neue Aenderung getrennt medizinisch geprueft."),
+            SqlFixture.Medical, CaseScenario.Key());
+        Assert.Equal("MedicalApproved", approved.Status);
+        var forgedActions = p.Snapshot.Actions with { Capas = p.Snapshot.Actions.Capas.Select(a => a.CurrentSource.Id == carryOver.Id
+            ? a with { CutoffSource = a.CurrentSource, AtCutoff = a.CurrentAtFreeze, StatusAtCutoff = "Verified" } : a).ToArray() };
+        var snapshot = p.Snapshot with { Actions = forgedActions };
+        var forged = p with { Version = approved.Version + 1, Snapshot = snapshot, SnapshotHash = Canonical.Hash(snapshot), Findings = [] };
+        forged = forged with { ScopeHash = PortfolioRules.PsurScope(forged) };
+        await fixture.Store.Execute<Psur>(new(p.Id, "psur", "ortho", approved.Version, CaseScenario.Key(), "ForgedActionCutoff",
+            "Negativer Test: heutige echte Version darf nicht mit altem Datum zum historischen Stand werden.",
+            SqlFixture.Quality, forged, clock.Now), _ => forged);
+        Assert.Equal("psur_action_cutoff", (await Assert.ThrowsAsync<DomainException>(() => Service().Approve(p.Id,
+            new(forged.Version, "Eine echte spaetere Version darf nicht als historisch erledigter Zustand freigegeben werden."),
+            SqlFixture.Medical, CaseScenario.Key()))).Code);
     }
 
     private async Task<SafetyCase> SeedCase(string id, int version, string country, DateTimeOffset occurred,

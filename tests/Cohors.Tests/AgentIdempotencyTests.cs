@@ -156,6 +156,7 @@ public sealed class AgentIdempotencyTests(SqlFixture fixture)
         public Task<PortfolioState> Capture(string[] products, CancellationToken ct = default) => inner.Capture(products, ct);
         public Task<T?> Receipt<T>(CommandContext c, CancellationToken ct = default) => inner.Receipt<T>(c, ct);
         public Task<T> Execute<T>(CommandContext c, Func<T?, T> change, CancellationToken ct = default) => inner.Execute(c, change, ct);
+        public Task<Psur> FreezePsur(CommandContext c, PsurCaptureScope scope, Func<PortfolioState, Psur> create, CancellationToken ct = default) => inner.FreezePsur(c, scope, create, ct);
         public Task<AuditEvent[]> Audit(string key, CancellationToken ct = default) => inner.Audit(key, ct);
         public Task<OutboxEvent[]> PendingEvents(int limit, CancellationToken ct = default) => inner.PendingEvents(limit, ct);
         public Task<OutboxEvent?> ClaimEvent(string eventId, string owner, CancellationToken ct = default) => inner.ClaimEvent(eventId, owner, ct);

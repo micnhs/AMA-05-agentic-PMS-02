@@ -9,7 +9,7 @@ using Microsoft.Data.SqlClient;
 
 namespace Cohors.Infrastructure;
 
-public sealed class SqlStateStore(string connectionString, TokenCredential? credential = null) : IStateStore
+public sealed class SqlStateStore(string connectionString, TokenCredential? credential = null) : IStateStore, IRetentionStateStore
 {
     public const int SchemaVersion = 2;
     private readonly Func<SqlAuthenticationParameters, CancellationToken, Task<SqlAuthenticationToken>>? tokenCallback =
@@ -111,7 +111,7 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         using var query = Command(connection, transaction, """
             SELECT a.Kind,a.Id,a.Json,a.UpdatedAt,h.Hash,CAST(0 AS bit) AS Historical FROM dbo.Aggregates a
             LEFT JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
-            WHERE a.ProductId IN (SELECT value FROM OPENJSON(@products)) AND a.Kind IN ('case','exposure','trend','capa','change')
+            WHERE a.ProductId IN (SELECT value FROM OPENJSON(@products)) AND a.Kind IN ('case','exposure','trend','capa','change','productGovernance','psur','source','psurGroup')
             UNION ALL
             SELECT h.Kind,h.Id,h.Json,h.At,h.Hash,CAST(1 AS bit) AS Historical FROM dbo.AggregateVersions h
             INNER JOIN dbo.Aggregates a ON a.Kind=h.Kind AND a.Id=h.Id
@@ -136,10 +136,138 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         await transaction.CommitAsync(ct);
         T[] Read<T>(string kind) => rows.Where(r => r.Kind == kind).Select(r => Canonical.Read<T>(r.Json)).ToArray();
         return new(Read<SafetyCase>("case"), Read<Evidence>("evidence"), Read<Exposure>("exposure"),
-            Read<TrendRun>("trend"), Read<Capa>("capa"), Read<ChangeRequest>("change"), history.ToArray());
+            Read<TrendRun>("trend"), Read<Capa>("capa"), Read<ChangeRequest>("change"), history.ToArray(),
+            Read<ProductGovernance>("productGovernance"), Read<Psur>("psur"), Read<PublicSourceRun>("source"), Read<PsurGroupDefinition>("psurGroup"));
     }
 
-    public async Task<T> Execute<T>(CommandContext c, Func<T?, T> change, CancellationToken ct = default)
+    public Task<T> Execute<T>(CommandContext c, Func<T?, T> change, CancellationToken ct = default) =>
+        ExecuteCore<T>(c, current => Task.FromResult(change(current)), [], ct);
+
+    public Task<Psur> FreezePsur(CommandContext c, PsurCaptureScope scope, Func<PortfolioState, Psur> create, CancellationToken ct = default)
+    {
+        Guard.Against(c.Kind != "psur" || c.ExpectedVersion != 0, "psur_create", "Seriengebundene Erzeugung braucht ein neues PSUR-Aggregat.");
+        // The series lock spans a consistent read and the atomic aggregate/audit/outbox write.
+        // The separate read does not turn Commands into serializable empty-key-range locks.
+        Guard.Against(!scope.Products.Contains(c.ProductId), "psur_capture_scope", "Leitprodukt muss zum vollstaendigen Capture-Scope gehoeren.");
+        Guard.Text(scope.LeadingBasicUdi, "Fuehrende Basic-UDI", 1, 100);
+        foreach (var product in scope.Products) c.Actor.RequireProduct(product);
+        string[] locks = ["psur-series:" + c.ProductId, "psur-basic-udi:" + scope.LeadingBasicUdi,
+            .. scope.GroupId is null ? Array.Empty<string>() : ["aggregate:psurGroup:" + scope.GroupId]];
+        return ExecuteCore<Psur>(c, async _ =>
+        {
+            var portfolio = await Capture(scope.Products, ct);
+            return create(portfolio with { LeadingPeriods = await LeadingPeriods(scope.LeadingBasicUdi, ct) });
+        }, locks, ct);
+    }
+
+    private async Task<PsurLeadingPeriod[]> LeadingPeriods(string basicUdi, CancellationToken ct)
+    {
+        await using var connection = await Open(ct);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        using var query = Command(connection, transaction, """
+            SELECT a.ProductId,a.Json,h.Hash FROM dbo.Aggregates a
+            LEFT JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
+            WHERE a.Kind='psur'
+            """);
+        var result = new List<PsurLeadingPeriod>();
+        await using (var reader = await query.ExecuteReaderAsync(ct))
+            while (await reader.ReadAsync(ct))
+            {
+                var json = reader.GetString(1);
+                Guard.Against(reader.IsDBNull(2) || Canonical.HashText(json) != reader.GetString(2),
+                    "psur_period_integrity", "Bestehende fuehrende Periodenbindung hat keine konsistente SQL-Version.", 409);
+                using var document = System.Text.Json.JsonDocument.Parse(json);
+                var snapshot = document.RootElement.GetProperty("snapshot");
+                if (!snapshot.TryGetProperty("series", out var series) || series.ValueKind == System.Text.Json.JsonValueKind.Null) continue;
+                if (series.GetProperty("governance").GetProperty("device").GetProperty("basicUdi").GetString() != basicUdi) continue;
+                result.Add(new(reader.GetString(0), basicUdi, series.GetProperty("reference").GetString()!,
+                    DateOnly.ParseExact(snapshot.GetProperty("start").GetString()!, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
+                    DateOnly.ParseExact(snapshot.GetProperty("end").GetString()!, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)));
+            }
+        await transaction.CommitAsync(ct);
+        return result.ToArray();
+    }
+
+    public async Task<ObjectDependency[]> ObjectDependencies(string hash, string retentionId, CancellationToken ct = default)
+    {
+        Guard.Against(hash.Length != 64 || hash.Any(c => !char.IsAsciiHexDigit(c)), "object_id", "Ungueltiger Objekt-Hash.");
+        await using var connection = await Open(ct);
+        using var query = Command(connection, null, """
+            SELECT a.Kind,a.Id,a.Version,a.ProductId,a.Json,h.Hash
+            FROM dbo.Aggregates a LEFT JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
+            WHERE NOT(a.Kind='retention' AND a.Id=@id) AND CHARINDEX(@hash,a.Json)>0
+            UNION ALL
+            SELECT h.Kind,h.Id,h.Version,COALESCE(a.ProductId,JSON_VALUE(h.Json,'$.productId'),''),h.Json,h.Hash
+            FROM dbo.AggregateVersions h LEFT JOIN dbo.Aggregates a ON a.Kind=h.Kind AND a.Id=h.Id
+            WHERE NOT(h.Kind='retention' AND h.Id=@id) AND CHARINDEX(@hash,h.Json)>0
+            UNION ALL
+            SELECT 'outbox:'+o.AggregateKind,o.Id,o.Version,o.ProductId,o.Payload,h.Hash
+            FROM dbo.Outbox o LEFT JOIN dbo.AggregateVersions h
+                ON h.Kind=o.AggregateKind AND h.Id=o.AggregateId AND h.Version=o.Version
+            WHERE NOT(o.AggregateKind='retention' AND o.AggregateId=@id) AND CHARINDEX(@hash,o.Payload)>0
+            """, ("hash", hash), ("id", retentionId));
+        var result = new List<ObjectDependency>();
+        await using (var reader = await query.ExecuteReaderAsync(ct))
+            while (await reader.ReadAsync(ct))
+            {
+                Guard.Against(reader.IsDBNull(5) || Canonical.HashText(reader.GetString(4)) != reader.GetString(5),
+                    "retention_reference_integrity", "Objektreferenz hat keinen konsistenten SQL-/Historien-/Outbox-Stand.", 409);
+                result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3), reader.GetString(5)));
+            }
+        using var commands = Command(connection, null, """
+            SELECT IdempotencyKey,Result FROM dbo.Commands WHERE CHARINDEX(@hash,Result)>0
+            """, ("hash", hash));
+        await using (var reader = await commands.ExecuteReaderAsync(ct))
+            while (await reader.ReadAsync(ct))
+            {
+                var json = reader.GetString(1);
+                using var document = JsonDocument.Parse(json);
+                var root = document.RootElement;
+                if (root.TryGetProperty("id", out var id) && id.GetString() == retentionId &&
+                    root.TryGetProperty("object", out var binding) &&
+                    binding.TryGetProperty("contract", out var contract) && contract.GetString() == RetentionRules.ObjectContract)
+                    continue;
+                result.Add(new("command", reader.GetString(0), root.GetProperty("version").GetInt32(),
+                    root.GetProperty("productId").GetString()!, Canonical.HashText(json)));
+            }
+        return result.DistinctBy(r => (r.Kind, r.Id, r.Version)).ToArray();
+    }
+
+    public Task<RetentionRecord> ExecuteDeletion(CommandContext c, string hash,
+        Func<RetentionRecord, ObjectDependency[], Task<RetentionRecord>> change, CancellationToken ct = default)
+    {
+        Guard.Against(c.Kind != "retention" || c.ExpectedVersion < 1, "retention_command", "Versionierter Loeschauftrag erforderlich.");
+        return ExecuteCore<RetentionRecord>(c, async current =>
+        {
+            Guard.Against(current is null || current.Object.Hash != hash, "retention_object_changed",
+                "Loeschauftrag bindet nicht das aktuelle Objekt.", 409);
+            return await change(current!, await ObjectDependencies(hash, c.Id, ct));
+        }, [], ct, deletion: true);
+    }
+
+    private static async Task RequireNoRetiredReferences(SqlConnection connection, SqlTransaction transaction,
+        CommandContext c, string json, CancellationToken ct)
+    {
+        using var query = Command(connection, transaction, """
+            SELECT a.Json,h.Hash FROM dbo.Aggregates a
+            LEFT JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
+            WHERE a.Kind='retention' AND NOT(@kind='retention' AND a.Id=@id)
+                AND JSON_VALUE(a.Json,'$.status') IN ('Authorized','Deleting','DeletionFailed','Deleted')
+            """, ("kind", c.Kind), ("id", c.Id));
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            Guard.Against(reader.IsDBNull(1) || Canonical.HashText(reader.GetString(0)) != reader.GetString(1),
+                "retention_record_integrity", "Loeschsperre hat keine konsistente SQL-Version.", 409);
+            var retained = Canonical.Read<RetentionRecord>(reader.GetString(0));
+            RetentionRules.RequireObject(retained.Object);
+            Guard.Against(json.Contains(retained.Object.Hash, StringComparison.Ordinal), "retention_rebinding",
+                "Neue Bindung an ein zur Loeschung autorisiertes oder geloeschtes Objekt ist gesperrt.", 409);
+        }
+    }
+
+    private async Task<T> ExecuteCore<T>(CommandContext c, Func<T?, Task<T>> change, string[] locks, CancellationToken ct,
+        bool deletion = false)
     {
         c.Actor.RequireProduct(c.ProductId);
         Guard.Text(c.IdempotencyKey, "Idempotency-Key", 8, 120);
@@ -148,12 +276,26 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         var requestHash = Canonical.Hash(new { c.Id, c.ProductId, c.ExpectedVersion, c.Request });
         await using var connection = await Open(ct);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        // A destructive scan must exclude new references until its SQL outcome commits.
+        using (var objectGate = Command(connection, transaction,
+            "DECLARE @r int; EXEC @r=sp_getapplock @Resource='cohors-object-reference-gate',@LockMode=@mode,@LockOwner='Transaction',@LockTimeout=15000; SELECT @r;",
+            ("mode", deletion ? "Exclusive" : "Shared")))
+            Guard.Against((int)(await objectGate.ExecuteScalarAsync(ct))! < 0, "retention_busy",
+                "Objektbindungen werden kontrolliert abgeglichen; unveraenderten Auftrag spaeter erneut pruefen.", 409);
         using (var lockCommand = Command(connection, transaction,
             "DECLARE @r int; EXEC @r=sp_getapplock @Resource=@key,@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=15000; SELECT @r;",
             ("key", commandKey)))
         {
             var result = (int)(await lockCommand.ExecuteScalarAsync(ct))!;
             Guard.Against(result < 0, "command_busy", "Command wird bereits verarbeitet; spaeter mit demselben Schluessel abgleichen.", 409);
+        }
+        foreach (var resource in locks.Order(StringComparer.Ordinal))
+        {
+            using var seriesLock = Command(connection, transaction,
+                "DECLARE @r int; EXEC @r=sp_getapplock @Resource=@key,@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=15000; SELECT @r;",
+                ("key", resource));
+            Guard.Against((int)(await seriesLock.ExecuteScalarAsync(ct))! < 0, "psur_series_busy",
+                "Die Produktserie wird gerade eingefroren; unveraenderten Auftrag spaeter abgleichen.", 409);
         }
         using (var aggregateLock = Command(connection, transaction,
             "DECLARE @r int; EXEC @r=sp_getapplock @Resource=@key,@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=15000; SELECT @r;",
@@ -176,21 +318,29 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         T? current = default;
         var version = 0;
         using (var read = Command(connection, transaction,
-            "SELECT Version,Json,ProductId FROM dbo.Aggregates WITH (UPDLOCK) WHERE Kind=@kind AND Id=@id",
+            """
+            SELECT a.Version,a.Json,a.ProductId,h.Hash FROM dbo.Aggregates a WITH (UPDLOCK)
+            LEFT JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
+            WHERE a.Kind=@kind AND a.Id=@id
+            """,
             ("kind", c.Kind), ("id", c.Id)))
         {
             await using var reader = await read.ExecuteReaderAsync(ct);
             if (await reader.ReadAsync(ct))
             {
                 version = reader.GetInt32(0);
+                if (c.Kind is "retention" or "productLifecycle")
+                    Guard.Against(reader.IsDBNull(3) || Canonical.HashText(reader.GetString(1)) != reader.GetString(3),
+                        "retention_record_integrity", "Aufbewahrungs-/Lifecycle-Version ist nicht konsistent gebunden.", 409);
                 current = Canonical.Read<T>(reader.GetString(1));
                 Guard.Against(reader.GetString(2) != c.ProductId, "scope_conflict", "Produktscope stimmt nicht ueberein.", 403);
             }
         }
         Guard.Against(version != c.ExpectedVersion, "version_conflict",
             $"Veraltete Version {c.ExpectedVersion}; aktuell ist {version}. Bitte neu laden.", 409);
-        var next = change(current);
+        var next = await change(current);
         var json = Canonical.Serialize(next);
+        await RequireNoRetiredReferences(connection, transaction, c, json, ct);
         var nextVersion = version + 1;
         using var document = JsonDocument.Parse(json);
         Guard.Against(!document.RootElement.TryGetProperty("version", out var nextVersionElement)
@@ -251,6 +401,13 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
                 """, ("id", recovery.EventId), ("product", recovery.ProductId), ("version", recovery.Version));
             Guard.Against(await restart.ExecuteNonQueryAsync(ct) != 1, "delivery_not_recoverable",
                 "Aktive oder erledigte Zustellung darf nicht blind erneut gestartet werden.", 409);
+        }
+        if (next is RetentionRecord { Status: "Deleted", Deletion: not null } retired)
+        {
+            RetentionRules.RequireDeletionReceipt(retired, retired.Deletion);
+            using var purge = Command(connection, transaction, "DELETE FROM dbo.SearchProjection WHERE Hash=@hash",
+                ("hash", retired.Object.Hash));
+            await purge.ExecuteNonQueryAsync(ct);
         }
         await transaction.CommitAsync(ct);
         return next;

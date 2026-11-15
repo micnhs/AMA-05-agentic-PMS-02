@@ -11,10 +11,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="ReportFonts\*.ttf" />
+    <None Update="ReportFonts\LICENSE" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="ReportFonts\PDFsharp.LICENSE" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.15" />
     <Content Include="..\..\policies\**\*" Link="policies\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\demo\**\*" Link="demo\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\contracts\regulatory-schemas\**\*" Link="schemas\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="PDFsharp" Version="[6.2.4]" />
+    <PackageReference Include="PDFsharp-MigraDoc" Version="[6.2.4]" />
   </ItemGroup>
 
 </Project>

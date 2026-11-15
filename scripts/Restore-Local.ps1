@@ -4,7 +4,10 @@ param(
     [Parameter(Mandatory)][string]$ConfigurationPath,
     [Parameter(Mandatory)][string]$BackupDirectory,
     [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$ManifestSha256,
-    [string]$ApplicationDirectory
+    [string]$ApplicationDirectory,
+    [string]$CurrentRetentionManifestPath,
+    [string]$CurrentRetentionManifestSha256,
+    [switch]$CurrentRetentionConfirmed
 )
 
 . (Join-Path $PSScriptRoot 'Backup-Local.ps1') -ConfigurationPath $ConfigurationPath `
@@ -36,10 +39,19 @@ try {
         throw 'recovery_manifest_hash: Manifest differs from the independently supplied backup digest.'
     }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -AsHashtable -Depth 100 -DateKind String
-    if ($manifest.format -cne 'cohors-local-recovery-1' -or $manifest.syntheticOnly -ne $true -or
+    if ($manifest.format -cnotin @('cohors-local-recovery-1', 'cohors-local-recovery-2') -or $manifest.syntheticOnly -ne $true -or
         $manifest.schemaVersion -ne [Cohors.Infrastructure.SqlStateStore]::SchemaVersion) {
         throw 'recovery_manifest: Unsupported recovery format or scope.'
     }
+    if ($manifest.format -ceq 'cohors-local-recovery-1' -and
+        ($manifest.Contains('retention') -or @($manifest.objects | Where-Object { $_.Contains('dataClass') }).Count -gt 0)) {
+        throw 'recovery_manifest: Legacy format cannot carry new raw retention classes.'
+    }
+    if ($manifest.format -ceq 'cohors-local-recovery-2' -and -not $manifest.Contains('retention')) {
+        throw 'recovery_retention_contract: A v2 manifest requires its explicit retention cut, including an empty one.'
+    }
+    $retentionCheckpoint = Assert-RecoveryRetentionCheckpoint $manifest $CurrentRetentionManifestPath `
+        $CurrentRetentionManifestSha256 ([bool]$CurrentRetentionConfirmed)
     $backupFile = Assert-RecoveryPath (Join-Path $backup 'database.bak')
     $backupLock = [IO.File]::Open($backupFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     if ((Get-FileHash -LiteralPath $backupFile).Hash.ToLowerInvariant() -cne $manifest.databaseSha256) {
@@ -48,7 +60,7 @@ try {
     $backupObjects = Join-Path $backup 'objects'
     foreach ($item in $manifest.objects) {
         if ($item.hash -cnotmatch '^[a-f0-9]{64}$' -or $item.length -lt 0) { throw 'recovery_manifest: Invalid object inventory.' }
-        if (-not (Test-Path -LiteralPath (Join-Path $backupObjects $item.hash) -PathType Leaf)) {
+        if (-not (Test-Path -LiteralPath (Get-RecoveryObjectPath $backupObjects $item) -PathType Leaf)) {
             throw 'recovery_object_missing: A declared object is missing; no target was activated.'
         }
     }
@@ -95,6 +107,12 @@ WITH MOVE N'$dataName' TO N'$native.mdf',MOVE N'$logName' TO N'$native.ldf',RECO
             (Get-RecoveryHash $state.references) -cne (Get-RecoveryHash $manifest.references)) {
             throw 'recovery_sql_cut: Restored authoritative SQL does not match the declared object/SQL cut.'
         }
+        $declaredRetention = if ($manifest.Contains('retention')) { $manifest.retention } else {
+            [ordered]@{ contract = 'cohors-retention-cut-1'; rows = @() }
+        }
+        if ((Get-RecoveryHash $state.retention) -cne (Get-RecoveryHash $declaredRetention)) {
+            throw 'recovery_retention_sql_cut: Restored raw lifecycle/deletion bindings differ from the pinned manifest.'
+        }
     } finally { $stage.Dispose() }
     Invoke-RecoverySql $master "ALTER DATABASE [$stageDatabase] SET READ_WRITE"
     $stage = Open-RecoverySql $config $stageDatabase
@@ -125,6 +143,7 @@ WITH MOVE N'$dataName' TO N'$native.mdf',MOVE N'$logName' TO N'$native.ldf',RECO
         status = 'Verified'; manifestSha256 = $ManifestSha256; database = $config.database
         referencedObjects = $state.references.Count; copiedObjects = $objects.Count; evidenceRevisionsRebuilt = $rebuilt
         searchAdapter = 'KnowledgeSearch without SearchClient (SQL-derived local projection)'
+        retentionCheckpoint = $retentionCheckpoint
         workersStarted = $false; sourceRead = $false; externalLedgerWitness = $false
     }
     $stream = [IO.File]::Open($readyTemporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)

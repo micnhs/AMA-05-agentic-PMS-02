@@ -41,9 +41,11 @@ try {
     [xml]$trx = Get-Content -LiteralPath $trxPath -Raw
     $counters = $trx.SelectSingleNode("//*[local-name()='ResultSummary']/*[local-name()='Counters']")
     $verified = Get-Content -LiteralPath (Join-Path $run 'fixture\verified.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 30 -DateKind String
-    if ([int]$counters.total -ne 9 -or $verified.completedChecks.Count -ne 8 -or
+    if ([int]$counters.total -ne 13 -or $verified.completedChecks.Count -ne 10 -or
         -not $verified.sourceDatabaseRemoved -or -not $verified.sourceObjectsRemoved -or
-        -not $verified.ownedContainersAndVolumesRemoved) {
+        -not $verified.ownedContainersAndVolumesRemoved -or -not $verified.retention.deletedRawAbsent -or
+        -not $verified.retention.exactDeletionJournalRestored -or -not $verified.retention.staleBackupRejected -or
+        $verified.applicationAssemblies.Count -ne 5) {
         throw 'Incomplete recovery execution or cleanup; no public success evidence was created.'
     }
     $implementation = @()
@@ -56,6 +58,7 @@ try {
     $result = [ordered]@{
         scope = 'Executed local isolated T20; not GitHub Actions, HTTP/browser, Azure DR, RPO/RTO or an external ledger witness'
         capturedAt = [DateTimeOffset]::UtcNow.ToString('O'); sourceCommit = (& git -C $root rev-parse HEAD)
+        sourceTreeDirty = @(& git -C $root status --porcelain --untracked-files=normal).Count -gt 0
         implementation = $implementation; dotnet = (& $dotnet --version); powershell = $PSVersionTable.PSVersion.ToString()
         total = [int]$counters.total; executed = [int]$counters.executed; passed = [int]$counters.passed
         failed = [int]$counters.failed; skipped = [int]$counters.notExecuted; tests = $testResults; verification = $verified
@@ -63,7 +66,7 @@ try {
     New-Item -ItemType Directory -Path $artifacts | Out-Null
     [IO.File]::WriteAllText((Join-Path $artifacts 'recovery-results.json'),
         (ConvertTo-Json -InputObject $result -Depth 30), [Text.UTF8Encoding]::new($false))
-    Write-Output 'T20 local recovery: 9/9 passed, none skipped. Only allowlisted results were published; raw logs and backups remain private.'
+    Write-Output 'T18/T20 local recovery: 13/13 passed, none skipped. Only allowlisted results were published; raw logs and backups remain private.'
 } finally {
     foreach ($name in $variables) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
 }

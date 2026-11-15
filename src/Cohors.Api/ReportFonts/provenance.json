@@ -1,0 +1,14 @@
+{
+  "purpose": "Cross-platform PDF export without private or operating-system fonts.",
+  "fontSourceCommit": "ffebf8c1ee449e544955a7e813c54f9b73848eac",
+  "fontSource": "https://github.com/notofonts/noto-fonts",
+  "fontLicense": "SIL Open Font License 1.1; unchanged fonts; LICENSE is distributed alongside the application.",
+  "sha256": {
+    "NotoSans-Regular.ttf": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5",
+    "NotoSans-Bold.ttf": "c976e4b1b99edc88775377fcc21692ca4bfa46b6d6ca6522bfda505b28ff9d6a",
+    "LICENSE": "0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb",
+    "PDFsharp.LICENSE": "3c648a5072bd7f7386ca28687780489a708a57ed75f13927bc16dd3e34af3bf7"
+  },
+  "renderer": "PDFsharp and PDFsharp-MigraDoc exactly 6.2.4",
+  "rendererLicense": "MIT as verified at https://raw.githubusercontent.com/empira/PDFsharp/v6.2.4/LICENSE. Do not silently upgrade to the differently licensed 6.5.0 or 7.x."
+}

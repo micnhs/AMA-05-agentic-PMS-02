@@ -63,7 +63,9 @@ public sealed class TerminologyTests : IAsyncLifetime
         Assert.Equal(ReportState.Superseded, s.Case.CurrentReport!.State);
         Assert.NotEqual(s.Case.CurrentAssessment!.EvidenceHash, Canonical.Hash(s.Case.Evidence));
         Assert.Equal("F02", s.Case.Coding!.Codes.Single(c => c.Source.Annex == "F").Source.Code);
-        var p = await Analytics().Freeze(Period(), SqlFixture.Pms, CaseScenario.Key());
+        var p = await Analytics().Freeze(Period() with { PreviousReportId = old.Id, PreviousReportVersion = old.Version,
+            RevisionReason = "Menschlich erfasste F02-Kodierung kontrolliert als neue PSUR-Fassung einfrieren; alte Fassung bleibt unveraendert." },
+            SqlFixture.Pms, CaseScenario.Key());
         var table = p.Snapshot.CodingTables!.Single(t => t.Period == "N" && t.Region == "Worldwide");
         var group = Assert.Single(table.Rows, r => r.Annex == "A");
         Assert.Equal("A0101", group.Code);
@@ -129,5 +131,86 @@ public sealed class TerminologyTests : IAsyncLifetime
         Assert.Equal("psur_source_content", (await Assert.ThrowsAsync<DomainException>(() => Analytics().Approve(p.Id,
             new(forged.Version, "Vorgebliche F02-Kodierung muss gegen die tatsaechlich gebundene F01-Fallversion geprueft werden."),
             SqlFixture.Medical, CaseScenario.Key()))).Code);
+    }
+
+    [Theory]
+    [InlineData("F0104", 2025, 2026)]
+    [InlineData("D1401", 2023, 2024)]
+    public async Task T16_ClaimedHistoricalCodeBeforeItsKnownIntroductionIsRetainedButNeverValidatedOrGrouped(
+        string code, int claimedYear, int introducedYear)
+    {
+        var s = new CaseScenario(fixture);
+        s.Case = await s.Service.Register(s.Input with {
+            OccurredAt = new DateTimeOffset(claimedYear, 6, 1, 0, 0, 0, TimeSpan.Zero)
+        }, SqlFixture.Pms, CaseScenario.Key());
+        s.Case = await s.Service.RecordCoding(s.Case.Id, Input(s.Case, [code], new(claimedYear, 7, 1)),
+            SqlFixture.Medical, CaseScenario.Key());
+        var assigned = Assert.Single(s.Case.Coding!.Codes);
+        Assert.Equal(code, assigned.Source.Code);
+        Assert.Equal(introducedYear, assigned.EarliestKnownReleaseYear);
+        Assert.Equal("HistoricalChronologyConflict", assigned.Status);
+        Assert.Null(assigned.GroupCode);
+        Assert.Null(assigned.GroupTerm);
+        Assert.Contains(s.Case.Coding.Findings!, f => f.Code == "coding_historical_chronology" && f.Severity == "Major");
+        var psur = await Analytics().Freeze(Period(), SqlFixture.Pms, CaseScenario.Key());
+        Assert.Contains(psur.Findings, f => f.Code == "coding_historical_chronology" && f.Severity == "Major");
+        Assert.DoesNotContain(psur.Snapshot.CodingTables!.SelectMany(t => t.Rows),
+            row => row.Cases.Any(c => c.Id == s.Case.Id) && row.Status == "Grouped");
+        Assert.Equal("psur_assurance", (await Assert.ThrowsAsync<DomainException>(() => Analytics().Approve(psur.Id,
+            new(psur.Version, "Die erhaltene Originalangabe darf trotz falscher zeitlicher Zuordnung nicht als validiert freigegeben werden."),
+            SqlFixture.Medical, CaseScenario.Key()))).Code);
+        Assert.Equal(code, (await fixture.Store.Get<SafetyCase>("case", s.Case.Id))!.Coding!.Codes.Single().Source.Code);
+        await fixture.Store.Manifest(s.Case.Id);
+    }
+
+    [Fact]
+    public async Task T16_DocumentedOriginalAndCurrentRetrospectiveCodingStayDistinctAndProofChangesInvalidateApprovals()
+    {
+        const string originalText = "SYNTHETISCHER ORIGINALBERICHT: Kodierung am 2025-07-01, D1401, Unable to exclude device problem, Release 2025. Keine heutige Release-Gueltigkeitsbestaetigung.";
+        var s = new CaseScenario(fixture);
+        s.Case = await s.Service.Register(s.Input with { Description = originalText,
+            OccurredAt = DateTimeOffset.Parse("2025-06-01T00:00:00Z") }, SqlFixture.Pms, CaseScenario.Key());
+        s.Case = await s.Service.RecordCoding(s.Case.Id, Input(s.Case, ["D1401"], new(2025, 7, 1)),
+            SqlFixture.Medical, CaseScenario.Key());
+        Assert.Equal("HistoricalValidityUnknown", s.Case.Coding!.Codes.Single().Status);
+        await s.Assess();
+        s.Case = await s.Service.Prepare(s.Case.Id, new(s.Case.Version, "Initial", "EU-IE", "de", true,
+            "Offene Ursachen und historische Kodierungsunsicherheit getrennt nachverfolgen.",
+            "Synthetischen vorlaeufigen Bericht mit transparent begrenzten historischen Angaben vorbereiten."),
+            SqlFixture.Pms, CaseScenario.Key());
+        s.Case = await s.Regulatory.AttachMir(s.Case.Id, new(s.Case.Version,
+            s.MirFacts() with { EventDateFrom = new(2025, 6, 1), EventDateTo = new(2025, 6, 1) },
+            "Synthetische strukturgueltige MIR-Angaben mit tatsaechlichem Ereignisdatum."), SqlFixture.Medical, CaseScenario.Key());
+        await s.Approve();
+        var frozen = await Analytics().Freeze(Period(), SqlFixture.Pms, CaseScenario.Key());
+        var frozenBytes = Canonical.Serialize(frozen);
+        var source = s.Case.Evidence.Single(e => e.Kind == "Complaint");
+        var proof = new HistoricalCodingProof("D1401", source.Id, source.Version, source.Hash, source.Locator,
+            originalText, new(2025, 7, 1), "Unable to exclude device problem", "Release 2025");
+        var input = Input(s.Case, ["D1401"], new(2025, 7, 1)) with { HistoricalProofs = [proof] };
+        Assert.Equal("coding_original_proof", (await Assert.ThrowsAsync<DomainException>(() => s.Service.RecordCoding(s.Case.Id,
+            input with { HistoricalProofs = [proof with { EvidenceVersion = source.Version + 1 }] },
+            SqlFixture.Medical, CaseScenario.Key()))).Code);
+        Assert.Equal("coding_original_quote", (await Assert.ThrowsAsync<DomainException>(() => s.Service.RecordCoding(s.Case.Id,
+            input with { HistoricalProofs = [proof with { Quote = originalText.Replace("Release 2025", "Release 2024", StringComparison.Ordinal) }] },
+            SqlFixture.Medical, CaseScenario.Key()))).Code);
+        s.Case = await s.Service.RecordCoding(s.Case.Id, input, SqlFixture.Medical, CaseScenario.Key());
+        var documented = s.Case.Coding!.Codes.Single();
+        Assert.Equal("HistoricalOriginalDocumentedReleaseUnknown", documented.Status);
+        Assert.Equal(proof, documented.OriginalProof);
+        Assert.Null(documented.GroupCode);
+        Assert.Equal(ReportState.Superseded, s.Case.CurrentReport!.State);
+        Assert.NotEqual(s.Case.CurrentAssessment!.EvidenceHash, Canonical.Hash(s.Case.Evidence));
+        var originalVersion = s.Case.Coding.Version;
+        s.Case = await s.Service.RecordCoding(s.Case.Id, Input(s.Case, ["F0104"]), SqlFixture.Medical, CaseScenario.Key());
+        Assert.Equal("CurrentRetrospective", s.Case.Coding!.Interpretation);
+        Assert.Null(s.Case.Coding.HistoricalAsOf);
+        Assert.Equal("CurrentMapping", s.Case.Coding.Codes.Single().Status);
+        Assert.Equal("F0104", s.Case.Coding.Codes.Single().GroupCode);
+        Assert.Contains(await fixture.Store.History<SafetyCase>("case", ["ortho"]),
+            version => version.Coding?.Version == originalVersion && version.Coding.Codes.Single().Source.Code == "D1401");
+        Assert.Equal(frozenBytes, Canonical.Serialize(await fixture.Store.Get<Psur>("psur", frozen.Id)));
+        Assert.Equal(originalText, (await fixture.Store.Get<SafetyCase>("case", s.Case.Id))!.Evidence.Single(e => e.Id == source.Id).Content);
+        await fixture.Store.Manifest(s.Case.Id);
     }
 }

@@ -40,6 +40,17 @@ public sealed class RecoveryTests(RecoveryFixture fixture)
         Assert.Equal(fixture.SourceTables, await RecoveryFixture.Tables(target.Connection));
         foreach (var item in fixture.SourceBytes)
             Assert.Equal(item.Value, await File.ReadAllBytesAsync(Path.Combine(target.ObjectRoot, item.Key)));
+        var retention = new RetentionService(sql, sql, objects, fixture.Policies, new(true), clock);
+        var deletedRaw = await retention.Get(fixture.DeletedRaw.Id, SqlFixture.Quality);
+        Assert.Equal(Canonical.Serialize(fixture.DeletedRaw), Canonical.Serialize(deletedRaw));
+        Assert.Equal(fixture.ActiveRawText, await objects.ReadRaw(fixture.ActiveRaw.Object));
+        Assert.False(File.Exists(Path.Combine(target.ObjectRoot, "raw-quarantine", deletedRaw.Object.Hash)));
+        Assert.False(File.Exists(Path.Combine(target.ObjectRoot, deletedRaw.Object.Hash)));
+        Assert.Equal(Canonical.Serialize(deletedRaw.Deletion), await File.ReadAllTextAsync(
+            Path.Combine(target.ObjectRoot, ".deletion-receipts", deletedRaw.Object.Hash + ".json")));
+        Assert.Equal("object_retired", (await Assert.ThrowsAsync<DomainException>(() =>
+            objects.CreateSyntheticRaw(fixture.DeletedRawText))).Code);
+        await sql.Manifest(deletedRaw.Id, kind: "retention");
         var restored = await service.Get(fixture.SourceCase.Id, SqlFixture.Ra);
         Assert.Equal(Canonical.Serialize(fixture.SourceCase), Canonical.Serialize(restored));
         Assert.Equal(Encoding.UTF8.GetBytes(fixture.SourceCase.CurrentReport!.FrozenJson!),
@@ -111,7 +122,77 @@ public sealed class RecoveryTests(RecoveryFixture fixture)
         Assert.Equal(afterPending, await RecoveryFixture.Tables(target.Connection));
         Assert.Equal(Canonical.Serialize(fixture.SourceCase), Canonical.Serialize(await service.Get(restored.Id, SqlFixture.Ra)));
         await sql.Manifest(restored.Id);
-        fixture.Passed("positive: source unavailable; native SQL, all object bytes, historical/current retrieval, frozen MIR, deadlines, unknown and idempotent outbox");
+        fixture.Passed("positive: source unavailable; native SQL, historical/current evidence, retained raw, deleted absence and exact journal, frozen MIR, deadlines, unknown and idempotent outbox");
+    }
+
+    [Fact]
+    public async Task T20_RawRestoreRequiresCurrentCatalogueAndRejectsARealPreDeletionBackup()
+    {
+        await using (var missing = await fixture.NewTarget())
+        {
+            var result = await fixture.Script("Restore-Local.ps1", missing.ConfigPath, fixture.BackupDirectory,
+                "-ManifestSha256", fixture.ManifestHash);
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("recovery_retention_checkpoint", result.Codes);
+            await fixture.RequireNoTarget(missing);
+        }
+        await using (var older = await fixture.NewTarget())
+        {
+            var result = await fixture.RestoreResult(older, fixture.PreDeletionBackupDirectory, fixture.PreDeletionManifestHash);
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("recovery_retention_stale_cut", result.Codes);
+            await fixture.RequireNoTarget(older);
+        }
+        await fixture.RequireSentinel();
+        fixture.Passed("retention freshness: missing current catalogue and real older native backup rejected before activation");
+    }
+
+    [Fact]
+    public async Task T20_DeletedRawRequiresItsJournalAndCannotWaiveSharedReferencesOrResurrectBytes()
+    {
+        foreach (var mutation in new[] { "missing-journal", "raw-reappeared", "shared-reference" })
+        {
+            await using var target = await fixture.NewTarget();
+            var copy = fixture.CopyBackup(mutation);
+            var digest = fixture.ManifestHash;
+            var expected = "recovery_object_missing";
+            var objects = Path.Combine(copy, "objects");
+            if (mutation == "missing-journal")
+                File.Delete(Path.Combine(objects, ".deletion-receipts", fixture.DeletedRaw.Object.Hash + ".json"));
+            else
+            {
+                var path = Path.Combine(copy, "manifest.json");
+                var manifest = JsonNode.Parse(await File.ReadAllTextAsync(path))!.AsObject();
+                if (mutation == "raw-reappeared")
+                {
+                    var bytes = Encoding.UTF8.GetBytes(fixture.DeletedRawText);
+                    await File.WriteAllBytesAsync(Path.Combine(objects, "raw-quarantine", fixture.DeletedRaw.Object.Hash), bytes);
+                    var inventory = manifest["objects"]!.AsArray();
+                    var item = new JsonObject { ["dataClass"] = "RawQuarantine", ["objectKey"] = fixture.DeletedRaw.Object.ObjectKey,
+                        ["hash"] = fixture.DeletedRaw.Object.Hash, ["length"] = bytes.LongLength };
+                    var index = inventory.Select((entry, position) => (Key: entry!["objectKey"]?.GetValue<string>(), position))
+                        .Where(entry => entry.Key?.StartsWith(RetentionRules.RawPrefix, StringComparison.Ordinal) == true &&
+                            StringComparer.Ordinal.Compare(entry.Key, fixture.DeletedRaw.Object.ObjectKey) > 0)
+                        .Select(entry => entry.position).DefaultIfEmpty(inventory.Count).First();
+                    inventory.Insert(index, item);
+                    expected = "recovery_retention_resurrection";
+                }
+                else
+                {
+                    manifest["references"]!.AsArray().Add(fixture.DeletedRaw.Object.Hash);
+                    expected = "recovery_retention_reference";
+                }
+                await File.WriteAllTextAsync(path, manifest.ToJsonString());
+                digest = RecoveryFixture.FileHash(path);
+            }
+            var result = await fixture.RestoreResult(target, copy, digest);
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains(expected, result.Codes);
+            await fixture.RequireNoTarget(target);
+            await fixture.RequireSentinel();
+        }
+        Assert.Equal(fixture.ManifestHash, RecoveryFixture.FileHash(Path.Combine(fixture.BackupDirectory, "manifest.json")));
+        fixture.Passed("retention negative cuts: missing journal, reappeared raw bytes and independent shared reference all rejected");
     }
 
     [Theory]
@@ -300,6 +381,139 @@ public sealed class RecoveryPathTests
     }
 }
 
+[Trait("Category", "Recovery")]
+public sealed class RecoveryRetentionContractTests : IDisposable
+{
+    private readonly string home = RecoveryFixture.RepositoryRoot();
+    private readonly string directory;
+    public RecoveryRetentionContractTests()
+    {
+        directory = RecoveryFixture.RequireNewDirectory(home,
+            Path.Combine(home, ".local", "retention-recovery-contract-" + Guid.NewGuid().ToString("N")));
+        System.IO.Directory.CreateDirectory(directory);
+    }
+    public void Dispose() => System.IO.Directory.Delete(directory, recursive: true);
+
+    private async Task Prepare()
+    {
+        var now = DateTimeOffset.Parse("2026-11-16T15:00:00Z");
+        var objects = new LocalObjectStore(Path.Combine(directory, "objects"));
+        RetentionRecord Item(string id, RetentionObjectBinding binding) => new(id, 1, "ortho", binding,
+            RetentionRules.PolicyVersion, "DEMO-RAW-" + id, now.AddDays(-8), now, true, false, "", "Registered",
+            null, 0, null, null, null);
+        const string deletedText = "SYNTHETIC DELETED RAW CONTRACT SAMPLE";
+        var original = Item("raw-deleted", await objects.CreateSyntheticRaw(deletedText));
+        var deleting = original with { Version = 2, Status = "Deleting", Attempts = 1, LastAttemptAt = now,
+            Authorization = new(new string('b', 64), "quality-test", RetentionRules.Scope(original, null), now,
+                "Explizite Freigabe synthetischer isolierter Testbytes.", true, "Keine unberuecksichtigten Kopien im isolierten Testbereich.") };
+        var deleted = deleting with { Version = 3, Status = "Deleted", Deletion = await objects.DeleteRaw(deleting, now) };
+        var active = Item("raw-active", await objects.CreateSyntheticRaw("SYNTHETIC ACTIVE RAW CONTRACT SAMPLE"));
+        var text = "SYNTHETIC REGULATORY EVIDENCE CONTRACT SAMPLE";
+        var hash = await objects.Put(text);
+        var evidence = new Evidence("evidence-contract", 1, "ortho", "Synthetic source", "TechnicalFile", text, hash,
+            "Synthetic", "DEMO-SOURCE", "Synthetic", "Internal", now, null, now, true, true, hash);
+        var rows = new[] { active, deleted }.Select(value => new { Kind = "retention", value.Id, value.ProductId,
+            value.Version, Json = Canonical.Serialize(value) }).ToArray();
+        var payloads = new[] { Canonical.Serialize(original), Canonical.Serialize(deleting), Canonical.Serialize(deleted),
+            Canonical.Serialize(active), Canonical.Serialize(evidence) };
+        // SQL FOR JSON keeps column names; the serialized aggregate payloads remain canonical camel-case JSON.
+        await File.WriteAllTextAsync(Path.Combine(directory, "fixture.json"), JsonSerializer.Serialize(new {
+            rows, payloads, independent = Canonical.Serialize(deleted.Object), hash = deleted.Object.Hash, deletedText }));
+    }
+
+    [Fact]
+    public async Task T20_RawClassesAndRealDeletionJournalRoundTripWithoutInventingRequiredDeletedBytes()
+    {
+        await Prepare();
+        await Contract("""
+            $cut = Get-RecoveryRetentionCut $fixture.rows
+            $references = Get-RecoveryReferences $fixture.payloads $cut
+            $state = @{ references = $references; retention = $cut }
+            $objects = Get-RecoveryObjects $root
+            Assert-RecoveryCoverage $state $objects
+            if ($references.Count -ne 2 -or @($cut.rows | Where-Object { $_.status -ceq 'Deleted' }).Count -ne 1) {
+                throw 'Unexpected typed raw/regulatory reference coverage.'
+            }
+            $copy = Join-Path $env:COHORS_RETENTION_CONTRACT 'copy'
+            New-Item -ItemType Directory -Path $copy | Out-Null
+            Copy-RecoveryObjects $root $copy $objects
+            if ((Get-RecoveryHash (Get-RecoveryObjects $copy)) -cne (Get-RecoveryHash $objects)) {
+                throw 'Typed raw/journal copy changed bytes or relative addresses.'
+            }
+            Assert-RecoveryCoverage $state (Get-RecoveryObjects $copy)
+            Remove-RecoveryObjects $copy $objects
+            if (Test-Path -LiteralPath $copy) { throw 'Known typed object cleanup is incomplete.' }
+            """);
+    }
+
+    [Fact]
+    public async Task T20_DeletionNeverWaivesIndependentReferencesFreshnessOrReappearedRawBytes()
+    {
+        await Prepare();
+        await Contract("""
+            function Require-Rejection([scriptblock]$Action, [string]$Code) {
+                $rejected = $false
+                try { & $Action }
+                catch {
+                    if (-not $_.Exception.Message.StartsWith($Code + ':')) { throw }
+                    $rejected = $true
+                }
+                if (-not $rejected) { throw ('Missing rejection: ' + $Code) }
+            }
+            $cut = Get-RecoveryRetentionCut $fixture.rows
+            $objects = Get-RecoveryObjects $root
+            $state = @{ references = (Get-RecoveryReferences $fixture.payloads $cut); retention = $cut }
+            $independent = @{ references = (Get-RecoveryReferences (@($fixture.payloads) + $fixture.independent) $cut); retention = $cut }
+            Require-Rejection { Assert-RecoveryCoverage $independent $objects } 'recovery_retention_reference'
+            $manifest = [ordered]@{
+                format = 'cohors-local-recovery-2'; syntheticOnly = $true; schemaVersion = 2
+                sourceDatabase = 'Cohors_Recovery_00000000000000000000000000000000'
+                references = $state.references; retention = $cut; objects = $objects
+            }
+            Require-Rejection { Assert-RecoveryRetentionCheckpoint $manifest '' '' $false } 'recovery_retention_checkpoint'
+            $path = Join-Path $env:COHORS_RETENTION_CONTRACT 'current-manifest.json'
+            [IO.File]::WriteAllText($path, (ConvertTo-Json -InputObject $manifest -Depth 100))
+            $digest = (Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()
+            Assert-RecoveryRetentionCheckpoint $manifest $path $digest $true | Out-Null
+            $old = ConvertFrom-Json -InputObject (ConvertTo-Json -InputObject $manifest -Depth 100) -AsHashtable -Depth 100 -DateKind String
+            ($old.retention.rows | Where-Object { $_.status -ceq 'Deleted' }).status = 'Registered'
+            Require-Rejection { Assert-RecoveryRetentionCheckpoint $old $path $digest $true } 'recovery_retention_stale_cut'
+            $returned = Join-Path (Join-Path $root 'raw-quarantine') $fixture.hash
+            [IO.File]::WriteAllText($returned, $fixture.deletedText, [Text.UTF8Encoding]::new($false))
+            Require-Rejection { Assert-RecoveryCoverage $state (Get-RecoveryObjects $root) } 'recovery_retention_resurrection'
+            """);
+    }
+
+    private async Task Contract(string body)
+    {
+        var configuration = typeof(RecoveryFixture).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()!.Configuration;
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh") {
+            WorkingDirectory = home, UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true };
+        start.Environment["COHORS_RETENTION_CONTRACT"] = directory;
+        start.Environment["COHORS_RETENTION_HOME"] = home;
+        start.Environment["COHORS_RETENTION_APP"] = Path.Combine(home, "src", "Cohors.Api", "bin", configuration, "net10.0");
+        start.ArgumentList.Add("-NoProfile");
+        start.ArgumentList.Add("-Command");
+        start.ArgumentList.Add("""
+            $ErrorActionPreference = 'Stop'
+            . (Join-Path $env:COHORS_RETENTION_HOME 'scripts\Backup-Local.ps1')
+            Initialize-RecoveryRuntime $env:COHORS_RETENTION_APP
+            $root = Join-Path $env:COHORS_RETENTION_CONTRACT 'objects'
+            $fixture = Get-Content -LiteralPath (Join-Path $env:COHORS_RETENTION_CONTRACT 'fixture.json') -Raw |
+                ConvertFrom-Json -AsHashtable -Depth 100 -DateKind String
+            """ + "\n" + body + "\nWrite-Output 'RECOVERY_RETENTION_CONTRACT=Verified'");
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Recovery contract test could not start.");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60)); }
+        finally { if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); } }
+        var output = await stdout + await stderr;
+        Assert.True(process.ExitCode == 0, output);
+        Assert.Contains("RECOVERY_RETENTION_CONTRACT=Verified", output);
+    }
+}
+
 public sealed class RecoveryFixture : IAsyncLifetime
 {
     public const string Consumer = "cohors-domain-events-v1";
@@ -323,7 +537,14 @@ public sealed class RecoveryFixture : IAsyncLifetime
     private bool sourceRemoved;
     public string Directory { get; private set; } = "";
     public string BackupDirectory => Path.Combine(Directory, "backup");
+    public string PreDeletionBackupDirectory => Path.Combine(Directory, "pre-deletion-backup");
     public string ManifestHash { get; private set; } = "";
+    public string PreDeletionManifestHash { get; private set; } = "";
+    public RetentionRecord ActiveRaw { get; private set; } = null!;
+    public RetentionRecord DeletedRaw { get; private set; } = null!;
+    public string ActiveRawText { get; private set; } = "";
+    public string DeletedRawText { get; private set; } = "";
+    private readonly Dictionary<string, string> applicationAssemblies = new(StringComparer.Ordinal);
     public PolicyCatalog Policies { get; private set; } = null!;
     public SafetyCase SourceCase { get; private set; } = null!;
     public SafetyCase UnknownReceipt { get; private set; } = null!;
@@ -362,6 +583,10 @@ public sealed class RecoveryFixture : IAsyncLifetime
         home = RepositoryRoot();
         var configuration = typeof(RecoveryFixture).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()!.Configuration;
         applicationDirectory = Path.Combine(home, "src", "Cohors.Api", "bin", configuration, "net10.0");
+        foreach (var name in new[] { "Cohors.Domain.dll", "Cohors.Application.dll", "Cohors.Infrastructure.dll", "Cohors.Agents.dll", "Cohors.Api.dll" })
+            applicationAssemblies.Add(name, FileHash(Path.Combine(applicationDirectory, name)));
+        foreach (var type in new[] { typeof(RetentionRecord), typeof(RetentionService), typeof(SqlStateStore), typeof(AgentRunner) })
+            Assert.Equal(applicationAssemblies[Path.GetFileName(type.Assembly.Location)], FileHash(type.Assembly.Location));
         Directory = RequireNewDirectory(home, Environment.GetEnvironmentVariable("COHORS_RECOVERY_DIRECTORY")
             ?? Path.Combine(home, ".local", "recovery-" + owner));
         System.IO.Directory.CreateDirectory(Directory);
@@ -433,10 +658,32 @@ public sealed class RecoveryFixture : IAsyncLifetime
                 Assert.Contains(SourceCase.Deadlines, d => d.Jurisdiction == "NI" && d.Status == "Open");
                 await source.Store.Manifest(SourceCase.Id);
                 await source.Store.Manifest(CurrentEvidence.Id, kind: "evidence");
-                foreach (var file in System.IO.Directory.EnumerateFiles(sourceObjects))
-                    SourceBytes.Add(Path.GetFileName(file), await File.ReadAllBytesAsync(file));
-                SourceTables = await Tables(source.ConnectionString);
+                const string retentionReason = "Menschlich kontrollierter isolierter T18/T20-Rohdaten-Test ohne Patienten oder produktive Loeschung.";
+                var retention = new RetentionService(source.Store, source.Store, source.Objects, source.Policies,
+                    new(true), new TestClock(CaptureTime));
+                var raw = (IRawQuarantineStore)source.Objects;
+                DeletedRaw = await retention.CreateRaw(new("ortho", "DEMO-RAW-RECOVERY-DELETED", CaptureTime.AddDays(-8),
+                    retentionReason), SqlFixture.Quality, CaseScenario.Key());
+                ActiveRaw = await retention.CreateRaw(new("ortho", "DEMO-RAW-RECOVERY-ACTIVE", CaptureTime.AddDays(-1),
+                    retentionReason), SqlFixture.Quality, CaseScenario.Key());
+                DeletedRawText = await raw.ReadRaw(DeletedRaw.Object);
+                ActiveRawText = await raw.ReadRaw(ActiveRaw.Object);
                 var config = await WriteConfig(source.ConnectionString, sourceObjects, sourceContainer, "source");
+                SqlConnection.ClearAllPools();
+                await Execute(sourceConnection, $"ALTER DATABASE [{sourceDatabase}] SET READ_ONLY WITH NO_WAIT");
+                var beforeDeletion = await Script("Backup-Local.ps1", config, PreDeletionBackupDirectory, "-Quiesced");
+                RequireSuccess(beforeDeletion, "pre-deletion native backup");
+                PreDeletionManifestHash = FileHash(Path.Combine(PreDeletionBackupDirectory, "manifest.json"));
+                await Execute(sourceConnection, $"ALTER DATABASE [{sourceDatabase}] SET READ_WRITE WITH NO_WAIT");
+                DeletedRaw = await retention.Authorize(DeletedRaw.Id, new(DeletedRaw.Version, true,
+                    "Die einzige alte Backupkopie bleibt explizit isoliertes Negativtestmaterial; ihr Restore wird durch den aktuellen Loeschkatalog gesperrt. Keine Behauptung ihrer physischen Vernichtung.",
+                    retentionReason), SqlFixture.Quality, CaseScenario.Key());
+                DeletedRaw = await retention.Delete(DeletedRaw.Id, new(DeletedRaw.Version, retentionReason),
+                    SqlFixture.Quality, CaseScenario.Key());
+                Assert.Equal("Deleted", DeletedRaw.Status);
+                foreach (var file in System.IO.Directory.EnumerateFiles(sourceObjects, "*", SearchOption.AllDirectories))
+                    SourceBytes.Add(Path.GetRelativePath(sourceObjects, file), await File.ReadAllBytesAsync(file));
+                SourceTables = await Tables(source.ConnectionString);
                 SqlConnection.ClearAllPools();
                 await Execute(sourceConnection, $"ALTER DATABASE [{sourceDatabase}] SET READ_ONLY WITH NO_WAIT");
                 var backup = await Script("Backup-Local.ps1", config, BackupDirectory, "-Quiesced");
@@ -486,7 +733,9 @@ public sealed class RecoveryFixture : IAsyncLifetime
     }
 
     public Task<RecoveryProcess> RestoreResult(RecoveryTarget target, string backup, string digest) =>
-        Script("Restore-Local.ps1", target.ConfigPath, backup, "-ManifestSha256", digest);
+        Script("Restore-Local.ps1", target.ConfigPath, backup, "-ManifestSha256", digest,
+            "-CurrentRetentionManifestPath", Path.Combine(BackupDirectory, "manifest.json"),
+            "-CurrentRetentionManifestSha256", ManifestHash, "-CurrentRetentionConfirmed");
 
     public Task<RecoveryProcess> Script(string name, string configuration, string backup, params string[] extra) =>
         Run("recovery-script", Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh",
@@ -499,8 +748,13 @@ public sealed class RecoveryFixture : IAsyncLifetime
         System.IO.Directory.CreateDirectory(Path.Combine(destination, "objects"));
         foreach (var file in System.IO.Directory.EnumerateFiles(BackupDirectory))
             File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), overwrite: false);
-        foreach (var file in System.IO.Directory.EnumerateFiles(Path.Combine(BackupDirectory, "objects")))
-            File.Copy(file, Path.Combine(destination, "objects", Path.GetFileName(file)), overwrite: false);
+        var sourceObjects = Path.Combine(BackupDirectory, "objects");
+        foreach (var file in System.IO.Directory.EnumerateFiles(sourceObjects, "*", SearchOption.AllDirectories))
+        {
+            var target = Path.Combine(destination, "objects", Path.GetRelativePath(sourceObjects, file));
+            System.IO.Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, overwrite: false);
+        }
         return destination;
     }
 
@@ -547,14 +801,20 @@ public sealed class RecoveryFixture : IAsyncLifetime
                 await RemoveOwnedContainer(container);
             foreach (var path in privateConfigs) File.Delete(path);
             await WriteOwnershipInventory(cleanupVerified: true);
-            if (checks.Count == 8)
+            if (checks.Count == 10)
             {
+                foreach (var item in applicationAssemblies)
+                    Assert.Equal(item.Value, FileHash(Path.Combine(applicationDirectory, item.Key)));
                 var evidence = new
                 {
                     scope = "Local native SQL/object recovery; direct existing application services, not HTTP/browser or Azure",
                     sourceDatabaseRemoved = sourceRemoved, sourceObjectsRemoved = !System.IO.Directory.Exists(sourceObjects),
                     sourceContainerStoppedBeforeTarget = true, separateSqlServers = sourcePort != targetPort,
                     manifestSha256 = ManifestHash, objectCount = SourceBytes.Count,
+                    applicationAssemblies,
+                    retention = new { activeRawHash = ActiveRaw.Object.Hash, deletedRawHash = DeletedRaw.Object.Hash,
+                        deletedRawAbsent = true, exactDeletionJournalRestored = true, preDeletionManifestSha256 = PreDeletionManifestHash,
+                        staleBackupRejected = true, independentReferencesNotWaived = true, automaticFreshnessProof = false },
                     historicalEvidenceHash = OriginalEvidence.Hash, currentEvidenceHash = CurrentEvidence.Hash,
                     frozenPackageSha256 = Canonical.HashText(SourceCase.CurrentReport!.FrozenJson!),
                     transmissionStatus = SourceCase.CurrentReport.State.ToString(), correlationId = UnknownCorrelation,

@@ -2,12 +2,114 @@
 
 **Arbeitsstand, kein Abschluss der Gesamt- oder Fachabnahme.** Dieser Nachweis wird mit den tatsaechlich ausgefuehrten Paketen fortgeschrieben.
 
+## Qualifizierter lokaler Preview-Schnitt
+
+Der isolierte Windows-Browserlauf `.local\ui-replay-review-03` besteht mit
+**5/5 Preview-Szenarien, ohne Skips**, bei
+**`Retention:PhysicalMode=Disabled`**. Er prueft den durchgaengigen PMS-/MIR-Pfad,
+getrennte menschliche Konten, CSRF, Dublin-Fristen, gruppierte PSUR-Berichte
+einschliesslich aller Mitgliedsscope-Pruefungen und authentifizierter
+JSON-/PDF-/ZIP-Exporte, menschlicher Revision und neuer zweifacher Freigabe.
+Der Standard-Retention-Fall prueft auch die serverseitige Ablehnung eines
+gefaelschten Client-Profilwechsels und das getrennte Lifecycle-Fristbeispiel.
+Der eigene API-Prozess und die eigene SQL-Testdatenbank wurden danach beendet
+beziehungsweise entfernt; die bestehende 5187-Demo blieb dabei unveraendert.
+
+UI01 brach beim begrenzten Startup-Request ab. UI02 blieb **3/5**: zwei Tests
+suchten faelschlich ein explizites `type=submit`-Attribut an einem regulaeren
+impliziten Submit-Button. UI03 verwendet die tatsaechlichen zugaenglichen
+Buttonnamen und verlangt weiterhin erfolgreichen Dialogabschluss und die
+fachlichen Assertions. Die fehlgeschlagenen Laeufe werden nicht umetikettiert.
+
+`browser-results.json` bindet die ausgefuehrten Test-/Runnerdateien, fuenf
+Anwendungsassemblies und alle veroeffentlichten Browserassets per SHA256.
+UI03 stammt noch aus dem Arbeitsbaum auf `b9a94b9`, ausdruecklich
+`sourceTreeDirty=true`; er ist allein kein sauberer Commitnachweis oder
+Nachweis einer bereits aktualisierten 5187-Seite. Ein spaeterer
+checkpointgebundener Lauf wird mit eigenem Ergebnisordner ausgewiesen.
+
+Dies ist eine **Teilabnahme der lokalen Replay-Vorschau**. Der separat
+deklarierte `PhysicalRetention`-Browserfall wurde hier nicht ausgefuehrt und
+ist nicht freigegeben. Lokale Outbox-/Watchdog-Emulation ist kein aktueller
+getrennter Functions-Hostlauf. Retention-I/O-Ursache, erneute Recovery auf
+abschliessenden Quellen, aktuelles T12, Lastprofil, Linux-Gesamtintegration,
+Cloud und Live-KI bleiben eigenstaendige offene Gates.
+
 ## Bereits ausgefuehrte Nachweise
 
-- Aktueller vollstaendiger Windows-.NET-Lauf: **68 bestanden, 0 fehlgeschlagen, 0 uebersprungen** gegen echten isolierten Loopback-SQL; `.local\test-results\acceptance.trx`. Er ersetzt fruehere Zwischenlaeufe mit einzelnen Testfehlern.
+- Vollstaendiger Windows-.NET-Lauf am Checkpoint `a5c7545`: **68 bestanden, 0 fehlgeschlagen, 0 uebersprungen** gegen echten isolierten Loopback-SQL; `.local\test-results\acceptance.trx`. Dies ist nicht die Vollsuite des spaeter erweiterten Arbeitsstands.
 - Der neue SQL-MIR-Pfad prueft Initial-Unknown/Abgleich, offenen festen Sonntagstermin ohne Verschiebung, Watchdog-Eskalation, idempotenten alten Abgleich, FollowUp mit neuer Zusage und Final mit exakt gebundener Jurisdiktionsabdeckung.
 - Fuenf SQL-/Service-PSUR-Provenienztests pruefen Kenntnis/Nachtrag, acht/fuenf Worldwide-/Teilregionsbelege, historischen geschlossenen N2-Fall, gesperrtes Altformat sowie Dokumentwirksamkeit vor/ab Folgeversion bei unveraendertem frueheren Snapshot.
 - Vier weitere Terminologietests pruefen die echte FDA-Referenz, menschliche Kodierung und Freigabeinvalidierung, eindeutige Gruppen-/F02-Quellbelege, getrennte historische Kodes, blockierte widerspruechliche Hierarchien sowie selbst konsistente, aber vom SQL-Original abweichende Snapshot-Kodierung.
+- Nach dem 68er-Checkpoint: **20/20 fokussierte Windows-SQL-/PSUR-Tests**
+  in `.local/test-results/psur-terminology-history.trx`. Dazu gehoeren drei
+  neue Serien-/Parallelitaets-/Zeitplanfaelle und drei neue historische
+  Kodierungsfaelle: New-2026 als 2025, Added-2024 als 2023 sowie heutige
+  retrospektive Kodierung versus wortgetreu belegte Originalangabe.
+  Fehlende/falsche Belegversionen und Zitate, Freigabeinvalidierung bei
+  Herkunftsaenderung und unveraenderte eingefrorene Berichte sind geprueft.
+  Dies ist noch kein neuer vollstaendiger Suite-/Linux-Lauf.
+- PSUR-Erweiterungen wurden danach in **31/31 echten SQL-Tests, ohne Skips**
+  geprueft: `.local\test-results\psur-group-integration-resumed.trx`.
+  Darin enthalten sind gruppenweite Service-/Exportberechtigungen,
+  unabhaengige Basic-UDI-Zaehler, Profil-/Mitgliedschaftsversionen, BS/
+  Leitprodukt/Zeitplangrenzen, zulaessige nichtfuehrende Mitverwendung,
+  unveraenderte Altberichte sowie die bisherigen Serien-, Quellen-,
+  Terminologie- und Exportregressionen. Der vorherige gleichnamige Erstlauf
+  ohne `-resumed` scheiterte mit 31 Verbindungsfehlern am nicht erreichbaren
+  SQL-Host; er ist keine fachliche Reproduktion.
+- Der aus diesem SQL-Lauf erzeugte Gruppen-PDF wurde unabhaengig mit
+  PyMuPDF gelesen: **13 Seiten, 2 Basic-UDIs, alle 42 Quellhashes und
+  beide Paket-/Scope-Hashes**, keine horizontale Textabschneidung.
+  Der vorangehende Einzelfamilienexport umfasste sieben Seiten, alle
+  21 Quellhashes sowie deutsche und griechische Zeichen.
+  Das ersetzt keine klinische, semantische oder behoerdliche Abnahme.
+- Die anschliessenden globalen Basic-UDI-Identifier-/Perioden- und
+  nichtfuehrenden Quellmanipulationsregressionen liefen mit den
+  PSUR-/Terminologietests in `current-pms-retention-sql.trx`: alle
+  **29 PSUR-/Terminologiefaelle bestanden**. Der Gesamtlauf bleibt **31/34**;
+  drei Retention-Faelle scheiterten an doppelt serialisierten
+  Autorisierungs-Hashfeldern (`id`/`Id`). Das explizite Feld `actorId`
+  korrigiert diesen Fehler; `retention-sql-corrected.trx` bestand danach
+  mit **5/5**, ohne Skips. Dies sind getrennte Laeufe.
+- Der PSUR-Generierungs-/Revisionsvertrag wurde auf die gemeinsame
+  endliche Grenze von 200.000 Zeichen vereinheitlicht. Ein echter
+  gruppierter Langentwurf mit menschlicher Revision, Freigabeinvalidierung,
+  unveraenderten Snapshotbytes und expliziter Ueberlimit-Ablehnung ist als
+  SQL-Regressionsfall tatsaechlich im genannten 29er-Teil bestanden.
+  Die enge Langbericht-Regressionsfeststellung ist damit lokal geschlossen,
+  nicht die vollstaendige fachliche T16-Abnahme.
+- Im aktuellen Retention-Arbeitsblock liefen **17/17 nicht-SQL-abhaengige
+  Tests ohne Skips**: die neun Byteintegritaetsregressionen, vier
+  unabhaengige T18-Regel-/Datumsfaelle und vier wirkliche lokale
+  Rohobjektfaelle (Entfernung/Replay, fehlende Bytes, Shared-Hash-Kopie,
+  fremde Autorisierung und Wiederauftauchen).
+  `.local\test-results\retention-local-current.trx`.
+  Die Erweiterung um drei wirkliche PowerShell-Recovery-Vertragstests
+  bestand danach mit **20/20** in
+  `.local\test-results\retention-recovery-integration-offline.trx`.
+- Der integrierte T18/T20-Runner bestand mit **13/13**, ohne Skips:
+  `.local\t18-t20-integrated-current\recovery-results.json`.
+  Echte getrennte SQL-/Objektbereiche, nativer Vor-/Nachloeschungs-Cut,
+  aktiver Rohdatensatz, exaktes Loeschjournal und gesperrte alte Cuts wurden
+  geprueft. Vier Implementierungs- und fuenf Assemblyhashes binden den Lauf.
+  Die unabhaengige anschliessende Eigentuemerlabel-Pruefung ergab null
+  eigene Container/Volumes. Spaetere Diagnostikaenderungen sind damit
+  nicht automatisch erneut geprueft.
+- Der vollstaendige Anwendungslauf **ohne Recovery** in
+  `current-application-excluding-recovery.trx` bleibt **109/110**:
+  `T18_AnInFlightDeletionCannotAcquireANewReferenceFromAnotherSqlWriter`
+  meldete `retention_incomplete (retention_object_io)` nach 0,790 Sekunden.
+  Die damalige Ursache, HResult und der genaue physische Schritt wurden
+  nicht aufgezeichnet. Kein belegter SQL-Timeout, Referenzverlust,
+  Host-/Schutzsoftwarefehler oder nachgewiesener Flake.
+- Der Fehlerwrapper erhaelt inzwischen die InnerException. Der gezielte
+  Diagnoselauf bestand mit **5/5**, der vollstaendige getrennte Wiederholungslauf
+  `current-application-diagnostics.trx` mit **110/110**, ohne Skips.
+  Beides erklaert den frueheren I/O-Fehler nicht. Anschliessend ergaenzte,
+  kompilierte Testdiagnostik protokolliert bei erneutem echtem I/O-Fehler
+  nur Typ, HResult, `DeleteRaw` und Repository-Quellzeile; keine verdeckte
+  Wiederholung, Ersatzbytes oder Aenderung von Schutzkontrollen.
 - API und React wurden gebaut; SQL-Migration und synthetische Baseline liefen gegen einen echten lokalen SQL-Server.
 - Ein Browserlauf hat Beschwerde, Duplikat, unbekannte UDI, zwoelfteilige Replay-Analyse, QA, getrennte Medical-/RA-Freigaben, eingefrorenes Paket, `Unknown`, Abgleich ohne zweiten Versand und Auditmanifest erfolgreich durchlaufen.
 - Auth-/CSRF- und mobiles Login-Layout wurden im Browser geprueft.
@@ -15,7 +117,8 @@
 - Sieben erste .NET-Tests prueften unabhhaengige Kalender-/DST-/Ratenreferenzen und Poisson-Referenzwerte.
 - Die exakten oeffentlichen FDA-/PubMed-Queryvertraege wurden lesend erreicht. Die Integration im Domaenenpfad wird gesondert getestet.
 
-Die fruehen Windows-Browserlaeufe betreffen den v2-Preview. Der unten bezeichnete
+Die fruehen Windows-Browserlaeufe betreffen den v2-Preview; der oben getrennt
+bezeichnete UI03-Lauf prueft den aktuellen erweiterten Arbeitsstand. Der unten bezeichnete
 isolierte Linux-Lauf prueft dagegen den neuen MIR-Editor, authentifizierten
 XML-Download und die Folgepflicht-Anzeige mit getrennten echten Medical-/RA-
 Browsersitzungen. Die laufende Windows-Demo wurde dabei weder migriert noch
@@ -59,6 +162,16 @@ Netzwerk**, **28/28 Offline-Infratests unter Windows**. Diese Tests ersetzen
 keinen echten Actions-Lauf. Der separat dokumentierte Checkov-Sicherheitsstand
 bleibt BLOCKED; keine Findings wurden still unterdrueckt.
 
+Der separate T12-Handoff `2cba8ce6` ist als `947386f1` integriert,
+der Folgecommit `1253b884` als `b9a94b9492c431a19adbc6750aee340665085f2f`.
+Hier wurden **38/38 Offline-Infratests** und die Node-Treibersyntax
+erfolgreich geprueft. Kein zweiter paralleler T12-Hostlauf wurde gestartet.
+Der von Infra gelieferte Lauf09 besteht auf der App-Baseline `245b3b0`;
+der Harness bindet weiterhin ausdruecklich diese Quelle. Das ist kein
+Nachweis der neueren Fach-/Retention-/PSUR-Implementierung. Die aktuelle
+quellengebundene Hostwiederholung, Linux-, Actions- und Cloud-Abnahme
+bleiben getrennt.
+
 ## T01-T20
 
 | Szenario | Umsetzung / Nachweis |
@@ -74,15 +187,15 @@ bleibt BLOCKED; keine Findings wurden still unterdrueckt.
 | T09 Prompt Injection | Keine DB-/HTTP-/Approve-/Submit-Tools fuer das Modell; Negativtest angelegt |
 | T10 Deadline-Grenzen | Unabhaengige Kalender-/DST-Werte und abweichende Browserzeitzone bestanden |
 | T11 Neue Informationen | Getrennte Ausnahme, keine spaete Verschiebung, zwei menschliche Nichtmeldepflichtpruefungen; SQL-Abnahme erweitert |
-| T12 Neustart/Timer | SQL-Persistenz und fehlender Herzschlag; SQL-Abnahme angelegt |
+| T12 Neustart/Timer | Separater Host-Harness integriert, 38 Offline-Infratests bestanden; Infra-Lauf09 besteht nur auf 245b3b0, aktuelle Quellenwiederholung offen |
 | T13 Unknown | Erster Browser-Abgleich bestanden; Hashwechsel-/Coverage-Regression angelegt |
 | T14 MIR | Original-7.3.1-Mapping/XSD, fehlende Pflichtdaten, Signaturbindung, Folge-/Finaltypen und feste Folgepflichtkette SQL-geprueft; MIR-Browserbedienung und XML-Download im bezeichneten Linux-Lauf bestanden |
 | T15 Statistik | Unabhaengige normalisierte Raten, ungueltige Nenner und Poisson-Werte bestanden |
-| T16 PSUR | Kenntnis-/Regions-/Vergleichsperioden-Provenienz, gesperrtes Altformat, Dokumentwirksamkeit und A/C/D/F-/Todesfallkodierung SQL-geprueft; uebrige Serien-/Status-/Exportintegration noch offen |
+| T16 PSUR | Quellen, historische Kodierung, Serien/Gruppen, globale Identifier-/Periodengrenzen und >60000-Zeichen-Revision SQL-geprueft; UI03 prueft all-member-Exporte, Revision und getrennte Freigaben; fachliche Gesamtfreigabe offen |
 | T17 CAPA | Unabhaengiger Wirksamkeitsnachweis, negatives Ergebnis, Nacharbeit und erneute Pruefung im aktuellen SQL-Lauf bestanden |
-| T18 Audit/Retention | Ledger und Historien-/Current-State-Manipulationspruefung angelegt; Retention/Recovery noch nicht vollstaendig nachgewiesen |
+| T18 Audit/Retention | Getrennte 20er-Offline-, 5er-SQL- und 13er-Recovery-Nachweise; frueherer I/O-Fehler ungeklaert trotz gruenem Wiederholungslauf. Preview prueft nur Disabled-Profil, physischer Pfad nicht freigegeben |
 | T19 Simulatorgrenze | Keine echten Melde-/Klinikadapter; weitere Export-/Endpoint-Pruefung offen |
-| T20 Wiederherstellung | Vollstaendige SQL-/Objekt-/Outbox-/Search-Wiederherstellung noch offen |
+| T20 Wiederherstellung | Integrierter 13er-Windows-Lauf mit echten SQL-/Objekt-/Journal-Cuts bestanden; erneut auf finalen Quellen sowie Linux-/Cloud-DR offen |
 
 Die vom Auftraggeber uebergebenen unabhhaengigen Referenzen liegen unveraendert in `tests\Cohors.Tests\Fixtures\cohors-acceptance-references.json`. Deren ursprüngliches `applicationVerified: false` dokumentiert die Herkunft des Referenzsatzes; nur ausgefuehrte Anwendungstests liefern den zusaetzlichen Nachweis.
 

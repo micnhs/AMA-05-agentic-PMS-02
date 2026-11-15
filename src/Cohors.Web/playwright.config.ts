@@ -1,11 +1,19 @@
 import { defineConfig } from '@playwright/test'
+import path from 'node:path'
 
 export default defineConfig({
   testDir: './e2e',
   timeout: 90_000,
   expect: { timeout: 25_000 },
   workers: 1,
-  reporter: [['list'], ['junit', { outputFile: '../../.local/e2e-results.xml' }]],
+  outputDir: process.env.COHORS_UI_ARTIFACT_DIR
+    ? path.join(process.env.COHORS_UI_ARTIFACT_DIR, 'playwright-results') : './test-results',
+  projects: [
+    { name: 'preview', grepInvert: /@physical-retention/ },
+    { name: 'physical-retention', grep: /@physical-retention/ },
+  ],
+  reporter: [['list'], ['junit', { outputFile: process.env.COHORS_UI_ARTIFACT_DIR
+    ? path.join(process.env.COHORS_UI_ARTIFACT_DIR, 'e2e-results.xml') : '../../.local/e2e-results.xml' }]],
   use: {
     baseURL: process.env.COHORS_URL ?? 'http://localhost:5187',
     channel: process.env.COHORS_BROWSER ?? 'msedge',

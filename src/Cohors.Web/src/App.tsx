@@ -4,7 +4,7 @@ import { api, loginEntra, logout, session as getSession } from './api'
 import type { CaseSummary, Device, SafetyCase, Session, Status } from './types'
 import { ActionDialog, Badge, CaseTable, date, deadlineItems, Empty, ErrorBanner, isLate, isUrgent, label, Loading, primaryDeadline, roleNames, SectionHead, type Dialog } from './ui'
 import Workbench from './Workbench'
-import { AuditWorkspace, EvidenceWorkspace, FeedbackWorkspace, PsurWorkspace, SourcesWorkspace } from './Workspaces'
+import { AuditWorkspace, EvidenceWorkspace, FeedbackWorkspace, PsurWorkspace, RetentionWorkspace, SourcesWorkspace } from './Workspaces'
 
 const navigation = [
   { id: 'cockpit', title: 'PMS Cockpit', icon: LayoutDashboard },
@@ -16,6 +16,7 @@ const navigation = [
   { id: 'feedback', title: 'Trends & CAPA', icon: Activity },
   { id: 'psur', title: 'PSUR Workspace', icon: BookOpen },
   { id: 'evidence', title: 'Evidenzbibliothek', icon: Waypoints },
+  { id: 'retention', title: 'Aufbewahrung', icon: FileClock },
   { id: 'audit', title: 'Audit Explorer', icon: FileClock },
 ]
 export default function App() {
@@ -91,6 +92,7 @@ export default function App() {
         {page === 'feedback' && <FeedbackWorkspace actor={actor} cases={cases} revision={revision} openDialog={setDialog} mutate={mutate} />}
         {page === 'psur' && <PsurWorkspace actor={actor} revision={revision} openDialog={setDialog} mutate={mutate} />}
         {page === 'evidence' && <EvidenceWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}
+        {page === 'retention' && <RetentionWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}
         {page === 'audit' && <AuditWorkspace cases={cases} revision={revision} />}
         <footer className="page-footer"><span>Cohors · Synthetic pilot 2026.1</span><span>118 Anforderungen zugeordnet · Fach-/Betriebsfreigabe offen · Keine Azure-Bereitstellung</span></footer>
       </div>

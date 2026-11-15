@@ -109,6 +109,7 @@ var run = app.MapPost("/internal/run", async (AgentEnvelope envelope, IAgentRunn
 {
     var product = AgentBoundary.Validate(envelope.Input);
     Guard.Against(envelope.ProductId != product || !products.Contains(product), "agent_product", "Produktscope nicht freigegeben.", 403);
+    AgentBoundary.RequireProducts(envelope.Input, products);
     Guard.Against(envelope.InputHash != Canonical.Hash(envelope.Input), "agent_input_hash", "Input-Snapshot wurde veraendert.", 409);
     var output = await runner.Run(envelope.Input, ct);
     AgentBoundary.ValidateResult(envelope.Input, output);

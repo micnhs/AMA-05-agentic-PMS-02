@@ -1,3 +1,4 @@
+#requires -Version 7.6
 param([switch]$SkipBrowser)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
@@ -8,11 +9,10 @@ if (-not (Test-Path -LiteralPath $dotnet)) { $dotnet = (Get-Command dotnet -Erro
     --verbosity minimal --logger 'trx;LogFileName=acceptance.trx' --results-directory (Join-Path $root '.local\test-results')
 if ($LASTEXITCODE -ne 0) { throw '.NET/domain/SQL acceptance failed.' }
 if (-not $SkipBrowser) {
-    $url = if ($env:COHORS_URL) { $env:COHORS_URL.TrimEnd('/') } else { 'http://localhost:5187' }
-    $uri = [Uri]$url
-    if (-not $uri.IsLoopback -or $uri.Scheme -ne 'http') { throw 'Local browser acceptance requires an explicit HTTP loopback URL.' }
-    $ready = Invoke-RestMethod -Uri "$url/health/ready" -TimeoutSec 10
-    if ($ready.status -ne 'ready') { throw 'Start the local Cohors application before browser acceptance.' }
-    npm --prefix (Join-Path $root 'src\Cohors.Web') run test:e2e
-    if ($LASTEXITCODE -ne 0) { throw 'Browser acceptance failed.' }
+    $run = [Guid]::NewGuid().ToString('N')
+    $application = Join-Path $root ".local\ui-package-$run"
+    & $dotnet publish (Join-Path $root 'src\Cohors.Api\Cohors.Api.csproj') --configuration Debug --no-build --no-restore --output $application --verbosity quiet
+    if ($LASTEXITCODE -ne 0) { throw 'The current browser-test application could not be published.' }
+    & (Join-Path $PSScriptRoot 'Test-Ui.ps1') -ApplicationDirectory $application `
+        -ArtifactDirectory (Join-Path $root ".local\ui-results-$run") -Profile Preview
 }

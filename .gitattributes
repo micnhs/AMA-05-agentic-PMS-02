@@ -15,3 +15,7 @@ contracts/terminology/** -text
 tests/Cohors.Tests/Fixtures/cohors-*-references.json -text
 docs/requirements/coordinator-* -text
 docs/requirements/extract-cohors-terminology.py -text
+src/Cohors.Api/ReportFonts/*.ttf binary
+src/Cohors.Api/ReportFonts/*LICENSE -text
+# Preserve the hash-pinned upstream license, including its trailing space.
+src/Cohors.Api/ReportFonts/PDFsharp.LICENSE whitespace=-blank-at-eol

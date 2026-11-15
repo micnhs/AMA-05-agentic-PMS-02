@@ -4,6 +4,15 @@ namespace Cohors.Application;
 
 public sealed class OperationsService(IStateStore store, TimeProvider clock)
 {
+    public async Task<AgentInvocation[]> ListInvocations(Actor actor, CancellationToken ct = default)
+    {
+        actor.RequireHuman(Roles.Quality);
+        return (await store.List<AgentInvocation>("agentInvocation", actor.Products, ct))
+            .Where(i => i.Status is "Running" or "Failed" or "Abandoned")
+            .Where(i => i.InputJson is null || Canonical.Read<AgentInput>(i.InputJson).Snapshot is not { } snapshot ||
+                PsurGroupRules.CanRead(snapshot, actor)).ToArray();
+    }
+
     public async Task<AgentInvocation> AbandonInvocation(string id, VersionCommand input, Actor actor, string key, CancellationToken ct = default)
     {
         actor.RequireHuman(Roles.Quality);
@@ -11,6 +20,12 @@ public sealed class OperationsService(IStateStore store, TimeProvider clock)
         var invocation = await store.Get<AgentInvocation>("agentInvocation", id, ct)
             ?? throw new DomainException("invocation_missing", "Modellauftrag fehlt.", 404);
         actor.RequireProduct(invocation.ProductId);
+        if (invocation.InputJson is { } json)
+        {
+            Guard.Against(Canonical.HashText(json) != invocation.InputHash, "invocation_input_integrity",
+                "Persistierter Auftragseingang wurde veraendert; kein scopeverkuerzter Abbruch.", 409);
+            AgentBoundary.RequireProducts(Canonical.Read<AgentInput>(json), actor.Products);
+        }
         return await store.Execute<AgentInvocation>(new(id, "agentInvocation", invocation.ProductId, input.ExpectedVersion,
             key, "AgentInvocationAbandoned", input.Reason, actor, input, clock.GetUtcNow()), value =>
         {

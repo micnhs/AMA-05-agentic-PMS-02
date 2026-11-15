@@ -32,6 +32,13 @@ builder.Services.AddSingleton(sp => SqlStateStore.Configure(sp.GetRequiredServic
     ?? throw new InvalidOperationException("Cohors SQL connection is required. Run scripts\\Initialize-Local.ps1."),
     builder.Configuration["Cohors:SqlAuthentication"], builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing")));
 builder.Services.AddSingleton<IStateStore>(sp => sp.GetRequiredService<SqlStateStore>());
+builder.Services.AddSingleton<IRetentionStateStore>(sp => sp.GetRequiredService<SqlStateStore>());
+var retentionMode = builder.Configuration["Retention:PhysicalMode"] ?? "Disabled";
+if (retentionMode is not ("Disabled" or "SyntheticLocal") ||
+    retentionMode == "SyntheticLocal" && ((!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing")) ||
+        builder.Configuration["Cohors:ObjectStore"] != "Local" || builder.Configuration["Cohors:Search"] == "Azure"))
+    throw new InvalidOperationException("SyntheticLocal retention requires explicit Development/Testing, local objects and no Azure Search.");
+builder.Services.AddSingleton(new RetentionOptions(retentionMode == "SyntheticLocal"));
 builder.Services.AddSingleton<IObjectStore>(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
@@ -84,6 +91,8 @@ builder.Services.AddSingleton<PublicSourceService>();
 builder.Services.AddSingleton<EvidenceService>();
 builder.Services.AddSingleton<QualityService>();
 builder.Services.AddSingleton<AnalyticsService>();
+builder.Services.AddSingleton<RetentionService>();
+builder.Services.AddSingleton<PsurExportService>();
 builder.Services.AddSingleton<IMirComposer, MirComposer>();
 builder.Services.AddSingleton<RegulatoryService>();
 builder.Services.AddHttpClient<IPublicSourceReader, PublicSources>()
@@ -239,11 +248,11 @@ api.MapPost("/cases/{id}/reopen", (string id, VersionCommand input, CaseService 
     service.Reopen(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/runs/{runId}/abandon", (string id, string runId, VersionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) =>
     service.AbandonRun(id, runId, input, Who(ctx), Key(ctx), ct));
-api.MapGet("/operations/agent-invocations", async (IStateStore store, HttpContext ctx, CancellationToken ct) =>
+api.MapGet("/operations/agent-invocations", async (OperationsService service, HttpContext ctx, CancellationToken ct) =>
 {
     var actor = Who(ctx);
     actor.RequireHuman(Roles.Quality);
-    return (await store.List<AgentInvocation>("agentInvocation", actor.Products, ct)).Where(i => i.Status is "Running" or "Failed" or "Abandoned")
+    return (await service.ListInvocations(actor, ct))
         .Select(i => new { i.Id, i.Version, i.ProductId, i.Status, i.StartedAt, i.FinishedAt, i.ErrorCode });
 });
 api.MapPost("/operations/agent-invocations/{id}/abandon", async (string id, VersionCommand input, OperationsService service, HttpContext ctx, CancellationToken ct) =>
@@ -276,12 +285,42 @@ api.MapPost("/changes/{id}/complete", (string id, ChangeDecisionCommand input, Q
 api.MapGet("/trends", (IStateStore store, HttpContext ctx, CancellationToken ct) => store.List<TrendRun>("trend", Who(ctx).Products, ct));
 api.MapPost("/trends", (RunTrendCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.Trend(input, Who(ctx), Key(ctx), ct));
 api.MapPost("/trends/{id}/review", (string id, VersionCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.ReviewTrend(id, input, Who(ctx), Key(ctx), ct));
-api.MapGet("/psurs", (IStateStore store, HttpContext ctx, CancellationToken ct) => store.List<Psur>("psur", Who(ctx).Products, ct));
+api.MapGet("/psur-groups", (AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.ListGroups(Who(ctx), ct));
+api.MapPost("/psur-groups", (RecordPsurGroupCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) =>
+    service.RecordGroup(input, Who(ctx), Key(ctx), ct));
+api.MapGet("/psurs", (AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.ListPsurs(Who(ctx), ct));
+api.MapGet("/psurs/{id}", (string id, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.GetPsur(id, Who(ctx), ct));
+api.MapGet("/psurs/{id}/export/{format}", async (string id, int version, string format, PsurExportService exporter, HttpContext ctx, CancellationToken ct) =>
+{
+    var result = await exporter.Export(id, version, format, Who(ctx), ct);
+    return Results.File(result.Bytes, result.ContentType, result.FileName);
+});
 api.MapPost("/psurs", (FreezePsurCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.Freeze(input, Who(ctx), Key(ctx), ct));
 api.MapPost("/psurs/{id}/revise", (string id, RevisePsurCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.Revise(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/psurs/{id}/approve", (string id, VersionCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.Approve(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/psurs/{id}/simulate", (string id, VersionCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.Simulate(id, input, Who(ctx), Key(ctx), ct));
 api.MapGet("/operations/outbox", (IStateStore store, HttpContext ctx, CancellationToken ct) => store.OutboxIssues(Who(ctx).Products, ct));
+api.MapGet("/retention/policy", (RetentionService service, HttpContext ctx) =>
+{
+    _ = Who(ctx);
+    return Results.Ok(new { RetentionRules.PolicyVersion, service.LocalPhysicalProfile,
+        dataClasses = new[] { RetentionRules.Raw, RetentionRules.ImplantDocumentation } });
+});
+api.MapGet("/retention", (RetentionService service, HttpContext ctx, CancellationToken ct) => service.List(Who(ctx), ct));
+api.MapGet("/retention/{id}", (string id, RetentionService service, HttpContext ctx, CancellationToken ct) => service.Evaluate(id, Who(ctx), ct));
+api.MapGet("/product-lifecycles", (RetentionService service, HttpContext ctx, CancellationToken ct) => service.Lifecycles(Who(ctx), ct));
+api.MapPost("/product-lifecycles", (RecordLifecycleCommand input, RetentionService service, HttpContext ctx, CancellationToken ct) =>
+    service.RecordLifecycle(input, Who(ctx), Key(ctx), ct));
+api.MapPost("/retention/raw", (CreateRawRetentionCommand input, RetentionService service, HttpContext ctx, CancellationToken ct) =>
+    service.CreateRaw(input, Who(ctx), Key(ctx), ct));
+api.MapPost("/retention/evidence", (TrackRetentionCommand input, RetentionService service, HttpContext ctx, CancellationToken ct) =>
+    service.Track(input, Who(ctx), Key(ctx), ct));
+api.MapPost("/retention/{id}/hold", (string id, RetentionHoldCommand input, RetentionService service, HttpContext ctx, CancellationToken ct) =>
+    service.Hold(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/retention/{id}/authorize-deletion", (string id, AuthorizeDeletionCommand input, RetentionService service, HttpContext ctx, CancellationToken ct) =>
+    service.Authorize(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/retention/{id}/delete", (string id, VersionCommand input, RetentionService service, HttpContext ctx, CancellationToken ct) =>
+    service.Delete(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/operations/outbox/{id}/recover", (string id, VersionCommand input, OperationsService service, HttpContext ctx, CancellationToken ct) =>
     service.Recover(id, input, Who(ctx), Key(ctx), ct));
 

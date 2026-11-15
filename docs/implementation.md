@@ -53,7 +53,102 @@ Der SQL-Freeze speichert ein `cohors-psur-sources-2`-Manifest. Jeder N/N2/N3/N4-
 
 Die organisatorische Kenntnis muss fuer jeden Basiszaehler vor dem exklusiven UTC-Ende seiner Periode liegen. Spaeter bekannt gewordene Ereignisse sind separat identifizierte Nachtraege, nicht verdeckte Basiszaehler. Ein spaeter Systemeingang schliesst vorherige belegte Organisationskenntnis nicht aus. Aktuell eingefrorener Bearbeitungsstand und historischer Status am Stichtag bleiben getrennt: letzterer benoetigt eine konkrete SQL-Historienversion, sonst steht `NotRecordedAtCutoff` beziehungsweise `NotKnownAtCutoff`. Ein Freeze-Zeitstempel allein ist kein Statusbeweis.
 
-Fuer aktuelle technische/klinische Dokumente gilt dagegen bewusst **FrozenAt**: `EvidenceRules.Effective` waehlt pro Dokument-ID die zu diesem Zeitpunkt wirksame, freigegebene Revision. Alte und neue Fassungen erscheinen nicht parallel als aktuell. Vorversionen bleiben in der Historie; vorhandene PSUR-Snapshots werden durch spaetere Dokumentrevisionen nicht veraendert. Freigabe/Simulation pruefen den gespeicherten Quellenstand erneut. Altberichte ohne ausreichendes Manifest werden nicht still repariert oder freigegeben. Historische CAPA-/Aenderungsstaende, Serien-/Exportintegration und fachliche Vollstaendigkeit sind davon getrennte Abnahmepunkte.
+Fuer aktuelle technische/klinische Dokumente gilt dagegen bewusst **FrozenAt**: `EvidenceRules.Effective` waehlt pro Dokument-ID die zu diesem Zeitpunkt wirksame, freigegebene Revision. Alte und neue Fassungen erscheinen nicht parallel als aktuell. Vorversionen bleiben in der Historie; vorhandene PSUR-Snapshots werden durch spaetere Dokumentrevisionen nicht veraendert. Freigabe/Simulation pruefen den gespeicherten Quellenstand erneut. Altberichte ohne ausreichendes Manifest werden nicht still repariert oder freigegeben.
+
+Das Massnahmenmanifest trennt tatsaechliche historische CAPA-/Change-Versionen
+am Kenntnisstichtag von ihrem aktuellen Freeze-Stand. Offene Altfaelle,
+abgeschlossene Vorperioden, Aktualisierungen und Nachtraege sind ausdruecklich
+gekennzeichnet. Das Auswahlverzeichnis bindet auch ausgeschlossene Staende und
+die tatsaechlichen Quellversionen; ein selbst konsistenter Snapshot-Hash allein
+ersetzt keinen Abgleich mit der SQL-Historie.
+
+`cohors-psur-series-1` bindet stabile Referenz, fortlaufende Berichtsnummer
+(getrennt von der technischen Aggregatversion), Leitprodukt, Produktprofil und
+Benannte Stelle. Bestehende Einzelfamilien-Snapshots bleiben in ihrem
+unveraenderten Format lesbar; eine Gruppe wird nicht nachtraeglich hineinkopiert.
+Vorfassung und erwartete Version sind fuer jede neue Fassung ausdruecklich
+anzugeben. Dieselbe Periode kann begruendet neu eingefroren werden; der
+Folgezeitraum muss lueckenlos anschliessen. Alte Fassungen bleiben unveraendert.
+Ein transaktionsgebundener Produktserien-Lock umfasst die konsistente
+Portfolio-Lesung und den atomaren neuen Aggregat-/Audit-/Outbox-Eintrag; keine
+separate Zaehlerreservierung und keine verschluckten Versionsluecken.
+Die Portfolio-Lesung bleibt eine eigene serialisierbare Lesetransaktion,
+nicht die Behauptung einer zeitgleichen Aenderung aller Quellaggregate.
+
+Der erste Einreichungstermin kommt aus dem kontrollierten Produktzeitplan.
+Folgeperioden oder Terminabweichungen brauchen einen ausdruecklichen Termin
+und eine Vereinbarungsreferenz; es gibt keine erfundene pauschale Tagesfrist
+nach Periodenende. Serienlose Altberichte werden nicht automatisch
+ruecknummeriert. Erneute Freigabe prueft Produktprofil und Vorberichtsstatus
+gegen die gebundenen SQL-Historienversionen.
+
+### Begruendete Mehrfamilien-Gruppierung
+
+`cohors-psur-group-1` bindet eine menschlich begruendete, versionierte
+Mitgliedschaft einschliesslich jeder Produktprofil-ID/-Version/-SHA256.
+Das feste Leitprodukt gehoert zur hoechsten Risikoklasse und alle Mitglieder
+brauchen dieselbe verantwortliche Benannte Stelle. Dieser Pilot verwendet
+ausschliesslich die synthetischen Klasse-III-Implantatfamilien. Die technische
+Testgruppierung belegt keine Eignung einer realen Produktkombination.
+Leitprodukt/Basic-UDI, BS, Serienreferenz und Zeitplananker koennen nicht
+still gewechselt werden. Mitglieder aendern sich nur ueber eine neue
+Definition und einen neuen Berichtssnapshot. Alte Berichte, Termine und
+Serien werden dadurch nicht geschlossen.
+
+Jede Basic-UDI behaelt einen eigenen vollstaendigen Snapshot mit Faellen,
+N/N2/N3/N4-/Regionszaehlern, Nennern, Kodierung, Massnahmen und Quellen.
+Evidenz und Verzeichnis werden pro Produkt gefiltert. Der fuehrende
+Snapshot ist exakt die Kopie des Leitprodukt-Mitglieds; die Gruppe bindet
+zusaetzlich alle anderen Mitglieder. Aktuelle Mitgliedschaft behauptet
+keine damalige historische Gruppenzugehoerigkeit. Keine produktuebergreifend
+gepoolte Inzidenz.
+
+Fuehrende Periodenverwendung ist pro **Basic-UDI**, nicht nur pro interner
+Produkt-ID, exklusiv. Ein zusaetzlicher Basic-UDI-Lock und ein hashgepruefter
+SQL-Metadatenabgleich verhindern eine Umgehung ueber interne Identifier.
+Dieser Abgleich liefert nur interne Periodenbelegungen; fremde klinische
+Snapshots werden nicht in die Nutzerausgabe oder den Agentenauftrag
+uebernommen. Nichtfuehrende Mitgliedschaft in einer weiteren Serie bleibt
+erlaubt. Alle Datenfenster und Vereinbarungen richten sich am festen
+Leitprodukt aus.
+
+Erstellung, Listen/Detail, Nachbearbeitung, beide Human Reviews, Simulation,
+Exports und AgentHost brauchen den **gesamten eingefrorenen Mitgliedsscope**,
+auch auf Idempotenz-/Retry-Pfaden. Eine spaeter verkleinerte Definition
+verkleinert nicht den Zugriffsschutz eines alten Snapshots. Abbruch und
+Anzeige gruppierter Agentenauftraege verwenden ebenfalls deren gebundenen
+Mitgliedsscope. Es gibt keine zusaetzliche Pflichtsignatur: Medical Safety
+und RA genehmigen denselben vollstaendigen Gruppen-Scope.
+
+Die PSUR-Ansicht bietet Definition/Revision, ausdrueckliche Serienwahl und
+eine Basic-UDI-Einzelauswertung fuer Tabellen und Dokumente. Gesamttext,
+Freigaben und Exports bleiben gruppenweit. Gruppierte Kennzahlenmarker sind
+produktqualifiziert, etwa `[metric:ortho:N:Worldwide:events=1]`; alte
+Einzelfamilienmarker bleiben unterstuetzt. Der Autorenvertrag ist
+`cohors-agent-contract-2026.2`.
+
+Erzeugte und menschlich revidierte PSUR-Narrative verwenden dieselbe endliche
+Obergrenze von 200.000 Zeichen. Ein bereits akzeptierter laengerer Entwurf
+wird bei der Bearbeitung nicht auf 60.000 Zeichen reduziert; keine Quelle
+oder Kennzahl wird abgeschnitten. Eine Textrevision loescht weiterhin alle
+Freigaben, laesst aber die eingefrorenen Snapshotbytes unveraendert.
+
+### Authentifizierte PSUR-Leseexports
+
+`GET /api/psurs/{id}/export/{json|pdf|zip}?version=N` prueft Produktscopes,
+erwartete Version, Snapshot-/Entwurfsscope und Auditmanifest.
+JSON behaelt den Originalbericht. PDF ist eine paginierte, gekennzeichnete
+Lesekopie, keine neue Signatur oder Annahme eines Behoerdenformats.
+ZIP enthaelt `report.json`, `snapshot.json`, `report.pdf`, `audit.json`,
+`metadata.json` und `checksums.json`; alle fuenf Nutzdateien sind gehasht.
+Gruppenmetadaten enthalten jede Mitgliedsprofil- und Snapshotbindung.
+Aktuelle Nachweisbefunde stehen neben dem unveraenderten Altbericht;
+fehlende historische Daten werden beim Export nicht ergaenzt.
+
+PDFsharp/PDFsharp-MigraDoc sind bewusst auf die MIT-Version **6.2.4** gepinnt.
+Kein stilles Upgrade auf einen anders lizenzierten Release. Unveraenderte
+OFL-Noto-Sans-Schriften, Lizenztexte und Provenienz stehen unter
+`src\Cohors.Api\ReportFonts`; Schriftbytes werden vor Verwendung geprueft.
 
 ## Entwurfsqualitaet und Quellen
 
@@ -69,19 +164,44 @@ Felder wurden nicht in die Laufzeitreferenz uebernommen.
 Nur Medical Safety kann konkrete Fallkodes mit Originalbelegen und Begruendung
 versionieren. Dies ersetzt keine Freigabe und macht bestehende Assessments/
 Pakete pruefbeduerftig. A/C/D/F-Mitgliedschaft, aktuelle Selektierbarkeit und
-Gruppierbarkeit sind getrennte Pruefungen. Retired D1401/D1402 duerfen nur als
-explizit belegte historische Originalkodierung vor dem Mappingstand erfasst
-werden; sie werden nicht still umgeschluesselt. C1901/C1902 bleiben gueltige
+Gruppierbarkeit sind getrennte Pruefungen. Retired D1401/D1402 sind fuer eine
+neue aktuelle Kodierung gesperrt. Historische Angaben werden unveraendert
+erhalten, aber nicht allein durch `HistoricalAsOf` als damals gueltig
+anerkannt. Sie werden nicht still umgeschluesselt. C1901/C1902 bleiben gueltige
 Mitglieder, ihre widerspruechliche Hierarchie wird aber nicht repariert und
 blockiert eine PSUR-Freigabe bis zur kontrollierten Klaerung.
 
 PSUR-Kodetabellen binden pro Periode/Region eindeutige Quellfallversionen,
-Originalkodes und Terme; gleiche Faelle zaehlen je Level-2-Gruppe (sonst Level 1)
-nur einmal. Historische Eintraege sind separat. F02/Death wird unabhaengig von
+Originalkodes und Terme; gleiche Faelle zaehlen je aktueller Level-2-Gruppe
+(sonst Level 1) nur einmal. Historische Originalzeilen sind separat und
+ungegroupiert. F02/Death wird unabhaengig von
 Haeufigkeit ausgewiesen; F01 oder die kombinierte Dringlichkeitsklasse Tod/
 Verschlechterung erzeugen keinen Todesfall. Fehlende Kodierung ist ausdruecklich
 unbekannt, kein Null-Todesfallnachweis. Auch ein intern konsistenter, neu
 gehashter PSUR darf den tatsaechlichen SQL-Quellinhalt nicht ersetzen.
+
+Ohne `HistoricalAsOf` ist die Erfassung eine **heutige retrospektive
+Kodierungsentscheidung** (`CurrentRetrospective`), auch bei einem alten
+Ereignis. Sie verwendet nur aktuell selektierbare Kodes. Mit
+`HistoricalAsOf` ist sie eine **behauptete damalige Originalangabe**:
+`HistoricalValidityUnknown` ohne spezifischen Beleg;
+`HistoricalOriginalDocumentedReleaseUnknown` nach einem exakt gebundenen
+synthetischen Beschwerde-/Befundauszug. Dieser muss ID, Version, Hash,
+Fundstelle, wortgetreues Zitat, Originalkode/-term, Datum und behaupteten
+Release enthalten. Ein beliebiger genehmigter Produktbeleg reicht nicht.
+Der Auszug belegt die Originalangabe, nicht die damalige Kataloggueltigkeit;
+deshalb auch dann keine automatische historische Level-2-Gruppierung.
+
+Das im gehashten FDA-Datensatz ausdruecklich genannte Einfuehrungsjahr ist
+eine negative Chronologiegrenze, kein rekonstruierter Mehrjahreskatalog:
+F0104 als 2025 und D1401 als 2023 werden als
+`HistoricalChronologyConflict` erhalten, ungegroupiert und mit Major-Befund
+versehen. Historische F02-Angaben werden unter `historicalDeathClaimed`
+separat von heutigen `deathCoded`-Kodierungen ausgegeben. Unbekannt bedeutet
+nicht null Todesfaelle. Herkunfts-/Belegaenderung ist eine neue
+Fall-/Kodierungsversion und invalidiert aktuelle Fallfreigaben; bestehende
+PSUR-Bytes bleiben identisch. Neue Freigabe/Simulation prueft die aktuellen
+Assurance-Regeln, statt frueher fehlende Herkunft im Hintergrund zu ergaenzen.
 
 Die strukturelle Assurance verlangt belegte Claims, aufloesbare fachliche Abschnittsbezüge und begruendete Empfehlungen. Leere Claims-/Empfehlungslisten sind kein QA-Pass. Reine Metadaten muessen nicht kuenstlich zitiert werden. Hash-/Zitatuebereinstimmung ist ein maschinell pruefbarer Mindeststandard, **kein semantischer Beweis**, dass die Quelle eine Schlussfolgerung traegt.
 

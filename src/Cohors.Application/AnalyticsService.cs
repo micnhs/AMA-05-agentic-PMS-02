@@ -69,6 +69,38 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
         }, ct);
     }
 
+    public async Task<Psur[]> ListPsurs(Actor actor, CancellationToken ct = default) =>
+        (await store.List<Psur>("psur", actor.Products, ct)).Where(p => PsurGroupRules.CanRead(p.Snapshot, actor)).ToArray();
+
+    public async Task<PsurGroupDefinition[]> ListGroups(Actor actor, CancellationToken ct = default) =>
+        (await store.List<PsurGroupDefinition>("psurGroup", actor.Products, ct))
+            .Where(g => g.Members.All(m => actor.Products.Contains(m.ProductId))).ToArray();
+
+    public async Task<PsurGroupDefinition> RecordGroup(RecordPsurGroupCommand input, Actor actor, string key, CancellationToken ct = default)
+    {
+        actor.RequireHuman(Roles.Pms, Roles.Medical);
+        actor.RequireProduct(input.LeadProductId);
+        var members = input.MemberProductIds ?? throw new DomainException("psur_group_members", "Explizite Gruppenmitglieder fehlen.");
+        foreach (var member in members) { actor.RequireProduct(member); policies.Device(member); }
+        var id = PsurGroupRules.Id(input.Reference);
+        var current = await store.Get<PsurGroupDefinition>("psurGroup", id, ct);
+        if (current is not null)
+        {
+            foreach (var member in current.Members) actor.RequireProduct(member.ProductId);
+            Guard.Against(current.ProductId != input.LeadProductId, "psur_group_identity", "Leitproduktwechsel braucht eine neue Serie; alte Pflichten bleiben bestehen.");
+        }
+        var profiles = await store.List<ProductGovernance>("productGovernance", members, ct);
+        return await store.Execute<PsurGroupDefinition>(new(id, "psurGroup", input.LeadProductId, input.ExpectedVersion, key,
+            "PsurGroupDefined", input.Rationale, actor, input, clock.GetUtcNow()), previous =>
+        {
+            if (previous is not null) foreach (var member in previous.Members) actor.RequireProduct(member.ProductId);
+            var definition = PsurGroupRules.Define(input.Reference, input.LeadProductId, members, input.FirstPeriodStart,
+                input.Rationale, input.ScheduleBasis, profiles, previous, clock.GetUtcNow());
+            foreach (var profile in profiles) GovernanceRules.RequireValid(profile, policies.Device(profile.ProductId));
+            return definition;
+        }, ct);
+    }
+
     public async Task<Psur> Freeze(FreezePsurCommand input, Actor actor, string key, CancellationToken ct = default)
     {
         actor.RequireHuman(Roles.Pms, Roles.Medical);
@@ -78,20 +110,60 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
         var id = "psur-" + Canonical.Hash(new { actor.Id, key })[..32];
         var context = new CommandContext(id, "psur", input.ProductId, 0, key, "PsurSnapshotFrozen",
             "Konsistenter versionierter SQL-Snapshot; offene Faelle und fehlende Vergleichsdaten bleiben sichtbar.", actor, input, clock.GetUtcNow());
-        if (await store.Receipt<Psur>(context, ct) is not null) return (await store.Get<Psur>("psur", id, ct))!;
-        var portfolio = await store.Capture([input.ProductId], ct);
-        var snapshot = PortfolioRules.Snapshot(new(input.ProductId, input.LeadProductId, input.Start, input.End, input.Region,
-            portfolio.Cases, portfolio.Exposures, portfolio.Trends, portfolio.Capas, portfolio.Evidence, portfolio.Changes, clock.GetUtcNow(), portfolio.History));
-        foreach (var evidence in snapshot.Documents) EvidenceRules.RequireIntegrity(evidence);
+        if (await store.Receipt<Psur>(context, ct) is not null) return await GetPsur(id, actor, ct);
+        var group = input.GroupId is null ? null : await store.Get<PsurGroupDefinition>("psurGroup", input.GroupId, ct)
+            ?? throw new DomainException("psur_group_missing", "Gewaehlte Gruppe fehlt.", 404);
+        Guard.Against(group is null ? input.GroupVersion is not null : group.Version != input.GroupVersion || group.ProductId != input.ProductId,
+            "psur_group_version", "Explizite aktuelle Gruppenversion und unveraendertes Leitprodukt erforderlich.", 409);
+        var products = group?.Members.Select(m => m.ProductId).ToArray() ?? [input.ProductId];
+        foreach (var product in products) actor.RequireProduct(product);
         var owner = Guid.NewGuid().ToString("N");
-        var saved = await store.Execute<Psur>(context, _ => new(id, 1, input.ProductId, snapshot, Canonical.Hash(snapshot),
-            "", "", "Authoring", [], null, true, [], input.Mode, null, owner), ct);
-        if (saved.ExecutionId != owner) return (await store.Get<Psur>("psur", id, ct))!;
+        var saved = await store.FreezePsur(context, new(products, group?.Id, policies.Device(input.ProductId).BasicUdi), portfolio =>
+        {
+            var governance = (portfolio.Governance ?? []).SingleOrDefault(p => p.ProductId == input.ProductId)
+                ?? throw new DomainException("psur_governance", "Kontrolliertes synthetisches Produktprofil fehlt.");
+            GovernanceRules.RequireValid(governance, policies.Device(input.ProductId));
+            var frozenGroup = group is null ? null : (portfolio.Groups ?? []).SingleOrDefault(g => g.Id == group.Id);
+            Guard.Against(group is not null && (frozenGroup is null || frozenGroup.Version != input.GroupVersion ||
+                Canonical.Hash(frozenGroup) != Canonical.Hash(group)), "psur_group_version", "Gruppierung wurde zwischenzeitlich geaendert.", 409);
+            if (frozenGroup is not null)
+            {
+                PsurGroupRules.Validate(frozenGroup, portfolio.Governance ?? []);
+                foreach (var member in frozenGroup.Members)
+                    GovernanceRules.RequireValid(portfolio.Governance!.Single(g => g.ProductId == member.ProductId), policies.Device(member.ProductId));
+            }
+            var series = PsurSeriesRules.Bind(new(input.ProductId, input.LeadProductId, input.Start, input.End,
+                input.PreviousReportId, input.PreviousReportVersion, input.SubmissionDate, input.ScheduleAgreement, input.RevisionReason),
+                governance, portfolio.Psurs ?? [], frozenGroup, portfolio.LeadingPeriods ??
+                    throw new DomainException("psur_period_source", "Die globale fuehrende Basic-UDI-Periodenbindung fehlt.", 409));
+            if (series.PreviousReport is { } previous)
+                PsurGroupRules.RequireScope(portfolio.Psurs!.Single(p => p.Id == previous.Source.Id).Snapshot, actor);
+            var frozenAt = clock.GetUtcNow();
+            PsurSnapshot CaptureFamily(string product, PsurSeries? familySeries) => PortfolioRules.Snapshot(new(product, product, input.Start, input.End, input.Region,
+                portfolio.Cases.Where(c => c.ProductId == product).ToArray(), portfolio.Exposures.Where(e => e.ProductId == product).ToArray(),
+                portfolio.Trends.Where(t => t.ProductId == product).ToArray(), portfolio.Capas.Where(c => c.ProductId == product).ToArray(),
+                portfolio.Evidence.Where(e => e.ProductId == product).ToArray(), portfolio.Changes.Where(c => c.ProductId == product).ToArray(),
+                frozenAt, portfolio.History, portfolio.SourceRuns?.Where(s => s.ProductId == product).ToArray()), familySeries);
+            var frozen = CaptureFamily(input.ProductId, series);
+            if (frozenGroup is not null)
+            {
+                var members = frozenGroup.Members.Select(member => new PsurGroupMember(member,
+                    portfolio.Governance!.Single(g => g.ProductId == member.ProductId),
+                    member.ProductId == input.ProductId ? frozen : CaptureFamily(member.ProductId, null))).ToArray();
+                frozen = frozen with { Group = new(PsurGroupRules.Contract, new(frozenGroup.Id, frozenGroup.Version, Canonical.Hash(frozenGroup)),
+                    frozenGroup, members, "Each Basic-UDI has separate cases, exposure, coding, actions and source manifests. No pooled incidence. Current grouping does not claim historical membership. Earlier series and obligations remain unchanged.") };
+            }
+            foreach (var evidence in PsurGroupRules.Documents(frozen)) EvidenceRules.RequireIntegrity(evidence);
+            return new(id, 1, input.ProductId, frozen, Canonical.Hash(frozen), "", "", "Authoring", [], null, true, [], input.Mode, null, owner);
+        }, ct);
+        PsurGroupRules.RequireScope(saved.Snapshot, actor);
+        if (saved.ExecutionId != owner) return await GetPsur(id, actor, ct);
+        var snapshot = saved.Snapshot;
         try
         {
             var output = await executions.Run(owner, input.ProductId,
-                new(AgentRole.PsurAuthoring, input.Mode, null, snapshot, null, snapshot.Documents,
-                    "Deutscher PSUR-Entwurf mit N/N2/N3/N4, getrennten Regionen und unbekannten Daten. Alle Kennzahlen mit [metric:Periode:Region:events|exposure=Wert] (unknown wenn unbekannt), explizite F02-Kodierungen getrennt mit [metric:Periode:Region:deathCoded=Wert]. Unvollstaendige Kodierung ist kein Null-Todesfallnachweis; A/C/D/F-Kodes und Terme sowie historische/gesperrte Gruppen transparent zeigen. Fallbelege [case:ID@Version], Dokumentbelege [evidence:ID@Version]. Medizinisch-technisch begruenden, keine autonome Risikoakzeptanz.", 0), ct);
+                new(AgentRole.PsurAuthoring, input.Mode, null, snapshot, null, PsurGroupRules.Documents(snapshot),
+                    "Deutscher PSUR-Entwurf mit N/N2/N3/N4, getrennten Regionen und unbekannten Daten. Alle Kennzahlen mit [metric:Periode:Region:events|exposure=Wert] (unknown wenn unbekannt), heutige F02-Kodierungen mit [metric:Periode:Region:deathCoded=Wert], historische nicht releasevalidierte F02-Angaben separat mit [metric:Periode:Region:historicalDeathClaimed=Wert]. Bei einer gebundenen Gruppe alle Marker zusaetzlich mit Produkt qualifizieren: [metric:Produkt:Periode:Region:Kennzahl=Wert]. Jede Basic-UDI einzeln auswerten; keine produktuebergreifende Ratenaddition. Historische Originalangabe und heute vorgenommene retrospektive Kodierung strikt trennen; weder alte Release-Gueltigkeit noch alte Hierarchie aus heutigen Metadaten erfinden. Unvollstaendige Kodierung ist kein Null-Todesfallnachweis. Fallbelege [case:ID@Version], Dokumentbelege [evidence:ID@Version]. Medizinisch-technisch begruenden, keine autonome Risikoakzeptanz.", 0), ct);
             return await store.Execute<Psur>(context with { ExpectedVersion = 1, IdempotencyKey = key + "-result",
                 Action = "PsurDrafted", Request = output, At = clock.GetUtcNow() }, value =>
             {
@@ -113,7 +185,7 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
     {
         actor.RequireHuman(Roles.Pms, Roles.Medical);
         var current = await GetPsur(id, actor, ct);
-        Guard.Text(input.Draft, "Ausfuehrlicher PSUR-Entwurf mit nachvollziehbaren Belegen", 300, 60000);
+        Guard.Text(input.Draft, "Ausfuehrlicher PSUR-Entwurf mit nachvollziehbaren Belegen", 300, AgentBoundary.MaximumNarrativeLength);
         Guard.Text(input.Reason, "Aenderungsbegruendung", 30);
         return await store.Execute<Psur>(new(id, "psur", current.ProductId, input.ExpectedVersion, key, "PsurRevised",
             input.Reason, actor, input, clock.GetUtcNow()), value =>
@@ -168,10 +240,10 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
         }, ct);
     }
 
-    private async Task<Psur> GetPsur(string id, Actor actor, CancellationToken ct)
+    public async Task<Psur> GetPsur(string id, Actor actor, CancellationToken ct = default)
     {
         var p = await store.Get<Psur>("psur", id, ct) ?? throw new DomainException("psur_missing", "PSUR fehlt.", 404);
-        actor.RequireProduct(p.ProductId);
+        PsurGroupRules.RequireScope(p.Snapshot, actor);
         return p;
     }
 
@@ -179,9 +251,42 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
     {
         Guard.Against(p.Snapshot.SourceManifest is null, "psur_numerator_provenance",
             "Historischer Bericht hat keinen hinreichenden Quellenstand; nicht still reparieren oder freigeben.");
-        var versions = (await store.History<SafetyCase>("case", [p.ProductId], ct))
+        var series = p.Snapshot.Series ?? throw new DomainException("psur_series_legacy",
+            "Altbericht ohne kontrollierte Serienbindung: keine stille Vervollstaendigung oder Freigabe.");
+        var products = PsurGroupRules.Products(p.Snapshot);
+        var profiles = await store.History<ProductGovernance>("productGovernance", products, ct);
+        Guard.Against(!profiles.Any(g => g.Id == series.GovernanceSource.Id && g.Version == series.GovernanceSource.Version &&
+            Canonical.Hash(g) == series.GovernanceSource.Hash), "psur_governance_source", "Gebundene Produktprofilversion fehlt oder wurde veraendert.", 409);
+        if (series.PreviousReport is { } previous)
+        {
+            var reports = await store.History<Psur>("psur", [p.ProductId], ct);
+            var prior = reports.SingleOrDefault(r => r.Id == previous.Source.Id && r.Version == previous.Source.Version);
+            Guard.Against(prior is null || Canonical.Hash(prior) != previous.Source.Hash ||
+                prior.Snapshot.Start != previous.Start || prior.Snapshot.End != previous.End ||
+                prior.Status != previous.Status || prior.NotifiedBodyReceipt != previous.SimulatedReceipt ||
+                prior.Snapshot.Series?.ReportVersion != previous.ReportVersion,
+                "psur_previous_source", "Gebundene PSUR-Vorfassung fehlt oder ihre Zusammenfassung wurde veraendert.", 409);
+        }
+        if (p.Snapshot.Group is { } group)
+        {
+            var definitions = await store.History<PsurGroupDefinition>("psurGroup", products, ct);
+            Guard.Against(!definitions.Any(g => g.Id == group.DefinitionSource.Id && g.Version == group.DefinitionSource.Version &&
+                Canonical.Hash(g) == group.DefinitionSource.Hash), "psur_group_source", "Gebundene Gruppendefinition fehlt oder wurde veraendert.", 409);
+            foreach (var member in group.Members)
+                Guard.Against(!profiles.Any(g => g.Id == member.Product.GovernanceSource.Id &&
+                    g.Version == member.Product.GovernanceSource.Version && Canonical.Hash(g) == member.Product.GovernanceSource.Hash),
+                    "psur_group_source", "Ein eingefrorenes Mitgliedsprofil stimmt nicht mit der SQL-Historie ueberein.", 409);
+        }
+        foreach (var family in PsurGroupRules.Snapshots(p.Snapshot)) await VerifyFamilySourceVersions(family, ct);
+    }
+
+    private async Task VerifyFamilySourceVersions(PsurSnapshot snapshot, CancellationToken ct)
+    {
+        Guard.Against(snapshot.SourceManifest is null, "psur_numerator_provenance", "Quellenmanifest einer ausgewiesenen Familie fehlt.", 409);
+        var capturedHistory = (await store.Capture([snapshot.ProductId], ct)).History ?? [];
+        var versions = (await store.History<SafetyCase>("case", [snapshot.ProductId], ct))
             .ToDictionary(c => (c.Id, c.Version));
-        foreach (var source in p.Snapshot.SourceManifest!.Cases)
+        foreach (var source in snapshot.SourceManifest!.Cases)
         {
             foreach (var reference in new[] { source.Reference, source.CutoffVersion }.OfType<VersionReference>())
                 Guard.Against(!versions.TryGetValue((reference.Id, reference.Version), out var value) || Canonical.Hash(value) != reference.Hash,
@@ -192,6 +297,50 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
                 source.SystemReceivedAt != actual.SystemReceivedAt || source.Synthetic != actual.Synthetic ||
                 Canonical.Hash(source.Coding) != Canonical.Hash(actual.Coding), "psur_source_content",
                 "Metadaten oder Kodierung des Quellenmanifests widersprechen der gebundenen SQL-Fallversion.", 409);
+            var cutoff = capturedHistory.Where(h => h.Kind == "case" && h.Id == source.Reference.Id &&
+                    h.Version <= source.Reference.Version && h.At < snapshot.SourceManifest.KnowledgeCutoffExclusiveUtc)
+                .OrderByDescending(h => h.Version).FirstOrDefault();
+            var expectedStatus = source.FirstAwarenessAt >= snapshot.SourceManifest.KnowledgeCutoffExclusiveUtc ? "NotKnownAtCutoff" :
+                cutoff is null ? "NotRecordedAtCutoff" : Canonical.Read<SafetyCase>(cutoff.Json).Stage.ToString();
+            Guard.Against(source.CutoffVersion != (cutoff is null ? null : new VersionReference(cutoff.Id, cutoff.Version, cutoff.Hash)) ||
+                source.StatusAtCutoff != expectedStatus, "psur_cutoff_source", "Historischer Fallstatus ist nicht durch die tatsaechliche SQL-Stichtagsversion belegt.", 409);
+        }
+        if (snapshot.Actions is { } actions)
+        {
+            await VerifyActionSources("capa", actions.Capas, v => v.Id, v => v.Version);
+            await VerifyActionSources("change", actions.Changes, v => v.Id, v => v.Version);
+        }
+        async Task VerifyActionSources<T>(string kind, PsurActionState<T>[] sources, Func<T, string> id, Func<T, int> version) where T : class
+        {
+            var history = (await store.History<T>(kind, [snapshot.ProductId], ct))
+                .Select(v => new VersionReference(id(v), version(v), Canonical.Hash(v))).ToHashSet();
+            Guard.Against(sources.SelectMany(s => new[] { s.CurrentSource, s.CutoffSource }.OfType<VersionReference>())
+                .Any(source => !history.Contains(source)), "psur_action_source", "Gebundene aktuelle/historische Massnahmenversion fehlt oder wurde veraendert.", 409);
+            foreach (var source in sources)
+            {
+                var cutoff = capturedHistory.Where(h => h.Kind == kind && h.Id == source.CurrentSource.Id &&
+                        h.Version <= source.CurrentSource.Version && h.At < PsurSources.EndExclusive(snapshot.End))
+                    .OrderByDescending(h => h.Version).FirstOrDefault();
+                Guard.Against(source.CutoffSource != (cutoff is null ? null : new VersionReference(cutoff.Id, cutoff.Version, cutoff.Hash)) ||
+                    source.RecordedAtCutoff != cutoff?.At, "psur_action_cutoff",
+                    "Massnahmenstichtag oder gewaehlte historische Version widerspricht der SQL-Historie.", 409);
+            }
+        }
+        if (snapshot.Directory is { } directory)
+        {
+            await VerifyDirectory<Evidence>("evidence", v => v.Id, v => v.Version);
+            await VerifyDirectory<Exposure>("exposure", v => v.Id, v => v.Version);
+            await VerifyDirectory<TrendRun>("trend", v => v.Id, v => v.Version);
+            await VerifyDirectory<PublicSourceRun>("source", v => v.Id, v => v.Version);
+            async Task VerifyDirectory<T>(string kind, Func<T, string> id, Func<T, int> version)
+            {
+                var required = directory.Entries.Where(e => e.Kind == kind).Select(e => e.Source).ToArray();
+                if (required.Length == 0) return;
+                var history = (await store.History<T>(kind, [snapshot.ProductId], ct))
+                    .Select(v => new VersionReference(id(v), version(v), Canonical.Hash(v))).ToHashSet();
+                Guard.Against(required.Any(r => !history.Contains(r)), "psur_directory_source",
+                    "Ein verwendeter oder ausgeschlossen dokumentierter Datensatz stimmt nicht mit seiner SQL-Version ueberein.", 409);
+            }
         }
     }
 
@@ -201,6 +350,9 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
             "psur_hash", "PSUR-Snapshot, Fassung oder Simulatorbindung wurde veraendert.", 409);
         Guard.Against(PsurSources.Check(p.Snapshot).Any(f => f.Severity == "Critical"), "psur_numerator_provenance",
             "Unvollstaendiger Stichtags-/Quellenstand: keine Freigabe oder Simulation. Explizit einen neuen pruefbaren Snapshot erstellen.");
+        Guard.Against(PsurSeriesRules.Check(p.Snapshot).Length != 0, "psur_series_integrity", "PSUR-Serien- und Zeitplanbindung ist nicht vollstaendig.");
+        Guard.Against(PortfolioRules.CheckPsur(p.Snapshot, p.Draft).Any(f => f.Severity is "Critical" or "Major"),
+            "psur_assurance", "Aktuelle Nachweisregeln verhindern die Freigabe/Simulation; bestehenden Snapshot nicht still korrigieren.");
     }
 
     private static bool IsAuthoringFailure(Exception ex) => ex is DomainException or AgentExecutionException or HttpRequestException or

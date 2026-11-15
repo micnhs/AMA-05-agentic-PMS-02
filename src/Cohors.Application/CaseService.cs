@@ -528,10 +528,22 @@ public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyC
         Guard.Against(input.EvidenceIds is not { Length: > 0 } || input.EvidenceIds.Any(e =>
             !c.Evidence.Any(source => source.Id == e && source.Approved && source.Kind != "Coding")),
             "coding_evidence", "Konkrete freigegebene Fallbelege erforderlich; die eigene Kodierung ist kein unabhaengiger Beleg.");
+        var proofs = input.HistoricalProofs ?? [];
+        Guard.Against(proofs.Any(p => p is null || !input.Codes.Contains(p.Code, StringComparer.Ordinal)) ||
+            proofs.Select(p => p.Code).Distinct(StringComparer.Ordinal).Count() != proofs.Length ||
+            proofs.Length > 0 && input.HistoricalAsOf is null, "coding_original_proof", "Historische Belege muessen eindeutig auf die behaupteten historischen Kodes passen.");
+        foreach (var proof in proofs)
+        {
+            var index = Array.FindIndex(assigned, code => code.Source.Code == proof.Code);
+            assigned[index] = CodingRules.BindOriginal(assigned[index], proof, input.HistoricalAsOf, c.Evidence, input.EvidenceIds);
+            await objects.Read(proof.EvidenceHash, ct);
+        }
         var citations = c.Evidence.Where(e => input.EvidenceIds.Contains(e.Id, StringComparer.Ordinal))
             .Select(e => new Citation(e.Id, e.Hash, e.Locator, e.Content[..Math.Min(e.Content.Length, 400)])).ToArray();
         var coding = new CaseCoding((c.Coding?.Version ?? 0) + 1, catalog.Reference.ReleaseId, catalog.Hash,
-            assigned, citations, input.Rationale, actor.Id, clock.GetUtcNow(), input.HistoricalAsOf);
+            assigned, citations, input.Rationale, actor.Id, clock.GetUtcNow(), input.HistoricalAsOf,
+            input.HistoricalAsOf is null ? "CurrentRetrospective" : "ClaimedHistoricalOriginal",
+            CodingRules.HistoricalFindings(assigned, input.HistoricalAsOf));
         var content = Canonical.Serialize(coding);
         var hash = await objects.Put(content, ct);
         return await store.Execute<SafetyCase>(Context(c, input.ExpectedVersion, key, "CaseCodingRecorded", input.Rationale, actor, input), value =>

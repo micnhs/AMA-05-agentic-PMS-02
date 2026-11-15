@@ -151,7 +151,68 @@ function Assert-RecoverySeparatePaths([string]$First, [string]$Second) {
     }
 }
 
-function Get-RecoveryReferences([string[]]$Payloads) {
+function Convert-RecoveryRetentionRecord($Node) {
+    if ($Node.contract -cne 'cohors-retention-record-1') { throw 'recovery_retention_contract: Unknown retention record.' }
+    $value = [Text.Json.JsonSerializer]::Deserialize((ConvertTo-Json -InputObject $Node -Depth 100 -Compress),
+        [Cohors.Domain.RetentionRecord], [Cohors.Domain.Canonical]::Json)
+    if (-not $value.Synthetic -or $value.PolicyVersion -cne [Cohors.Domain.RetentionRules]::PolicyVersion) {
+        throw 'recovery_retention_contract: Only the explicit versioned synthetic retention profile is supported.'
+    }
+    [Cohors.Domain.RetentionRules]::RequireObject($value.Object)
+    return $value
+}
+
+function Get-RecoveryRetentionBinding($Node) {
+    return Get-RecoveryHash ([ordered]@{
+        id = $Node.id; productId = $Node.productId; object = $Node.object
+        policyVersion = $Node.policyVersion; reference = $Node.reference
+        receivedAt = $Node.receivedAt; recordedAt = $Node.recordedAt; synthetic = $Node.synthetic
+    })
+}
+
+function Get-RecoveryRetentionCut($Aggregates) {
+    $result = @()
+    foreach ($row in $Aggregates | Where-Object { $_.Kind -ceq 'retention' } | Sort-Object { $_.Id } -CaseSensitive) {
+        $node = ConvertFrom-Json -InputObject $row.Json -AsHashtable -Depth 100 -DateKind String
+        $value = Convert-RecoveryRetentionRecord $node
+        if ($value.Id -cne $row.Id -or $value.Version -ne $row.Version -or $value.ProductId -cne $row.ProductId) {
+            throw 'recovery_retention_contract: Retention identity/version differs from SQL.'
+        }
+        if ($value.Object.DataClass -cne [Cohors.Domain.RetentionRules]::Raw) { continue }
+        if ($value.Status -cnotin @('Registered', 'Held', 'Authorized', 'Deleted')) {
+            throw 'recovery_retention_incomplete: Reconcile in-flight/failed physical retention before capturing a cut.'
+        }
+        if ($value.Authorization -and
+            ($value.Authorization.ScopeHash -cne [Cohors.Domain.RetentionRules]::Scope($value, $null) -or
+             -not $value.Authorization.ExternalCopiesReviewed)) {
+            throw 'recovery_retention_authorization: Raw authorization is not bound to this scope.'
+        }
+        $receiptHash = $null
+        if ($value.Status -ceq 'Deleted') {
+            if (-not $value.Deletion -or -not $value.Authorization -or $value.LegalHold) {
+                throw 'recovery_retention_receipt: A deleted raw object needs its exact authorized receipt without hold.'
+            }
+            [Cohors.Domain.RetentionRules]::RequireDeletionReceipt($value, $value.Deletion)
+            $evaluation = [Cohors.Domain.RetentionRules]::Evaluate($value, $null, $value.Deletion.At, 0, $true)
+            if ($evaluation.MinimumIntervalElapsed -ne $true -or $value.Deletion.At -lt $value.Authorization.At) {
+                throw 'recovery_retention_receipt: Deletion predates its minimum or authorization.'
+            }
+            $receiptHash = [Cohors.Domain.Canonical]::Hash[Cohors.Domain.ObjectDeletionReceipt]($value.Deletion)
+        } elseif ($value.Deletion -or ($value.Status -ceq 'Authorized' -and -not $value.Authorization)) {
+            throw 'recovery_retention_contract: Inconsistent raw retention state.'
+        }
+        $result += [ordered]@{
+            id = $value.Id; version = $value.Version; productId = $value.ProductId
+            sourceHash = [Cohors.Domain.Canonical]::HashText($row.Json)
+            bindingHash = Get-RecoveryRetentionBinding $node
+            objectKey = $value.Object.ObjectKey; objectHash = $value.Object.Hash; status = $value.Status
+            deletionReceiptHash = $receiptHash
+        }
+    }
+    return [ordered]@{ contract = 'cohors-retention-cut-1'; rows = $result }
+}
+
+function Get-RecoveryReferences([string[]]$Payloads, $RetentionCut) {
     $hashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $parsed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $pending = [Collections.Generic.Stack[object]]::new()
@@ -164,7 +225,26 @@ function Get-RecoveryReferences([string[]]$Payloads) {
         }
         if ($node -is [Collections.IDictionary]) {
             $references = [Collections.Generic.List[string]]::new()
-            if ($node.Contains('objectKey')) {
+            $retentionRecord = $node.Contains('contract') -and $node.contract -ceq 'cohors-retention-record-1'
+            if ($retentionRecord) {
+                $value = Convert-RecoveryRetentionRecord $node
+                if ($value.Object.DataClass -ceq [Cohors.Domain.RetentionRules]::Raw) {
+                    $current = @($RetentionCut.rows | Where-Object { $_.id -ceq $value.Id })
+                    if ($current.Count -ne 1 -or $current[0].version -lt $value.Version -or
+                        $current[0].bindingHash -cne (Get-RecoveryRetentionBinding $node)) {
+                        throw 'recovery_retention_binding: Historical raw identity or immutable binding differs.'
+                    }
+                    if ($current[0].status -cne 'Deleted') { $references.Add($value.Object.ObjectKey) }
+                } else { $references.Add($value.Object.ObjectKey) }
+            } elseif ($node.Contains('objectKey') -and $node.Contains('contract') -and
+                $node.contract -ceq [Cohors.Domain.RetentionRules]::ObjectContract) {
+                $binding = [Text.Json.JsonSerializer]::Deserialize(
+                    (ConvertTo-Json -InputObject $node -Depth 100 -Compress),
+                    [Cohors.Domain.RetentionObjectBinding], [Cohors.Domain.Canonical]::Json)
+                [Cohors.Domain.RetentionRules]::RequireObject($binding)
+                # An independent binding remains required even when its own raw record says Deleted.
+                $references.Add($binding.ObjectKey)
+            } elseif ($node.Contains('objectKey')) {
                 $evidence = [Text.Json.JsonSerializer]::Deserialize(
                     (ConvertTo-Json -InputObject $node -Depth 100 -Compress),
                     [Cohors.Domain.Evidence], [Cohors.Domain.Canonical]::Json)
@@ -185,10 +265,13 @@ function Get-RecoveryReferences([string[]]$Payloads) {
                 foreach ($hash in $node.attachmentHashes) { $references.Add($hash) }
             }
             foreach ($hash in $references) {
-                if ($hash -cnotmatch '^[a-f0-9]{64}$') { throw 'recovery_reference: Invalid content-addressed reference.' }
+                if ($hash -cnotmatch '^([a-f0-9]{64}|raw-quarantine/[a-f0-9]{64})$') {
+                    throw 'recovery_reference: Invalid content-addressed or explicitly classified raw reference.'
+                }
                 $hashes.Add($hash) | Out-Null
             }
             foreach ($entry in $node.GetEnumerator()) {
+                if ($retentionRecord -and $entry.Key -in @('object', 'deletion')) { continue }
                 if ($entry.Value -is [Collections.IDictionary] -or $entry.Value -is [array]) {
                     $pending.Push($entry.Value)
                 } elseif ($entry.Key -in @('Json', 'Payload', 'Result', 'frozenJson', 'inputJson', 'outputJson') -and $entry.Value) {
@@ -312,7 +395,29 @@ function Get-RecoveryState($Connection, $Config) {
         }
     }
     $payloads = @($rows.Aggregates.Json) + @($rows.AggregateVersions.Json) + @($rows.Commands.Result) + @($rows.Outbox.Payload)
-    return @{ tables = $tables; references = (Get-RecoveryReferences $payloads) }
+    $retention = Get-RecoveryRetentionCut $rows.Aggregates
+    return @{ tables = $tables; references = (Get-RecoveryReferences $payloads $retention); retention = $retention }
+}
+
+function Get-RecoveryObjectKey($Item) {
+    if (-not $Item.Contains('dataClass')) {
+        if ($Item.hash -cnotmatch '^[a-f0-9]{64}$') { throw 'recovery_manifest: Invalid regulatory object address.' }
+        return $Item.hash
+    }
+    if ($Item.dataClass -ceq 'RawQuarantine' -and $Item.objectKey -ceq ('raw-quarantine/' + $Item.hash) -and
+        $Item.hash -cmatch '^[a-f0-9]{64}$') { return $Item.objectKey }
+    if ($Item.dataClass -ceq 'RawDeletionJournal' -and $Item.objectHash -cmatch '^[a-f0-9]{64}$' -and
+        $Item.objectKey -ceq ('.deletion-receipts/' + $Item.objectHash + '.json') -and $Item.hash -cmatch '^[a-f0-9]{64}$') {
+        return $Item.objectKey
+    }
+    throw 'recovery_manifest: Unknown object data class or relative address.'
+}
+
+function Get-RecoveryObjectPath([string]$Root, $Item) {
+    $key = Get-RecoveryObjectKey $Item
+    $parts = $key.Split('/')
+    if ($parts.Count -eq 1) { return Join-Path $Root $parts[0] }
+    return Join-Path (Join-Path $Root $parts[0]) $parts[1]
 }
 
 function Get-RecoveryObjects([string]$Directory) {
@@ -321,33 +426,115 @@ function Get-RecoveryObjects([string]$Directory) {
         throw 'recovery_object_missing: The explicit object root is missing.'
     }
     $result = @()
-    foreach ($file in Get-ChildItem -LiteralPath $directory -Force | Sort-Object Name -CaseSensitive) {
-        if ($file.PSIsContainer -or $file.Name -cnotmatch '^[a-f0-9]{64}$' -or $file.LinkTarget) {
-            throw 'recovery_object_shape: Only flat, regular content-addressed files are accepted.'
+    $files = @()
+    foreach ($entry in Get-ChildItem -LiteralPath $directory -Force | Sort-Object Name -CaseSensitive) {
+        if ($entry.LinkTarget) { throw 'recovery_object_shape: Linked object entries are not accepted.' }
+        if ($entry.PSIsContainer) {
+            if ($entry.Name -cnotin @('raw-quarantine', '.deletion-receipts')) {
+                throw 'recovery_object_shape: Unknown object data-class directory.'
+            }
+            foreach ($file in Get-ChildItem -LiteralPath $entry.FullName -Force | Sort-Object Name -CaseSensitive) {
+                if ($file.PSIsContainer -or $file.LinkTarget) { throw 'recovery_object_shape: Nested or linked object entries are not accepted.' }
+                $files += @{ file = $file; area = $entry.Name }
+            }
+        } else { $files += @{ file = $entry; area = '' } }
+    }
+    foreach ($entry in $files) {
+        $file = $entry.file
+        $journal = $entry.area -ceq '.deletion-receipts'
+        if (($journal -and $file.Name -cnotmatch '^[a-f0-9]{64}\.json$') -or
+            (-not $journal -and $file.Name -cnotmatch '^[a-f0-9]{64}$')) {
+            throw 'recovery_object_shape: Invalid file in the declared object data class.'
         }
         $stream = [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
         try {
             $hash = [Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData($stream))
-            if ($hash -cne $file.Name) { throw 'recovery_object_hash: Object bytes differ from their address.' }
-            $result += [ordered]@{ hash = $hash; length = $stream.Length }
+            if (-not $journal -and $hash -cne $file.Name) { throw 'recovery_object_hash: Object bytes differ from their address.' }
+            if ($journal) {
+                $result += [ordered]@{ dataClass = 'RawDeletionJournal'; objectKey = '.deletion-receipts/' + $file.Name
+                    objectHash = [IO.Path]::GetFileNameWithoutExtension($file.Name); hash = $hash; length = $stream.Length }
+            } elseif ($entry.area -ceq 'raw-quarantine') {
+                $result += [ordered]@{ dataClass = 'RawQuarantine'; objectKey = 'raw-quarantine/' + $file.Name; hash = $hash; length = $stream.Length }
+            } else { $result += [ordered]@{ hash = $hash; length = $stream.Length } }
         } finally { $stream.Dispose() }
     }
-    return ,$result
+    return ,@($result | Sort-Object { Get-RecoveryObjectKey $_ } -CaseSensitive)
 }
 
 function Assert-RecoveryCoverage($State, $Objects) {
     $available = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    foreach ($item in $Objects) { $available.Add($item.hash) | Out-Null }
+    foreach ($item in $Objects) {
+        if (-not $available.Add((Get-RecoveryObjectKey $item))) { throw 'recovery_object_inventory: Duplicate relative object key.' }
+    }
+    $retention = if ($State.Contains('retention')) { $State.retention } else { @{ contract = 'cohors-retention-cut-1'; rows = @() } }
+    if ($retention.contract -cne 'cohors-retention-cut-1') { throw 'recovery_retention_contract: Unknown retention cut.' }
+    foreach ($raw in $retention.rows) {
+        if ($raw.objectHash -cnotmatch '^[a-f0-9]{64}$' -or $raw.objectKey -cne ('raw-quarantine/' + $raw.objectHash)) {
+            throw 'recovery_retention_contract: Invalid raw address.'
+        }
+        $journalKey = '.deletion-receipts/' + $raw.objectHash + '.json'
+        if ($raw.status -ceq 'Deleted') {
+            if ($State.references -ccontains $raw.objectHash -or $State.references -ccontains $raw.objectKey) {
+                throw 'recovery_retention_reference: A deletion receipt cannot waive a retained regulatory, independent or historical binding.'
+            }
+            if ($available.Contains($raw.objectKey) -or $available.Contains($raw.objectHash)) {
+                throw 'recovery_retention_resurrection: Deleted raw bytes reappeared in the object cut.'
+            }
+            $journal = @($Objects | Where-Object { (Get-RecoveryObjectKey $_) -ceq $journalKey })
+            if ($journal.Count -ne 1 -or $journal[0].hash -cne $raw.deletionReceiptHash) {
+                throw 'recovery_retention_receipt: The exact canonical physical deletion receipt is missing or differs.'
+            }
+        } elseif ($raw.status -cnotin @('Registered', 'Held', 'Authorized') -or $available.Contains($journalKey)) {
+            throw 'recovery_retention_incomplete: In-flight physical deletion is not a consistent backup cut.'
+        } elseif (-not $available.Contains($raw.objectKey)) {
+            throw 'recovery_reference_coverage: Active raw bytes are missing.'
+        }
+    }
+    foreach ($item in $Objects | Where-Object { $_.Contains('dataClass') }) {
+        $hash = if ($item.dataClass -ceq 'RawDeletionJournal') { $item.objectHash } else { $item.hash }
+        if (@($retention.rows | Where-Object { $_.objectHash -ceq $hash }).Count -ne 1) {
+            throw 'recovery_retention_untracked: Raw bytes or journal lack a unique authoritative retention record.'
+        }
+    }
     foreach ($hash in $State.references) {
         if (-not $available.Contains($hash)) { throw 'recovery_reference_coverage: SQL references bytes absent from this object cut.' }
     }
 }
 
+function Assert-RecoveryRetentionCheckpoint($Manifest, [string]$Path, [string]$Sha256, [bool]$ConfirmedCurrent) {
+    $rows = if ($Manifest.Contains('retention')) { @($Manifest.retention.rows) } else { @() }
+    if ($rows.Count -eq 0) { return @{ required = $false; automaticFreshnessProof = $false } }
+    if (-not $Path -or $Sha256 -cnotmatch '^[a-f0-9]{64}$' -or -not $ConfirmedCurrent) {
+        throw 'recovery_retention_checkpoint: Explicit current retention manifest, independent digest and operator freshness confirmation are required.'
+    }
+    $path = Assert-RecoveryPath $Path
+    $lock = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        if ((Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant() -cne $Sha256) {
+            throw 'recovery_retention_checkpoint: Current retention manifest differs from its independent digest.'
+        }
+        $current = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable -Depth 100 -DateKind String
+        if ($current.format -cne 'cohors-local-recovery-2' -or $current.syntheticOnly -ne $true -or
+            $current.schemaVersion -ne $Manifest.schemaVersion -or $current.sourceDatabase -cne $Manifest.sourceDatabase -or
+            -not $current.Contains('retention')) {
+            throw 'recovery_retention_checkpoint: The current catalogue does not bind this source/profile.'
+        }
+        Assert-RecoveryCoverage $current $current.objects
+        if ((Get-RecoveryHash $current.retention) -cne (Get-RecoveryHash $Manifest.retention)) {
+            throw 'recovery_retention_stale_cut: Raw retention changed after this backup. Use a newer consistent cut; no automatic resurrection or SQL overlay.'
+        }
+    } finally { $lock.Dispose() }
+    return @{ required = $true; manifestSha256 = $Sha256; operatorConfirmedCurrent = $true; automaticFreshnessProof = $false }
+}
+
 function Copy-RecoveryObjects([string]$Source, [string]$Destination, $Objects) {
     foreach ($item in $Objects) {
-        $inputStream = [IO.File]::Open((Join-Path $Source $item.hash), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        $sourcePath = Get-RecoveryObjectPath $Source $item
+        $destinationPath = Get-RecoveryObjectPath $Destination $item
+        [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($destinationPath)) | Out-Null
+        $inputStream = [IO.File]::Open($sourcePath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
         try {
-            $outputStream = [IO.File]::Open((Join-Path $Destination $item.hash), [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            $outputStream = [IO.File]::Open($destinationPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
             try { $inputStream.CopyTo($outputStream); $outputStream.Flush($true) }
             finally { $outputStream.Dispose() }
         } finally { $inputStream.Dispose() }
@@ -356,7 +543,11 @@ function Copy-RecoveryObjects([string]$Source, [string]$Destination, $Objects) {
 
 function Remove-RecoveryObjects([string]$Directory, $Objects) {
     $directory = Assert-RecoveryPath $Directory
-    foreach ($item in $Objects) { [IO.File]::Delete((Join-Path $directory $item.hash)) }
+    foreach ($item in $Objects) { [IO.File]::Delete((Get-RecoveryObjectPath $directory $item)) }
+    foreach ($area in @('raw-quarantine', '.deletion-receipts')) {
+        $child = Join-Path $directory $area
+        if ([IO.Directory]::Exists($child)) { [IO.Directory]::Delete($child, $false) }
+    }
     if (Test-Path -LiteralPath $directory) { [IO.Directory]::Delete($directory, $false) }
 }
 
@@ -394,10 +585,10 @@ try {
     Invoke-RecoveryDocker @('exec', $config.containerId, 'rm', '--', $native) | Out-Null
     $nativeCreated = $false
     $manifest = [ordered]@{
-        format = 'cohors-local-recovery-1'; schemaVersion = [Cohors.Infrastructure.SqlStateStore]::SchemaVersion
+        format = 'cohors-local-recovery-2'; schemaVersion = [Cohors.Infrastructure.SqlStateStore]::SchemaVersion
         syntheticOnly = $true; capturedAt = [DateTimeOffset]::UtcNow.ToString('O')
         sourceDatabase = $config.database; databaseSha256 = (Get-FileHash -LiteralPath (Join-Path $backup 'database.bak')).Hash.ToLowerInvariant()
-        tables = $before.tables; references = $before.references; objects = $objects
+        tables = $before.tables; references = $before.references; objects = $objects; retention = $before.retention
         cut = 'Explicitly quiesced, READ_ONLY SQL; verified object inventory before and after copy. No distributed transaction.'
         search = 'Rebuild KnowledgeSearch without SearchClient; SQL-derived local projection, not Azure AI Search.'
         externalLedgerWitness = $false

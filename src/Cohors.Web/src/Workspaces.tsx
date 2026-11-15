@@ -1,17 +1,101 @@
 import { useEffect, useState } from 'react'
 import { Activity, ArrowUpRight, CheckCheck, Download, FileCheck2, FileText, Fingerprint, Link2, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
-import { api } from './api'
-import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Evidence, Psur, SourceRun, Trend } from './types'
+import { api, downloadApi } from './api'
+import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Evidence, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, RetentionRecord, RetentionView, SourceRun, Trend, VersionReference } from './types'
 import { Badge, date, Empty, ErrorBanner, hash, label, Loading, SectionHead, type Dialog, type Field } from './ui'
 
 function useData<T>(path: string, revision: number) {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState('')
-  useEffect(() => { let active = true; setError(''); api<T>(path).then(data => { if (active) setData(data) }).catch(e => { if (active) setError(e.message) }); return () => { active = false } }, [path, revision])
+  useEffect(() => { let active = true; setData(null); setError(''); api<T>(path).then(data => { if (active) setData(data) }).catch(e => { if (active) setError(e.message) }); return () => { active = false } }, [path, revision])
   return { data, error }
 }
 type WorkspaceProps = { actor: Actor; revision: number; mutate: (path: string, body: unknown) => Promise<void>; openDialog: (d: Dialog) => void }
 const reason: Field = { name: 'reason', label: 'Begründung / fachliche Entscheidung', type: 'textarea', minLength: 20 }
+
+const retentionNames: Record<string, string> = {
+  Registered: 'Registriert', Held: 'Hold aktiv', Authorized: 'Löschung autorisiert', Deleting: 'Vorgang begonnen',
+  DeletionFailed: 'Teilvorgang offen', Deleted: 'Lokal gelöscht',
+  lifecycle_missing_or_unconfirmed: 'Letztes Inverkehrbringen fehlt oder ist unbestätigt.',
+  minimum_interval_not_elapsed: 'Mindestintervall ist nicht nachweislich abgelaufen.',
+  regulatory_deletion_not_authorized_in_pilot: 'Regulatorische Evidenz wird im Piloten nicht physisch gelöscht.',
+  physical_profile_not_enabled: 'Das isolierte lokale Löschprofil ist nicht aktiviert.',
+  legal_hold: 'Ein aktiver Hold sperrt die Löschung.',
+  retained_current_or_historical_reference: 'Aktuelle, historische oder eingefrorene Bindungen bleiben erhalten.',
+  already_deleted: 'Ein abgeschlossener lokaler Löschbeleg liegt vor.',
+  explicit_scoped_authorization_required: 'Explizite menschliche Freigabe einschließlich Kopienprüfung fehlt.',
+}
+
+export function RetentionWorkspace({ actor, revision, mutate, openDialog }: WorkspaceProps) {
+  const [localRevision, setLocalRevision] = useState(0)
+  const [product, setProduct] = useState(actor.products[0])
+  const [selected, setSelected] = useState('')
+  const currentRevision = revision + localRevision
+  const records = useData<RetentionRecord[]>('/retention', currentRevision)
+  const lifecycles = useData<ProductLifecycle[]>('/product-lifecycles', currentRevision)
+  const evidence = useData<Evidence[]>('/evidence', currentRevision)
+  const policy = useData<{ policyVersion: string; localPhysicalProfile: boolean }>('/retention/policy', currentRevision)
+  const submit = async (path: string, body: unknown) => { try { await mutate(path, body) } finally { setLocalRevision(r => r + 1) } }
+  const error = records.error || lifecycles.error || evidence.error || policy.error
+  if (error) return <ErrorBanner message={error} />
+  if (!records.data || !lifecycles.data || !evidence.data || !policy.data) return <Loading />
+  const lifecycle = lifecycles.data.find(p => p.productId === product)
+  const documents = evidence.data.filter(e => e.productId === product && e.synthetic && e.approved &&
+    !records.data!.some(r => r.reference === `${e.id}@${e.version}`))
+  const quality = actor.roles.includes('QualityManager')
+  const changeLifecycle = () => openDialog({ title: 'Synthetischen Lifecycle dokumentieren', description: 'Nur bestätigtes letztes Inverkehrbringen bestimmt die Mindestfrist. Fehlende Daten bleiben unbekannt. Dies beendet keine PMS-/PSUR-Pflichten.',
+    fields: [{ name: 'lastPlacingOnMarketLocalDate', label: 'Letztes Inverkehrbringen (Kalendertag, falls bekannt)', type: 'date', required: false, value: lifecycle?.lastPlacingOnMarketLocalDate ?? '' },
+      { name: 'confirmed', label: 'Durch synthetischen Beleg bestätigt', type: 'select', value: String(lifecycle?.confirmed ?? false), options: [{ value: 'false', label: 'Nicht bestätigt / unbekannt' }, { value: 'true', label: 'Ausdrücklich bestätigt' }] },
+      { name: 'sourceReference', label: 'Synthetischer Herkunftsbeleg (DEMO-...)', value: lifecycle?.sourceReference ?? 'DEMO-LAST-PLACING-', minLength: 10 }, { ...reason, minLength: 40 }],
+    onSubmit: v => submit('/product-lifecycles', { ...v, productId: product, expectedVersion: lifecycle?.version ?? 0,
+      lastPlacingOnMarketLocalDate: v.lastPlacingOnMarketLocalDate || null, confirmed: v.confirmed === 'true' }) })
+  const createRaw = () => openDialog({ title: 'Isoliertes Rohdaten-Testobjekt anlegen', description: 'Der Server erzeugt ausschließlich synthetische Testbytes in der Rohquarantäne. Sieben volle Tage sind ein explizites Testprofil, keine allgemeine Aufbewahrungsregel.',
+    fields: [{ name: 'reference', label: 'Testreferenz (DEMO-RAW-...)', value: `DEMO-RAW-${Date.now()}` },
+      { name: 'syntheticReceivedAt', label: 'Expliziter simulierter Empfang (ISO-Zeit mit Zeitzone)', value: new Date().toISOString() }, { ...reason, minLength: 40 }],
+    onSubmit: v => submit('/retention/raw', { ...v, productId: product }) })
+  const track = () => openDialog({ title: 'Demo-Evidenz kontrolliert klassifizieren', description: 'Synthetisches Art.-10(8)-Mindestfristbeispiel für Implantatdokumentation. Originalbytes bleiben erhalten. Kein produktiver WORM-Lock und keine Löschfreigabe.',
+    fields: [{ name: 'source', label: 'Konkrete genehmigte Dokumentversion', type: 'select', options: documents.map(e => ({ value: `${e.id}@${e.version}`, label: `${e.title} · v${e.version}` })) }, { ...reason, minLength: 40 }],
+    onSubmit: v => { const document = documents.find(e => `${e.id}@${e.version}` === v.source); if (!document) throw new Error('Die ausgewählte Evidenzversion fehlt.'); return submit('/retention/evidence', { evidenceId: document.id, evidenceVersion: document.version, reason: v.reason }) } })
+  return <div className="stack"><section className="panel"><SectionHead eyebrow="DATENKLASSE VOR FRIST" title="Aufbewahren ist nicht freigeben." /><p>Regulatorische Mindestfrist, Legal Hold, aktuelle und historische Bindungen sowie tatsächliche Speicherbereinigung werden getrennt geprüft. Ein Fristablauf schließt keinen PSUR und löscht keine regulatorische Evidenz.</p>
+    <Badge tone={policy.data.localPhysicalProfile ? 'amber' : 'neutral'}>{policy.data.localPhysicalProfile ? 'Explizites synthetisches Lokalprofil' : 'Physische Löschung deaktiviert'}</Badge><p className="muted">{policy.data.policyVersion} · Keine produktive WORM-Dauer aktiviert.</p>
+    <label className="field compact">Produktfamilie<select value={product} onChange={e => { setProduct(e.target.value); setSelected('') }}>{actor.products.map(p => <option key={p} value={p}>{p}</option>)}</select></label>
+    <h3>Bestätigter Lifecycle</h3><p>{lifecycle?.confirmed ? `Letztes Inverkehrbringen: ${date(lifecycle.lastPlacingOnMarketLocalDate)} · v${lifecycle.version} · ${lifecycle.timeZone}` : 'Unbekannt oder unbestätigt. Upload und Systemeingang sind kein Ersatz.'}</p>
+    {lifecycle && <><p>{lifecycle.sourceReference} · {lifecycle.rationale}</p><small>Erfasst {date(lifecycle.recordedAt, true)} · {lifecycle.ruleVersion}</small></>}
+    {quality && <div className="row"><button className="button secondary" onClick={changeLifecycle}>Lifecycle versionieren</button><button className="button secondary" disabled={!documents.length} onClick={track}>Dokument klassifizieren</button><button className="button secondary" disabled={!policy.data.localPhysicalProfile} onClick={createRaw}>Testrohobjekt anlegen</button></div>}
+  </section><section className="panel"><SectionHead title="Objektbindungen und Löschbelege"><button className="text-button" onClick={() => setLocalRevision(r => r + 1)}><RefreshCw size={16} />Neu abgleichen</button></SectionHead>
+    {!records.data.some(r => r.productId === product) ? <Empty title="Keine klassifizierten Objekte">Bestehende Dokumente werden nicht automatisch zu löschbaren Rohdaten umklassifiziert.</Empty> : records.data.filter(r => r.productId === product).map(r =>
+      <button className="priority-row" key={r.id} onClick={() => setSelected(r.id)}><div><b>{r.reference}</b><small>{r.object.dataClass} · v{r.version}</small></div><Badge tone={r.status === 'DeletionFailed' ? 'danger' : r.legalHold ? 'amber' : 'neutral'}>{retentionNames[r.status] ?? r.status}</Badge><ArrowUpRight size={16} /></button>)}
+  </section>{selected && <RetentionDetail key={selected} id={selected} actor={actor} revision={currentRevision} mutate={submit} openDialog={openDialog} />}</div>
+}
+
+function RetentionDetail({ id, actor, revision, mutate, openDialog }: WorkspaceProps & { id: string }) {
+  const { data, error } = useData<RetentionView>(`/retention/${encodeURIComponent(id)}`, revision)
+  if (error) return <ErrorBanner message={error} />
+  if (!data) return <Loading />
+  const { record: r, evaluation: e } = data
+  const quality = actor.roles.includes('QualityManager')
+  const hold = () => openDialog({ title: r.legalHold ? 'Hold ausdrücklich aufheben' : 'Hold setzen', description: 'Jede Hold-Änderung verwirft eine vorhandene Löschfreigabe. Begonnene physische Schritte werden nicht durch einen wirkungslosen nachträglichen Hold verdeckt.',
+    fields: [{ ...reason, minLength: 40 }], onSubmit: v => mutate(`/retention/${id}/hold`, { ...v, expectedVersion: r.version, legalHold: !r.legalHold }) })
+  const authorize = () => openDialog({ title: 'Synthetische Löschung autorisieren', description: 'Nur nach nachvollziehbarer Prüfung von Backups, Exporten, Caches und Agentenspeichern. Die Freigabe bindet exakt Datenklasse, Objekt, Policy und Zeitbasis. SQL prüft vor der Ausführung alle Bindungen erneut.',
+    fields: [{ name: 'externalCopiesReviewed', label: 'Kopien geprüft; keine ungeklärten oder unberücksichtigten Kopien', type: 'select', value: 'false', options: [{ value: 'false', label: 'Nicht bestätigt / noch ungeklärt' }, { value: 'true', label: 'Ja, im Löschplan vollständig berücksichtigt' }] },
+      { name: 'externalCopiesReview', label: 'Prüfumfang und Ergebnis einschließlich unbekannter externer Kopien', type: 'textarea', minLength: 60 }, { ...reason, minLength: 40 }],
+    onSubmit: v => mutate(`/retention/${id}/authorize-deletion`, { ...v, expectedVersion: r.version, externalCopiesReviewed: v.externalCopiesReviewed === 'true' }) })
+  const remove = () => openDialog({ title: r.status === 'DeletionFailed' || r.status === 'Deleting' ? 'Teilvorgang kontrolliert abgleichen' : 'Testrohbytes physisch löschen', description: `Nur ${r.reference}; kein Löschen regulatorischer Evidenz. Ein Speicherfehler bleibt ein offener Teilvorgang und wird nicht als Erfolg ausgegeben.`,
+    fields: [{ name: 'confirmReference', label: `Exakte Testreferenz zur Bestätigung: ${r.reference}` }, { ...reason, minLength: 40 }],
+    onSubmit: v => { if (v.confirmReference !== r.reference) throw new Error('Die Bestätigung stimmt nicht mit der ausgewählten Testreferenz überein.'); return mutate(`/retention/${id}/delete`, { expectedVersion: r.version, reason: v.reason }) } })
+  return <section className="panel"><SectionHead eyebrow="VERSIONIERTER OBJEKTNACHWEIS" title={r.reference} /><Badge tone={r.errorCode ? 'danger' : 'neutral'}>{retentionNames[r.status] ?? r.status}</Badge>
+    {r.errorCode && <ErrorBanner message={`Offener Teilvorgang: ${r.errorCode}. Kein vollständiger Löschabschluss bestätigt.`} />}
+    <p className="mono">{r.object.objectKey}</p><p>{r.object.dataClass} · {r.object.contract} · v{r.version}</p>
+    <div className="deadline-dates"><span><small>EINGANG / SIMULIERTER EMPFANG</small><b>{date(r.receivedAt, true, 'UTC')} UTC</b></span><span><small>MINDESTENS AUFBEWAHREN BIS</small><b>{e.minimumRetainThroughLocalDate ? `${date(e.minimumRetainThroughLocalDate)} einschließlich` : r.object.dataClass === 'UnreferencedSyntheticRawQuarantine' ? `${date(e.expiresAt, true, 'UTC')} UTC` : 'Nicht bestimmbar'}</b></span></div>
+    <p>Mindestintervall: {e.minimumIntervalElapsed === null ? 'unbekannt' : e.minimumIntervalElapsed ? 'abgelaufen, keine automatische Freigabe' : 'nicht abgelaufen'} · {e.retainedReferences} fortbestehende Bindungen · {r.attempts} Ausführungsversuche</p>
+    {e.blockers.map(b => <p key={b}><Badge tone="amber">{retentionNames[b] ?? b}</Badge></p>)}
+    {quality && <div className="row"><button className="button secondary" disabled={['Deleting', 'DeletionFailed', 'Deleted'].includes(r.status)} onClick={hold}>{r.legalHold ? 'Hold aufheben' : 'Hold setzen'}</button><button className="button secondary" disabled={!e.eligibleForAuthorization || ['Deleting', 'DeletionFailed', 'Deleted'].includes(r.status)} onClick={authorize}>Löschung autorisieren</button><button className="button secondary" disabled={!e.canDeleteNow} onClick={remove}>{['Deleting', 'DeletionFailed'].includes(r.status) ? 'Teilvorgang abgleichen' : 'Testbytes physisch löschen'}</button></div>}
+    <details><summary>Regel, Berechnung und gebundene Herkunft</summary>{e.calculation.map((line, index) => <p key={index}>{line}</p>)}<p className="mono">Policy {e.policyVersion} · Scope {e.scopeHash}</p>{e.lifecycleSource && <p className="mono">{e.lifecycleSource.id}@{e.lifecycleSource.version} · {e.lifecycleSource.hash}</p>}</details>
+    {!!data.references.length && <details><summary>Berechtigte aktuelle und historische Referenzen</summary>{data.references.map(ref => <p key={`${ref.kind}-${ref.id}-${ref.version}`}><b>{ref.kind} · {ref.id}@{ref.version}</b><small className="mono">{ref.versionHash}</small></p>)}</details>}
+    {r.authorization && <details><summary>Menschliche Löschfreigabe</summary><p>{r.authorization.actorId} · {date(r.authorization.at, true)}</p><p>{r.authorization.rationale}</p><p>{r.authorization.externalCopiesReview}</p><p className="mono">{r.authorization.scopeHash}</p></details>}
+    {r.deletion && <details open><summary>Abgeschlossener lokaler Löschbeleg</summary><p>Aktive Objektdatei entfernt und SQL-Suchprojektion bereinigt; kein Nachweis physischer Datenträgerüberschreibung oder produktiver Backup-Löschung.</p><p>{r.deletion.contract} · {r.deletion.state} · {date(r.deletion.at, true)}</p><p className="mono">Vorgang {r.deletion.operationId} · Objekt {r.deletion.hash}</p></details>}
+  </section>
+}
 
 export function SourcesWorkspace({ actor, revision, mutate, openDialog }: WorkspaceProps) {
   const { data, error } = useData<SourceRun[]>('/sources', revision)
@@ -90,12 +174,155 @@ export function FeedbackWorkspace({ actor, cases, revision, openDialog, mutate }
 
 export function PsurWorkspace({ actor, revision, openDialog, mutate }: WorkspaceProps) {
   const { data, error } = useData<Psur[]>('/psurs', revision)
+  const profiles = useData<ProductGovernance[]>('/products/profiles', revision)
+  const groups = useData<PsurGroupDefinition[]>('/psur-groups', revision)
   const [selected, setSelected] = useState('')
-  const psur = data?.find(p => p.id === selected) ?? data?.[0]
-  return <div className="stack"><section className="panel"><SectionHead eyebrow="EINGEFRORENE DATEN. NACHVOLLZIEHBARE SCHLUSSFOLGERUNGEN." title="Periodischer Sicherheitsbericht">{actor.roles.some(r => ['PmsSpecialist', 'MedicalSafetyReviewer'].includes(r)) && <button className="button primary" onClick={() => openDialog({ title: 'PSUR-Snapshot einfrieren', fields: [{ name: 'productId', label: 'Produktfamilie / Leitprodukt', type: 'select', options: [{ value: 'ortho', label: 'OrthoLink Modular Hip' }, { value: 'cardio', label: 'CardioFlow Valve' }] }], description: 'Periode 15.11.2025–14.11.2026. Offene Fälle bleiben enthalten. Worldwide umfasst die Teilregion; keine Addition beider Nenner.', submitLabel: 'Snapshot & Replay-Entwurf erstellen', onSubmit: v => mutate('/psurs', { ...v, leadProductId: v.productId, start: '2025-11-15', end: '2026-11-14', region: 'Worldwide' }) })}><Plus size={17} />PSUR-Zyklus anlegen</button>}</SectionHead>{error && <ErrorBanner message={error} />}
-      {!!data?.length && <label className="field compact">Snapshot<select value={psur?.id} onChange={e => setSelected(e.target.value)}>{data.map(p => <option key={p.id} value={p.id}>{p.productId} · {date(p.snapshot.end)} · {label(p.status)}</option>)}</select></label>}
-      {!data?.length && <Empty title="Noch kein eingefrorener PSUR-Datenstand">Zähler, passende Nenner, Fallversionen, Dokumente, Trends und Maßnahmen werden gemeinsam gebunden.</Empty>}
-    </section>{psur && <div className="review-grid"><article className="panel psur-document"><div className="row-between"><Badge tone="amber">REPLAY-ENTWURF</Badge><Badge>{label(psur.status)}</Badge></div><p className="mono">Snapshot {hash(psur.snapshotHash)}</p>{psur.draft.split('\n').map((line, i) => line.startsWith('# ') ? <h1 key={i}>{line.slice(2)}</h1> : line.startsWith('## ') ? <h2 key={i}>{line.slice(3)}</h2> : <p key={i}>{line}</p>)}</article><aside className="panel"><h2>Snapshot & Human Review</h2><p>{date(psur.snapshot.start)} – {date(psur.snapshot.end)}</p><Badge>{psur.snapshot.region}</Badge><div className="snapshot-count"><strong>{psur.snapshot.cases.length}</strong><span>Fallversionen gebunden</span></div><div className="callout">Offene Fragen sind enthalten, nicht als bestätigt dargestellt und nicht aus dem PSUR ausgeblendet.</div><p className="mono">Freigabe-Hash<br />{hash(psur.scopeHash)}</p>{psur.approvals.map(a => <div className="history-entry" key={a.id}><b>{a.actorName}</b><p>{a.rationale}</p><small>{date(a.at, true)}</small></div>)}{actor.roles.some(r => ['MedicalSafetyReviewer', 'RegulatoryAffairs'].includes(r)) && psur.status !== 'Approved' && <button className="button primary full" onClick={() => openDialog({ title: 'PSUR-Inhalt und Snapshot prüfen', fields: [reason], onSubmit: v => mutate(`/psurs/${psur.id}/approve`, { ...v, expectedVersion: psur.version }) })}><ShieldCheck size={17} />Mit eigener Rolle freigeben</button>}{actor.roles.includes('RegulatoryAffairs') && psur.status === 'Approved' && !psur.notifiedBodyReceipt && <button className="button primary full" onClick={() => openDialog({ title: 'Antwort der Benannten Stelle simulieren', fields: [reason], onSubmit: v => mutate(`/psurs/${psur.id}/simulate`, { ...v, expectedVersion: psur.version }) })}>BS-Antwort simulieren</button>}{psur.notifiedBodyReceipt && <div className="receipt"><Badge tone="blue">SIMULIERTE BS-ANTWORT</Badge><b>{psur.notifiedBodyReceipt}</b><p>Keine reale Behörden- oder BS-Akzeptanz.</p></div>}</aside></div>}</div>
+  const [productId, setProductId] = useState(actor.products[0] ?? '')
+  const [groupId, setGroupId] = useState('')
+  const [memberProductId, setMemberProductId] = useState('')
+  const [localError, setLocalError] = useState('')
+  const [exporting, setExporting] = useState('')
+  const productReports = (data ?? []).filter(p => p.productId === productId)
+  const availableGroups = [...(groups.data ?? []).filter(g => g.productId === productId),
+    ...productReports.flatMap(p => p.snapshot.group ? [p.snapshot.group.definition] : [])]
+    .filter((g, i, all) => all.findIndex(other => other.id === g.id) === i)
+  const group = availableGroups.find(g => g.id === groupId)
+  const currentGroup = groups.data?.find(g => g.id === groupId)
+  const reports = productReports.filter(p => groupId ? p.snapshot.group?.definition.id === groupId : !p.snapshot.group)
+    .sort((a, b) => (b.snapshot.series?.reportVersion ?? 0) - (a.snapshot.series?.reportVersion ?? 0))
+  const psur = reports.find(p => p.id === selected) ?? reports[0]
+  const latest = reports[0]
+  const profile = profiles.data?.find(p => p.productId === productId)
+  const legacySeries = productReports.some(p => !p.snapshot.series)
+  const canWrite = actor.roles.some(r => ['PmsSpecialist', 'MedicalSafetyReviewer'].includes(r))
+  const families = psur?.snapshot.group?.members.map(m => m.snapshot) ?? (psur ? [psur.snapshot] : [])
+  const member = psur?.snapshot.group?.members.find(m => m.product.productId === memberProductId) ??
+    psur?.snapshot.group?.members.find(m => m.product.productId === psur.productId)
+  const family = member?.snapshot ?? psur?.snapshot
+  const frozenProfile = member?.governance ?? psur?.snapshot.series?.governance
+  const canFreeze = !!data && !!profiles.data && !!groups.data && !!profile && !legacySeries && (!groupId || !!currentGroup)
+  const blocked = psur && (!psur.snapshot.series || families.some(s => !s.sourceManifest || !s.actions || !s.directory) || psur.findings.some(f => ['Critical', 'Major'].includes(f.severity)))
+  const canApprove = psur && !blocked && !psur.approvals.some(a => a.actorId === actor.id) &&
+    (psur.status === 'Draft' && actor.roles.includes('MedicalSafetyReviewer') || psur.status === 'MedicalApproved' && actor.roles.includes('RegulatoryAffairs'))
+  function recordGroup(existing?: PsurGroupDefinition) {
+    if (!profile || !profiles.data) return
+    const eligible = profiles.data.filter(p => actor.products.includes(p.productId)).sort((a, b) => a.productId.localeCompare(b.productId))
+    const membershipOptions = [{ value: productId, label: `Nur Leitprodukt ${productId} / ${profile.device.basicUdi}` },
+      ...(eligible.length > 1 ? [{ value: eligible.map(p => p.productId).join(','), label: eligible.map(p => `${p.productId} / ${p.device.basicUdi}`).join(' + ') }] : [])]
+    openDialog({ title: existing ? 'Mitgliedschaft kontrolliert neu versionieren' : 'Synthetische PSUR-Gruppe begründen',
+      description: `Festes Leitprodukt ${productId}. Gleiche verantwortliche Benannte Stelle, höchste Risikoklasse und Leitprodukt-Zeitplan werden serverseitig geprüft. Keine Eignungsaussage zu realen Produktkombinationen. Alte Berichte und Pflichten bleiben bestehen.`,
+      fields: [
+        existing ? { name: 'reference', label: 'Unveränderliche Serienreferenz', type: 'select', options: [{ value: existing.reference, label: existing.reference }] } :
+          { name: 'reference', label: 'Neue eindeutige DEMO-PSUR-GROUP-Referenz', type: 'text', value: `DEMO-PSUR-GROUP-${productId.toUpperCase()}-${Date.now()}`, minLength: 17 },
+        { name: 'memberProductIds', label: 'Explizite Mitgliedschaft (inklusive Leitprodukt)', type: 'select', options: membershipOptions, value: existing?.members.map(m => m.productId).sort().join(',') ?? eligible.map(p => p.productId).join(',') },
+        { name: 'firstPeriodStart', label: 'Fester erster Periodenbeginn im Leitprodukt-Zeitplan', type: 'date', value: existing?.firstPeriodStart ?? profile.firstPeriodStart },
+        { name: 'rationale', label: 'Fachliche Begründung der synthetischen Gruppierung / Änderung', type: 'textarea', minLength: 80, value: existing?.rationale ?? '' },
+        { name: 'scheduleBasis', label: 'Leitprodukt-Zeitplan und fortbestehende Altserienpflichten', type: 'textarea', minLength: 40, value: existing?.scheduleBasis ?? '' }
+      ], submitLabel: 'Definition mit aktuellen Profilversionen binden',
+      onSubmit: v => mutate('/psur-groups', { ...v, expectedVersion: existing?.version ?? 0, leadProductId: productId, memberProductIds: v.memberProductIds.split(',') }) })
+  }
+  function freeze(refreeze: boolean) {
+    if (!profile || !canFreeze) { setLocalError('Aktueller berechtigter Produkt-/Gruppenstand fehlt; keine automatische Rücknummerierung.'); return }
+    const start = latest ? refreeze ? latest.snapshot.start : new Date(Date.parse(`${latest.snapshot.end}T00:00:00Z`) + 86400000).toISOString().slice(0, 10) : currentGroup?.firstPeriodStart ?? profile.firstPeriodStart
+    const [year, month, day] = start.split('-').map(Number)
+    const end = latest && refreeze ? latest.snapshot.end : new Date(Date.UTC(year + 1, month - 1, Math.min(day, new Date(Date.UTC(year + 1, month, 0)).getUTCDate()) - 1)).toISOString().slice(0, 10)
+    const fields: Field[] = [
+      ...(latest ? [{ name: 'previousReportId', label: 'Ausdrücklich gebundene aktuelle Vorfassung', type: 'select' as const, options: [{ value: latest.id, label: `${latest.snapshot.series!.reference} / Nr. ${latest.snapshot.series!.reportVersion} / SQL v${latest.version} / ${label(latest.status)}` }] }] : []),
+      { name: 'start', label: 'Berichtsperiode ab', type: 'date', value: start }, { name: 'end', label: 'Berichtsperiode bis einschließlich', type: 'date', value: end },
+      { name: 'region', label: 'Narrativer Fokus (Worldwide enthält die Teilregion)', type: 'select', options: [{ value: 'Worldwide', label: 'Worldwide' }, { value: 'EEA-Turkey-NI', label: 'EWR / Türkei / Nordirland' }] },
+      { name: 'submissionDate', label: 'Gesondert vereinbarter Einreichungstag', type: 'date', value: latest ? refreeze ? latest.snapshot.series!.submissionDate : '' : start === profile.firstPeriodStart ? profile.firstSubmissionDate : '' },
+      { name: 'scheduleAgreement', label: 'Nachweis der Terminvereinbarung (keine automatische Tagesfrist)', type: 'textarea', minLength: 12, value: latest ? refreeze ? latest.snapshot.series!.scheduleAgreement : '' : start === profile.firstPeriodStart ? profile.scheduleAgreement : '' },
+      { name: 'mode', label: 'Expliziter Agentenmodus', type: 'select', options: [{ value: 'Replay', label: 'Reproduzierbarer Demo-/Replay-Entwurf' }, { value: 'Live', label: 'Live Foundry – nur bei freigegebener Konfiguration' }, { value: 'Failure', label: 'Ausfallszenario – kein Ersatzentwurf' }] },
+      ...(latest ? [{ name: 'revisionReason', label: 'Begründung der neuen eigenständigen Fassung', type: 'textarea' as const, minLength: 40 }] : [])
+    ]
+    openDialog({ title: latest ? refreeze ? 'Neue Fassung derselben PSUR-Periode' : 'Lückenloser PSUR-Folgezyklus' : 'Ersten PSUR-Snapshot einfrieren',
+      description: `${currentGroup ? `${currentGroup.reference} / Gruppenversion ${currentGroup.version}; Mitglieder ${currentGroup.members.map(m => m.basicUdi).join(', ')}` : `${profile.psurReference}; einzelne Basic-UDI ${profile.device.basicUdi}`}. Festes Leitprodukt ${productId}, Benannte Stelle ${profile.device.notifiedBodyNumber}. Alle Mitglieder werden separat ausgewertet und gemeinsam gebunden. Alte Snapshots bleiben unverändert.`, fields, submitLabel: 'Neue Fassung und expliziten Modus bestätigen',
+      onSubmit: v => mutate('/psurs', { ...v, productId, leadProductId: productId, ...(currentGroup ? { groupId: currentGroup.id, groupVersion: currentGroup.version } : {}), ...(latest ? { previousReportId: v.previousReportId, previousReportVersion: latest.version } : {}) }) })
+  }
+  async function download(format: 'pdf' | 'json' | 'zip') {
+    if (!psur) return
+    setExporting(format); setLocalError('')
+    try { await downloadApi(`/psurs/${psur.id}/export/${format}?version=${psur.version}`, `${psur.snapshot.series?.reference ?? psur.id}-v${psur.version}.${format}`) }
+    catch (e) { setLocalError(e instanceof Error ? e.message : 'Export nicht bestätigt.') }
+    finally { setExporting('') }
+  }
+  return <div className="stack">
+    <section className="panel"><SectionHead eyebrow="EINGEFRORENE DATEN. NACHVOLLZIEHBARE SCHLUSSFOLGERUNGEN." title="Periodischer Sicherheitsbericht">
+      {canWrite && <div className="row"><button className="button primary" disabled={!canFreeze} onClick={() => freeze(false)}><Plus size={17} />{latest ? 'Nächste PSUR-Periode' : 'PSUR-Zyklus anlegen'}</button>{latest && <button className="button secondary" disabled={!canFreeze} onClick={() => freeze(true)}>Neue Fassung derselben Periode</button>}</div>}
+    </SectionHead>
+      {(error || profiles.error || groups.error || localError) && <ErrorBanner message={error || profiles.error || groups.error || localError} />}
+      <label className="field compact">Produktfamilie / festes Leitprodukt<select value={productId} onChange={e => { setProductId(e.target.value); setSelected(''); setGroupId(''); setMemberProductId(''); setLocalError('') }}>{actor.products.map(id => <option key={id} value={id}>{id === 'ortho' ? 'OrthoLink Modular Hip' : id === 'cardio' ? 'CardioFlow Valve' : id}</option>)}</select></label>
+      <label className="field">PSUR-Serie / versionierte Gruppierung<select value={groupId} onChange={e => { setGroupId(e.target.value); setSelected(''); setMemberProductId(''); setLocalError('') }}><option value="">Einzelfamilien-Serie · {profile?.psurReference ?? productId}</option>{availableGroups.map(g => <option key={g.id} value={g.id}>{g.reference} · Definition v{g.version} · {g.members.length} Basic-UDIs</option>)}</select></label>
+      {group && <div className="callout"><b>{group.reference} · Definition v{group.version}</b><p>{group.rationale}</p><p>{group.scheduleBasis}</p>{!currentGroup && <p>Nur ein berechtigter historischer Stand ist verfügbar. Keine Erstellung mit einer unbekannten aktuellen Mitgliedschaft.</p>}</div>}
+      {canWrite && <div className="row"><button className="button secondary" disabled={!profile || !groups.data} onClick={() => recordGroup()}>Neue synthetische Gruppe</button>{currentGroup && <button className="button secondary" onClick={() => recordGroup(currentGroup)}>Mitgliedschaft neu versionieren</button>}</div>}
+      {legacySeries && <ErrorBanner message="Altbericht ohne kontrollierte Serienbindung: lesbar, aber keine stille Rücknummerierung, Reparatur oder Freigabe." />}
+      {!data && !error && <Loading />}
+      {!!reports.length && <label className="field">Unveränderlicher Snapshot / aktuelle Bearbeitungsfassung<select value={psur?.id} onChange={e => setSelected(e.target.value)}>{reports.map(p => <option key={p.id} value={p.id}>{p.snapshot.series?.reference ?? p.id} / Nr. {p.snapshot.series?.reportVersion ?? '?'} · {date(p.snapshot.end)} · SQL v{p.version} · {label(p.status)}</option>)}</select></label>}
+      {data && !reports.length && <Empty title="Noch kein eingefrorener PSUR-Datenstand">Fallversionen aller ausgewiesenen Perioden und Regionen, passende Nenner, Dokumente, Trends und Maßnahmen werden gebunden.</Empty>}
+    </section>
+    {psur && family && <>
+      <div className="review-grid"><article className="panel psur-document"><div className="row-between"><Badge tone={psur.error ? 'danger' : 'amber'}>{psur.mode} · SYNTHETISCH</Badge><Badge>{label(psur.status)}</Badge></div>
+        <p className="mono">Snapshot {hash(psur.snapshotHash)}</p>{psur.error && <ErrorBanner message={`Autorenlauf: ${psur.error}. Kein verdeckter Replay-Ersatz.`} />}
+        {!psur.draft && <Empty title="Kein Berichtstext vorhanden">Ein eingefrorener Datensatz ist noch kein erfolgreicher Autorenlauf.</Empty>}
+        {psur.draft.split('\n').map((line, i) => line.startsWith('# ') ? <h1 key={i}>{line.slice(2)}</h1> : line.startsWith('## ') ? <h2 key={i}>{line.slice(3)}</h2> : <p key={i}>{line}</p>)}
+      </article><aside className="panel"><h2>Snapshot & Human Review</h2><p>{date(psur.snapshot.start)} – {date(psur.snapshot.end)}</p><Badge>{psur.snapshot.region}</Badge>
+        <p><b>{psur.snapshot.series?.reference ?? 'Serienbindung fehlt'}</b> / Berichtsnummer {psur.snapshot.series?.reportVersion ?? 'unbekannt'}</p>
+        <p>Freeze {date(psur.snapshot.frozenAt, true)}. Vereinbarter Termin {date(psur.snapshot.series?.submissionDate)}.</p><p className="muted">{psur.snapshot.series?.scheduleAgreement}</p>
+        <div className="snapshot-count"><strong>{families.every(s => s.sourceManifest) ? new Set(families.flatMap(s => s.sourceManifest!.cases.map(c => `${c.reference.id}@${c.reference.version}`))).size : '?'}</strong><span>eindeutige Quellfallversionen aller Mitglieder, Perioden und Regionen</span></div><p>{families.reduce((sum, s) => sum + s.cases.length, 0)} Fälle in den N-Narrativ-/Carry-over-Listen; kein gepoolter Inzidenzzähler.</p>
+        <div className="callout">Offene Fragen bleiben sichtbar. Freeze-Zeit ist kein historischer Bearbeitungsnachweis. Die serverseitige Freigabe prüft Originalversionen, Befunde und getrennte Konten erneut.</div>
+        <p className="mono">Freigabe-Hash<br />{hash(psur.scopeHash)}</p>{psur.approvals.map(a => <div className="history-entry" key={a.id}><b>{a.actorName} · {a.role}</b><p>{a.rationale}</p><small>{date(a.at, true)}</small></div>)}
+        {blocked && <ErrorBanner message="Wesentlicher Befund oder fehlender Snapshot-Nachweis: keine Freigabe. Altstände bleiben unverändert." />}
+        {canWrite && psur.status !== 'Authoring' && !psur.notifiedBodyReceipt && <button className="button secondary full" onClick={() => openDialog({ title: 'Konkreten PSUR-Text nachbearbeiten', description: 'Änderungen invalidieren alle Freigaben. Der Daten-Snapshot wird nicht geändert; dafür eine neue Fassung einfrieren.', fields: [{ name: 'draft', label: 'Vollständiger ausführlicher Bericht mit Belegmarkern', type: 'textarea', value: psur.draft, minLength: 300 }, { ...reason, minLength: 30 }], onSubmit: v => mutate(`/psurs/${psur.id}/revise`, { ...v, expectedVersion: psur.version }) })}>Text kontrolliert nachbearbeiten</button>}
+        {canApprove && <button className="button primary full" onClick={() => openDialog({ title: 'PSUR-Inhalt und Snapshot prüfen', fields: [{ ...reason, minLength: 40 }], onSubmit: v => mutate(`/psurs/${psur.id}/approve`, { ...v, expectedVersion: psur.version }) })}><ShieldCheck size={17} />Mit eigener Rolle freigeben</button>}
+        {actor.roles.includes('RegulatoryAffairs') && psur.status === 'Approved' && !psur.notifiedBodyReceipt && <button className="button primary full" onClick={() => openDialog({ title: 'Antwort der Benannten Stelle simulieren', fields: [{ ...reason, minLength: 40 }], onSubmit: v => mutate(`/psurs/${psur.id}/simulate`, { ...v, expectedVersion: psur.version }) })}>BS-Antwort simulieren</button>}
+        {psur.notifiedBodyReceipt && <div className="receipt"><Badge tone="blue">SIMULIERTE BS-ANTWORT</Badge><b>{psur.notifiedBodyReceipt}</b><p>Keine reale Behörden- oder BS-Akzeptanz.</p></div>}
+        <h3>Authentifizierter Leseexport</h3><p className="muted">PDF ist eine abgeleitete Lesekopie; ZIP enthält Original-JSON, Snapshot, Audit, Metadaten und Prüfsummen. Keine neue Signatur, Formatannahme oder Übermittlung.</p>
+        <div className="row">{(['pdf', 'json', 'zip'] as const).map(format => <button className="button secondary" key={format} disabled={!!exporting} onClick={() => void download(format)}><Download size={15} />{exporting === format ? 'Export…' : format.toUpperCase()}</button>)}</div>
+      </aside></div>
+      <section className="panel"><SectionHead eyebrow="GEMEINSAM GEBUNDEN · EINZELN AUSWERTBAR" title="Eingefrorene Basic-UDI-Mitgliedschaft" />
+        {psur.snapshot.group ? <><p>Definition {psur.snapshot.group.definition.reference}@{psur.snapshot.group.definition.version}; festes Leitprodukt {psur.snapshot.leadProductId}.</p><p>{psur.snapshot.group.definition.rationale}</p><p>{psur.snapshot.group.definition.scheduleBasis}</p><PsurReferences values={[psur.snapshot.group.definitionSource]} />
+          {psur.snapshot.group.members.map(m => <div className="history-entry" key={m.product.productId}><b>{m.product.productId === psur.snapshot.leadProductId ? 'Leitprodukt' : 'Mitglied'}: {m.product.productId} / {m.product.basicUdi}</b><p>Klasse {m.product.riskClass} · BS {m.product.notifiedBodyNumber}</p><PsurReferences values={[m.product.governanceSource]} /></div>)}
+          <label className="field">Basic-UDI-Einzelauswertung<select value={family.productId} onChange={e => setMemberProductId(e.target.value)}>{psur.snapshot.group.members.map(m => <option key={m.product.productId} value={m.product.productId}>{m.product.productId} / {m.product.basicUdi}</option>)}</select></label>
+          <p className="callout">Die folgenden Tabellen und Dokumente zeigen ausschließlich {family.productId}. Berichtstext, Human Reviews und Export binden weiterhin die gesamte eingefrorene Gruppe. Keine Addition zu einer gemeinsamen Inzidenz.</p>
+        </> : <p>Einzelfamilie {family.productId} / {frozenProfile?.device.basicUdi ?? 'Profilbindung fehlt'}. Keine nachträgliche Umformung in eine Gruppe.</p>}
+      </section>
+      <section className="panel"><SectionHead eyebrow={`${family.productId} · N, N2, N3, N4 · KEINE Ratenaddition`.toUpperCase()} title="Zähler, Nenner und Quellfallversionen" /><p className="muted">{family.dateBasis}</p>
+        <div className="table-scroll"><table className="case-table"><thead><tr><th>Periode / Region</th><th>Datenstand</th><th>Ereignisse</th><th>Nenner / Einheit</th><th>Rate / 1.000</th><th>Gebundene Belege</th></tr></thead><tbody>{family.periods.flatMap(period => period.regions.map(region => <tr key={`${period.label}-${region.region}`}>
+          <td>{period.label} · {region.region}<small className="subline">{date(period.start)} – {date(period.end)}</small></td><td>{region.dataStatus}</td><td>{region.events ?? 'Unbekannt'}</td><td>{region.exposure ?? 'Unbekannt'} / {region.unit ?? 'unbekannt'}<small className="subline">{region.exposureId ?? 'kein Nenner'}@{region.exposureVersion ?? '?'}</small></td><td>{region.ratePerThousand?.toLocaleString('de-DE', { maximumFractionDigits: 4 }) ?? 'Unbekannt'}</td><td><details><summary>{region.numeratorSources?.length ?? '?'} Quellfälle</summary><PsurReferences values={region.numeratorSources} /></details></td>
+        </tr>))}</tbody></table></div>
+        <details><summary>Kenntnisstichtag, historische Bearbeitung und Nachträge</summary><p>Exklusive Kenntnisgrenze N: {date(family.sourceManifest?.knowledgeCutoffExclusiveUtc, true, 'UTC')} UTC.</p><p>{family.sourceManifest?.periodKnowledgeRule}</p><p>{family.sourceManifest?.stateEvidence}</p>
+          {family.sourceManifest?.cases.map(c => <div className="history-entry" key={c.reference.id}><b>{c.reference.id}@{c.reference.version}</b><p>Belegter Stichtagsstatus: {c.statusAtCutoff}; damalige Version {c.cutoffVersion?.version ?? 'nicht bekannt'}.</p></div>)}
+          {family.sourceManifest?.postCutoffCases.map(c => <div className="history-entry" key={`${c.period}-${c.source.id}`}><Badge tone="amber">NACHTRAG · {c.period}</Badge><PsurReferences values={[c.source]} /><p>Spätere Kenntnis {date(c.awarenessAt, true)}. {c.reason}</p></div>)}
+        </details>
+      </section>
+      <section className="panel"><SectionHead eyebrow="HEUTIGE RETROSPEKTIVE KODIERUNG ≠ DAMALIGE RELEASE-GÜLTIGKEIT" title="A/C/D/F und ausdrücklich kodierte Todesfälle" />
+        <p>Fehlende Kodierung ist kein Null-Todesfallnachweis. Historische Originalangaben bleiben separat und ungegroupiert; C1901/C1902 bleiben bei ungeklärter Hierarchie ohne automatische Aggregation.</p>
+        {family.codingTables?.map(table => <details key={`${table.period}-${table.region}`}><summary>{table.period} / {table.region}: {table.explicitDeathCases.length} explizite aktuelle F02-Belege; {table.unverifiedHistoricalDeathCases?.length ?? 'unbekannt'} ungeprüfte historische F02-Angaben; {table.missingAnnexCodes.length} unvollständig kodierte Fälle</summary><p>{table.completeness}</p>
+          <h3>F02 unabhängig von Rang/Häufigkeit</h3><PsurReferences values={table.explicitDeathCases} />
+          {!!table.unverifiedHistoricalDeathCases?.length && <><h3>Historische F02-Originalangaben, Release-Gültigkeit nicht bestätigt</h3><PsurReferences values={table.unverifiedHistoricalDeathCases} /></>}
+          {table.rows.map((row, i) => <div className="history-entry" key={i}><b>{row.annex}: {row.code} / {row.term}</b><p>{row.status} · {row.historical ? 'Historische Originalangabe' : 'Aktuelle retrospektive Zuordnung'} · Originalkodes {row.originalCodes.join(', ')}</p><PsurReferences values={row.cases} /></div>)}
+        </details>)}
+      </section>
+      <section className="panel"><SectionHead eyebrow="STICHTAG ≠ AKTUELLER FREEZE-STAND" title="CAPA und kontrollierte Änderungen" />
+        {!family.actions && <ErrorBanner message="Historisches Maßnahmenmanifest fehlt. Heutiger Status wird nicht rückdatiert." />}
+        {[...(family.actions?.capas ?? []), ...(family.actions?.changes ?? [])].map(action => <div className="history-entry" key={action.currentSource.id}><b>{action.currentSource.id} · {action.selection}</b><p>Am Stichtag: {action.statusAtCutoff} / v{action.cutoffSource?.version ?? '?'} / SQL erfasst {date(action.recordedAtCutoff, true)}. Beim Freeze: {action.currentAtFreeze.status} / v{action.currentSource.version}.</p><p>{action.reason}</p><PsurReferences values={[action.currentSource, ...(action.cutoffSource ? [action.cutoffSource] : [])]} /></div>)}
+      </section>
+      <section className="panel"><SectionHead eyebrow="QUELLEN, AUSSCHLÜSSE UND GENAU EINE WIRKSAME DOKUMENTREVISION" title="Evidenz- und Auswahlverzeichnis" /><p>Dokumentstichtag: {date(family.directory?.documentsEffectiveAt, true)}. {family.directory?.coverage}</p>
+        {family.documents.map(document => <details key={`${document.id}-${document.version}`}><summary>{document.title} · {document.id}@{document.version}</summary><p>{document.locator} · {document.origin}</p><p className="mono">{document.hash}</p><blockquote>{document.content}</blockquote></details>)}
+        <details><summary>Alle gebundenen Datenquellen und ausgeschlossenen Stände ({family.directory?.entries.length ?? 'nicht belegt'})</summary>{family.directory?.entries.map((entry, i) => <div className="history-entry" key={i}><b>{entry.kind} · {entry.name}</b><p>{entry.sourceType} / {entry.selection} / {entry.origin}</p><p>{entry.reason}</p><PsurReferences values={[entry.source]} /></div>)}</details>
+        {frozenProfile && <details><summary>Gebundenes Produktprofil, PRRC und Art. 18</summary><p>{psur.snapshot.series?.groupRationale}</p><p>{frozenProfile.manufacturer.name} / {frozenProfile.manufacturer.srn}; {frozenProfile.device.basicUdi}; Zertifikat {frozenProfile.device.certificateId}; BS {frozenProfile.device.notifiedBodyName} / {frozenProfile.device.notifiedBodyNumber}.</p>
+          <p>PRRC: {frozenProfile.prrc.primaryRole}; Vertretung: {frozenProfile.prrc.deputyRole}. {frozenProfile.prrc.qualificationBoundary}</p><p>Organisationszuständigkeit, keine zusätzliche technische Freigaberolle.</p><p>Art. 18 anwendbar: {frozenProfile.device.article18Applicable ? 'Ja' : 'Nein'}. {frozenProfile.device.article18Rationale}</p><p>{frozenProfile.lifecyclePolicy}</p>
+        </details>}
+      </section>
+      <section className="panel"><SectionHead title="Befunde des gebundenen Entwurfs" />{psur.findings.map((finding, i) => <div className="history-entry" key={i}><Badge tone={['Critical', 'Major'].includes(finding.severity) ? 'danger' : 'amber'}>{finding.severity} · {finding.code}</Badge><p>{finding.description}</p><p>{finding.remedy}</p></div>)}<p className="muted">Keine automatische Risikoakzeptanz. Export und Freigabe prüfen den gespeicherten Stand erneut; neue Quellen erfordern eine neue kontrollierte Fassung.</p></section>
+    </>}
+  </div>
+}
+
+function PsurReferences({ values }: { values?: VersionReference[] | null }) {
+  if (!values) return <p>Kein hinreichendes Quellenmanifest vorhanden.</p>
+  if (!values.length) return <p>Keine ausgewiesenen Quellfälle in dieser Liste; Datenstatus und Nenner gesondert beachten.</p>
+  return <div>{values.map((value, i) => <p key={`${value.id}-${value.version}-${i}`}><b>{value.id}@{value.version}</b><br /><small className="mono">{value.hash}</small></p>)}</div>
 }
 
 export function AuditWorkspace({ cases, revision }: { cases: CaseSummary[]; revision: number }) {

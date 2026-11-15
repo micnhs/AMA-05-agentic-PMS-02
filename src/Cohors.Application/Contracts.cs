@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Cohors.Domain;
 
 namespace Cohors.Application;
@@ -13,6 +14,7 @@ public interface IStateStore
     Task<PortfolioState> Capture(string[] products, CancellationToken ct = default);
     Task<T?> Receipt<T>(CommandContext command, CancellationToken ct = default);
     Task<T> Execute<T>(CommandContext command, Func<T?, T> change, CancellationToken ct = default);
+    Task<Psur> FreezePsur(CommandContext command, PsurCaptureScope scope, Func<PortfolioState, Psur> create, CancellationToken ct = default);
     Task<AuditEvent[]> Audit(string id, CancellationToken ct = default);
     Task<OutboxEvent[]> PendingEvents(int limit, CancellationToken ct = default);
     Task<OutboxEvent?> ClaimEvent(string eventId, string owner, CancellationToken ct = default);
@@ -26,6 +28,29 @@ public interface IObjectStore
     Task<string> Put(string content, CancellationToken ct = default);
     Task<string> Read(string hash, CancellationToken ct = default);
 }
+
+public interface IRawQuarantineStore
+{
+    Task<RetentionObjectBinding> CreateSyntheticRaw(string content, CancellationToken ct = default);
+    Task<string> ReadRaw(RetentionObjectBinding value, CancellationToken ct = default);
+    Task<ObjectDeletionReceipt> DeleteRaw(RetentionRecord value, DateTimeOffset at, CancellationToken ct = default);
+}
+
+public interface IRetentionStateStore
+{
+    Task<ObjectDependency[]> ObjectDependencies(string hash, string retentionId, CancellationToken ct = default);
+    Task<RetentionRecord> ExecuteDeletion(CommandContext command, string hash,
+        Func<RetentionRecord, ObjectDependency[], Task<RetentionRecord>> change, CancellationToken ct = default);
+}
+
+public sealed record CreateRawRetentionCommand(string ProductId, string Reference, DateTimeOffset SyntheticReceivedAt, string Reason);
+public sealed record TrackRetentionCommand(string EvidenceId, int EvidenceVersion, string Reason);
+public sealed record RecordLifecycleCommand(int ExpectedVersion, string ProductId, DateOnly? LastPlacingOnMarketLocalDate,
+    bool Confirmed, string SourceReference, string Reason);
+public sealed record RetentionHoldCommand(int ExpectedVersion, bool LegalHold, string Reason);
+public sealed record AuthorizeDeletionCommand(int ExpectedVersion, bool ExternalCopiesReviewed, string ExternalCopiesReview, string Reason);
+public sealed record RetentionOptions(bool EnableSyntheticRawDeletion);
+public sealed record RetentionView(RetentionRecord Record, RetentionEvaluation Evaluation, ObjectDependency[] References);
 
 public sealed record AgentInput(AgentRole Role, AgentMode Mode, SafetyCase? Case, PsurSnapshot? Snapshot,
     TrendRun? Trend, Evidence[] Evidence, string Instruction, int Revision, string Language = "de");
@@ -58,8 +83,11 @@ public interface IMirComposer
     string[] Validate(string xml, string kind);
 }
 
+public sealed record PsurCaptureScope(string[] Products, string? GroupId, string LeadingBasicUdi);
 public sealed record PortfolioState(SafetyCase[] Cases, Evidence[] Evidence, Exposure[] Exposures,
-    TrendRun[] Trends, Capa[] Capas, ChangeRequest[] Changes, AggregateRevision[]? History = null);
+    TrendRun[] Trends, Capa[] Capas, ChangeRequest[] Changes, AggregateRevision[]? History = null,
+    ProductGovernance[]? Governance = null, Psur[]? Psurs = null, PublicSourceRun[]? SourceRuns = null,
+    PsurGroupDefinition[]? Groups = null, PsurLeadingPeriod[]? LeadingPeriods = null);
 
 public sealed record ReadPublicSourceCommand(string ProductId);
 public sealed record ApprovePublicSourceCommand(int ExpectedVersion, string ExternalId, string Reason);
@@ -96,7 +124,16 @@ public sealed record ChangeDecisionCommand(int ExpectedVersion, string Reason, s
 public sealed record RunTrendCommand(string ProductId, string Region, DateOnly Start, DateOnly End, string ExposureId,
     AgentMode Mode = AgentMode.Replay);
 public sealed record FreezePsurCommand(string ProductId, string LeadProductId, DateOnly Start, DateOnly End, string Region,
-    AgentMode Mode = AgentMode.Replay);
+    AgentMode Mode = AgentMode.Replay,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? PreviousReportId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? PreviousReportVersion = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateOnly? SubmissionDate = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ScheduleAgreement = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RevisionReason = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? GroupId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? GroupVersion = null);
+public sealed record RecordPsurGroupCommand(int ExpectedVersion, string Reference, string LeadProductId,
+    string[] MemberProductIds, DateOnly FirstPeriodStart, string Rationale, string ScheduleBasis);
 public sealed record RevisePsurCommand(int ExpectedVersion, string Draft, string Reason);
 public sealed record MirCommand(int ExpectedVersion, MirFacts Facts, string Reason);
 public sealed record ReclassifyCommand(int ExpectedVersion, Seriousness Seriousness, string Reason);
@@ -124,4 +161,5 @@ public sealed class PolicyCatalog
 }
 
 public sealed record RecordCodingCommand(int ExpectedVersion, string ReleaseId, string[] Codes,
-    string[] EvidenceIds, string Rationale, DateOnly? HistoricalAsOf = null);
+    string[] EvidenceIds, string Rationale, DateOnly? HistoricalAsOf = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] HistoricalCodingProof[]? HistoricalProofs = null);
