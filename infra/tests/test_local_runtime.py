@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from local_runtime import Harness, RuntimeFailure, filtered_json, memory_bytes, require_local_context, verify_resume
+from local_runtime import Harness, RuntimeFailure, filtered_json, memory_bytes, require_local_context, timer_counts, verify_resume
 
 
 class LocalRuntimeTests(unittest.TestCase):
@@ -95,6 +95,33 @@ class LocalRuntimeTests(unittest.TestCase):
             self.assertEqual(harness.evidence["readiness"]["workflows"]["code"], 503)
             self.assertEqual(harness.evidence["readiness"]["workflows"]["status"], "not-ready")
             self.assertEqual(harness.evidence["status"], "blocked")
+
+    def test_storage_version_failure_retains_codes_but_not_response_details(self):
+        with tempfile.TemporaryDirectory(prefix="cohors-t12-storage-version-") as directory:
+            root = Path(directory)
+            harness = Harness(root / "work", root / "evidence")
+            messages = harness.diagnostics("Azure.RequestFailedException: The API version 2026-02-06 is not supported by Azurite.\n"
+                "Status: 400 (The API version is not supported.)\nErrorCode: InvalidHeaderValue\n"
+                "Content: not-for-the-report\nAuthorization: Bearer generated-value")
+            self.assertIn("Storage HTTP status: 400", messages)
+            self.assertIn("Storage error code: InvalidHeaderValue", messages)
+            self.assertIn("Azurite does not support requested REST version 2026-02-06.", messages)
+            filtered_json({"diagnostics": messages}, ["not-for-the-report", "generated-value"])
+
+    def test_timer_evidence_requires_matching_real_trigger_and_completion(self):
+        timer_id = "12345678-1234-1234-1234-123456789abc"
+        other_id = "87654321-4321-4321-4321-cba987654321"
+        start = f"Executing 'Functions.DispatchOutbox' (Reason='Timer fired at 2026-11-15T20:00:00Z', Id={timer_id})"
+        completed = f"Executed 'Functions.DispatchOutbox' (Succeeded, Id={timer_id}, Duration=12ms)"
+        self.assertEqual(timer_counts(start + "\n" + completed, "DispatchOutbox"),
+                         {"timerExecutions": 1, "successfulExecutions": 1, "failedExecutions": 0})
+        self.assertEqual(timer_counts("\n".join([start, completed, start, completed]), "DispatchOutbox")["timerExecutions"], 1)
+        for lines in (completed, start, start + completed.replace(timer_id, other_id),
+                      start.replace("Timer fired at", "Programmatically invoked at") + completed,
+                      start + completed.replace("Succeeded", "Failed")):
+            with self.subTest(lines=lines):
+                self.assertEqual(timer_counts(lines, "DispatchOutbox")["successfulExecutions"], 0)
+        self.assertEqual(timer_counts(start + completed, "DeadlineWatchdog")["successfulExecutions"], 0)
 
     def test_cleanup_refuses_a_container_with_another_owner(self):
         with tempfile.TemporaryDirectory(prefix="cohors-t12-cleanup-") as directory:
