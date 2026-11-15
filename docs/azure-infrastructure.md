@@ -501,7 +501,25 @@ blockieren die Veroeffentlichung. Upload nur `acceptance.trx`,
 `e2e-results.xml`, `cohors-cockpit.png`, `cohors-workbench.png`, sieben Tage.
 Keine `.local`-Ordner, Settings, Login-Traces, Browser-StorageStates oder Hostlogs.
 Vorhandene Berichte/Screenshots und ein unvollstaendiges Passwortinventar werden
-abgewiesen. Der SQL-/Browser-Job laeuft unabhaengig vom Infra-Job; ein roter
+abgewiesen. Die SQL-Passwortentnahme verwendet ausdruecklich den CLR-Setter
+`DbConnectionStringBuilder.set_ConnectionString(...)`: PowerShell behandelt
+`.ConnectionString = ...` hier als IDictionary-Eintrag statt als Setter.
+`TryGetValue('Password', ...)`, Stringtyp, Nicht-Leere und eine einzelne
+steuerzeichenfreie Zeile sind zwingend. Ungueltige Eingabe oder Parserfehler
+brechen mit einer inhaltsfreien Fehlermeldung ab, bevor das Passwort ins Inventar
+gelangt; `credentialsCollected` bleibt false und keine Artefakte werden freigegeben.
+Gueltige quotierte Passwoerter werden unveraendert maskiert, nicht getrimmt.
+
+`infra/tests/test_ci_credentials.py` startet echte isolierte PowerShell-Prozesse
+mit ausschliesslich synthetischen Werten. Per AST werden nur die produktive
+Extraktionsfunktion und ihr tatsaechlicher Inventar-Add-Aufruf geladen und
+ausgefuehrt, niemals der komplette Harness. Der GitHub-Actions-/Linux-Guard
+bleibt unveraendert; keine Actions-Umgebung wird vorgetaeuscht, keine Settings
+gelesen, keine SQL-/Docker-/App-Prozesse gestartet. Die alte Propertyzuweisung
+wird ausschliesslich im Speicher mutiert und muss am selben Extraktionspfad
+scheitern. Diese Regression ist kein erfolgreicher Linux-Gesamt-CI-Lauf.
+
+Der SQL-/Browser-Job laeuft unabhaengig vom Infra-Job; ein roter
 Sicherheitsgate darf diese Integrationspruefungen nicht still ueberspringen.
 Cleanup betrifft nur den eigenen Prozessbaum, den vorher nicht existierenden
 benannten SQL-Container/Volume und konkrete frisch erzeugte Credential-/Logdateien.
@@ -595,7 +613,8 @@ die jeweils neueste Preview. Azure-Typen ersetzen keine Live-Provider-/SKU-Pruef
 
 ## Validierungsnachweis
 
-Tatsaechlich lokal ausgefuehrt am 2026-11-15, ohne Azure-Anmeldung:
+IaC-Vollvalidator zum Watchdog-Folgecommit, tatsaechlich lokal ausgefuehrt am
+2026-11-15, ohne Azure-Anmeldung:
 
 ```text
 Validate-Infrastructure.ps1 -OutputDirectory <session-files>\validation-watchdog-three-minutes-final
@@ -624,6 +643,29 @@ Operations-Rollenfilter. Die korrigierte Query besteht die jeweiligen
 Offline-Faelle; dies ersetzt keine echte Kusto-/Ein-Minuten-Alertabnahme.
 Kompilat, Abdeckungsmanifest und vollstaendiger Checkov-JSON-Bericht bleiben
 lokale Session-Artefakte; es wurde nichts an einen Scanner-SaaS uebermittelt.
+
+Ergaenzender Credential-Regressionsnachweis am 2026-11-15, **PowerShell 7.6.10**:
+Mit ausschliesslich synthetischem Connection-String erzeugte die alte
+Propertyzuweisung einen Key und `TryGetValue('Password')=false`; der CLR-Setter
+erzeugte vier Keys, fand das Passwort und lieferte exakt den synthetischen Wert.
+Danach wurden die produktive Extraktionsfunktion samt Inventaraufruf, drei
+gueltige Varianten, elf ungueltige Werte und die alte In-Memory-Mutation geprueft:
+
+```text
+PowerShell 7.6.10: harness syntax passed.
+py -3.13 -m unittest discover -s infra\tests -p test_ci_credentials.py -v
+Ran 3 tests ... OK
+py -3.13 -m unittest discover -s infra\tests -p "test_*.py" -v
+Ran 28 tests ... OK
+```
+
+Die alte Mutation scheitert vor dem Inventar-Add; fehlende, leere, fehlerhaft
+quotierte und steuerzeichenhaltige Werte hinterlassen kein Passwort im Inventar
+oder in der ausgegebenen Fehlermeldung. Dies ist kein ausgefuehrter
+GitHub-Actions-/Linux-/SQL-/Browser-Gesamtlauf. Der Actions-Guard wurde weder
+geaendert noch umgangen. IaC, Scannerkonfiguration und Workflows sind bei diesem
+Credential-Folgefix unveraendert; Bicep/Checkov wurden dafuer nicht erneut
+ausgefuehrt und der obige offene Sicherheitsbefund bleibt bestehen.
 
 **Infra-Planner-Phase-6-Selbstpruefung:** Dateien liegen in den exklusiv
 freigegebenen Pfaden; Anwendungsdateien, Originaldokumente und Referenzplaene
