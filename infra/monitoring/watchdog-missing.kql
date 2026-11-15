@@ -1,0 +1,7 @@
+union isfuzzy=true
+    (datatable(TimeGenerated:datetime, Name:string, AppRoleName:string)[]),
+    (AppEvents | project TimeGenerated, Name, AppRoleName)
+| where TimeGenerated >= ago(10m)
+| where Name == "cohors.watchdog.completed" and AppRoleName == "__OPERATIONS_ROLE__"
+| summarize SuccessfulCompletions = count()
+| project MissingSuccess = toint(SuccessfulCompletions == 0)

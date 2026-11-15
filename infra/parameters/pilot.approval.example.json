@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "REPLACE-with-approved-change-reference",
+  "expiresUtc": "2000-01-01T00:00:00Z",
+  "parametersSha256": "REPLACE-with-SHA256-of-pilot.reviewed.parameters.json",
+  "tenantId": "00000000-0000-0000-0000-000000000000",
+  "subscriptionId": "00000000-0000-0000-0000-000000000000",
+  "resourceGroup": "REPLACE-dedicated-existing-pilot-rg",
+  "location": "westeurope",
+  "gates": {
+    "subscriptionAndProviders": { "approved": false, "evidence": "" },
+    "regionSkuQuotaCost": { "approved": false, "evidence": "" },
+    "euProcessing": { "approved": false, "evidence": "" },
+    "networkDnsPrivateRunner": { "approved": false, "evidence": "" },
+    "identityAndAuthorization": { "approved": false, "evidence": "" },
+    "telemetryAndWatchdog": { "approved": false, "evidence": "" },
+    "backupRestoreLedger": { "approved": false, "evidence": "" },
+    "sqlProtectionBaseline": { "approved": false, "evidence": "" },
+    "sqlAuditDataClassification": { "approved": false, "evidence": "" },
+    "sqlThreatProtectionCost": { "approved": false, "evidence": "" },
+    "sqlThreatProtectionPrivacy": { "approved": false, "evidence": "" },
+    "sqlThreatProtectionEu": { "approved": false, "evidence": "" },
+    "sqlThreatProtectionAccessRetention": { "approved": false, "evidence": "" },
+    "sqlThreatProtectionSecOps": { "approved": false, "evidence": "" },
+    "modelVersionCapacityGeography": { "approved": false, "evidence": "" },
+    "runtimeArtifactsAndBootstrap": { "approved": false, "evidence": "" },
+    "independentDigestPublisher": { "approved": false, "evidence": "" }
+  }
+}

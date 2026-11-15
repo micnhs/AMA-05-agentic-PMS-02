@@ -1,0 +1,76 @@
+name: Cohors CI
+
+'on':
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cohors-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  infrastructure:
+    name: Bicep and local security gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: Install pinned local validation tools
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r infra/requirements-validation.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Validation dependency install failed.' }
+          az bicep install --version v0.49.2
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Bicep installation failed.' }
+          $archive = Join-Path $env:RUNNER_TEMP 'actionlint.tar.gz'
+          Invoke-WebRequest 'https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8') { throw 'Actionlint checksum mismatch.' }
+          tar -xzf $archive -C $env:RUNNER_TEMP actionlint
+          if ($LASTEXITCODE -ne 0) { throw 'Actionlint extraction failed.' }
+          $env:RUNNER_TEMP | Add-Content -LiteralPath $env:GITHUB_PATH
+          docker pull bridgecrew/checkov@sha256:122602cf32cc72286155d39f1f234b7b594818f7b8d7fdf490701620e521368b
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned Checkov scanner image download failed.' }
+      - name: Validate without Azure login
+        shell: pwsh
+        run: ./infra/scripts/Validate-Infrastructure.ps1 -OutputDirectory "$env:RUNNER_TEMP/cohors-iac"
+
+  acceptance:
+    name: SQL, .NET and Chromium acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/Cohors.Web/package-lock.json
+      - name: Real SQL and browser tests with fresh ephemeral credentials
+        shell: pwsh
+        run: ./infra/scripts/Invoke-CohorsCi.ps1 -ArtifactDirectory "$env:RUNNER_TEMP/cohors-test-evidence"
+      - name: Publish only allowlisted synthetic test evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cohors-test-evidence
+          path: |
+            ${{ runner.temp }}/cohors-test-evidence/acceptance.trx
+            ${{ runner.temp }}/cohors-test-evidence/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/cohors-cockpit.png
+            ${{ runner.temp }}/cohors-test-evidence/cohors-workbench.png
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,142 @@
+name: Cohors manual infrastructure
+
+'on':
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Only apply can create/change resources, after two protected environment gates
+        type: choice
+        options: [what-if, apply]
+        default: what-if
+        required: true
+      source_sha:
+        description: Reviewed 40-character commit SHA already merged to the default branch
+        type: string
+        required: true
+      ci_run_id:
+        description: Successful Cohors CI push run for exactly source_sha
+        type: string
+        required: true
+      review_id:
+        description: Exact reviewId in infra/parameters/pilot.approval.json
+        type: string
+        required: true
+      confirmation:
+        description: Type REVIEWED-SYNTHETIC-PILOT to acknowledge the explicit deployment gates
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cohors-pilot-infrastructure
+  cancel-in-progress: false
+
+jobs:
+  request:
+    name: Fail-closed manual request and CI provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      CI_RUN_ID: ${{ inputs.ci_run_id }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+      DEPLOY_ENABLED: ${{ vars.COHORS_DEPLOY_ENABLED }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate manual controls before checkout
+        shell: pwsh
+        run: |
+          if ($env:DEPLOY_ENABLED -ne 'true') { throw 'Deployment is disabled by default.' }
+          if ($env:CONFIRMATION -ne 'REVIEWED-SYNTHETIC-PILOT') { throw 'Explicit confirmation is missing.' }
+          if ($env:SOURCE_SHA -cnotmatch '^[0-9a-f]{40}$' -or $env:CI_RUN_ID -notmatch '^[0-9]+$') { throw 'Invalid immutable source or CI run ID.' }
+          if ($env:GITHUB_REF -ne "refs/heads/$env:DEFAULT_BRANCH") { throw 'Dispatch this workflow only from the protected default branch.' }
+          $raw = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:CI_RUN_ID"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify the referenced CI run.' }
+          $ci = $raw | ConvertFrom-Json
+          if ($ci.head_sha -ne $env:SOURCE_SHA -or $ci.conclusion -ne 'success' -or $ci.status -ne 'completed' -or
+              $ci.event -ne 'push' -or $ci.path -ne '.github/workflows/cohors-ci.yml') { throw 'CI provenance is not a passing Cohors push run for this exact commit.' }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require reviewed source on default-branch history
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor $env:SOURCE_SHA "origin/$env:DEFAULT_BRANCH"
+          if ($LASTEXITCODE -ne 0) { throw 'Source SHA is not merged to the protected default branch.' }
+
+  preview:
+    name: Protected read-only what-if
+    needs: request
+    environment: cohors-pilot-preview
+    runs-on:
+      group: cohors-private-deployment
+      labels: [self-hosted, linux, x64]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      diff_hash: ${{ steps.preview.outputs.diff_hash }}
+    env:
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      COHORS_DEPLOY_ENABLED: ${{ vars.COHORS_DEPLOY_ENABLED }}
+      COHORS_PRIVATE_RUNNER_READY: ${{ vars.COHORS_PRIVATE_RUNNER_READY }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      REVIEW_ID: ${{ inputs.review_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Reviewed offline validation
+        shell: pwsh
+        run: ./infra/scripts/Validate-Infrastructure.ps1 -OutputDirectory "$env:RUNNER_TEMP/cohors-iac"
+      - name: OIDC what-if without applying resources
+        id: preview
+        shell: pwsh
+        run: ./infra/scripts/Invoke-ReviewedDeployment.ps1 -Operation what-if -SourceSha $env:SOURCE_SHA -ReviewId $env:REVIEW_ID
+
+  apply:
+    name: Separately approved incremental apply
+    if: ${{ inputs.operation == 'apply' }}
+    needs: preview
+    environment: cohors-pilot-deploy
+    runs-on:
+      group: cohors-private-deployment
+      labels: [self-hosted, linux, x64]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      COHORS_DEPLOY_ENABLED: ${{ vars.COHORS_DEPLOY_ENABLED }}
+      COHORS_PRIVATE_RUNNER_READY: ${{ vars.COHORS_PRIVATE_RUNNER_READY }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      REVIEW_ID: ${{ inputs.review_id }}
+      APPROVED_DIFF_HASH: ${{ needs.preview.outputs.diff_hash }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Revalidate reviewed artifact
+        shell: pwsh
+        run: ./infra/scripts/Validate-Infrastructure.ps1 -OutputDirectory "$env:RUNNER_TEMP/cohors-iac"
+      - name: OIDC apply only if what-if has not changed
+        shell: pwsh
+        run: ./infra/scripts/Invoke-ReviewedDeployment.ps1 -Operation apply -SourceSha $env:SOURCE_SHA -ReviewId $env:REVIEW_ID -ExpectedDiffHash $env:APPROVED_DIFF_HASH
