@@ -14,6 +14,7 @@
     "networkDnsPrivateRunner": { "approved": false, "evidence": "" },
     "identityAndAuthorization": { "approved": false, "evidence": "" },
     "telemetryAndWatchdog": { "approved": false, "evidence": "" },
+    "watchdogQueryReadiness": { "approved": false, "evidence": "" },
     "backupRestoreLedger": { "approved": false, "evidence": "" },
     "sqlProtectionBaseline": { "approved": false, "evidence": "" },
     "sqlAuditDataClassification": { "approved": false, "evidence": "" },

@@ -21,7 +21,7 @@ param alertPrincipalId string
 @description('Existing approved action group resource ID. Test delivery before operational acceptance.')
 param actionGroupResourceId string
 
-@description('Enable the missing-success alert only after the host contract is bound; no claim of live notification delivery.')
+@description('Create the one-minute alert only after initial AppEvents ingestion and query-readiness review; no claim of live notification delivery.')
 param enableWatchdogAlert bool = false
 
 @description('Operations telemetry cloud role name, verified with the application emitter.')
@@ -131,7 +131,7 @@ module endpoint 'private-endpoint.bicep' = {
   dependsOn: [workspaceLink, insightsLink]
 }
 
-resource missingWatchdog 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
+resource missingWatchdog 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = if (enableWatchdogAlert) {
   name: 'alert-${name}-watchdog-missing'
   location: location
   tags: tags
@@ -143,7 +143,7 @@ resource missingWatchdog 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
     }
   }
   properties: {
-    description: 'No successful SQL deadline watchdog completion in the last 10 minutes, or telemetry missing. Synthetic pilot; investigate immediately.'
+    description: 'Last successful SQL deadline watchdog completion is older than 3 minutes, or absent. Evaluated every minute; ingestion and delivery latency require measurement.'
     displayName: 'Cohors watchdog success missing'
     enabled: enableWatchdogAlert
     severity: 1
@@ -177,4 +177,4 @@ resource missingWatchdog 'Microsoft.Insights/scheduledQueryRules@2023-12-01' = {
 output workspaceId string = workspace.id
 output insightsId string = insights.id
 output insightsName string = insights.name
-output watchdogAlertId string = missingWatchdog.id
+output watchdogAlertId string? = enableWatchdogAlert ? missingWatchdog.id : null

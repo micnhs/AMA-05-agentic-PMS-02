@@ -301,18 +301,68 @@ kein Gesamtinstanz- oder Rechnungslimit.
 Erst nach erfolgreichem SQL-`OperationsService.Tick` emittiert der bestaetigte
 Anwendungscode `cohors.watchdog.completed`, Cloud Role `cohors-operations`,
 ohne fachliche Payload/IDs und ohne Sampling. Workspace-Tabelle: `AppEvents`,
-Spalten `Name`, `AppRoleName`, `TimeGenerated`. KQL zaehlt Erfolge der letzten
-10 Minuten und liefert stets die numerische Spalte `MissingSuccess` (0/1).
-Eine leere typisierte Quelle und `summarize count()` ohne Gruppierung decken auch
-fehlende Tabellen/nie gestartete Hosts ab. Alert: Maximum > 0, alle 1 Minute,
-15-Minuten-Abfragefenster. Ein Timer-Invocation-Zaehler ist **kein** Ersatz.
+Spalten `Name`, `AppRoleName`, `TimeGenerated`. Das freigegebene Pilotprofil
+(Konzept v0.3, Abschnitt 9.4) verlangt drei ausgebliebene einminuetige Intervalle.
+KQL zaehlt deshalb nur passende Erfolge im **inklusiven** Bereich
+`ago(3m) <= TimeGenerated <= now()` und liefert `MissingSuccess` als Zahl (0/1).
+Der letzte Erfolg darf genau drei Minuten alt sein; **mehr als drei Minuten**
+ohne Erfolg ergeben 1, konsistent mit `OperationsService.HeartbeatMissing`.
+Alte, fremde, undatierte und zukuenftig datierte Events loeschen den Alarmgrund
+nicht. `summarize count()` ohne Gruppierung liefert auch ohne passenden Erfolg
+eine Ergebniszeile: ein nie gestarteter Host darf nicht als gesund erscheinen.
+Alert: Maximum > 0, Auswertung jede Minute (`PT1M`), eine Auswertung mit
+`MissingSuccess=1` genuegt. Das **15-Minuten-ARM-Abfragefenster** (`PT15M`) ist nur der
+Scanbereich, nicht die fachliche Missing-Success-Grenze. Weder ein
+30-Sekunden-Produzent noch ein Timer-Invocation-Zaehler aendern dieses Kriterium.
+
+**Initiale Ingestion ist ein Aktivierungsgate:** Microsoft unterstuetzt `union`
+nicht fuer diese Log-Alertquery; Ein-Minuten-Regeln verlangen bereits ingesierte
+Daten ([Querygrenzen](https://learn.microsoft.com/azure/azure-monitor/alerts/alerts-log-query#log-query-constraints),
+[Ein-Minuten-Regeln](https://learn.microsoft.com/azure/azure-monitor/alerts/alerts-create-log-alert-rule#configure-alert-rule-conditions)).
+Deshalb beginnt die Query direkt mit `AppEvents`, ohne vermeintlich sicheren
+`union`-/Leerquellen-Fallback. Bei `enableWatchdogAlert=false` wird keine Regel
+bereitgestellt. Der Watchdog-Output ist nullable und wird im Root mit Safe Access
+gelesen, weil ARM den leeren Moduloutput auslassen kann; das ist keine Aussage
+ueber bereits vorhandene Regeln. Vor erstmaliger Regelerstellung muss ein kontrollierter,
+separat berechtigter privater Bootstrap die AAD-Ingestion eines synthetischen
+**Nicht-Erfolgsereignisses** sowie Tabelle/Spalten und Queryzugriff nachweisen,
+z.B. `cohors.monitor.bootstrap`, Rolle `cohors-monitor-bootstrap`.
+Niemals einen `cohors.watchdog.completed`-Erfolg vortaeuschen. Anschliessend
+Query gegen `AppEvents` kompilieren/ausfuehren, Ein-Minuten-Voraussetzungen
+pruefen und im zusaetzlichen
+`watchdogQueryReadiness`-Gate dokumentieren, erst dann die Regel bereitstellen.
+Das Gate gilt auch ohne gleichzeitiges Runtime-Deployment. Foundation kann so
+ohne ungueltige Startregel vorbereitet werden; eine laufende Runtime verlangt
+weiterhin den aktivierten unabhaengigen Alert.
+Fehlende Tabelle/Schema-/Queryfehler sind **keine** gesunde Nullserie und muessen
+ueber Regelgesundheit und Betriebseskalation behandelt werden.
 
 Cloud-Abnahme: erstmalige Ingestion, AAD/AMPLS, Querykompilierung, gesunder Tick,
 nie gestarteter Host, SQL-Ausfall, API-/Foundry-/Search-Ausfall, Hoststopp,
 Telemetryverlust, unsampled Signal und tatsaechliche Action-Group-Zustellung testen.
-Ingestion-/Alertlatenz messen; kein Echtzeit-/medizinisches SLA aus diesem
-Schwellwert ableiten. Ein gemeinsamer EU-Region-Ausfall benoetigt ausserhalb dieser
-Fehlerdomaene getestete menschliche Eskalation.
+Grenzen mit letztem Erfolg unmittelbar vor, auf und nach `now()-3m` sowie alte
+und fremde Events pruefen. Bis zur naechsten Ein-Minuten-Auswertung kann nach
+Grenzueberschreitung weitere Taktwartezeit entstehen; Ingestion, Auswertung und
+Zustellung separat messen. **Keine garantierte Cloudlatenz:** Ist das Pilotprofil
+im Zielbetrieb nicht erreichbar, bleibt die Abnahme offen, statt die Grenze
+still auf fuenf oder zehn Minuten zu erweitern. Die Vorgabe einer **In-App-
+Eskalation spaetestens fuenf Minuten nach einer gespeicherten fachlichen Warn-/
+Faelligkeitsgrenze** ist ein getrenntes Kriterium, keine Heartbeat-Ausfalltoleranz
+und keine Verlaengerung rechtlicher Fristen. Ein gemeinsamer EU-Region-Ausfall
+benoetigt ausserhalb dieser Fehlerdomaene getestete menschliche Eskalation.
+
+`infra/tests/test_watchdog_query.py` prueft gesunden/nie gestarteten Host,
+die Drei-Minuten-Grenze inklusive exakter Gleichheit, alte/fremde/undatierte/
+zukuenftige Events und Wiederaufnahme. Die Offline-Vertragstests lesen die
+produktiven KQL-Praedikate und werten ausschliesslich deren eingeschraenkte
+Filter-/Count-/Projektionsform mit SQLite aus; andere Queryformen scheitern.
+Das ist **kein Kusto-Engine-, Scheduler-, Ingestion- oder Zustellnachweis**.
+Diese Zielbetriebspruefungen bleiben trotz bestandener Offline-Faelle offen.
+Eine gesunde Queryausgabe 0 bedeutet zudem nicht sofort `Resolved`: Fuer
+zustandsbehaftete Ein-Minuten-Regeln (`autoMitigate=true`) dokumentiert Microsoft
+zehn gesunde Minuten vor automatischer Aufloesung. Diese separate
+**Wiederherstellungsregel** ist keine zehnminuetige Ausfalltoleranz; auch diesen
+Zustandswechsel im Cloud-Drill messen.
 
 SQL: TDE, Entra-only, Proxy, PITR standardmaessig 14 Tage, Backupredundanz nur
 Local/Zone. Keine Behauptung eines erfolgreichen Restores. Evidence-/Paket-/Digest-
@@ -548,13 +598,13 @@ die jeweils neueste Preview. Azure-Typen ersetzen keine Live-Provider-/SKU-Pruef
 Tatsaechlich lokal ausgefuehrt am 2026-11-15, ohne Azure-Anmeldung:
 
 ```text
-Validate-Infrastructure.ps1 -OutputDirectory <session-files>\validation-final
+Validate-Infrastructure.ps1 -OutputDirectory <session-files>\validation-watchdog-three-minutes-final
 Bicep CLI version 0.49.2 (b34271ac51); Checkov 3.4.5; Actionlint 1.7.12
 Bicep build: exit 0.
 Bicep lint: exit 0.
 Bicep parameter example: exit 0 (not deployable approval).
 PowerShell syntax and Actionlint: exit 0.
-Ran 19 tests ... OK
+Ran 25 tests ... OK
 Exported all 36 compiled templates.
 Checkov compiled ARM:
 {"passed":184,"failed":79,"skipped":0,"parsing_errors":0,
@@ -564,11 +614,14 @@ Security gate is NOT passed.
 Validator exit 1.
 ```
 
-Die 19 Tests pruefen Offline-Freigabegates, Scanner-Export/-Abdeckung,
-TRX/JUnit-Null-/Skip-/Fehlerfaelle und Workflow-/Artefaktgrenzen; es sind
+Die 25 Tests pruefen Offline-Freigabegates, Scanner-Export/-Abdeckung,
+TRX/JUnit-Null-/Skip-/Fehlerfaelle, Workflow-/Artefaktgrenzen sowie den
+Watchdog-Queryvertrag und sein separates Aktivierungsgate; es sind
 **keine hier ausgefuehrten .NET-/SQL-/Browser-Anwendungstests**.
-Die letzte reine CI-Harness-Aenderung (PublicSources auch in der frisch
-erzeugten Konfiguration aus) wurde anschliessend nochmals syntaktisch geprueft.
+Vier gezielte Mutationen reproduzierten die Regressionen: alte Zehn-Minuten-
+Toleranz, exklusive Drei-Minuten-Untergrenze, fehlende Zukunftsgrenze und fehlender
+Operations-Rollenfilter. Die korrigierte Query besteht die jeweiligen
+Offline-Faelle; dies ersetzt keine echte Kusto-/Ein-Minuten-Alertabnahme.
 Kompilat, Abdeckungsmanifest und vollstaendiger Checkov-JSON-Bericht bleiben
 lokale Session-Artefakte; es wurde nichts an einen Scanner-SaaS uebermittelt.
 
