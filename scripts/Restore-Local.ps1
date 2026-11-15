@@ -1,0 +1,151 @@
+#requires -Version 7.6
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][string]$ConfigurationPath,
+    [Parameter(Mandatory)][string]$BackupDirectory,
+    [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$ManifestSha256,
+    [string]$ApplicationDirectory
+)
+
+. (Join-Path $PSScriptRoot 'Backup-Local.ps1') -ConfigurationPath $ConfigurationPath `
+    -BackupDirectory $BackupDirectory -ApplicationDirectory $ApplicationDirectory
+Initialize-RecoveryRuntime $ApplicationDirectory
+$config = Read-RecoveryConfiguration $ConfigurationPath
+$targetObjects = Assert-RecoveryPath $config.objectRoot -New
+$readyPath = Assert-RecoveryPath ($targetObjects + '.recovery-ready.json') -New
+$backup = Assert-RecoveryPath $BackupDirectory
+Assert-RecoverySeparatePaths $backup $targetObjects
+$manifestPath = Assert-RecoveryPath (Join-Path $backup 'manifest.json')
+$master = Open-RecoverySql $config 'master'
+$stageDatabase = 'Cohors_Recovery_' + [Guid]::NewGuid().ToString('N') + '_staging'
+$stageObjects = $targetObjects + '.staging-' + [Guid]::NewGuid().ToString('N')
+$native = '/var/opt/mssql/data/cohors_recovery_' + [Guid]::NewGuid().ToString('N')
+$ownedDatabase = $null
+$ownedObjects = $null
+$nativeCopied = $false
+$backupLock = $null
+$manifestLock = $null
+$objects = @()
+$readyTemporary = $readyPath + '.partial-' + [Guid]::NewGuid().ToString('N')
+try {
+    if ((Invoke-RecoverySql $master "SELECT COUNT(*) FROM sys.databases WHERE name=N'$($config.database)'" -Scalar) -ne 0) {
+        throw 'recovery_target_exists: The target database already exists; nothing will be restored over it.'
+    }
+    $manifestLock = [IO.File]::Open($manifestPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    if ((Get-FileHash -LiteralPath $manifestPath).Hash.ToLowerInvariant() -cne $ManifestSha256) {
+        throw 'recovery_manifest_hash: Manifest differs from the independently supplied backup digest.'
+    }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -AsHashtable -Depth 100 -DateKind String
+    if ($manifest.format -cne 'cohors-local-recovery-1' -or $manifest.syntheticOnly -ne $true -or
+        $manifest.schemaVersion -ne [Cohors.Infrastructure.SqlStateStore]::SchemaVersion) {
+        throw 'recovery_manifest: Unsupported recovery format or scope.'
+    }
+    $backupFile = Assert-RecoveryPath (Join-Path $backup 'database.bak')
+    $backupLock = [IO.File]::Open($backupFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    if ((Get-FileHash -LiteralPath $backupFile).Hash.ToLowerInvariant() -cne $manifest.databaseSha256) {
+        throw 'recovery_database_hash: Native backup bytes differ from the pinned manifest.'
+    }
+    $backupObjects = Join-Path $backup 'objects'
+    foreach ($item in $manifest.objects) {
+        if ($item.hash -cnotmatch '^[a-f0-9]{64}$' -or $item.length -lt 0) { throw 'recovery_manifest: Invalid object inventory.' }
+        if (-not (Test-Path -LiteralPath (Join-Path $backupObjects $item.hash) -PathType Leaf)) {
+            throw 'recovery_object_missing: A declared object is missing; no target was activated.'
+        }
+    }
+    $objects = Get-RecoveryObjects $backupObjects
+    if ((Get-RecoveryHash $objects) -cne (Get-RecoveryHash $manifest.objects)) {
+        throw 'recovery_object_inventory: Object inventory differs from the pinned manifest.'
+    }
+    Assert-RecoveryCoverage $manifest $objects
+    Assert-RecoveryPath $stageObjects -New | Out-Null
+    New-Item -ItemType Directory -Path $stageObjects | Out-Null
+    $ownedObjects = $stageObjects
+    Copy-RecoveryObjects $backupObjects $stageObjects $objects
+    if ((Get-RecoveryHash (Get-RecoveryObjects $stageObjects)) -cne (Get-RecoveryHash $objects)) {
+        throw 'recovery_object_hash: Staged object bytes differ.'
+    }
+    Invoke-RecoveryDocker @('cp', $backupFile, "$($config.containerId):$native.bak") | Out-Null
+    $nativeCopied = $true
+    Invoke-RecoverySql $master "RESTORE VERIFYONLY FROM DISK=N'$native.bak' WITH CHECKSUM"
+    $command = [Microsoft.Data.SqlClient.SqlCommand]::new("RESTORE FILELISTONLY FROM DISK=N'$native.bak'", $master)
+    $files = [Collections.Generic.List[object]]::new()
+    try {
+        $reader = $command.ExecuteReader()
+        try { while ($reader.Read()) { $files.Add(@{ name = $reader['LogicalName']; type = $reader['Type'] }) } }
+        finally { $reader.Dispose() }
+    } finally { $command.Dispose() }
+    if ($files.Count -ne 2 -or @($files | Where-Object type -EQ 'D').Count -ne 1 -or @($files | Where-Object type -EQ 'L').Count -ne 1) {
+        throw 'recovery_database_shape: Only the pilot single-data-file/single-log-file backup is supported.'
+    }
+    if ((Invoke-RecoverySql $master "SELECT COUNT(*) FROM sys.databases WHERE name=N'$stageDatabase'" -Scalar) -ne 0) {
+        throw 'recovery_target_exists: Generated staging database already exists.'
+    }
+    $dataName = ($files | Where-Object type -EQ 'D').name.Replace("'", "''")
+    $logName = ($files | Where-Object type -EQ 'L').name.Replace("'", "''")
+    $ownedDatabase = $stageDatabase
+    Invoke-RecoverySql $master @"
+RESTORE DATABASE [$stageDatabase] FROM DISK=N'$native.bak'
+WITH MOVE N'$dataName' TO N'$native.mdf',MOVE N'$logName' TO N'$native.ldf',RECOVERY,RESTRICTED_USER,CHECKSUM
+"@
+    $stage = Open-RecoverySql $config $stageDatabase
+    try {
+        $state = Get-RecoveryState $stage $config
+        Assert-RecoveryCoverage $state $objects
+        if ((Get-RecoveryHash $state.tables) -cne (Get-RecoveryHash $manifest.tables) -or
+            (Get-RecoveryHash $state.references) -cne (Get-RecoveryHash $manifest.references)) {
+            throw 'recovery_sql_cut: Restored authoritative SQL does not match the declared object/SQL cut.'
+        }
+    } finally { $stage.Dispose() }
+    Invoke-RecoverySql $master "ALTER DATABASE [$stageDatabase] SET READ_WRITE"
+    $stage = Open-RecoverySql $config $stageDatabase
+    try {
+        Invoke-RecoverySql $stage 'TRUNCATE TABLE dbo.SearchProjection'
+        $sql = New-RecoveryStore $config $stageDatabase
+        $objectStore = [Cohors.Infrastructure.LocalObjectStore]::new($stageObjects)
+        $search = [Cohors.Infrastructure.KnowledgeSearch]::new($sql, $objectStore, $sql, $null)
+        $rebuilt = $search.Rebuild([Threading.CancellationToken]::None).GetAwaiter().GetResult()
+        foreach ($product in @('ortho', 'cardio')) {
+            $search.Retrieve($product, [DateTimeOffset]::UtcNow, '', [Cohors.Application.CaseService]::Workflow,
+                [Threading.CancellationToken]::None).GetAwaiter().GetResult() | Out-Null
+        }
+        $after = Get-RecoveryState $stage $config
+        if ((Get-RecoveryHash $after) -cne (Get-RecoveryHash $state)) {
+            throw 'recovery_sql_changed: Rebuilding search changed authoritative state.'
+        }
+    } finally { $stage.Dispose() }
+    Invoke-RecoveryDocker @('exec', $config.containerId, 'rm', '--', "$native.bak") | Out-Null
+    $nativeCopied = $false
+    # Directory.Move and database rename both reject a concurrently created destination.
+    [IO.Directory]::Move($stageObjects, $targetObjects)
+    $ownedObjects = $targetObjects
+    Invoke-RecoverySql $master "ALTER DATABASE [$stageDatabase] MODIFY NAME=[$($config.database)]"
+    $ownedDatabase = $config.database
+    Invoke-RecoverySql $master "ALTER DATABASE [$($config.database)] SET MULTI_USER"
+    $ready = [ordered]@{
+        status = 'Verified'; manifestSha256 = $ManifestSha256; database = $config.database
+        referencedObjects = $state.references.Count; copiedObjects = $objects.Count; evidenceRevisionsRebuilt = $rebuilt
+        searchAdapter = 'KnowledgeSearch without SearchClient (SQL-derived local projection)'
+        workersStarted = $false; sourceRead = $false; externalLedgerWitness = $false
+    }
+    $stream = [IO.File]::Open($readyTemporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $ready -Depth 10))
+        $stream.Write($bytes); $stream.Flush($true)
+    } finally { $stream.Dispose() }
+    [IO.File]::Move($readyTemporary, $readyPath, $false)
+    $ownedDatabase = $null
+    $ownedObjects = $null
+    Write-Output 'RECOVERY_RESTORE=Verified; workers remain stopped; no submission or deadline was replayed.'
+} finally {
+    if ($backupLock) { $backupLock.Dispose() }
+    if ($manifestLock) { $manifestLock.Dispose() }
+    try {
+        if ($ownedDatabase) {
+            Invoke-RecoverySql $master "IF DB_ID(N'$ownedDatabase') IS NOT NULL BEGIN ALTER DATABASE [$ownedDatabase] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$ownedDatabase]; END"
+            Invoke-RecoveryDocker @('exec', $config.containerId, 'rm', '-f', '--', "$native.mdf", "$native.ldf") | Out-Null
+        }
+        if ($ownedObjects) { Remove-RecoveryObjects $ownedObjects $objects }
+        if ($nativeCopied) { Invoke-RecoveryDocker @('exec', $config.containerId, 'rm', '-f', '--', "$native.bak") | Out-Null }
+        if ([IO.File]::Exists($readyTemporary)) { [IO.File]::Delete($readyTemporary) }
+    } finally { $master.Dispose() }
+}
