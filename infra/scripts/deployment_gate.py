@@ -84,6 +84,8 @@ def validate(document, approval, context, parameters_hash, now):
 
     gates = approval.get("gates", {})
     required = set(REQUIRED_GATES)
+    if values.get("enableWatchdogAlert"):
+        required.add("watchdogQueryReadiness")
     if values.get("deploySqlThreatProtection"):
         required.update(SQL_THREAT_GATES)
         recipients = values.get("sqlSecurityNotificationEmails", [])

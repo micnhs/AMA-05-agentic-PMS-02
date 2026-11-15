@@ -54,7 +54,7 @@ class DeploymentGateTests(unittest.TestCase):
                 "deploymentGeography": "offline-test-geography", "processingCountries": ["NL"],
             },
         })
-        for key in ("modelVersionCapacityGeography", "runtimeArtifactsAndBootstrap"):
+        for key in ("modelVersionCapacityGeography", "runtimeArtifactsAndBootstrap", "watchdogQueryReadiness"):
             self.approval["gates"][key] = {"approved": True, "evidence": "offline-test-evidence"}
 
     def test_reviewed_foundation_and_runtime_inputs(self):
@@ -118,6 +118,26 @@ class DeploymentGateTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.check()
                 self.values[key] = original
+
+    def test_alert_requires_query_readiness_even_without_runtime(self):
+        self.check()
+        for runtime in (False, True):
+            with self.subTest(runtime=runtime):
+                if runtime:
+                    self.enable_runtime()
+                self.values["enableWatchdogAlert"] = True
+                self.approval["gates"].pop("watchdogQueryReadiness", None)
+                with self.assertRaisesRegex(ValueError, "watchdogQueryReadiness"):
+                    self.check()
+                for gate in ({"approved": False, "evidence": "offline-test"},
+                             {"approved": True, "evidence": ""}):
+                    self.approval["gates"]["watchdogQueryReadiness"] = gate
+                    with self.assertRaisesRegex(ValueError, "watchdogQueryReadiness"):
+                        self.check()
+                self.approval["gates"]["watchdogQueryReadiness"] = {
+                    "approved": True, "evidence": "offline-test-only",
+                }
+                self.check()
 
     def test_no_shared_audience_or_cross_api_scope(self):
         self.enable_runtime()

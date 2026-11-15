@@ -420,7 +420,7 @@ output platformResourceIds object = {
   evidence: evidence.outputs.id
   ledgerDigests: digests.outputs.id
   applicationInsights: monitoring.outputs.insightsId
-  watchdogAlert: monitoring.outputs.watchdogAlertId
+  watchdogAlert: monitoring.outputs.?watchdogAlertId
 }
 
 output workloadIdentities array = [for (role, i) in identityNames: {
