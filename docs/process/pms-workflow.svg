@@ -1,0 +1,124 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1230" viewBox="0 0 1660 1230" role="img" aria-labelledby="title desc">
+  <title id="title">Cohors: PMS-Prozess, Akteure und Freigaben</title>
+  <desc id="desc">Vom Quelleingang über Fall und Frist zu Evidenz, KI-Analyse und Assurance. Menschen genehmigen Informationsanfragen und treffen medizinische sowie regulatorische Entscheidungen. Die Software friert ein Paket ein und übermittelt ausschließlich simuliert. Quittungen, Untersuchung, CAPA, Trends und PSUR schließen den Regelkreis. Ein dringlicher Parallelweg führt direkt zur menschlichen Prüfung einer vorläufigen Meldung; Nachforderungen pausieren keine Frist.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#326780" />
+    </marker>
+    <marker id="orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#b95012" />
+    </marker>
+  </defs>
+  <rect width="1660" height="1230" fill="#ffffff" />
+  <rect x="40" y="34" width="9" height="44" rx="3" fill="#d56a24" />
+  <text x="68" y="67" class="title" font-family="Arial" fill="#14364e" font-size="34px" font-weight="700">Cohors | Vom Eingang zur verantworteten Entscheidung</text>
+  <text x="68" y="103" class="body" font-family="Arial" fill="#14364e" font-size="18px">Akteure stehen in jeder Aktivität. Orange markiert menschliche Verantwortung, nicht KI-Autonomie.</text>
+  <rect x="40" y="123" width="1580" height="50" rx="10" fill="#133a56" />
+  <text x="62" y="155" class="body" fill="#ffffff" style="fill:#ffffff" font-family="Arial" font-size="18px">Durchgehend: Fristen-Watchdog + Audit · Nachfragen, KI-Ausfall und Review pausieren keine gesetzliche Frist.</text>
+  <rect x="40" y="193" width="1580" height="151" rx="12" fill="#f5f8fb" />
+  <rect x="40" y="376" width="1580" height="151" rx="12" fill="#f5f8fb" />
+  <rect x="40" y="565" width="1580" height="165" rx="12" fill="#fffaf5" />
+  <rect x="40" y="770" width="1580" height="158" rx="12" fill="#f5f8fb" />
+  <rect x="40" y="980" width="1580" height="152" rx="12" fill="#f5f8fb" />
+  <text x="63" y="216" class="phase" font-family="Arial" fill="#527082" font-size="18px" font-weight="700" letter-spacing="1px">EINGANG UND EVIDENZ</text>
+  <text x="63" y="400" class="phase" font-family="Arial" fill="#527082" font-size="18px" font-weight="700" letter-spacing="1px">AGENTISCHE ANALYSE</text>
+  <text x="63" y="590" class="phase" font-family="Arial" fill="#527082" font-size="18px" font-weight="700" letter-spacing="1px">MENSCHLICHE ENTSCHEIDUNG</text>
+  <text x="63" y="795" class="phase" font-family="Arial" fill="#527082" font-size="18px" font-weight="700" letter-spacing="1px">MELDUNG UND FORTSETZUNG</text>
+  <text x="690" y="1007" class="phase" font-family="Arial" fill="#527082" font-size="18px" font-weight="700" letter-spacing="1px">RÜCKKOPPLUNG IN RISIKOMANAGEMENT UND PRODUKTUNTERLAGEN</text>
+  <path class="edge" d="M300 278 H380" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="380.00,278.00 364.00,285.00 364.00,271.00" fill="#326780" />
+  <path class="edge" d="M620 278 H690" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="690.00,278.00 674.00,285.00 674.00,271.00" fill="#326780" />
+  <path class="edge" d="M810 331 V398" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="810.00,398.00 803.00,382.00 817.00,382.00" fill="#326780" />
+  <path class="edge" d="M930 457 H1000" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="1000.00,457.00 984.00,464.00 984.00,450.00" fill="#326780" />
+  <path class="edge" d="M1120 515 V608" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="1120.00,608.00 1113.00,592.00 1127.00,592.00" fill="#326780" />
+  <path class="edge" d="M1240 661 H1320" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="1320.00,661.00 1304.00,668.00 1304.00,654.00" fill="#326780" />
+  <path class="edge" d="M1440 718 V808" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="1440.00,808.00 1433.00,792.00 1447.00,792.00" fill="#326780" />
+  <path class="edge" d="M1320 864 H1240" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="1240.00,864.00 1256.00,857.00 1256.00,871.00" fill="#326780" />
+  <path class="edge" d="M1000 864 H930" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="930.00,864.00 946.00,857.00 946.00,871.00" fill="#326780" />
+  <path class="edge" d="M810 918 V953 H500 V1009" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="500.00,1009.00 493.00,993.00 507.00,993.00" fill="#326780" />
+  <path class="edge" d="M380 1068 H300" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="300.00,1068.00 316.00,1061.00 316.00,1075.00" fill="#326780" />
+  <path class="edge" d="M1000 478 H960 V549 H650 V661 H620" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="620.00,661.00 636.00,654.00 636.00,668.00" fill="#326780" />
+  <path class="edge" d="M500 608 V552 H661 V278 H690" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="690.00,278.00 674.00,285.00 674.00,271.00" fill="#326780" />
+  <path class="urgent" d="M500 331 V357 H973 V633 H1000" fill="none" stroke="#b95012" stroke-width="3" stroke-dasharray="8 5" />
+  <polygon points="1000.00,633.00 984.00,640.00 984.00,626.00" fill="#b95012" />
+  <path class="edge" d="M1060 718 V750 H872 V808" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="872.00,808.00 865.00,792.00 879.00,792.00" fill="#326780" />
+  <rect x="60" y="228" width="240" height="103" rx="12" class="system" fill="#edf3f7" stroke="#315f7b" stroke-width="2" />
+  <text x="78" y="260" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">01 Quellen aufnehmen</text>
+  <text x="78" y="291" class="body" font-family="Arial" fill="#14364e" font-size="18px">Connector / PMS</text>
+  <text x="78" y="316" class="small" font-family="Arial" fill="#486475" font-size="17px">Original + Eingangszeit</text>
+  <rect x="380" y="228" width="240" height="103" rx="12" class="system" fill="#edf3f7" stroke="#315f7b" stroke-width="2" />
+  <text x="398" y="260" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">02 Fall und Frist</text>
+  <text x="398" y="291" class="body" font-family="Arial" fill="#14364e" font-size="18px">System + PMS-Triage</text>
+  <text x="398" y="316" class="small" font-family="Arial" fill="#486475" font-size="17px">Awareness · Owner</text>
+  <rect x="690" y="228" width="240" height="103" rx="12" class="system" fill="#edf3f7" stroke="#315f7b" stroke-width="2" />
+  <text x="708" y="260" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">03 Evidenz bündeln</text>
+  <text x="708" y="291" class="body" font-family="Arial" fill="#14364e" font-size="18px">Knowledge-Service</text>
+  <text x="708" y="316" class="small" font-family="Arial" fill="#486475" font-size="17px">Spezifikation · Test · Fälle</text>
+  <rect x="690" y="398" width="240" height="117" rx="12" class="agent" fill="#e5f2f8" stroke="#2a7fa5" stroke-width="2" />
+  <text x="708" y="431" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">04 Analyse entwerfen</text>
+  <text x="708" y="462" class="body" font-family="Arial" fill="#14364e" font-size="18px">Assessment Agent</text>
+  <text x="708" y="488" class="small" font-family="Arial" fill="#486475" font-size="17px">Kausalität · Risiko</text>
+  <text x="708" y="509" class="small" font-family="Arial" fill="#486475" font-size="17px">Belege + Gegenhypothesen</text>
+  <rect x="1000" y="398" width="240" height="117" rx="12" class="agent" fill="#e5f2f8" stroke="#2a7fa5" stroke-width="2" />
+  <text x="1018" y="431" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">05 Qualität prüfen</text>
+  <text x="1018" y="462" class="body" font-family="Arial" fill="#14364e" font-size="18px">Assurance + Validatoren</text>
+  <text x="1018" y="488" class="small" font-family="Arial" fill="#486475" font-size="17px">Vollständigkeit · Plausibilität</text>
+  <text x="1018" y="509" class="small" font-family="Arial" fill="#486475" font-size="17px">QA ist keine Freigabe</text>
+  <rect x="380" y="608" width="240" height="110" rx="12" class="human" fill="#fff1e5" stroke="#c7692a" stroke-width="2" />
+  <text x="398" y="640" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">06 Anfrage freigeben</text>
+  <text x="398" y="671" class="body" font-family="Arial" fill="#14364e" font-size="18px">Reviewer + RA/Privacy</text>
+  <text x="398" y="697" class="small" font-family="Arial" fill="#486475" font-size="17px">Gezielt · im Pilot simuliert</text>
+  <rect x="1000" y="608" width="240" height="110" rx="12" class="human" fill="#fff1e5" stroke="#c7692a" stroke-width="2" />
+  <text x="1018" y="640" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">07 Medizinisch prüfen</text>
+  <text x="1018" y="671" class="body" font-family="Arial" fill="#14364e" font-size="18px">Medical Safety Reviewer</text>
+  <text x="1018" y="697" class="small" font-family="Arial" fill="#486475" font-size="17px">Entscheidung + Begründung</text>
+  <rect x="1320" y="608" width="240" height="110" rx="12" class="human" fill="#fff1e5" stroke="#c7692a" stroke-width="2" />
+  <text x="1338" y="640" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">08 Versand freigeben</text>
+  <text x="1338" y="671" class="body" font-family="Arial" fill="#14364e" font-size="18px">Regulatory Affairs</text>
+  <text x="1338" y="697" class="small" font-family="Arial" fill="#486475" font-size="17px">Version · Land · Empfänger</text>
+  <rect x="1320" y="808" width="240" height="110" rx="12" class="system" fill="#edf3f7" stroke="#315f7b" stroke-width="2" />
+  <text x="1338" y="840" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">09 Paket / Simulator</text>
+  <text x="1338" y="871" class="body" font-family="Arial" fill="#14364e" font-size="18px">Workflow / Adapter</text>
+  <text x="1338" y="897" class="small" font-family="Arial" fill="#486475" font-size="17px">Hash + gültige Freigaben</text>
+  <rect x="1000" y="808" width="240" height="110" rx="12" class="system" fill="#edf3f7" stroke="#315f7b" stroke-width="2" />
+  <text x="1018" y="840" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">10 Quittung prüfen</text>
+  <text x="1018" y="871" class="body" font-family="Arial" fill="#14364e" font-size="18px">System + RA</text>
+  <text x="1018" y="897" class="small" font-family="Arial" fill="#486475" font-size="17px">Unknown zuerst abgleichen</text>
+  <rect x="690" y="808" width="240" height="110" rx="12" class="human" fill="#fff1e5" stroke="#c7692a" stroke-width="2" />
+  <text x="708" y="840" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">11 Untersuchung</text>
+  <text x="708" y="871" class="body" font-family="Arial" fill="#14364e" font-size="18px">PMS · Technik · QM</text>
+  <text x="708" y="897" class="small" font-family="Arial" fill="#486475" font-size="17px">CAPA · Wirksamkeit</text>
+  <rect x="380" y="1009" width="240" height="111" rx="12" class="agent" fill="#e5f2f8" stroke="#2a7fa5" stroke-width="2" />
+  <text x="398" y="1041" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">12 Trends bewerten</text>
+  <text x="398" y="1072" class="body" font-family="Arial" fill="#14364e" font-size="18px">Statistik + Agent + PMS</text>
+  <text x="398" y="1098" class="small" font-family="Arial" fill="#486475" font-size="17px">Nenner · Signalentscheidung</text>
+  <rect x="60" y="1009" width="240" height="111" rx="12" class="agent" fill="#e5f2f8" stroke="#2a7fa5" stroke-width="2" />
+  <text x="78" y="1041" class="name" font-family="Arial" fill="#14364e" font-size="20px" font-weight="700">13 PSUR erstellen</text>
+  <text x="78" y="1072" class="body" font-family="Arial" fill="#14364e" font-size="18px">Agent + Human Review</text>
+  <text x="78" y="1098" class="small" font-family="Arial" fill="#486475" font-size="17px">Snapshot + Freigabe</text>
+  <text x="521" y="351" class="small" style="fill:#a34812" font-family="Arial" fill="#a34812" font-size="17px">Dringlich: vorläufigen Bericht direkt menschlich prüfen</text>
+  <text x="716" y="543" class="small" font-family="Arial" fill="#486475" font-size="17px">Lücke: gezielt nachfordern</text>
+  <text x="393" y="543" class="small" font-family="Arial" fill="#486475" font-size="17px">Neue Evidenz</text>
+  <text x="1136" y="555" class="small" font-family="Arial" fill="#486475" font-size="17px">Befunde offenlegen</text>
+  <text x="1251" y="649" class="small" font-family="Arial" fill="#486475" font-size="17px">melden</text>
+  <text x="694" y="745" class="small" font-family="Arial" fill="#486475" font-size="17px">Beobachten / untersuchen: eigener begründeter Weg</text>
+  <text x="698" y="1044" class="body" font-family="Arial" fill="#14364e" font-size="18px">Neue Sicherheitsinformationen öffnen den Review erneut.</text>
+  <text x="698" y="1078" class="body" font-family="Arial" fill="#14364e" font-size="18px">CAPA, Risk File, CER, PMCF und SSCP bleiben versioniert.</text>
+  <text x="698" y="1111" class="small" font-family="Arial" fill="#486475" font-size="17px">Keine automatische Fallfreigabe, keine echte Submission, keine stille Änderung alter Entscheidungen.</text>
+  <rect x="40" y="1162" width="1580" height="44" rx="10" fill="#fff1e5" />
+  <text x="62" y="1191" class="body" font-family="Arial" fill="#14364e" font-size="18px">Entwurf 0.1 · Fall, Assessment, Bericht, Versand und CAPA haben getrennte Zustände. Eine Quittung schließt nicht den Fall.</text>
+</svg>

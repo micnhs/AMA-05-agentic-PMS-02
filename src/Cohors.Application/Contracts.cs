@@ -1,0 +1,127 @@
+using Cohors.Domain;
+
+namespace Cohors.Application;
+
+public sealed record CommandContext(string Id, string Kind, string ProductId, int ExpectedVersion,
+    string IdempotencyKey, string Action, string Reason, Actor Actor, object Request, DateTimeOffset At);
+public sealed record StoreEntry<T>(string Id, string Kind, string ProductId, int Version, T Value);
+public interface IStateStore
+{
+    Task<T?> Get<T>(string kind, string id, CancellationToken ct = default);
+    Task<T[]> List<T>(string kind, string[] products, CancellationToken ct = default);
+    Task<T[]> History<T>(string kind, string[] products, CancellationToken ct = default);
+    Task<PortfolioState> Capture(string[] products, CancellationToken ct = default);
+    Task<T?> Receipt<T>(CommandContext command, CancellationToken ct = default);
+    Task<T> Execute<T>(CommandContext command, Func<T?, T> change, CancellationToken ct = default);
+    Task<AuditEvent[]> Audit(string id, CancellationToken ct = default);
+    Task<OutboxEvent[]> PendingEvents(int limit, CancellationToken ct = default);
+    Task<OutboxEvent?> ClaimEvent(string eventId, string owner, CancellationToken ct = default);
+    Task CompleteEvent(string eventId, string consumer, string owner, string? error, CancellationToken ct = default);
+    Task<OutboxIssue[]> OutboxIssues(string[] products, CancellationToken ct = default);
+    Task<bool> HasReceipt(string eventId, string consumer, CancellationToken ct = default);
+}
+
+public interface IObjectStore
+{
+    Task<string> Put(string content, CancellationToken ct = default);
+    Task<string> Read(string hash, CancellationToken ct = default);
+}
+
+public sealed record AgentInput(AgentRole Role, AgentMode Mode, SafetyCase? Case, PsurSnapshot? Snapshot,
+    TrendRun? Trend, Evidence[] Evidence, string Instruction, int Revision, string Language = "de");
+public sealed record AgentOutput(string Model, string PromptVersion, AssessmentContent? Assessment,
+    string Narrative, QualityFinding[] Findings, string[] Tools);
+public interface IAgentRunner
+{
+    Task<AgentOutput> Run(AgentInput input, CancellationToken ct = default);
+}
+
+public sealed class AgentExecutionException(string code, Exception inner) : Exception(code, inner)
+{
+    public string Code { get; } = code;
+}
+
+public interface IKnowledgeSearch
+{
+    Task<Evidence[]> Retrieve(string productId, DateTimeOffset effectiveAt, string query, Actor actor, CancellationToken ct = default);
+    Task<int> Rebuild(CancellationToken ct = default);
+}
+
+public interface IPublicSourceReader
+{
+    Task<PublicSourceItem[]> Read(string source, string productId, CancellationToken ct = default);
+}
+
+public interface IMirComposer
+{
+    MirArtifact Build(SafetyCase c, ReportDraft report, Device device, CalendarProfile calendar, MirFacts facts, DateTimeOffset now);
+    string[] Validate(string xml, string kind);
+}
+
+public sealed record PortfolioState(SafetyCase[] Cases, Evidence[] Evidence, Exposure[] Exposures,
+    TrendRun[] Trends, Capa[] Capas, ChangeRequest[] Changes, AggregateRevision[]? History = null);
+
+public sealed record ReadPublicSourceCommand(string ProductId);
+public sealed record ApprovePublicSourceCommand(int ExpectedVersion, string ExternalId, string Reason);
+public sealed record RegisterComplaint(string IncidentKey, string SourceId, string Title, string Description,
+    string ProductId, string? Udi, string? Batch, string Country, string Jurisdiction,
+    Seriousness Seriousness, DateTimeOffset? OccurredAt, DateTimeOffset AwarenessAt,
+    string Scenario, bool Synthetic);
+public sealed record VersionCommand(int ExpectedVersion, string Reason);
+public sealed record AssessmentCommand(int ExpectedVersion, AgentMode Mode, string Reason);
+public sealed record ReviseAssessmentCommand(int ExpectedVersion, AssessmentContent Content, string Reason);
+public sealed record ManualAssessmentCommand(int ExpectedVersion, string Facts, string Analysis, string Conclusion, string Reason);
+public sealed record PrepareReportCommand(int ExpectedVersion, string Kind, string Jurisdiction,
+    string Language, bool Preliminary, string OpenQuestions, string Reason);
+public sealed record ApprovalCommand(int ExpectedVersion, string Reason, string? FindingDisposition);
+public sealed record DispositionCommand(int ExpectedVersion, Disposition Disposition, string Reason,
+    ExpectedSideEffectException? ExpectedSideEffect = null);
+public sealed record SubmissionCommand(int ExpectedVersion, string Scenario, string Reason);
+public sealed record AwarenessCommand(int ExpectedVersion, DateTimeOffset At, string Source,
+    string Reason, bool NewReportabilityInformation);
+public sealed record LinkEvidenceCommand(int ExpectedVersion, string EvidenceId, string Reason, int? EvidenceVersion = null);
+public sealed record ReviseEvidenceCommand(int ExpectedVersion, string ChangeId, string Title, string Content,
+    DateTimeOffset ValidFrom, string Reason);
+public sealed record RequestInformationCommand(int ExpectedVersion, string Question, string MinimalData,
+    string Relevance, string RecipientRole, string ManufacturerBasis, string DisclosureBasis, DateTimeOffset DueAt);
+public sealed record RespondInformationCommand(int ExpectedVersion, string RequestId, string Response, string Reason);
+public sealed record OpenCapaCommand(string CaseId, string ProductId, string Title, string Action,
+    string Rationale, string OwnerId, string EffectivenessCriterion, DateTimeOffset DueAt);
+public sealed record VerifyCapaCommand(int ExpectedVersion, string Evidence, bool Effective, string Reason);
+public sealed record AmendCapaCommand(int ExpectedVersion, string Action, string EffectivenessCriterion,
+    DateTimeOffset DueAt, string Reason);
+public sealed record OpenChangeCommand(string CaseId, string ProductId, string DocumentId,
+    int DocumentVersion, string ProposedChange, string Rationale);
+public sealed record ChangeDecisionCommand(int ExpectedVersion, string Reason, string? ImplementationEvidence);
+public sealed record RunTrendCommand(string ProductId, string Region, DateOnly Start, DateOnly End, string ExposureId,
+    AgentMode Mode = AgentMode.Replay);
+public sealed record FreezePsurCommand(string ProductId, string LeadProductId, DateOnly Start, DateOnly End, string Region,
+    AgentMode Mode = AgentMode.Replay);
+public sealed record RevisePsurCommand(int ExpectedVersion, string Draft, string Reason);
+public sealed record MirCommand(int ExpectedVersion, MirFacts Facts, string Reason);
+public sealed record ReclassifyCommand(int ExpectedVersion, Seriousness Seriousness, string Reason);
+
+public sealed class PolicyCatalog
+{
+    public required Device[] Devices { get; init; }
+    public required CalendarProfile[] Calendars { get; init; }
+    public required TrendPolicy Trend { get; init; }
+    public required TerminologyCatalog Terminology { get; init; }
+    public Device Device(string id) => Devices.SingleOrDefault(d => d.Id == id)
+        ?? throw new DomainException("device_unknown", "Produktfamilie ist nicht im synthetischen Pilotportfolio.");
+    public CalendarProfile Calendar(string jurisdiction) => Calendars.SingleOrDefault(c => c.Id == jurisdiction)
+        ?? throw new DomainException("jurisdiction_unknown", "Jurisdiktion ist nicht freigegeben.");
+    public static string Recipient(string jurisdiction) => jurisdiction switch
+    {
+        "EU-IE" => "HPRA-SIMULATOR",
+        "EU-DE" => "BfArM-SIMULATOR",
+        "EU-FR" => "ANSM-SIMULATOR",
+        "EU-IT" => "Ministero-Salute-SIMULATOR",
+        "NI" => "MHRA-NI-SIMULATOR",
+        "GB" => "MHRA-GB-SIMULATOR",
+        _ => throw new DomainException("recipient_unknown", "Kein freigegebenes Empfaengerprofil.")
+    };
+}
+
+public sealed record RecordCodingCommand(int ExpectedVersion, string ReleaseId, string[] Codes,
+    string[] EvidenceIds, string Rationale, DateOnly? HistoricalAsOf = null);

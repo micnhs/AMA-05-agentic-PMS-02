@@ -1,0 +1,1193 @@
+{
+  "version": "0.1",
+  "concept_version": "0.3",
+  "source_name": "PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx",
+  "source_sha256": "6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca",
+  "requirement_count": 118,
+  "priority_counts": {
+    "Muss": 104,
+    "Soll": 14
+  },
+  "mapping": [
+    {
+      "id": "A-01",
+      "source_row": 3,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: versionierte Produkt- und PMS-Systemakte für beide fiktiven Familien",
+      "architecture_and_process": "§3.1, §5.1; P00",
+      "acceptance_and_partial_evidence": "T02/T07/T08; N-INTAKE, N-EVIDENZ",
+      "remaining_and_boundary": "Vollständige Produktattribute und PMS-Plan-Zuordnung gezielt abnehmen; keine reale Herstellerakte"
+    },
+    {
+      "id": "A-02",
+      "source_row": 4,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: versionierte QMS-/SOP-Referenzen und Verknüpfung zu Change/CAPA",
+      "architecture_and_process": "§5.1, §7, §14.6; P00/P12",
+      "acceptance_and_partial_evidence": "T07/T17; N-EVIDENZ, N-CAPA",
+      "remaining_and_boundary": "Prozessreferenzen und Änderungsnachverfolgung prüfen; Unternehmens-QMS und SOP-Freigabe bleiben extern"
+    },
+    {
+      "id": "A-03",
+      "source_row": 5,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Meldung, CAPA, Kennzahlen und protokollierte Kommunikation",
+      "architecture_and_process": "§7, §11, §12; P09–P14",
+      "acceptance_and_partial_evidence": "T13/T15/T17/T19; N-SENDUNG, N-RATE, N-CAPA",
+      "remaining_and_boundary": "Durchgängige Kommunikations-/Maßnahmenintegration und Organisationsverfahren offen"
+    },
+    {
+      "id": "A-04",
+      "source_row": 6,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Fallregister mit getrennten Einzel-, Sammel- und Trendmeldungen",
+      "architecture_and_process": "§5.1, §8, §12; P03/P10/P13",
+      "acceptance_and_partial_evidence": "T13/T14/T19; N-SENDUNG",
+      "remaining_and_boundary": "Erstmeldung allein belegt nicht alle Meldearten; Sammelvereinbarung nach M03 nachweisen"
+    },
+    {
+      "id": "A-05",
+      "source_row": 7,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: PRRC-Verantwortung sichtbar; zwei getrennte medizinische/RA-Freigaben",
+      "architecture_and_process": "§7.3, §8, §14.1; P00/P08/P09",
+      "acceptance_and_partial_evidence": "T06/T07/T08; N-FREIGABE, N-SCOPE",
+      "remaining_and_boundary": "PRRC-Zuordnung und Eskalationsadressierung gezielt prüfen; Bestellung/Qualifikation Organisationsgate, M06"
+    },
+    {
+      "id": "A-06",
+      "source_row": 8,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: schriftliche Zuständigkeitsreferenz je Produkt und Vertretung",
+      "architecture_and_process": "§5.1, §7.3; P00",
+      "acceptance_and_partial_evidence": "T08 plus matrixspezifische Zuständigkeitsprüfung; N-SCOPE nur teilweise",
+      "remaining_and_boundary": "Produktberechtigung ist keine Aufgabenverteilung mehrerer PRRC; M06"
+    },
+    {
+      "id": "A-07",
+      "source_row": 9,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Rückruf, Rücknahme und sonstige Maßnahmen mit Empfängern",
+      "architecture_and_process": "§5.1, §7.3, §12; P12",
+      "acceptance_and_partial_evidence": "T07/T17/T19; N-FREIGABE, N-CAPA",
+      "remaining_and_boundary": "Maßnahmenarten, Empfänger und simulierte Benachrichtigungen einzeln nachweisen; kein realer Rückruf"
+    },
+    {
+      "id": "A-08",
+      "source_row": 10,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Behördenanfrage mit Frist, Antwort und Dossierpaket",
+      "architecture_and_process": "§5.1, §7, §12; P07/P11",
+      "acceptance_and_partial_evidence": "T10/T14/T19; N-FRIST nur Fristenkern",
+      "remaining_and_boundary": "Anfrage-/Antwortkette und Paketvollständigkeit offen; keine tatsächliche Behördenkooperation behaupten"
+    },
+    {
+      "id": "A-09",
+      "source_row": 11,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: PMS-bedingter TD-Änderungsauftrag mit Ursprung und Freigabe",
+      "architecture_and_process": "§5.1, §8, §11.1; P12",
+      "acceptance_and_partial_evidence": "T07; N-EVIDENZ",
+      "remaining_and_boundary": "Change Request bis zum Umsetzungsbeleg nachweisen; kein direktes Überschreiben fremder TD"
+    },
+    {
+      "id": "A-10",
+      "source_row": 12,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: klar gegliederte, versionierte und auffindbare PMS-Dokumente",
+      "architecture_and_process": "§5.3, §13, §14.2",
+      "acceptance_and_partial_evidence": "T07/T08/T20; N-EVIDENZ",
+      "remaining_and_boundary": "Volltextsuche, Berechtigungsfilter und Search-Wiederaufbau integriert noch nicht abgenommen"
+    },
+    {
+      "id": "B-01",
+      "source_row": 13,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: zentraler Quellen-/Falldatenbestand mit Provenienz und Zeitachse",
+      "architecture_and_process": "§5, §7; P01–P04",
+      "acceptance_and_partial_evidence": "T01/T02/T04; N-INTAKE, N-EVIDENZ",
+      "remaining_and_boundary": "Geplante Wiederholung, Cursor und Lifecycle-Bezug integriert prüfen; keine lebenslange Vollständigkeitsbehauptung"
+    },
+    {
+      "id": "B-02",
+      "source_row": 14,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Vorkommnisse und FSCA als nachvollziehbare PSUR-Quellen",
+      "architecture_and_process": "§5.1, §11.3; P12/P14",
+      "acceptance_and_partial_evidence": "T16/T19; N-SENDUNG nur Teilpfad",
+      "remaining_and_boundary": "Durchgängigen Einbezug in den PSUR und Quellenherkunft nachweisen"
+    },
+    {
+      "id": "B-03",
+      "source_row": 15,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: nicht schwerwiegende Vorkommnisse und Nebenwirkungen separat klassifizieren",
+      "architecture_and_process": "§5.1, §7.1, §11.2; P03/P13",
+      "acceptance_and_partial_evidence": "T04/T15; N-EVIDENZ, N-RATE nur Teilregeln",
+      "remaining_and_boundary": "Nichtmelden begründen, Trends weiterführen; Ausnahmebedingungen nach M02"
+    },
+    {
+      "id": "B-04",
+      "source_row": 16,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Trendentscheidungen und Trendmeldungen rückführen",
+      "architecture_and_process": "§11.2–11.3; P13/P14",
+      "acceptance_and_partial_evidence": "T15/T16/T19; N-RATE",
+      "remaining_and_boundary": "Verknüpfte Trendmeldung und PSUR-Übernahme noch gezielt abnehmen"
+    },
+    {
+      "id": "B-05",
+      "source_row": 17,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: PubMed-Metadaten real, Registerdaten synthetisch; menschliche Relevanzbewertung",
+      "architecture_and_process": "§5.3, §12; P01/P04",
+      "acceptance_and_partial_evidence": "T04/T08/T09/T16; N-QUELLEN, N-EVIDENZ",
+      "remaining_and_boundary": "Quellenfehler, Literaturprotokoll, Nutzungsrechte und Registerattribute prüfen; kein Volltextrecht ableiten"
+    },
+    {
+      "id": "B-06",
+      "source_row": 18,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: synthetische Beschwerde-/Rückmeldekanäle mit Herkunft",
+      "architecture_and_process": "§3.1, §12; P01/P02",
+      "acceptance_and_partial_evidence": "T01/T02/T08; N-INTAKE, N-SCOPE",
+      "remaining_and_boundary": "Dateiimport/Kanalherkunft integriert prüfen; keine produktiven E-Mail-, CRM- oder Händlerzugänge"
+    },
+    {
+      "id": "B-07",
+      "source_row": 19,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: öffentliche Vergleichsmetadaten getrennt von Herstellerfällen",
+      "architecture_and_process": "§11.1, §12; P01/P04",
+      "acceptance_and_partial_evidence": "T01/T04/T15; N-QUELLEN",
+      "remaining_and_boundary": "Vergleichbarkeit und Auswahl begründen; öffentliche Rohzahlen sind weder eigene Fälle noch Inzidenzen"
+    },
+    {
+      "id": "B-08",
+      "source_row": 20,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: produktbezogene Raten und qualifizierter Vergleich",
+      "architecture_and_process": "§5.1, §11.1–11.2; P13",
+      "acceptance_and_partial_evidence": "T15; N-RATE",
+      "remaining_and_boundary": "Gleiche Ereignisdefinition, Exposition und Vergleichsgruppe prüfen; keine unbelegten Benchmarks"
+    },
+    {
+      "id": "B-09",
+      "source_row": 21,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: Kodierung, Priorisierung, Assessment, Assurance und Human Review",
+      "architecture_and_process": "§6–§10; P03–P09",
+      "acceptance_and_partial_evidence": "T03/T04/T06/T07; N-EVIDENZ, N-FREIGABE",
+      "remaining_and_boundary": "Klinisch-technische Qualitätsbewertung und vollständige Kodierlisten nicht durch Schema-Tests ersetzt"
+    },
+    {
+      "id": "B-10",
+      "source_row": 22,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: Untersuchungsaufgaben und technische Evidenz nach Land/Charge",
+      "architecture_and_process": "§5.1, §10, §11.1; P04/P12",
+      "acceptance_and_partial_evidence": "T04/T17; N-EVIDENZ, N-CAPA",
+      "remaining_and_boundary": "Rückläufer-/Untersuchungsworkflow und Stratifizierung gezielt prüfen; nur synthetische Befunde"
+    },
+    {
+      "id": "B-11",
+      "source_row": 23,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Behördenweiterleitung als Ursprung mit korrekter Kenntnis",
+      "architecture_and_process": "§7.1, §9.2, §12; P01/P03/P11",
+      "acceptance_and_partial_evidence": "T01/T10/T11; N-FRIST",
+      "remaining_and_boundary": "Weiterleitung, Begründung und neue Information als zusammenhängenden Fall prüfen; kein pauschaler Fristreset"
+    },
+    {
+      "id": "B-12",
+      "source_row": 24,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: Anwendungsfehler/Informationsmangel mit IFU-/Usability-Rückkopplung",
+      "architecture_and_process": "§5.1, §10, §11.1; P03/P12",
+      "acceptance_and_partial_evidence": "T04/T07; N-EVIDENZ",
+      "remaining_and_boundary": "Klassifikationswerte und zugehörigen Änderungsauftrag gezielt nachweisen"
+    },
+    {
+      "id": "C-01",
+      "source_row": 25,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: kontrollierte Vorkommnis-, Problem- und Folgenklassifikation",
+      "architecture_and_process": "§5.1, §10.1; P03",
+      "acceptance_and_partial_evidence": "T02/T04; N-INTAKE, N-EVIDENZ",
+      "remaining_and_boundary": "Wertelisten/Terminologierelease und fehlende Pflichtdaten gezielt prüfen"
+    },
+    {
+      "id": "C-02",
+      "source_row": 26,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: begründete menschliche Seriousness-Entscheidung mit Fristfolge",
+      "architecture_and_process": "§7.1, §9, §10; P03/P08",
+      "acceptance_and_partial_evidence": "T04/T10; N-EVIDENZ, N-FRIST",
+      "remaining_and_boundary": "Beinaheereignisse und potenzielle Folgen fachlich abnehmen; keine autonome Schlussentscheidung"
+    },
+    {
+      "id": "C-03",
+      "source_row": 27,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: eng begründete Ausnahme für erwartete Nebenwirkungen",
+      "architecture_and_process": "§7.1, §10, §11.2; P03/P08/P13",
+      "acceptance_and_partial_evidence": "T04/T15 plus Ausnahmeprüfung nach M02",
+      "remaining_and_boundary": "Noch kein gezielter Nachweis aller drei Voraussetzungen; Expectedness allein darf nicht genügen"
+    },
+    {
+      "id": "C-04",
+      "source_row": 28,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: FSCA mit Drittland-/EU-Marktbezug",
+      "architecture_and_process": "§5.1, §7.3, §12; P12",
+      "acceptance_and_partial_evidence": "T07/T19 plus matrixspezifischer Drittlandfall",
+      "remaining_and_boundary": "Länder-/Produktbetroffenheit und simulierte Pflichtentstehung nachweisen"
+    },
+    {
+      "id": "C-05",
+      "source_row": 29,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: validierbares Meldungspaket und simulierte elektronische Einreichung",
+      "architecture_and_process": "§12.1–12.2; P09–P11",
+      "acceptance_and_partial_evidence": "T13/T14/T19; N-SENDUNG",
+      "remaining_and_boundary": "MIR-Gesamtabnahme und weitere Formate offen; Produktivzugang nach M07 separat"
+    },
+    {
+      "id": "C-06",
+      "source_row": 30,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: 15-Tage-Höchstfrist plus unverzügliche Bearbeitung",
+      "architecture_and_process": "§9; P03/P09",
+      "acceptance_and_partial_evidence": "T10/T11/T12; N-FRIST",
+      "remaining_and_boundary": "Kalenderfreigabe, tatsächlicher Watchdog und Eskalation noch abnehmen; M01"
+    },
+    {
+      "id": "C-07",
+      "source_row": 31,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: 2-Tage-Höchstfrist, priorisierte Bearbeitung und Eskalation",
+      "architecture_and_process": "§7.2, §9; P03/P09",
+      "acceptance_and_partial_evidence": "T10/T12; N-FRIST",
+      "remaining_and_boundary": "Bereitschafts-/Vertretungsweg und Alarmzustellung fehlen als Gesamtnachweis; M01"
+    },
+    {
+      "id": "C-08",
+      "source_row": 32,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: 10-Tage-Höchstfrist bei zutreffender Klassifikation",
+      "architecture_and_process": "§9; P03/P09",
+      "acceptance_and_partial_evidence": "T10/T11/T12; N-FRIST",
+      "remaining_and_boundary": "Fachliche Einordnung und vollständige Alarmkette zusätzlich abnehmen; M01"
+    },
+    {
+      "id": "C-09",
+      "source_row": 33,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: getrennte Initial-, Follow-up- und Abschlussversionen",
+      "architecture_and_process": "§5.1, §7.1, §8; P09–P11",
+      "acceptance_and_partial_evidence": "T05/T07/T13/T14; N-FREIGABE, N-SENDUNG",
+      "remaining_and_boundary": "Vorläufigkeitsweg, offene Follow-ups und XSD je Meldeart integriert prüfen"
+    },
+    {
+      "id": "C-10",
+      "source_row": 34,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Unsicherheit sichtbar, fristgerechter menschlicher Vorläufigkeitsweg",
+      "architecture_and_process": "§7.2, §9, §10; P06/P08/P09",
+      "acceptance_and_partial_evidence": "T03/T04/T05/T10; N-EVIDENZ, N-FRIST",
+      "remaining_and_boundary": "Direkter Weg ohne verfügbare KI muss aktuell integriert vorführbar sein"
+    },
+    {
+      "id": "C-11",
+      "source_row": 35,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: FSCA-Melde-Gate vor Durchführung, begründete Dringlichkeit",
+      "architecture_and_process": "§7.3, §8, §12; P12",
+      "acceptance_and_partial_evidence": "T07/T19 plus matrixspezifischer FSCA-Gate-Test",
+      "remaining_and_boundary": "Reihenfolge und Ausnahme fehlen als gezielter Nachweis; keine reale Durchführung"
+    },
+    {
+      "id": "C-12",
+      "source_row": 36,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: eigenständige Sammelmeldung mit passender Behördenvereinbarung",
+      "architecture_and_process": "§5.1, §12; P09/P10",
+      "acceptance_and_partial_evidence": "T07/T19 plus Vereinbarungsprüfung nach M03",
+      "remaining_and_boundary": "Nicht durch Einzelmeldung oder PSUR abgedeckt; Form/Inhalt/Häufigkeit und Gültigkeit testen"
+    },
+    {
+      "id": "C-13",
+      "source_row": 37,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Nichtmeldebegründung, Behördenreaktion und kontrollierte Neubewertung",
+      "architecture_and_process": "§7.1, §9.2; P08/P11",
+      "acceptance_and_partial_evidence": "T11; N-FRIST",
+      "remaining_and_boundary": "Behördenkorrespondenz ergänzen; bloße Reklassifizierung startet keine neue Frist, M01"
+    },
+    {
+      "id": "C-14",
+      "source_row": 38,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: Kenntnis, Kausalitätsbewertung und neue Information getrennt erfassen",
+      "architecture_and_process": "§9.2, §10.1; P03/P05/P08",
+      "acceptance_and_partial_evidence": "T10/T11; N-FRIST",
+      "remaining_and_boundary": "Quellenformulierung nicht als Freigabe eines verzögerten Fristbeginns verwenden, M01"
+    },
+    {
+      "id": "C-15",
+      "source_row": 39,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Ereignisland und korrekter behördlicher Empfängerscope",
+      "architecture_and_process": "§5.1, §9.1, §12; P09/P10",
+      "acceptance_and_partial_evidence": "T07/T10/T13/T19; N-SENDUNG",
+      "remaining_and_boundary": "Empfängermatrix je Land abnehmen; EU, GB und NI getrennt, kein stiller Default"
+    },
+    {
+      "id": "D-01",
+      "source_row": 40,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: statistischer Kandidat, menschliche Relevanz-/Meldeentscheidung, Trendpaket",
+      "architecture_and_process": "§11.2, §12; P13",
+      "acceptance_and_partial_evidence": "T15/T16/T19; N-RATE",
+      "remaining_and_boundary": "Signifikanz ist nicht allein Meldepflicht; Workflow/Export und fachliche Methodik offen"
+    },
+    {
+      "id": "D-02",
+      "source_row": 41,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: freigegebene Referenzraten mit TD-/IFU-Version",
+      "architecture_and_process": "§5.1, §11.2; P00/P13",
+      "acceptance_and_partial_evidence": "T07/T15; N-RATE, N-EVIDENZ",
+      "remaining_and_boundary": "Provenienz und Gültigkeit der konkreten Baseline im Trendlauf abnehmen"
+    },
+    {
+      "id": "D-03",
+      "source_row": 42,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: versionierte Methodik, Fenster und Schwellen im PMS-Plan",
+      "architecture_and_process": "§11.2, §16.4; P00/P13",
+      "acceptance_and_partial_evidence": "T07/T15; N-RATE",
+      "remaining_and_boundary": "Keine frei erfundene universelle Signifikanzgrenze; Planfreigabe und Export nachweisen"
+    },
+    {
+      "id": "D-04",
+      "source_row": 43,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: Indikatoren, Review-Alarm und RM-Änderungsauftrag",
+      "architecture_and_process": "§11.2, §7.3; P13/P12",
+      "acceptance_and_partial_evidence": "T15/T17; N-RATE, N-CAPA nur Teilpfade",
+      "remaining_and_boundary": "Auslösung bis Maßnahmenreview integriert prüfen; keine automatische Risikoakzeptanz"
+    },
+    {
+      "id": "D-05",
+      "source_row": 44,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Behördenantwort zu einem Trend mit Maßnahmenverfolgung",
+      "architecture_and_process": "§7, §12; P11/P12/P13",
+      "acceptance_and_partial_evidence": "T17/T19; N-CAPA nur Teilregel",
+      "remaining_and_boundary": "Simulierte Trendkorrespondenz und verknüpfte Maßnahmen gezielt nachweisen"
+    },
+    {
+      "id": "D-06",
+      "source_row": 45,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: externes Sicherheitssignal löst verpflichtenden Maßnahmenreview aus",
+      "architecture_and_process": "§5.1, §7; P01/P03/P12",
+      "acceptance_and_partial_evidence": "T01/T04/T17/T19; N-INTAKE, N-CAPA",
+      "remaining_and_boundary": "CAPA-Anstoß und menschliche Entscheidung prüfen; kein autonomer realer Maßnahmenvollzug"
+    },
+    {
+      "id": "D-07",
+      "source_row": 46,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: vergleichbare Expositionsraten mit dokumentiertem Nenner",
+      "architecture_and_process": "§11.2–11.3; P13/P14",
+      "acceptance_and_partial_evidence": "T15/T16; N-RATE",
+      "remaining_and_boundary": "Fehlende, unpassende oder nicht freigegebene Nenner sperren Raten; PSUR-Integration offen"
+    },
+    {
+      "id": "E-01",
+      "source_row": 47,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: fallbezogene Untersuchung und begründete Risikobewertung",
+      "architecture_and_process": "§10, §11.1; P04–P08/P12",
+      "acceptance_and_partial_evidence": "T03/T04/T17; N-EVIDENZ, N-CAPA",
+      "remaining_and_boundary": "Untersuchung läuft parallel zur fristgerechten Meldung; keine klinische Validierung durch Demo"
+    },
+    {
+      "id": "E-02",
+      "source_row": 48,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Asservatenbezug, vorherige Behördenunterrichtung und interne Prüffreigabe",
+      "architecture_and_process": "§5.1, §7.3; P12",
+      "acceptance_and_partial_evidence": "Matrixspezifischer Beweissicherungs-/Gate-Test; M04",
+      "remaining_and_boundary": "Noch kein gezielter Nachweis; keine reale destruktive Prüfung oder erfundene Behördenzustimmung"
+    },
+    {
+      "id": "E-03",
+      "source_row": 49,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Abschlussbericht mit Untersuchung, Schlussfolgerung und Maßnahmen",
+      "architecture_and_process": "§7, §10, §12.2; P11/P12",
+      "acceptance_and_partial_evidence": "T04/T07/T14/T19; N-EVIDENZ, N-FREIGABE",
+      "remaining_and_boundary": "Finales Mapping und Vollständigkeit gegen richtige Schemaart prüfen"
+    },
+    {
+      "id": "E-04",
+      "source_row": 50,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Behördeninteraktionen und Untersuchungsauflagen protokollieren",
+      "architecture_and_process": "§5.1, §7; P11/P12",
+      "acceptance_and_partial_evidence": "T07/T18/T19; N-AUDIT nur Grundmechanismus",
+      "remaining_and_boundary": "Auflagen, Verantwortliche und Nachweis der Bearbeitung gezielt abnehmen"
+    },
+    {
+      "id": "E-05",
+      "source_row": 51,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: CAPA-Plan, Termine und unabhängige Wirksamkeitsentscheidung",
+      "architecture_and_process": "§5.1, §7.3; P12",
+      "acceptance_and_partial_evidence": "T17; N-CAPA",
+      "remaining_and_boundary": "UI, Benachrichtigungen und verknüpfte Fall-/PSUR-Sicht noch integrieren"
+    },
+    {
+      "id": "E-06",
+      "source_row": 52,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: synthetische Betroffenheitsliste über Produkt/Charge/Markt",
+      "architecture_and_process": "§5.1, §11.1; P12",
+      "acceptance_and_partial_evidence": "T02/T08 plus matrixspezifische Betroffenheitsprüfung",
+      "remaining_and_boundary": "Keine Betroffenheit allein aus Textähnlichkeit; Distributionsimport und Umfang prüfen"
+    },
+    {
+      "id": "E-07",
+      "source_row": 53,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: versionierter FSN-Entwurf, Behördenreview und Sprach-/Empfängerscope",
+      "architecture_and_process": "§7.3, §8.2, §12; P09/P12",
+      "acceptance_and_partial_evidence": "T07/T19; N-FREIGABE nur allgemeiner Schutz",
+      "remaining_and_boundary": "Konkreten FSN-Review, Dringlichkeitsausnahme und simulierte Zustellung nachweisen"
+    },
+    {
+      "id": "E-08",
+      "source_row": 54,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: FSN-Pflichtfelder mit klarer Risiko- und Anwendermaßnahmenbeschreibung",
+      "architecture_and_process": "§5.1, §10, §12; P09/P12",
+      "acceptance_and_partial_evidence": "Matrixspezifischer FSN-Pflichtfeldtest; N-EVIDENZ nur Claim-Schutz",
+      "remaining_and_boundary": "UDI/SRN, Fehlfunktion, Risiken und Maßnahmen gezielt prüfen; fehlende Fakten nicht erfinden"
+    },
+    {
+      "id": "E-09",
+      "source_row": 55,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "S: FSN-Einstellung mit eindeutig simuliertem Übermittlungsbeleg",
+      "architecture_and_process": "§12.1; P10/P11",
+      "acceptance_and_partial_evidence": "T13/T19; N-SENDUNG nur Grundvertrag",
+      "remaining_and_boundary": "FSN-spezifischen Beleg nachweisen; keine öffentliche Veröffentlichung, M07"
+    },
+    {
+      "id": "E-10",
+      "source_row": 56,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: koordinierter Vorgang mit Länderfällen und koordinierender Behörde",
+      "architecture_and_process": "§5.1–5.2, §12; P09/P11/P12",
+      "acceptance_and_partial_evidence": "T07/T13/T19; N-SENDUNG nur Verpflichtungsbindung",
+      "remaining_and_boundary": "Mehrländerfall und Korrespondenz prüfen; Pflichten einzelner Länder nicht zusammenfallen lassen"
+    },
+    {
+      "id": "E-11",
+      "source_row": 57,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: nachvollziehbares Untersuchungs-/Risikodossier",
+      "architecture_and_process": "§5.3, §10, §14.2; P11/P12",
+      "acceptance_and_partial_evidence": "T04/T07/T18/T19; N-EVIDENZ, N-AUDIT",
+      "remaining_and_boundary": "Exportvollständigkeit und Berechtigungen des konkreten Pakets nachweisen"
+    },
+    {
+      "id": "E-12",
+      "source_row": 58,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Rückruf, Rücknahme und sonstige FSCA mit Umfang und Status",
+      "architecture_and_process": "§5.1, §7.3; P12",
+      "acceptance_and_partial_evidence": "T07/T17/T19; N-CAPA nur Teilregel",
+      "remaining_and_boundary": "Eigenständige Maßnahmentypen und Statusfolge prüfen; kein realer Rückruf"
+    },
+    {
+      "id": "F-01",
+      "source_row": 59,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: eingefrorener produkt-/gruppenbezogener PSUR-Entwurf",
+      "architecture_and_process": "§5.1, §11.3; P14",
+      "acceptance_and_partial_evidence": "T16; N-PSUR, N-EVIDENZ",
+      "remaining_and_boundary": "Vollständigen Snapshotinhalt aus Fällen, Trends, CAPA, PMCF und Literatur noch abnehmen"
+    },
+    {
+      "id": "F-02",
+      "source_row": 60,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: begründete Nutzen-Risiko-Schlussfolgerung mit aktuellem Evidenzscope",
+      "architecture_and_process": "§10, §11.3; P14",
+      "acceptance_and_partial_evidence": "T04/T16; N-EVIDENZ",
+      "remaining_and_boundary": "Fachliche Schlussfolgerungen menschlich bestätigen; Risikoakzeptanz nicht aus Modelltext ableiten"
+    },
+    {
+      "id": "F-03",
+      "source_row": 61,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: richtige PMCF-Berichtsversion und Hauptergebnisse im PSUR",
+      "architecture_and_process": "§5.3, §11.3; P14",
+      "acceptance_and_partial_evidence": "T07/T16; N-EVIDENZ",
+      "remaining_and_boundary": "Fachliche Gültigkeit und konkrete Ergebnisübernahme prüfen; kein PMCF-Fachsystem"
+    },
+    {
+      "id": "F-04",
+      "source_row": 62,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: synthetische Absatz-/Expositionsdaten samt Population und Einheit",
+      "architecture_and_process": "§5.1, §11.2–11.3; P14",
+      "acceptance_and_partial_evidence": "T15/T16; N-RATE",
+      "remaining_and_boundary": "Absatz, Implantate und Personen nicht gleichsetzen; vollständige PSUR-Ausweisung prüfen"
+    },
+    {
+      "id": "F-05",
+      "source_row": 63,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: Jahreszyklus, Fälligkeit, Berichtsversion und TD-Bezug",
+      "architecture_and_process": "§9.1, §11.3; P14",
+      "acceptance_and_partial_evidence": "T10/T12/T16; N-FRIST nur Rechenkern",
+      "remaining_and_boundary": "Jährlichen PSUR-Zyklus und Wiederaufnahme gezielt abnehmen"
+    },
+    {
+      "id": "F-06",
+      "source_row": 64,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: getrennte Einreichung, BS-Rückfrage und BS-Bewertung",
+      "architecture_and_process": "§11.3, §12; P14/P11",
+      "acceptance_and_partial_evidence": "T07/T13/T16/T19; N-PSUR, N-SENDUNG",
+      "remaining_and_boundary": "Grundquittung geprüft; BS-Rückfrage-/Maßnahmenzyklus und UI noch offen, keine echte BS-Akzeptanz, M07"
+    },
+    {
+      "id": "F-07",
+      "source_row": 65,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: jede PSUR-Aussage auf Fall-/Daten-/Evidenzversion zurückführen",
+      "architecture_and_process": "§5.3, §11.3; P14",
+      "acceptance_and_partial_evidence": "T04/T16; N-PSUR, N-EVIDENZ",
+      "remaining_and_boundary": "Zahlen-/Referenzvalidator geprüft; vollständige fachliche Claim-Provenienz weiter abnehmen"
+    },
+    {
+      "id": "F-08",
+      "source_row": 66,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: stabile PSUR-Referenz, fortlaufende Version und Revisionshistorie",
+      "architecture_and_process": "§5.1, §11.3; P14",
+      "acceptance_and_partial_evidence": "T07/T16 plus Kennungs-/Historienprüfung",
+      "remaining_and_boundary": "Leitproduktbindung sowie Vorversionen und frühere BS-Maßnahmen gezielt prüfen"
+    },
+    {
+      "id": "F-09",
+      "source_row": 67,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: begründete Gruppe mit gesperrtem Leitprodukt und passender BS",
+      "architecture_and_process": "§5.1, §11.3; P14",
+      "acceptance_and_partial_evidence": "T16 plus Gruppierungs-/Leitproduktregression",
+      "remaining_and_boundary": "Höchste Risikoklasse, gleiche BS, Periodeneindeutigkeit und Produktwechsel nachweisen"
+    },
+    {
+      "id": "F-10",
+      "source_row": 68,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: lückenlose Berichtsperioden und gesonderter vereinbarter Einreichungstermin",
+      "architecture_and_process": "§9.1, §11.3; P14",
+      "acceptance_and_partial_evidence": "T10/T16; N-FRIST nur Teilregel",
+      "remaining_and_boundary": "Keine erfundene allgemeine Tagesfrist nach Periodenende; Zeitplan und Abweichungen prüfen"
+    },
+    {
+      "id": "F-11",
+      "source_row": 69,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: kontrollierter Produktlebenszyklus und geprüfte Regel zum PSUR-Ende",
+      "architecture_and_process": "§11.3, §14.3; P14",
+      "acceptance_and_partial_evidence": "T16/T18 plus Lifecycle-Prüfung; M05",
+      "remaining_and_boundary": "Kein automatischer 15-Jahre-Stop/Löschlauf; konkrete Regel mit RA/BS abstimmen"
+    },
+    {
+      "id": "F-12",
+      "source_row": 70,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: Basic-UDI-, regions-, perioden- und nennerkonsistente Tabellen",
+      "architecture_and_process": "§11.2–11.3; P14",
+      "acceptance_and_partial_evidence": "T15/T16; N-RATE, N-PSUR",
+      "remaining_and_boundary": "N/N2/N3/N4 und nicht additive Welt-/Teilregion geprüft; alle Produkt-/Populationsmerkmale noch abnehmen"
+    },
+    {
+      "id": "F-13",
+      "source_row": 71,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: versionierte IMDRF-Kodes, Ebenen, Todesfälle und historische Kennzeichnung",
+      "architecture_and_process": "§10.1, §11.3; P14",
+      "acceptance_and_partial_evidence": "T14/T16 plus Terminologie-/Todesfallprüfung",
+      "remaining_and_boundary": "Anhänge A/C/D/F, zulässige Ebenen und Legacy-Ausnahme explizit abnehmen"
+    },
+    {
+      "id": "F-14",
+      "source_row": 72,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: sicherheitsrelevante und offene CAPA/FSCA mit Stichtagsstatus",
+      "architecture_and_process": "§5.2, §11.3; P14",
+      "acceptance_and_partial_evidence": "T16/T17; N-CAPA",
+      "remaining_and_boundary": "Stichtag statt heutiger Status, offene Altmaßnahmen und Art.-83(4)-Bezug nachweisen"
+    },
+    {
+      "id": "F-15",
+      "source_row": 73,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: vollständiges Quellenverzeichnis einschließlich begründeter Ausschlüsse",
+      "architecture_and_process": "§5.3, §11.3, §12; P14",
+      "acceptance_and_partial_evidence": "T04/T16; N-QUELLEN, N-EVIDENZ nur Teilpfade",
+      "remaining_and_boundary": "Registername/-typ, Beschwerdeauswahl und nicht genutzte Datensätze im PSUR prüfen"
+    },
+    {
+      "id": "F-16",
+      "source_row": 74,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Bericht, Pflichtaussage und vollständiger simuliert einreichbarer Datensatz",
+      "architecture_and_process": "§11.3, §12; P14",
+      "acceptance_and_partial_evidence": "T16/T19 plus Export-/Webformularprüfung",
+      "remaining_and_boundary": "PDF/Metadaten, Zertifikate und Legacy-/Klassenfilter abnehmen; kein reales EUDAMED-Webformular, M07"
+    },
+    {
+      "id": "G-01",
+      "source_row": 75,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: PMCF-Akte als versionierte Evidenz mit CER-/QMS-Bezug",
+      "architecture_and_process": "§3.1, §5.1; P00/P04",
+      "acceptance_and_partial_evidence": "T07/T16; N-EVIDENZ",
+      "remaining_and_boundary": "Kein eigenständiges klinisches Studien-/QMS-System, M09"
+    },
+    {
+      "id": "G-02",
+      "source_row": 76,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/S: synthetische klinische/Registry-Evidenz und reale zulässige Literaturmetadaten",
+      "architecture_and_process": "§3.1, §12; P01/P04",
+      "acceptance_and_partial_evidence": "T04/T08/T16; N-EVIDENZ, N-QUELLEN",
+      "remaining_and_boundary": "Keine realen Patientendaten, Registerberechtigung oder Lebenszeit-Wirksamkeitsbehauptung"
+    },
+    {
+      "id": "G-03",
+      "source_row": 77,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: freigegebene PMCF-Planversion mit PMS-Plan-Verweis",
+      "architecture_and_process": "§5.1–5.3; P00/P04",
+      "acceptance_and_partial_evidence": "T07; N-EVIDENZ",
+      "remaining_and_boundary": "Pflichtabschnitte und Nichtanwendbarkeitsbegründung dokumentfachlich prüfen"
+    },
+    {
+      "id": "G-04",
+      "source_row": 78,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: Ziele und neue Risiken im Plan-/Ergebnisdokument nachvollziehen",
+      "architecture_and_process": "§10, §11.1; P04/P12",
+      "acceptance_and_partial_evidence": "T04/T16; N-EVIDENZ nur Quellenprüfung",
+      "remaining_and_boundary": "Kein vollständiger PMCF-Ziel-/Studienanalysebau; fachlicher Zielkatalog bleibt kontrollierte Evidenz"
+    },
+    {
+      "id": "G-05",
+      "source_row": 79,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: vollständige Planvorlage und referenzierte Aufgaben/Fälligkeiten",
+      "architecture_and_process": "§5.1, §9.1; P00/P12",
+      "acceptance_and_partial_evidence": "T07/T10 plus dokumentfachliche Vollständigkeitsprüfung",
+      "remaining_and_boundary": "Planabschnitte a–h und Zeitplan nachweisen; kein EDC/Studienmanagement"
+    },
+    {
+      "id": "G-06",
+      "source_row": 80,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: versionierter PMCF-Bericht als CER-/TD-/PSUR-Evidenz",
+      "architecture_and_process": "§3.1, §5.3, §11.3; P04/P14",
+      "acceptance_and_partial_evidence": "T07/T16; N-EVIDENZ",
+      "remaining_and_boundary": "Vollständiger PMCF-Berichtsgenerator ausdrücklich außerhalb des Piloten"
+    },
+    {
+      "id": "G-07",
+      "source_row": 81,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/P: PMCF-Befund erzeugt kontrollierten CER-/RM-Change oder CAPA",
+      "architecture_and_process": "§5.1, §7; P12",
+      "acceptance_and_partial_evidence": "T07/T17; N-EVIDENZ, N-CAPA",
+      "remaining_and_boundary": "Durchgängige Verknüpfung und Umsetzungsbeleg prüfen; keine automatische Dokumentfreigabe"
+    },
+    {
+      "id": "G-08",
+      "source_row": 82,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/P: jährliche Review-Aufgabe für PMCF-Bericht und gegebenenfalls SSCP",
+      "architecture_and_process": "§3.1, §9.1; P12/P14",
+      "acceptance_and_partial_evidence": "T10/T12 plus Jahreszyklusprüfung",
+      "remaining_and_boundary": "Fachliche Jahresversion und tatsächliche Wiederholung noch nachweisen"
+    },
+    {
+      "id": "G-09",
+      "source_row": 83,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: PMS-/PMCF-getriggerter Änderungsauftrag an die klinische Bewertung",
+      "architecture_and_process": "§5.1, §11.1; P12",
+      "acceptance_and_partial_evidence": "T04/T07; N-EVIDENZ",
+      "remaining_and_boundary": "CER-Fachsystem und klinische Freigabe bleiben extern"
+    },
+    {
+      "id": "G-10",
+      "source_row": 84,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "Z: Anzeige und Management invasiver/belastender PMCF-Studien",
+      "architecture_and_process": "§3.1, §12",
+      "acceptance_and_partial_evidence": "Zielbetriebsnachweis; kein Pilot-Abnahmetest als Erfüllung",
+      "remaining_and_boundary": "Studienmanagement ausgeschlossen; Art.-74-Frist/Unterlagen und Art.-73-Zugang bei gesondertem Ausbau"
+    },
+    {
+      "id": "G-11",
+      "source_row": 85,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/S: erforderliche PMCF-Studie und BS-Rückmeldung als Plan-/Auflagenreferenz",
+      "architecture_and_process": "§3.1, §5.1, §12; P12",
+      "acceptance_and_partial_evidence": "T07/T19 plus Auflagenreferenzprüfung",
+      "remaining_and_boundary": "Reale Studienplanung/-durchführung und BS-Akzeptanz bleiben Zielbetrieb"
+    },
+    {
+      "id": "G-12",
+      "source_row": 86,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/S: Bescheinigungsauflagen mit Nachweisreferenz und Aufgabe",
+      "architecture_and_process": "§5.1, §9.1, §12; P12",
+      "acceptance_and_partial_evidence": "T07/T10/T19; N-FRIST nur Grundfunktion",
+      "remaining_and_boundary": "Vollständige Zertifizierungsverwaltung ausgeschlossen; konkrete Auflagenkette nachweisen"
+    },
+    {
+      "id": "G-13",
+      "source_row": 87,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "D/S: synthetische Registerdaten mit Herkunft und Produktbezug",
+      "architecture_and_process": "§5.3, §12; P01/P04",
+      "acceptance_and_partial_evidence": "T02/T04/T08; N-EVIDENZ nur Provenienzgrundlage",
+      "remaining_and_boundary": "Kein produktiver Registerzugang oder automatischer Personenabgleich"
+    },
+    {
+      "id": "H-01",
+      "source_row": 88,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: versioniertes SSCP-Dokument mit Sprache und Produktbezug",
+      "architecture_and_process": "§3.1, §5.1; P04",
+      "acceptance_and_partial_evidence": "T07; N-EVIDENZ",
+      "remaining_and_boundary": "Keine vollständige Redaktion oder öffentliche Veröffentlichung"
+    },
+    {
+      "id": "H-02",
+      "source_row": 89,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/S: BS-Validierungsnachweis und öffentliche Fundstelle als getrennte Metadaten",
+      "architecture_and_process": "§5.1, §12; P12",
+      "acceptance_and_partial_evidence": "T07/T19 plus Dokumentstatusprüfung",
+      "remaining_and_boundary": "Keine echte BS-Validierung oder EUDAMED-Veröffentlichung, M07"
+    },
+    {
+      "id": "H-03",
+      "source_row": 90,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: SSCP-Pflichtabschnitte als kontrollierte Dokumentvorlage/Checkliste",
+      "architecture_and_process": "§3.1, §5.1, §10",
+      "acceptance_and_partial_evidence": "Dokumentfachliche Prüfung; N-EVIDENZ nur allgemeine Belegprüfung",
+      "remaining_and_boundary": "Vollständiger SSCP-Generator und laienverständliche Fachfreigabe nicht Teil des Piloten"
+    },
+    {
+      "id": "H-04",
+      "source_row": 91,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/P/S: Änderungsauftrag, Jahresreview und simulierte Revalidierung",
+      "architecture_and_process": "§5.1, §9.1; P12",
+      "acceptance_and_partial_evidence": "T07/T10/T19; N-EVIDENZ",
+      "remaining_and_boundary": "Änderungs-/Review-Kette gezielt prüfen; keine eigenständige Publikationsplattform"
+    },
+    {
+      "id": "H-05",
+      "source_row": 92,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: belegter IFU-/Labeling-/Design-Änderungsauftrag",
+      "architecture_and_process": "§5.1, §11.1; P12",
+      "acceptance_and_partial_evidence": "T04/T07; N-EVIDENZ",
+      "remaining_and_boundary": "Umsetzungsbeleg nachverfolgen; keine automatische Änderung von Design-/Freigabedokumenten"
+    },
+    {
+      "id": "I-01",
+      "source_row": 93,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/P: belegte Gefährdungszuordnung und menschlicher RM-Änderungsauftrag",
+      "architecture_and_process": "§5.1, §10, §11.1; P04/P12",
+      "acceptance_and_partial_evidence": "T04/T07/T15; N-EVIDENZ, N-RATE",
+      "remaining_and_boundary": "Kein vollständiger RM-Ersatz, keine ungeprüfte Risikoakzeptanz"
+    },
+    {
+      "id": "I-02",
+      "source_row": 94,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/P: signal-/trend-/PSUR-getriggerter RM-Review mit Historie",
+      "architecture_and_process": "§5.1, §7, §11; P12–P14",
+      "acceptance_and_partial_evidence": "T07/T16/T17; N-EVIDENZ, N-CAPA",
+      "remaining_and_boundary": "Gesamten Review-/Änderungszyklus nachweisen; fachliche RM-Methodik extern freigeben"
+    },
+    {
+      "id": "I-03",
+      "source_row": 95,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: versionsgebundener Daten-/Änderungsbezug zur klinischen Bewertung",
+      "architecture_and_process": "§5.1, §11.1; P12",
+      "acceptance_and_partial_evidence": "T04/T07; N-EVIDENZ",
+      "remaining_and_boundary": "CER-Aktualisierung und klinische Abnahme liegen beim Fachowner"
+    },
+    {
+      "id": "I-04",
+      "source_row": 96,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/P: begründeter Verbesserungsvorschlag mit bewertetem Change Request",
+      "architecture_and_process": "§10.1, §5.1; P05/P08/P12",
+      "acceptance_and_partial_evidence": "T04/T07; N-EVIDENZ",
+      "remaining_and_boundary": "Verbesserungsvorschlag bis zur dispositionierten Maßnahme verfolgen"
+    },
+    {
+      "id": "I-05",
+      "source_row": 97,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: produktübergreifende Hypothese mit Komponenten-/Materialbezug",
+      "architecture_and_process": "§5.1, §11.1; P04/P13",
+      "acceptance_and_partial_evidence": "T02/T04/T08; N-EVIDENZ, N-SCOPE nur Teilregeln",
+      "remaining_and_boundary": "Konkrete Familienkorrelation und Rechte nachweisen; Ähnlichkeit ist keine bestätigte Betroffenheit"
+    },
+    {
+      "id": "I-06",
+      "source_row": 98,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: versionierter TD-Index mit PMS-/PSUR-/PMCF-Beziehungen",
+      "architecture_and_process": "§5.1, §11.3; P00/P14",
+      "acceptance_and_partial_evidence": "T07/T16; N-EVIDENZ",
+      "remaining_and_boundary": "Vollständigen Index und gültige Versionsreferenzen prüfen"
+    },
+    {
+      "id": "I-07",
+      "source_row": 99,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/P/S: PMS-Prozessreferenzen und nachvollziehbare Kommunikationsprotokolle",
+      "architecture_and_process": "§7, §12.1; P00/P07/P11",
+      "acceptance_and_partial_evidence": "T13/T18/T19; N-SENDUNG, N-AUDIT",
+      "remaining_and_boundary": "Alle relevanten Korrespondenzarten integrieren; keine realen Aussendungen"
+    },
+    {
+      "id": "I-08",
+      "source_row": 100,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D: TD-Verknüpfung zu CER/Plan und PMCF/Plan/Bericht",
+      "architecture_and_process": "§5.1–5.3; P00/P04",
+      "acceptance_and_partial_evidence": "T07; N-EVIDENZ",
+      "remaining_and_boundary": "Vollständigkeit und fachliche Gültigkeit der konkreten Dokumentstruktur prüfen"
+    },
+    {
+      "id": "J-01",
+      "source_row": 101,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: synthetischer Basic-UDI-/UDI-DI-/UDI-PI-Stamm mit Referenzen",
+      "architecture_and_process": "§5.1–5.2; P00/P02",
+      "acceptance_and_partial_evidence": "T02/T14/T16; N-INTAKE",
+      "remaining_and_boundary": "Vollständige Stammdaten und konsistente Berichtsnutzung prüfen; keine reale Registrierung"
+    },
+    {
+      "id": "J-02",
+      "source_row": 102,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: synthetische Distributions-/Implantationsdaten als Betroffenheits-/Expositionsquelle",
+      "architecture_and_process": "§5.1, §11.2, §12; P02/P12/P14",
+      "acceptance_and_partial_evidence": "T02/T15/T16; N-RATE nur Rechenkern",
+      "remaining_and_boundary": "Herkunft, Mehrfachimplantate und Importvalidierung nachweisen; keine Patientenregisteranbindung"
+    },
+    {
+      "id": "J-03",
+      "source_row": 103,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/Z: versionierte Patienten-/Implantatinformation und Änderungsauftrag",
+      "architecture_and_process": "§3.1, §5.1; P12",
+      "acceptance_and_partial_evidence": "T07; N-EVIDENZ nur Versionsgrundlage",
+      "remaining_and_boundary": "Herstellerwebsite, echte Patientenausweise und Publikation bleiben außerhalb des Piloten"
+    },
+    {
+      "id": "J-04",
+      "source_row": 104,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D: begründetes Produktmerkmal zur Art.-18-Anwendbarkeit",
+      "architecture_and_process": "§5.1; P00",
+      "acceptance_and_partial_evidence": "Matrixspezifische Stammdatenprüfung",
+      "remaining_and_boundary": "Merkmal/Begründung noch gezielt nachweisen; keine pauschale Ausnahme nur wegen Bauteilnamen"
+    },
+    {
+      "id": "J-05",
+      "source_row": 105,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: konsistente UDI-Bezüge in Meldungen und Berichtspaketen",
+      "architecture_and_process": "§5.2, §12; P09/P14",
+      "acceptance_and_partial_evidence": "T02/T14/T16; N-INTAKE",
+      "remaining_and_boundary": "MIR/FSN/PSUR/SSCP-Quervergleich offen; keine zugesagte produktive UDI-API"
+    },
+    {
+      "id": "J-06",
+      "source_row": 106,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: synthetischer Herstellerstamm mit SRN, Sitzstaat und Rollenbezug",
+      "architecture_and_process": "§5.1, §12; P00/P09",
+      "acceptance_and_partial_evidence": "T14/T16 plus Stammdatenprüfung",
+      "remaining_and_boundary": "SRN und koordinierende Behörde konkret prüfen; fiktive Kennungen sichtbar kennzeichnen"
+    },
+    {
+      "id": "K-01",
+      "source_row": 107,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: getrennte Meldearten, Exportverträge und Simulatorstatus",
+      "architecture_and_process": "§5.1, §12; P09–P14",
+      "acceptance_and_partial_evidence": "T13/T14/T16/T19; N-SENDUNG",
+      "remaining_and_boundary": "Einzelmeldung belegt nicht FSCA, Sammelmeldung, Trend, PSUR und FSN; M03/M07"
+    },
+    {
+      "id": "K-02",
+      "source_row": 108,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: Empfänger-/Jurisdiktionsmapping je Meldeart",
+      "architecture_and_process": "§9.1, §12; P09/P10",
+      "acceptance_and_partial_evidence": "T07/T13/T19; N-SENDUNG",
+      "remaining_and_boundary": "Weiterleitung des Behördensystems nicht als selbst implementierte Echtfunktion ausgeben"
+    },
+    {
+      "id": "K-03",
+      "source_row": 109,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: produkt-/periodenbezogenes BS-/Auditpaket mit Zugriffsscope",
+      "architecture_and_process": "§12, §14.1–14.2; P11/P14",
+      "acceptance_and_partial_evidence": "T08/T16/T18/T19; N-SCOPE, N-AUDIT",
+      "remaining_and_boundary": "Paketinhalt und berechtigtes Retrieval prüfen; kein realer BS-Zugang"
+    },
+    {
+      "id": "K-04",
+      "source_row": 110,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: fallbezogene Korrespondenz mit Empfänger, Vorlage, Frist und Status",
+      "architecture_and_process": "§5.1, §7, §12; P07/P11/P12",
+      "acceptance_and_partial_evidence": "T10/T13/T19; N-FRIST, N-SENDUNG nur Grundfunktionen",
+      "remaining_and_boundary": "RFI-, Behörden-, BS- und Maßnahmenkorrespondenz vollständig integrieren"
+    },
+    {
+      "id": "K-05",
+      "source_row": 111,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: synthetische Wirtschaftsakteur-Verteiler und Benachrichtigungsbelege",
+      "architecture_and_process": "§5.1, §12; P12",
+      "acceptance_and_partial_evidence": "T07/T19",
+      "remaining_and_boundary": "Noch kein gezielter Verteiler-/Zustellnachweis; keine realen Händler/Importeure kontaktieren"
+    },
+    {
+      "id": "K-06",
+      "source_row": 112,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/S: validierter Import synthetischer Absatz-/Lieferdaten",
+      "architecture_and_process": "§5.1, §11.2, §12; P02/P12/P14",
+      "acceptance_and_partial_evidence": "T02/T15/T16; N-RATE nur Folgefunktion",
+      "remaining_and_boundary": "Import-, Chargen-, Länder- und Expositionskonsistenz eigens nachweisen"
+    },
+    {
+      "id": "K-07",
+      "source_row": 113,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "Z: Art.-73-/Art.-74-Studienanzeige als späterer Schnittstellenvertrag",
+      "architecture_and_process": "§3.1, §12",
+      "acceptance_and_partial_evidence": "Zielbetriebsnachweis; keine Pilot-Erfüllungsbehauptung",
+      "remaining_and_boundary": "Kein klinisches Prüfungs-/EDC-System; gesonderte Studien- und Zugangsgenehmigung erforderlich"
+    },
+    {
+      "id": "L-01",
+      "source_row": 114,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: objektbezogene Retention, Legal Hold und Lesbarkeits-/Recovery-Nachweise",
+      "architecture_and_process": "§14.3, §15; P00",
+      "acceptance_and_partial_evidence": "T18/T20; N-AUDIT nur Integrität",
+      "remaining_and_boundary": "Mindestens 15 Jahre ab letztem Inverkehrbringen für einschlägige Unterlagen; kein pauschales Rohdaten-WORM, M05"
+    },
+    {
+      "id": "L-02",
+      "source_row": 115,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "Z/D: bedingter Bevollmächtigtenzugang über freigegebene Dokumente/Exportscope",
+      "architecture_and_process": "§14.1, §12",
+      "acceptance_and_partial_evidence": "T08 bei Anwendbarkeit; N-SCOPE nur allgemeine Rollenprüfung",
+      "remaining_and_boundary": "Fiktiver Hersteller sitzt in Irland; Nicht-EU-Herstellerfall und konkrete Bevollmächtigtenrechte separat"
+    },
+    {
+      "id": "L-03",
+      "source_row": 116,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: nachvollziehbarer Audit-Trail und produktbezogenes Auditpaket",
+      "architecture_and_process": "§14.2, §15, §17; P11/P14",
+      "acceptance_and_partial_evidence": "T18/T20; N-AUDIT",
+      "remaining_and_boundary": "Keine tatsächliche BS-Prüfung; Retention, Recovery und externe Digestprüfung offen"
+    },
+    {
+      "id": "L-04",
+      "source_row": 117,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "D/P: versioniertes QMS-Antragspaket aus PMS-Beschreibung und Verfahren",
+      "architecture_and_process": "§5.1, §14.6, §16",
+      "acceptance_and_partial_evidence": "T07/T18; N-EVIDENZ, N-AUDIT nur Bausteine",
+      "remaining_and_boundary": "Paketvollständigkeit prüfen; realer QMS-Antrag und Zertifizierung außerhalb des Piloten"
+    },
+    {
+      "id": "L-05",
+      "source_row": 118,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P: Rollen/Produktscope, Verschlüsselung, minimierte Daten und getrennte Datenklassen",
+      "architecture_and_process": "§14.1–14.5, §15",
+      "acceptance_and_partial_evidence": "T08/T09/T18/T20; N-SCOPE, N-BETRIEB",
+      "remaining_and_boundary": "Konfigurationsgate geprüft, tatsächlicher EU-Review und Entra-/Azure-/Privacy-/Retention-Abnahme offen"
+    },
+    {
+      "id": "L-06",
+      "source_row": 119,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "pilot_scope": "P: unveränderbare Ereigniszeiten und auditierte Korrekturen statt Überschreiben",
+      "architecture_and_process": "§9.2, §14.2",
+      "acceptance_and_partial_evidence": "T10/T11/T18; N-FRIST, N-AUDIT",
+      "remaining_and_boundary": "Eingabe des tatsächlichen Kenntnisdatums mit Provenienz zulässig; keine heimliche Änderung/Neustartregel, M01"
+    },
+    {
+      "id": "L-07",
+      "source_row": 120,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "pilot_scope": "P/D/S: Sprach-/Länderversionen im freigegebenen Paketscope",
+      "architecture_and_process": "§8.2, §12, §13",
+      "acceptance_and_partial_evidence": "T07/T14/T19; N-FREIGABE nur allgemeine Bindung",
+      "remaining_and_boundary": "Sprach-/Templatewechsel gezielt prüfen; keine validierte Vollübersetzung oder vollständige nationale Sprachabnahme"
+    }
+  ]
+}

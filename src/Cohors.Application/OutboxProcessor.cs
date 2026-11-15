@@ -1,0 +1,36 @@
+using Cohors.Domain;
+
+namespace Cohors.Application;
+
+public sealed class OutboxProcessor(IStateStore store, CaseService cases, IKnowledgeSearch search)
+{
+    public async Task<OutboxDispatchResult> Process(string id, CancellationToken ct = default)
+    {
+        const string consumer = "cohors-domain-events-v1";
+        if (await store.HasReceipt(id, consumer, ct)) return new(id, "Handled", null);
+        var owner = Guid.NewGuid().ToString("N");
+        var e = await store.ClaimEvent(id, owner, ct);
+        if (e is null) return new(id, "Unavailable", "leased_completed_or_backoff");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromMinutes(8));
+        try
+        {
+            if (e.Type == "AssessmentRequested")
+            {
+                var requested = Canonical.Read<SafetyCase>(e.Payload);
+                await cases.ProcessAssessment(requested.Id, requested.AgentRuns.Last().Id, timeout.Token);
+            }
+            if (e.Type is "EvidenceSeeded" or "PublicSourceApproved" or "EvidenceVersionPublished")
+                await search.Rebuild(timeout.Token);
+            await store.CompleteEvent(id, consumer, owner, null, timeout.Token);
+            return new(id, "Handled", null);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            var code = error is DomainException domain ? domain.Code : error.GetType().Name;
+            using var recordTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await store.CompleteEvent(id, consumer, owner, code, recordTimeout.Token);
+            return new(id, e.Attempts >= 5 ? "Poisoned" : "Retry", code);
+        }
+    }
+}

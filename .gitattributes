@@ -1,0 +1,17 @@
+* text=auto
+*.cs text eol=lf
+*.tsx text eol=lf
+*.ts text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.bicep text eol=lf
+*.png binary
+*.mp4 binary
+*.docx binary
+*.xlsx binary
+*.pdf binary
+contracts/regulatory-schemas/** -text
+contracts/terminology/** -text
+tests/Cohors.Tests/Fixtures/cohors-*-references.json -text
+docs/requirements/coordinator-* -text
+docs/requirements/extract-cohors-terminology.py -text

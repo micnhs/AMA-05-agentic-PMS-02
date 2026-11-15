@@ -1,0 +1,218 @@
+{
+  "referenceVersion": "2",
+  "purpose": "Independent synthetic reference inputs for the approved T10, T11, T15 and T16 acceptance scenarios.",
+  "scope": "Test data only. Not a legally approved calendar, risk methodology, clinical validation or authority submission.",
+  "provenance": {
+    "specification": "cohors-architektur-und-implementierungskonzept.md",
+    "sections": ["9", "11", "17.1"],
+    "method": "Expected values fixed independently of application code; calendar weekdays, included working days and descriptive arithmetic cross-checked in SQLite. PSUR cutoff and numerator-provenance examples explicitly distinguish the observation window, knowledge cutoff and freeze timestamp.",
+    "applicationVerified": false
+  },
+  "calendarProfile": {
+    "id": "synthetic-eu-reference",
+    "timeZone": "Europe/Dublin",
+    "weekendDays": ["Saturday", "Sunday"],
+    "holidays": ["2027-01-01"],
+    "holidayScope": "Only the expressly listed holiday is used in these examples; this is not a complete production calendar.",
+    "awarenessDay": 0,
+    "minimumIncludedWorkingDays": 2,
+    "legalDateMeaning": "End of the specified local date; this maximum does not displace the duty to act without undue delay.",
+    "safetyDateMeaning": "Internal SafetyDue must not be later than the raw calendar target and may be earlier.",
+    "jurisdictionRestriction": "EU reference only; do not infer GB rules from these examples."
+  },
+  "deadlineCases": [
+    {
+      "id": "eu-thursday-two",
+      "awarenessAt": "2026-11-12T10:00:00+00:00",
+      "calendarDays": 2,
+      "expectedRawDueLocalDate": "2026-11-14",
+      "expectedLegalDueLocalDate": "2026-11-16",
+      "expectedIncludedWorkingDays": 2
+    },
+    {
+      "id": "eu-friday-two",
+      "awarenessAt": "2026-11-13T10:00:00+00:00",
+      "calendarDays": 2,
+      "expectedRawDueLocalDate": "2026-11-15",
+      "expectedLegalDueLocalDate": "2026-11-17",
+      "expectedIncludedWorkingDays": 2,
+      "reason": "Moving Sunday only to Monday still leaves one included working day; the minimum-two-working-days rule also applies."
+    },
+    {
+      "id": "eu-dst-start",
+      "awarenessAt": "2026-03-27T10:00:00+00:00",
+      "calendarDays": 2,
+      "expectedRawDueLocalDate": "2026-03-29",
+      "expectedLegalDueLocalDate": "2026-03-31",
+      "expectedIncludedWorkingDays": 2,
+      "reason": "Calendar-day calculation crosses the Dublin spring DST transition; adding a fixed number of elapsed hours is not equivalent."
+    },
+    {
+      "id": "eu-year-end-holiday",
+      "awarenessAt": "2026-12-31T10:00:00+00:00",
+      "calendarDays": 2,
+      "expectedRawDueLocalDate": "2027-01-02",
+      "expectedLegalDueLocalDate": "2027-01-05",
+      "expectedIncludedWorkingDays": 2,
+      "reason": "January 1 is explicitly a holiday in this synthetic profile; January 4 and 5 are the two included working days."
+    },
+    {
+      "id": "eu-ten-weekend",
+      "awarenessAt": "2026-11-05T10:00:00+00:00",
+      "calendarDays": 10,
+      "expectedRawDueLocalDate": "2026-11-15",
+      "expectedLegalDueLocalDate": "2026-11-16",
+      "expectedIncludedWorkingDays": 7
+    },
+    {
+      "id": "eu-fifteen-weekend",
+      "awarenessAt": "2026-11-13T10:00:00+00:00",
+      "calendarDays": 15,
+      "expectedRawDueLocalDate": "2026-11-28",
+      "expectedLegalDueLocalDate": "2026-11-30",
+      "expectedIncludedWorkingDays": 11
+    },
+    {
+      "id": "eu-leap-day",
+      "awarenessAt": "2028-02-28T10:00:00+00:00",
+      "calendarDays": 2,
+      "expectedRawDueLocalDate": "2028-03-01",
+      "expectedLegalDueLocalDate": "2028-03-01",
+      "expectedIncludedWorkingDays": 2
+    }
+  ],
+  "awarenessInvariant": {
+    "referenceCase": "eu-thursday-two",
+    "systemReceivedAt": "2026-11-16T15:00:00+00:00",
+    "newInformationChangingReportability": false,
+    "expectedLegalDueLocalDate": "2026-11-16",
+    "reason": "Late system intake does not replace the preserved first organizational awareness event."
+  },
+  "descriptiveRateReference": {
+    "metric": "Observed synthetic events per 10000 device-years, not a causal or clinical-risk estimate.",
+    "baseline": {
+      "period": "2024",
+      "uniqueEvents": 4,
+      "matchedExposureDeviceYears": 10000,
+      "expectedRatePer10000": 4
+    },
+    "comparison": {
+      "period": "2025",
+      "uniqueEvents": 9,
+      "matchedExposureDeviceYears": 30000,
+      "expectedRatePer10000": 3
+    },
+    "expectedComparisonToBaselineRateRatio": 0.75,
+    "expectedRelativeRateChangePercent": -25,
+    "reason": "Event counts rise while the exposure-normalized descriptive rate falls; raw count growth alone does not establish a rate increase or statistical significance."
+  },
+  "invalidExposureCases": [
+    {
+      "id": "missing-denominator",
+      "events": 2,
+      "exposure": null,
+      "mustNotEmitIncidenceEstimate": true
+    },
+    {
+      "id": "zero-denominator",
+      "events": 2,
+      "exposure": 0,
+      "mustNotEmitIncidenceEstimate": true
+    },
+    {
+      "id": "negative-denominator",
+      "events": 2,
+      "exposure": -1,
+      "mustNotEmitIncidenceEstimate": true
+    },
+    {
+      "id": "mismatched-period",
+      "events": 2,
+      "eventPeriod": "2025",
+      "exposure": 10000,
+      "exposurePeriod": "2024",
+      "mustNotEmitIncidenceEstimate": true
+    },
+    {
+      "id": "mismatched-geography",
+      "events": 2,
+      "eventGeography": "Worldwide",
+      "exposure": 10000,
+      "exposureGeography": "EEA-Turkey-NI",
+      "mustNotEmitIncidenceEstimate": true
+    }
+  ],
+  "psurGeographyReference": {
+    "period": "2025",
+    "subset": {
+      "geography": "EEA-Turkey-NI",
+      "events": 5,
+      "matchedExposureDeviceYears": 20000,
+      "expectedRatePer10000": 2.5
+    },
+    "worldwideIncludingSubset": {
+      "events": 8,
+      "matchedExposureDeviceYears": 40000,
+      "expectedRatePer10000": 2
+    },
+    "expectedWorldwideEvents": 8,
+    "expectedWorldwideExposureDeviceYears": 40000,
+    "forbiddenAdditiveWorldwideEvents": 13,
+    "expectedWorldwideCaseIds": ["reference-1", "reference-2", "reference-3", "reference-4", "reference-5", "reference-6", "reference-7", "reference-8"],
+    "expectedSubsetCaseIds": ["reference-1", "reference-2", "reference-3", "reference-4", "reference-5"],
+    "subsetReportMustStillBindWorldwideCaseIds": true,
+    "reason": "Worldwide already includes the geographical subset; adding both aggregates double-counts. If both tables are published in a subset report, all eight counted case versions must remain traceable, including the three outside the subset."
+  },
+  "psurCutoffReference": {
+    "start": "2025-11-15",
+    "end": "2026-11-14",
+    "knowledgeCutoffInclusiveUtc": "2026-11-14T23:59:59.999999Z",
+    "frozenAt": "2026-11-16T15:00:00Z",
+    "dateBasis": "OccurredAt.UtcDate",
+    "cases": [
+      {
+        "id": "known-before-cutoff",
+        "version": 3,
+        "country": "IE",
+        "occurredAt": "2026-11-12T10:00:00Z",
+        "firstAwarenessAt": "2026-11-13T10:00:00Z"
+      },
+      {
+        "id": "known-after-cutoff",
+        "version": 2,
+        "country": "IE",
+        "occurredAt": "2026-11-12T10:00:00Z",
+        "firstAwarenessAt": "2026-11-15T10:00:00Z"
+      }
+    ],
+    "expectedBaselineCaseIds": ["known-before-cutoff"],
+    "expectedBaselineEvents": 1,
+    "expectedPostCutoffCaseIds": ["known-after-cutoff"],
+    "reason": "For this explicitly declared period-end knowledge cutoff, both numerator and baseline case evidence must use the same one case. Later knowledge may only enter a separately identified update/supplement, not silently change the baseline numerator while remaining absent from its source set. A freeze timestamp is not itself proof of historical state at the cutoff."
+  },
+  "psurHistoricalNumeratorReference": {
+    "currentPeriod": {
+      "label": "N",
+      "start": "2025-11-15",
+      "end": "2026-11-14"
+    },
+    "comparisonPeriod": {
+      "label": "N2",
+      "start": "2024-11-15",
+      "end": "2025-11-14"
+    },
+    "closedCase": {
+      "id": "closed-comparison-case",
+      "version": 4,
+      "country": "IE",
+      "occurredAt": "2025-06-10T10:00:00Z",
+      "firstAwarenessAt": "2025-06-11T10:00:00Z",
+      "closedAt": "2025-07-01T10:00:00Z"
+    },
+    "precondition": "A matching approved exposure exists for N and N2; this is a complete deliberately constructed synthetic one-case input, not a claim of clinical data completeness.",
+    "expectedCurrentPeriodEvents": 0,
+    "expectedComparisonPeriodEvents": 1,
+    "expectedComparisonNumeratorCaseIds": ["closed-comparison-case"],
+    "reason": "A closed older case need not be presented as an open N carry-over, but its exact case version/hash must still be frozen as a source for the N2 event count. Numerator provenance must not be limited to current-period narrative cases."
+  }
+}

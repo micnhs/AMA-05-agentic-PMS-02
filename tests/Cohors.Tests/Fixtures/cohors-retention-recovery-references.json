@@ -1,0 +1,142 @@
+{
+  "referenceVersion": "1",
+  "purpose": "Independent synthetic boundary inputs for approved T18/T20 and L-01/L-03 acceptance. These are not an authorization to delete existing demo data or activate production retention.",
+  "provenance": {
+    "specification": "cohors-architektur-und-implementierungskonzept.md",
+    "sections": ["14.2", "14.3", "15", "17.1"],
+    "applicationVerified": false
+  },
+  "regulatoryDateReference": {
+    "dataClass": "ApplicableImplantTechnicalDocumentation",
+    "rule": "A deliberately fixed synthetic minimum-retention example, separate from any physical demo-lock duration.",
+    "productLifecycleConfirmed": true,
+    "lastPlacingOnMarketLocalDate": "2020-06-30",
+    "minimumYears": 15,
+    "timeZone": "Europe/Dublin",
+    "expectedPolicyMinimumRetainThroughLocalDate": "2035-06-30",
+    "uploadDatesWithSamePolicyMinimum": ["2019-06-30", "2026-11-15"],
+    "checks": [
+      {
+        "checkedLocalDate": "2035-06-29",
+        "minimumIntervalElapsed": false
+      },
+      {
+        "checkedLocalDate": "2035-06-30",
+        "minimumIntervalElapsed": false
+      },
+      {
+        "checkedLocalDate": "2035-07-01",
+        "minimumIntervalElapsed": true
+      }
+    ],
+    "missingOrUnconfirmedLifecycleDate": {
+      "mustNotUseUploadDateAsSubstitute": true,
+      "mustNotDeclareMinimumIntervalElapsed": true
+    },
+    "elapsedIntervalIsNotDeletionPermission": true
+  },
+  "shortRawRetentionReference": {
+    "dataClass": "UnreferencedSyntheticRawQuarantine",
+    "rule": "Explicit seven-elapsed-day test policy only; not a default for regulatory evidence, personal data or production.",
+    "receivedAt": "2026-11-01T12:00:00Z",
+    "retentionDays": 7,
+    "expectedExpiresAt": "2026-11-08T12:00:00Z",
+    "checks": [
+      {
+        "checkedAt": "2026-11-08T11:59:59Z",
+        "expired": false
+      },
+      {
+        "checkedAt": "2026-11-08T12:00:00Z",
+        "expired": true
+      }
+    ]
+  },
+  "deletionGuardCases": [
+    {
+      "id": "expired-but-held",
+      "retentionExpired": true,
+      "legalHold": true,
+      "authorizedRequest": true,
+      "retainedReferenceCount": 0,
+      "physicalObjectDeletionPermitted": false
+    },
+    {
+      "id": "expired-without-authorized-request",
+      "retentionExpired": true,
+      "legalHold": false,
+      "authorizedRequest": false,
+      "retainedReferenceCount": 0,
+      "physicalObjectDeletionPermitted": false
+    },
+    {
+      "id": "shared-hash-still-in-frozen-report",
+      "retentionExpired": true,
+      "legalHold": false,
+      "authorizedRequest": true,
+      "retainedReferenceCount": 1,
+      "retainedReference": "An immutable historical report still binds these same content-addressed bytes.",
+      "physicalObjectDeletionPermitted": false
+    },
+    {
+      "id": "expired-unreferenced-authorized-raw-object",
+      "retentionExpired": true,
+      "legalHold": false,
+      "authorizedRequest": true,
+      "retainedReferenceCount": 0,
+      "physicalObjectDeletionPermitted": true,
+      "additionalPreconditions": "All applicable store/dependency checks and the explicit synthetic data-class policy have succeeded. This does not authorize deletion of unrelated objects.",
+      "successRequires": "Actual authorized object removal, no stale retrieval projection, and an audit record without copying the deleted raw content."
+    },
+    {
+      "id": "cross-store-deletion-failure",
+      "retentionExpired": true,
+      "legalHold": false,
+      "authorizedRequest": true,
+      "retainedReferenceCount": 0,
+      "simulatedStoreFailure": true,
+      "mustNotReportCompletedDeletion": true,
+      "mustAllowControlledIdempotentRecovery": true
+    }
+  ],
+  "restoreReference": {
+    "sourceFixture": {
+      "syntheticOnly": true,
+      "requiresActualSeparateSqlDatabase": true,
+      "requiresActualSeparateObjectDirectory": true,
+      "caseIncludes": [
+        "An earlier evidence revision bound to a frozen approved report and a newer current revision.",
+        "A TransmissionUnknown submission with its exact package scope.",
+        "An open fixed-date follow-up and an independently open statutory obligation.",
+        "Completed and pending outbox work with their existing receipt/idempotency records."
+      ]
+    },
+    "positiveAssertions": [
+      "Restored authoritative case, history and frozen-package hashes match the captured consistent source snapshot.",
+      "Every restored referenced object exists and matches the source manifest SHA-256, including the earlier evidence revision.",
+      "LegalDue, SafetyDue and promised follow-up instants are unchanged; restoring is not a new awareness event.",
+      "TransmissionUnknown remains unresolved and cannot trigger an automatic duplicate submission.",
+      "Completed work retains its receipt, while genuinely pending work is recoverable without redoing completed external effects.",
+      "Search is rebuilt from restored authorized SQL/object sources, not trusted as the source of truth.",
+      "The original running demo and its data remain unchanged."
+    ],
+    "negativeVariants": [
+      {
+        "id": "referenced-object-missing",
+        "mutation": "Remove one required historical object from the isolated backup.",
+        "expected": "Fail or quarantine the incomplete restore explicitly; never report full restoration."
+      },
+      {
+        "id": "referenced-object-altered",
+        "mutation": "Change one byte while retaining the original declared object hash.",
+        "expected": "Reject the mismatch before exposing the restore as authoritative."
+      },
+      {
+        "id": "inconsistent-sql-object-cut",
+        "mutation": "Use an older object snapshot that does not cover the captured SQL references.",
+        "expected": "Detect the missing cross-store coverage; do not silently substitute current objects or rewrite frozen evidence."
+      }
+    ],
+    "boundary": "This is local functional recovery, not an Azure PITR/region-failover test, externally witnessed ledger proof, or a measured production RPO/RTO commitment."
+  }
+}

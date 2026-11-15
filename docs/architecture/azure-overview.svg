@@ -1,0 +1,119 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1140" viewBox="0 0 1660 1140" role="img" aria-labelledby="title desc">
+  <title id="title">Cohors: Azure-Architektur für den PMS-Piloten</title>
+  <desc id="desc">Menschen arbeiten über die autorisierte Domänen-API. Azure SQL führt Zustand, Freigaben und Outbox. Durable Functions koordinieren Agenten, deren Tools durch einen Knowledge-Gate begrenzt sind. Foundry liefert Modelle, Blob die Evidenz und AI Search den abgeleiteten Suchindex. Ein unabhängiger Watchdog schützt Fristen. Behördenübermittlung ist ausschließlich simuliert.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#326780" />
+    </marker>
+    <marker id="orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#b95012" />
+    </marker>
+  </defs>
+  <rect width="1660" height="1140" fill="#ffffff" />
+  <rect x="40" y="38" width="9" height="44" rx="3" fill="#d56a24" />
+  <text x="68" y="70" class="title" font-family="Arial" fill="#12334b" font-size="35px" font-weight="700">Cohors | Azure-Architektur</text>
+  <text x="68" y="103" class="subtitle" font-family="Arial" fill="#456073" font-size="22px">KI begründet Vorschläge. Menschen entscheiden. Software erzwingt den Prozess.</text>
+  <rect x="345" y="158" width="1270" height="882" rx="22" fill="#f4f8fb" stroke="#bfd0dc" stroke-width="2" />
+  <text x="450" y="190" class="small" font-family="Arial" fill="#496374" font-size="18px">AZURE · EU-Verarbeitungsgrenze · konkrete Region, SKUs und Quotas noch zu prüfen</text>
+  <rect x="430" y="746" width="1130" height="148" rx="17" fill="#eaf1f6" stroke="#a4bdcd" stroke-width="2" />
+  <path class="edge" d="M290 238 H380 V395 H450" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="450.00,395.00 434.00,402.00 434.00,388.00" fill="#326780" />
+  <path class="edge" d="M590 295 V330" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="590.00,330.00 583.00,314.00 597.00,314.00" fill="#326780" />
+  <path class="edge" d="M290 423 H330 V590 H450" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="450.00,590.00 434.00,597.00 434.00,583.00" fill="#326780" />
+  <path class="edge" d="M290 590 H450" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="450.00,590.00 434.00,597.00 434.00,583.00" fill="#326780" />
+  <path class="edge" d="M590 530 V455" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="590.00,455.00 597.00,471.00 583.00,471.00" fill="#326780" />
+  <path class="edge" d="M450 425 H405 V815 H450" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="450.00,815.00 434.00,822.00 434.00,808.00" fill="#326780" />
+  <path class="edge" d="M730 815 H785 V392 H850" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="850.00,392.00 834.00,399.00 834.00,385.00" fill="#326780" />
+  <path class="edge" d="M990 455 V530" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="990.00,530.00 983.00,514.00 997.00,514.00" fill="#326780" />
+  <path class="edge" d="M850 590 H730" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="850.00,590.00 834.00,597.00 834.00,583.00" fill="#326780" />
+  <polygon points="730.00,590.00 746.00,583.00 746.00,597.00" fill="#326780" />
+  <path class="edge" d="M1130 590 H1260" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="1260.00,590.00 1244.00,597.00 1244.00,583.00" fill="#326780" />
+  <path class="edge" d="M590 660 V708 H990 V746" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="990.00,746.00 983.00,730.00 997.00,730.00" fill="#326780" />
+  <path class="edge" d="M1400 455 V482 H1580 V718 H550 V770" fill="none" stroke="#326780" stroke-width="3" stroke-linejoin="round" />
+  <polygon points="550.00,770.00 543.00,754.00 557.00,754.00" fill="#326780" />
+  <path class="alert" d="M1400 330 V137 H165 V178" fill="none" stroke="#b95012" stroke-width="3" stroke-dasharray="8 5" />
+  <polygon points="165.00,178.00 158.00,162.00 172.00,162.00" fill="#b95012" />
+  <path class="alert" d="M450 440 H370 V815 H290" fill="none" stroke="#b95012" stroke-width="3" stroke-dasharray="8 5" />
+  <polygon points="290.00,815.00 306.00,808.00 306.00,822.00" fill="#b95012" />
+  <rect x="40" y="178" width="250" height="125" rx="14" class="human" fill="#fff1e5" stroke="#c7692a" stroke-width="2" />
+  <text x="62" y="213" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Reviewer und RA</text>
+  <text x="62" y="245" class="body" font-family="Arial" fill="#12334b" font-size="20px">Medizinische Freigabe</text>
+  <text x="62" y="274" class="body" font-family="Arial" fill="#12334b" font-size="20px">Regulatorische Freigabe</text>
+  <rect x="450" y="215" width="280" height="80" rx="14" class="box" fill="#ffffff" stroke="#96b4c6" stroke-width="2" />
+  <text x="472" y="247" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Microsoft Entra ID</text>
+  <text x="472" y="275" class="body" font-family="Arial" fill="#12334b" font-size="20px">Identität · Rollen · MFA</text>
+  <rect x="40" y="358" width="250" height="125" rx="14" class="box" fill="#ffffff" stroke="#96b4c6" stroke-width="2" />
+  <text x="62" y="394" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Öffentliche Quellen</text>
+  <text x="62" y="427" class="body" font-family="Arial" fill="#12334b" font-size="20px">FDA / PubMed</text>
+  <text x="62" y="456" class="small" font-family="Arial" fill="#496374" font-size="18px">Genehmigtes Lesen</text>
+  <rect x="40" y="528" width="250" height="125" rx="14" class="box" fill="#ffffff" stroke="#96b4c6" stroke-width="2" />
+  <text x="62" y="565" class="name" style="font-size:22px" font-family="Arial" fill="#12334b" font-size="22px" font-weight="700">Synthetische Daten</text>
+  <text x="62" y="599" class="body" font-family="Arial" fill="#12334b" font-size="20px">Beschwerden · Produkte</text>
+  <text x="62" y="628" class="body" font-family="Arial" fill="#12334b" font-size="20px">Tests · Risk Files</text>
+  <rect x="450" y="330" width="280" height="125" rx="14" fill="#133a56" />
+  <text x="472" y="364" class="name white" font-family="Arial" fill="#ffffff" font-size="24px" font-weight="700">Cohors Web / API</text>
+  <text x="472" y="397" class="body white" font-family="Arial" fill="#ffffff" font-size="20px">React + ASP.NET Core</text>
+  <text x="472" y="427" class="body white" font-family="Arial" fill="#ffffff" font-size="20px">Commands · Human Gates</text>
+  <rect x="850" y="330" width="280" height="125" rx="14" fill="#133a56" />
+  <text x="872" y="365" class="name white" font-family="Arial" fill="#ffffff" font-size="24px" font-weight="700">Durable Functions</text>
+  <text x="872" y="398" class="body white" font-family="Arial" fill="#ffffff" font-size="20px">Ablauf · Human Wait</text>
+  <text x="872" y="428" class="body white" font-family="Arial" fill="#ffffff" font-size="20px">Activities · Retry · Timer</text>
+  <rect x="1260" y="330" width="280" height="125" rx="14" class="human" fill="#fff1e5" stroke="#c7692a" stroke-width="2" />
+  <text x="1282" y="365" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Fristen-Watchdog</text>
+  <text x="1282" y="398" class="body" font-family="Arial" fill="#12334b" font-size="20px">Unabhängig von KI</text>
+  <text x="1282" y="428" class="body" font-family="Arial" fill="#12334b" font-size="20px">SafetyDue / LegalDue</text>
+  <rect x="450" y="530" width="280" height="130" rx="14" class="box" fill="#ffffff" stroke="#96b4c6" stroke-width="2" />
+  <text x="472" y="565" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Intake / Knowledge</text>
+  <text x="472" y="598" class="body" font-family="Arial" fill="#12334b" font-size="20px">Autorisierte Tool-API</text>
+  <text x="472" y="628" class="body" font-family="Arial" fill="#12334b" font-size="20px">Provenienz · ACL · Version</text>
+  <rect x="850" y="530" width="280" height="130" rx="14" class="agent" fill="#e5f2f8" stroke="#2a7fa5" stroke-width="2" />
+  <text x="872" y="565" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Agent Runtime</text>
+  <text x="872" y="598" class="body" font-family="Arial" fill="#12334b" font-size="20px">Sechs begrenzte Rollen</text>
+  <text x="872" y="628" class="body" font-family="Arial" fill="#12334b" font-size="20px">Entwürfe, keine Freigabe</text>
+  <rect x="1260" y="530" width="280" height="130" rx="14" class="agent" fill="#e5f2f8" stroke="#2a7fa5" stroke-width="2" />
+  <text x="1282" y="565" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Microsoft Foundry</text>
+  <text x="1282" y="598" class="body" font-family="Arial" fill="#12334b" font-size="20px">Freigegebene Modelle</text>
+  <text x="1282" y="628" class="body" font-family="Arial" fill="#12334b" font-size="20px">EU-Deploymenttyp prüfen</text>
+  <rect x="450" y="770" width="280" height="105" rx="12" class="box" fill="#ffffff" stroke="#96b4c6" stroke-width="2" />
+  <text x="472" y="804" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Azure SQL Database</text>
+  <text x="472" y="836" class="body" font-family="Arial" fill="#12334b" font-size="20px">Fälle · Freigaben · Fristen</text>
+  <text x="472" y="861" class="small" font-family="Arial" fill="#496374" font-size="18px">Audit + Outbox atomar</text>
+  <rect x="850" y="770" width="280" height="105" rx="12" class="box" fill="#ffffff" stroke="#96b4c6" stroke-width="2" />
+  <text x="872" y="804" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Blob Storage</text>
+  <text x="872" y="836" class="body" font-family="Arial" fill="#12334b" font-size="20px">Evidenz · Versionen</text>
+  <text x="872" y="861" class="small" font-family="Arial" fill="#496374" font-size="18px">Freigabepakete / WORM</text>
+  <rect x="1260" y="770" width="280" height="105" rx="12" class="box" fill="#ffffff" stroke="#96b4c6" stroke-width="2" />
+  <text x="1282" y="804" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Azure AI Search</text>
+  <text x="1282" y="836" class="body" font-family="Arial" fill="#12334b" font-size="20px">Hybrid Retrieval + ACL</text>
+  <text x="1282" y="861" class="small" font-family="Arial" fill="#496374" font-size="18px">Abgeleitet, kein Archiv</text>
+  <rect x="40" y="750" width="250" height="132" rx="14" class="human" fill="#fff1e5" stroke="#c7692a" stroke-width="2" />
+  <text x="62" y="787" class="name" font-family="Arial" fill="#12334b" font-size="24px" font-weight="700">Meldesimulator</text>
+  <text x="62" y="821" class="body" font-family="Arial" fill="#12334b" font-size="20px">MIR · FSCA · PSUR</text>
+  <text x="62" y="850" class="body" font-family="Arial" fill="#12334b" font-size="20px">Quittung / Ablehnung</text>
+  <text x="62" y="874" class="small" font-family="Arial" fill="#496374" font-size="18px">oder Status unklar</text>
+  <text x="796" y="358" class="small" transform="rotate(-90 796 358)" font-family="Arial" fill="#496374" font-size="18px">Outbox-Ereignisse</text>
+  <text x="1005" y="500" class="small" font-family="Arial" fill="#496374" font-size="18px">Auftrag</text>
+  <text x="755" y="578" class="small" font-family="Arial" fill="#496374" font-size="18px">Tools</text>
+  <text x="1148" y="577" class="small" font-family="Arial" fill="#496374" font-size="18px">KI</text>
+  <text x="960" y="702" class="small" font-family="Arial" fill="#496374" font-size="18px">Persistierte Fristen prüfen</text>
+  <text x="600" y="688" class="small" font-family="Arial" fill="#496374" font-size="18px">Kontrollierte Datenpfade</text>
+  <text x="465" y="930" class="small" font-family="Arial" fill="#496374" font-size="18px">SQL führt den Fachzustand. Agenten haben keinen unbeschränkten Direktzugriff auf Daten oder Versand.</text>
+  <rect x="450" y="960" width="1090" height="58" rx="12" fill="#dce9f1" />
+  <text x="472" y="986" class="body" font-family="Arial" fill="#12334b" font-size="20px">Querschnitt: Key Vault · Monitor / Alerts · Container Registry · Private Endpoints / DNS</text>
+  <text x="472" y="1009" class="small" font-family="Arial" fill="#496374" font-size="18px">Separater Durable Task Hub (Blob/Queue/Table) · Operations-App · CI/CD mit Managed Identity / OIDC</text>
+  <text x="40" y="927" class="small" font-family="Arial" fill="#496374" font-size="18px">Nur freigegebene Pakete.</text>
+  <text x="40" y="954" class="small" font-family="Arial" fill="#496374" font-size="18px">Keine echten Behördenzugänge.</text>
+  <rect x="40" y="1062" width="1575" height="45" rx="10" fill="#fff1e5" />
+  <text x="62" y="1092" class="body" font-family="Arial" fill="#12334b" font-size="20px">Entwurf 0.1 · Synthetische Fälle · Keine Produktivmeldungen · Azure-Ressourcen sind geplant, nicht bereitgestellt.</text>
+</svg>

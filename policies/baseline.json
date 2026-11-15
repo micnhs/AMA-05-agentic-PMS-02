@@ -1,0 +1,54 @@
+{
+  "release": "cohors-pilot-2026.1",
+  "status": "Synthetic demonstration baseline, not approved for regulatory operation",
+  "devices": [
+    {
+      "id": "ortho",
+      "name": "OrthoLink Modular Hip",
+      "kind": "Orthopaedic implant (fictitious)",
+      "basicUdi": "DEMO-ORTHO-BASIC",
+      "intendedPurpose": "Fiktiver Ersatz des Hueftgelenks fuer die synthetische PMS-Demonstration.",
+      "model": "OL-M3",
+      "markets": ["EU-IE", "EU-DE", "EU-FR", "EU-IT", "GB", "NI"]
+    },
+    {
+      "id": "cardio",
+      "name": "CardioFlow Valve",
+      "kind": "Cardiovascular implant (fictitious)",
+      "basicUdi": "DEMO-CARDIO-BASIC",
+      "intendedPurpose": "Fiktiver Herzklappenersatz fuer die synthetische PMS-Demonstration.",
+      "model": "CF-V2",
+      "markets": ["EU-IE", "EU-DE", "EU-FR", "EU-IT", "GB", "NI"]
+    }
+  ],
+  "calendar": {
+    "version": "synthetic-calendar-2026.1",
+    "validFrom": "2025-01-01",
+    "validTo": "2029-12-31",
+    "holidays": ["2026-01-01", "2027-01-01", "2028-01-01", "2029-01-01"],
+    "scope": "Only explicitly listed synthetic holidays; NOT a complete national calendar.",
+    "jurisdictions": [
+      { "id": "EU-IE", "timeZone": "Europe/Dublin", "applyEuEndRules": true },
+      { "id": "EU-DE", "timeZone": "Europe/Berlin", "applyEuEndRules": true },
+      { "id": "EU-FR", "timeZone": "Europe/Paris", "applyEuEndRules": true },
+      { "id": "EU-IT", "timeZone": "Europe/Rome", "applyEuEndRules": true },
+      { "id": "NI", "timeZone": "Europe/London", "applyEuEndRules": true },
+      { "id": "GB", "timeZone": "Europe/London", "applyEuEndRules": false }
+    ]
+  },
+  "agentPolicy": {
+    "version": "bounded-agent-2026.1",
+    "maxAutomaticRevisions": 2,
+    "timeoutSeconds": 90,
+    "forbiddenTools": ["sql", "http", "approve", "submit", "setDeadline", "executeCode"],
+    "noSilentFallback": true
+  },
+  "retention": {
+    "version": "synthetic-retention-1",
+    "quarantineDays": 7,
+    "regulatoryEvidence": "Retain referenced versions; no automatic deletion or locked production policy.",
+    "audit": "Append-only SQL ledger plus verifiable hash chain; external protected digest publishing remains a deployment gate.",
+    "telemetry": "No complaint text, prompts, passwords or health information in standard logs."
+  },
+  "trend": { "methodVersion": "poisson-upper-tail-1", "referenceRate": 0.001, "alpha": 0.05, "unit": "Implants" }
+}

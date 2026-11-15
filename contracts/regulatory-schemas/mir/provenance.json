@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "verifiedOn": "2026-11-15",
+  "publisher": "European Commission",
+  "mirVersion": "7.3.1",
+  "schemaBuild": "SB 11252",
+  "sourcePage": "https://health.ec.europa.eu/medical-devices-sector/new-regulations/guidance-mdcg-endorsed-documents-and-other-guidance/pmsv-reporting-forms_en",
+  "archive": {
+    "url": "https://health.ec.europa.eu/document/download/12d3a3db-b089-482d-b0d1-44e7cd2324da_en?filename=md_new-reg_mir-xsd-xsl-v7.3.1_en.zip",
+    "sha256": "7f230641de8df5dae7af64dcd780e081ee7ccfe86a37a11cbcf59dacdc80c839",
+    "bytes": 49788
+  },
+  "method": "Downloaded the linked official archive into memory, compared each of eight vendored XSD/XSL files by SHA-256, and compared the three active report schemas with the runtime pins. No source files were modified and no XML was submitted.",
+  "files": [
+    {
+      "name": "incident-Initial-v7.3.1.xsd",
+      "sha256": "9eb0dc128520f7000fb5f61eeb41b88fed8631b531ffdf3db4c9d05ab30a24a9",
+      "runtimeReportKind": "Initial"
+    },
+    {
+      "name": "incident-Followup-v7.3.1.xsd",
+      "sha256": "9a1f67504dce36c16930df6d72932c7799de6410c38c480184acdaedfed05dc4",
+      "runtimeReportKind": "FollowUp"
+    },
+    {
+      "name": "incident-FinalRep-v7.3.1.xsd",
+      "sha256": "b2394adf8cfe67cde2e5ee3c8c828c88f7c877cefecc13f51dc2d20ed4a7e158",
+      "runtimeReportKind": "Final"
+    },
+    {
+      "name": "incident-FinalNonRep-v7.3.1.xsd",
+      "sha256": "de74292cb397b5f40295a000c48bdabc786e9e8a24de5819105d0d7816f62b75",
+      "runtimeReportKind": null
+    },
+    {
+      "name": "incident-InitialFinal-v7.3.1.xsd",
+      "sha256": "4006937ef791c3a0ff4dacb2c27eb8b9265171b7958389a1198a9ed2d5e8d55c",
+      "runtimeReportKind": null
+    },
+    {
+      "name": "incident-PDFgeneric-v7.3.1.xsd",
+      "sha256": "9c67d848f7d6ea71821d985e07bcd3e6b881215231625fd11682385a73325c29",
+      "runtimeReportKind": null
+    },
+    {
+      "name": "incident_in_7.3.1.xsl",
+      "sha256": "f9614d964554cb50ba94fcf8b92d2ae83273e659b40726a5342fe06c3c531ffc",
+      "runtimeReportKind": null
+    },
+    {
+      "name": "incident_out_7.3.1.xsl",
+      "sha256": "377a4653f7bcce620911fed510479b1585f44084f2406316344015e1624db2f5",
+      "runtimeReportKind": null
+    }
+  ],
+  "limitations": [
+    "Source integrity is distinct from mapping completeness, clinical correctness, IMDRF semantic validation, or authority acceptance.",
+    "The separate protected PDF form and its build are not validated by these schema checks.",
+    "The active pilot implements Initial, FollowUp and Final Reportable; presence of other original assets does not imply support for those report kinds.",
+    "All external authority transmission remains simulated."
+  ]
+}

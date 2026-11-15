@@ -1,0 +1,46 @@
+[
+  {
+    "id": "ortho", "version": 1, "productId": "ortho",
+    "manufacturer": { "name": "Cohors Devices DEMO", "srn": "DEMO-IE-MF-000001", "country": "IE", "authorizedRepresentative": null },
+    "device": {
+      "basicUdi": "DEMO-ORTHO-BASIC", "udiDi": "DEMO-OL-M3-DI", "riskClass": "III", "implantable": true, "legacy": false,
+      "article18Applicable": true,
+      "article18Rationale": "Synthetischer Hueftgelenkersatz als vollstaendiges Klasse-III-Implantat, nicht allein eine von Art. 18(3) ausgenommene Schraube oder Platte. Produktinformation und Implantatinformation bleiben kontrollierte Dokumente; keine Patientenwebsite.",
+      "certificateId": "DEMO-CERT-ORTHO-2025", "certificationDate": "2025-11-15",
+      "notifiedBodyName": "Cohors Notified Body SIMULATOR", "notifiedBodyNumber": "DEMO-NB-0000", "notifiedBodyContact": "cohors:notified-body-simulator"
+    },
+    "prrc": {
+      "primaryRole": "DEMO-PRRC-ORTHO", "deputyRole": "DEMO-PRRC-DEPUTY",
+      "responsibilityDocument": "ortho-governance", "escalationReference": "cohors:prrc-ortho-and-deputy",
+      "qualificationBoundary": "Nur synthetische Organisationszustandigkeit, keine echte Bestellung oder Qualifikationspruefung. RA-App-Rechte verleihen keine PRRC-Funktion und ersetzen keine Medical-/RA-Freigabe."
+    },
+    "pmsPlanId": "ortho-pms-plan", "psurReference": "DEMO-PSUR-ORTHO",
+    "firstPeriodStart": "2025-11-15", "scheduleAgreement": "DEMO-BS-SCHEDULE-ORTHO-2025",
+    "firstSubmissionDate": "2026-12-15",
+    "documentIds": ["ortho-governance", "ortho-pms-plan", "ortho-ifu", "ortho-pmcf-plan", "ortho-pmcf-report", "ortho-sscp-checklist", "ortho-td-index", "ortho-sop", "ortho-certificate", "ortho-terminology"],
+    "lifecyclePolicy": "Kein automatisches PSUR-Ende, keine pauschale 15-Jahre-Loeschfreigabe. Vertriebsende, Haltbarkeit, Lebensdauer, PSUR-Ende und Aufbewahrung getrennt durch RA/BS bewerten; offene PMS-Aufgaben laufen weiter.",
+    "synthetic": true
+  },
+  {
+    "id": "cardio", "version": 1, "productId": "cardio",
+    "manufacturer": { "name": "Cohors Devices DEMO", "srn": "DEMO-IE-MF-000001", "country": "IE", "authorizedRepresentative": null },
+    "device": {
+      "basicUdi": "DEMO-CARDIO-BASIC", "udiDi": "DEMO-CF-V2-DI", "riskClass": "III", "implantable": true, "legacy": false,
+      "article18Applicable": true,
+      "article18Rationale": "Synthetischer Herzklappenersatz als vollstaendiges Klasse-III-Implantat; keine belegte Ausnahme nach Art. 18(3). Ein Bauteilname allein belegt keine Ausnahme.",
+      "certificateId": "DEMO-CERT-CARDIO-2025", "certificationDate": "2025-11-15",
+      "notifiedBodyName": "Cohors Notified Body SIMULATOR", "notifiedBodyNumber": "DEMO-NB-0000", "notifiedBodyContact": "cohors:notified-body-simulator"
+    },
+    "prrc": {
+      "primaryRole": "DEMO-PRRC-CARDIO", "deputyRole": "DEMO-PRRC-DEPUTY",
+      "responsibilityDocument": "cardio-governance", "escalationReference": "cohors:prrc-cardio-and-deputy",
+      "qualificationBoundary": "Nur synthetische Organisationszustandigkeit, keine echte Bestellung oder Qualifikationspruefung. RA-App-Rechte verleihen keine PRRC-Funktion und ersetzen keine Medical-/RA-Freigabe."
+    },
+    "pmsPlanId": "cardio-pms-plan", "psurReference": "DEMO-PSUR-CARDIO",
+    "firstPeriodStart": "2025-11-15", "scheduleAgreement": "DEMO-BS-SCHEDULE-CARDIO-2025",
+    "firstSubmissionDate": "2026-12-15",
+    "documentIds": ["cardio-governance", "cardio-pms-plan", "cardio-ifu", "cardio-pmcf-plan", "cardio-pmcf-report", "cardio-sscp-checklist", "cardio-td-index", "cardio-sop", "cardio-certificate", "cardio-terminology"],
+    "lifecyclePolicy": "Kein automatisches PSUR-Ende, keine pauschale 15-Jahre-Loeschfreigabe. Vertriebsende, Haltbarkeit, Lebensdauer, PSUR-Ende und Aufbewahrung getrennt durch RA/BS bewerten; offene PMS-Aufgaben laufen weiter.",
+    "synthetic": true
+  }
+]

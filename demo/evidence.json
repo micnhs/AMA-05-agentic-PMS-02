@@ -1,0 +1,62 @@
+[
+  {
+    "id": "ortho-spec-v3", "productId": "ortho", "kind": "Specification", "title": "OL-M3 / Technische Spezifikation v3",
+    "locator": "TS-OL-003, Abschnitt 4.2",
+    "content": "SYNTHETISCHE EVIDENZ. Die modulare Hueftendoprothese OL-M3 besteht aus Schaft, modularem Konus und Kopf. Die Verbindung ist fuer axiale und zyklische Lastuebertragung spezifiziert. Abweichende Montagebedingungen und ausserhalb der Spezifikation liegende Lasten sind durch diese Spezifikation nicht qualifiziert."
+  },
+  {
+    "id": "ortho-test-v2", "productId": "ortho", "kind": "BenchTest", "title": "OL-M3 / Zyklischer Pruefbericht v2",
+    "locator": "TR-OL-002, Abschnitt 6",
+    "content": "SYNTHETISCHE EVIDENZ. Zehn fiktive OL-M3-Prueflinge bestanden das definierte zyklische Lastkollektiv in kontrollierter Laborumgebung. Andere Montagewinkel, korrosive Langzeitexposition und patientenindividuelle Belastungsprofile wurden in diesem Versuch nicht abgebildet. Die Ergebnisse gelten nur fuer die dokumentierten Randbedingungen."
+  },
+  {
+    "id": "ortho-risk-v4", "productId": "ortho", "kind": "RiskFile", "title": "OL-M3 / Risikodatei v4",
+    "locator": "RM-OL-004, H-07 und H-12",
+    "content": "SYNTHETISCHE EVIDENZ. Gefaehrdung H-07: mechanische Instabilitaet mit moeglicher Lockerung und Revisionsbedarf. H-12: Infektion als klinische Gegenhypothese. Technische Spezifikation, Montagehinweise und klinische Nachbeobachtung sind Kontrollen. Fuer den neuen Einzelfall ist keine belastbare Eintrittswahrscheinlichkeit festgelegt; Risikoakzeptanz erfordert menschliche Pruefung."
+  },
+  {
+    "id": "ortho-cer-v2", "productId": "ortho", "kind": "CER", "title": "OL-M3 / Klinische Bewertung v2",
+    "locator": "CER-OL-002, Abschnitt 8",
+    "content": "SYNTHETISCHE EVIDENZ. Die fiktive klinische Bewertung beschreibt funktionellen Gelenkersatz und dokumentiert die Grenzen der vorhandenen Beobachtungsdauer. Neue Lockerungs- oder Revisionssignale werden fallbezogen untersucht; eine produktfamilienweite Schlussfolgerung benoetigt geeignete Vergleichs- und Expositionsdaten."
+  },
+  {
+    "id": "ortho-pmcf-v1", "productId": "ortho", "kind": "PMCF", "title": "OL-M3 / PMCF-Plan v1",
+    "locator": "PMCF-OL-001, Abschnitt 5",
+    "content": "SYNTHETISCHE EVIDENZ. Der PMCF-Plan sieht die systematische Nachbeobachtung von Funktionsverlust und Revisionen vor. Offene Sicherheitsfragen werden in der jaehrlichen Bewertung nachvollziehbar fortgefuehrt. Neue Anforderungen werden ueber kontrollierte Aenderungsauftraege aufgenommen, nicht durch autonome Dokumentaenderung."
+  },
+  {
+    "id": "ortho-sscp-v1", "productId": "ortho", "kind": "SSCP", "title": "OL-M3 / SSCP-Referenz v1",
+    "locator": "SSCP-OL-001, Abschnitt 7",
+    "content": "SYNTHETISCHE EVIDENZ. Die fiktive Sicherheitsinformation benennt verbleibende Risiken und den Zweck des Implantats. Neue Aussagen ueber Sicherheit oder Leistung sind medizinisch und regulatorisch zu pruefen. Dieser Demoauszug ist keine freigegebene Patienteninformation."
+  },
+  {
+    "id": "cardio-spec-v2", "productId": "cardio", "kind": "Specification", "title": "CF-V2 / Technische Spezifikation v2",
+    "locator": "TS-CF-002, Abschnitt 3",
+    "content": "SYNTHETISCHE EVIDENZ. Die fiktive Herzklappenprothese CF-V2 dient der gerichteten Blutstroemung. Segelbeweglichkeit, Dichtfunktion und strukturelle Integritaet sind spezifizierte Leistungsmerkmale. Die Spezifikation beschreibt den Sollzustand und belegt nicht die Ursache eines konkreten klinischen Funktionsverlusts."
+  },
+  {
+    "id": "cardio-test-v1", "productId": "cardio", "kind": "BenchTest", "title": "CF-V2 / Hydrodynamik-Pruefbericht v1",
+    "locator": "TR-CF-001, Abschnitt 6.1",
+    "content": "SYNTHETISCHE EVIDENZ. Die fiktiven hydrodynamischen Pruefungen wurden mit definierten Druck- und Flussprofilen durchgefuehrt. Individuelle Gerinnungssituation, Infektion und biologische Langzeitveraenderungen werden nicht abgebildet. Eine erfolgreiche Laborpruefung schliesst klinische Funktionsstoerungen nicht aus."
+  },
+  {
+    "id": "cardio-risk-v3", "productId": "cardio", "kind": "RiskFile", "title": "CF-V2 / Risikodatei v3",
+    "locator": "RM-CF-003, H-03",
+    "content": "SYNTHETISCHE EVIDENZ. Gefaehrdung H-03: Klappenfunktionsstoerung mit moeglicher haemodynamischer Beeintraechtigung. Mechanische, thrombotische und infektiologische Ursachen sind abzugrenzen. Einzelmeldungen rechtfertigen keine quantifizierte kausale Wahrscheinlichkeit; menschliche Risikobewertung bleibt erforderlich."
+  },
+  {
+    "id": "cardio-cer-v1", "productId": "cardio", "kind": "CER", "title": "CF-V2 / Klinische Bewertung v1",
+    "locator": "CER-CF-001, Abschnitt 8",
+    "content": "SYNTHETISCHE EVIDENZ. Die fiktive klinische Bewertung beschreibt den Nutzen des Klappenersatzes und Grenzen der vorhandenen Nachbeobachtung. Neue Funktionsstoerungen werden ohne Vorwegnahme von Kausalitaet untersucht."
+  },
+  {
+    "id": "cardio-pmcf-v1", "productId": "cardio", "kind": "PMCF", "title": "CF-V2 / PMCF-Plan v1",
+    "locator": "PMCF-CF-001, Abschnitt 5",
+    "content": "SYNTHETISCHE EVIDENZ. Der PMCF-Plan beobachtet Funktionsstoerungen und Interventionsbedarf mit geeigneten Expositionsbezugsgroessen. Offene Ursachen werden im periodischen Bericht sichtbar belassen und nicht als negative Befunde behandelt."
+  },
+  {
+    "id": "cardio-sscp-v1", "productId": "cardio", "kind": "SSCP", "title": "CF-V2 / SSCP-Referenz v1",
+    "locator": "SSCP-CF-001, Abschnitt 7",
+    "content": "SYNTHETISCHE EVIDENZ. Der fiktive SSCP-Auszug benennt Zweckbestimmung und verbleibende Unsicherheit. Sicherheitsrelevante Aenderungen brauchen kontrollierte medizinisch-regulatorische Freigaben; es erfolgt keine automatische Publikation."
+  }
+]
