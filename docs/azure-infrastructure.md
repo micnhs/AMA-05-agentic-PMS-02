@@ -573,7 +573,7 @@ freier Docker-Speicher und 15 GiB freier lokaler Plattenplatz. Die Beobachtung
 ist keine exklusive Reservierung; bei Ressourcenmangel abbrechen, nicht fremde
 Container stoppen. Benoetigte lokale Images sind
 `mcr.microsoft.com/mssql/server:2022-latest`,
-`mcr.microsoft.com/azure-storage/azurite:3.35.0`,
+`mcr.microsoft.com/azure-storage/azurite:3.37.0`,
 `node:22-bookworm-slim` und die im Quellstand gepinnten Host-Buildimages.
 Fehlende Images nur ueber den normalen Docker-Pull-/Buildweg bereitstellen;
 Virenschutz, Docker-, Firewall- und sonstige Schutzkonfiguration bleiben
@@ -613,6 +613,26 @@ Keine dieser eng begrenzten Containeroptionen veraendert Hostschutz,
 Docker-Standardkonfiguration oder Systemrichtlinien; insbesondere kein
 `privileged`, `SYS_ADMIN`, Seccomp-Abschalten oder Virenschutz-Workaround.
 
+Der in Lauf 07 konkret gemessene Readiness-Fehler war ein lokaler
+Versionskonflikt: API-Ready/Outbox lieferten HTTP 200, aber Azurite 3.35.0
+wies Storage-REST `2026-02-06` mit HTTP 400 / `InvalidHeaderValue` ab.
+Azurite 3.37.0 unterstuetzt diese Version fuer Blob, Queue und Table;
+der Harness prueft dies im unveraenderten Image. **Kein**
+`--skipApiVersionCheck`, Header-Umschreiben oder App-/Functions-Patch.
+Die [Azurite-Dokumentation](https://learn.microsoft.com/azure/storage/common/storage-use-azurite)
+weist weiterhin auf funktionale Unterschiede und Table-Preview hin.
+
+Timer-Start/-Ende-Metadaten werden nur fuer
+`Function.DispatchOutbox` und `Function.DeadlineWatchdog` mit `Information`
+aktiviert; die jeweiligen `.User`-Kategorien bleiben `Warning`.
+`Host.Executor` war dafuer nicht die richtige Kategorie
+([Functions-Loggingvertrag](https://learn.microsoft.com/azure/azure-functions/configure-monitoring#configure-categories)).
+Der Harness liest beide lokalen Console-Streams, paart echte
+`Reason='Timer fired ...'`-Starts und Erfolge anhand derselben Invocation-ID
+und verwirft reine Erfolgszeilen, fremde IDs, manuelle Aufrufe und Duplikate
+als Ersatznachweis. Das Gate laeuft schon vor der langen Unterbrechung und
+erneut danach. Nur Zaehler werden ausgegeben, keine Rohlogs oder Payloads.
+
 Der Node-Treiber `infra/scripts/local-runtime-driver.mjs` fuehrt eine echte
 lokale PMS-Anmeldung und eine synthetische Replay-Anforderung aus.
 `DispatchOutbox`, der Durable-Orchestrator und `ProcessOutbox` muessen danach
@@ -629,7 +649,9 @@ Die Abnahme verlangt Wiederanlauf derselben gespeicherten Durable-Ausfuehrung,
 nachgewiesene Activity-Wiederzustellung, genau eine Inbox-Quittung/einen
 Assessmententwurf sowie unveraenderte abgeschlossene Replay-Modellauftraege.
 Operations muss waehrend des Workflows-Ausfalls und separat bei gestoppter
-API/AgentHost weiter ticken. Ein Operations-Stopp wird mit echter UTC-Zeit bis
+API/AgentHost weiter ticken. Der Vergleich beginnt erst nach dem vollstaendigen
+Prozessstopp; der nachfolgende Tick muss zeitlich nach den gemessenen
+`FinishedAt`-Werten liegen. Ein Operations-Stopp wird mit echter UTC-Zeit bis
 zur Drei-Minuten-Grenze beobachtet: kein Heartbeat vor dem ersten Timerstart,
 fehlender Herzschlag erst bei `>3m`, frischer Herzschlag nach eigenem Neustart.
 Direkte `/internal/watchdog`-Aufrufe, direkte Activity-Aufrufe aus dem Treiber
@@ -644,29 +666,37 @@ Cleanup verifiziert Runlabel und exakte eigene Container-IDs bzw. Volumen- und
 Image-Tagnamen. Fremde Ressourcen, globale Caches und Basisimages werden nicht
 entfernt.
 
-**Tatsaechlicher Stand: Lauf 06 vom 2026-11-15 ist `blocked`, kein T12-Pass.**
+**Lokaler T12-Lauf 09 vom 2026-11-15 bestanden.**
+Run-ID: `465d12070d94451f9e748ab5c51f7133`. Die unveraenderte
+Quellidentitaet ist oben angegeben; `t12-runtime-results.json` bindet zusaetzlich
+Tree, Archivhash, ausgefuehrte Harness-Hashes und die vier Image-/Host-IDs.
 
 | Kontrollziel | Gefilterter realer Befund |
 |---|---|
-| Quellen/Hosts | Commit/Parent/Tree und Archivhash gebunden; vier originale Images gebaut, vier getrennte Prozesse tatsaechlich gestartet. API, AgentHost und Operations bereit. |
-| Operations-Timer | Persistierte Heartbeats Version 1/2 um 19:17:30.218Z und 19:18:00.022Z; zuvor `heartbeat=null`, `heartbeatMissing=true`. Kein direkter Watchdog-Aufruf. |
-| Workflows | Readiness nach 180 Sekunden weiterhin nicht bereit. Die konkrete verbliebene Fehlerklasse wurde vom damaligen Filter nicht aufgenommen; daraus folgt kein nachgewiesener App-Defekt. |
-| Wiederanlauf/Idempotenz | Noch nicht erreicht: keine bestandene Activity-/Agenten-Kette, kontrollierte Unterbrechung, Wiederzustellung oder Operations-Neustart-/Drei-Minuten-Abnahme aus diesem Lauf ableiten. |
-| Cleanup | Acht eigene Container, drei Volumes, vier Image-Tags sowie private Konfiguration und Testexport bereinigt. Nachkontrolle fuer das eigene Runlabel: keine Container, Volumes oder Image-Tags mehr. |
+| Quellen/Hosts | Vier originale Images, vier getrennte laufende Hostprozesse, alle Ready-Routen erfolgreich. Keine App-Datei geaendert. |
+| Reale Kette | `DispatchOutbox` -> `CohorsOutboxV1` -> `ProcessOutbox` -> AgentHost; genau drei Replay-Aufrufe (`Ingestion`, `CausalityRisk`, `EvidenceAssurance`). |
+| Persistierte Unterbrechung | Dieselbe Durable-Execution vor Workflows-KILL `Running`, nach Wiederanlauf `Completed`; 300.468 Sekunden von Erstellung bis Abschluss, keine abgekuerzten Storage-Leases. |
+| Idempotenz | Activity-Zustellungen 1 -> 2; unveraendert je eine Inbox-Quittung, ein Assessment, ein Entwurf, ein AgentStarted und ein SQL-Attempt. Keine erneuten AgentHost-Aufrufe; Input-/Output-Hashes erhalten. |
+| Unabhaengige Operations | Heartbeat-Version 3 -> 5 bei gestoppten Workflows und 13 -> 14 nach vollstaendigem API-/AgentHost-Stopp. |
+| Eigener Operations-Neustart | Vor erstem Start `heartbeat=null`/`missing=true`; nach eigenem Stopp echte Alterung, danach neuer Hostprozess und Heartbeat-Version 14 -> 15. |
+| Drei-Minuten-Grenze | Letzter eindeutig gesunder Messwert bis 176.633s; erster Missing-Request umfasst 179.634-180.211s und damit die Grenze; naechster eindeutig fehlender Messwert ab 183.211s. Keine Zeitmanipulation oder behauptete Null-Latenz. |
+| Timer-Metadaten | Vor Unterbrechung echte Start-/Erfolgspaare beider Timer; insgesamt DispatchOutbox 35 Starts/34 Erfolge/1 Fehler, DeadlineWatchdog 15/15/0. |
+| Cleanup | Acht eigene Container, drei Volumes, vier Image-Tags, private Konfiguration und Testexport bereinigt; separate Nachkontrolle fuer die exakte Run-ID: jeweils null Ressourcen. |
 
-Der nachfolgende Diagnose-Fix erfasst den letzten echten Readiness-HTTP-Status,
-Workflows-Fehlerklassen, RPC-Statuscodes und zaehlende HTTP-Ergebnisse des
-festen lokalen API-Transports. Exception-Details, Webhook-/SAS-Codes, Header und
-Payloads werden nicht zum Diagnosebestandteil. Diese Aenderung ist
-**offline** geprueft, noch nicht in einem weiteren Hostlauf: der naechste schwere
-T12-Versuch wird nach dem getrennten T20-Lauf neu koordiniert. Auch das erneute
-Antworten der zwischenzeitlich nicht erreichbaren Docker-Engine beweist weder
-deren Stabilitaet noch T12.
+Der einzelne Dispatch-Fehler bleibt im Fault-Injection-Lauf mit absichtlich
+gestoppter API ausgewiesen; dies ist kein Nachweis fehlerfreien Dauerbetriebs.
+Lauf 06/07 bleiben historische Readiness-Fehllauefe, Lauf 08 bleibt wegen des
+damaligen Timer-Log-Gates `blocked`, obwohl seine Wiederanlaufteilnachweise
+vorliegen. Sie werden nicht rueckwirkend als bestanden umetikettiert.
+Die Folgeaenderung wurde ausserdem mit 38 Offline-Tests (ohne Fehler/Skips)
+und Node-Syntaxpruefung validiert.
 
-Ein T12-Ergebnis darf erst nach dem vollstaendigen erfolgreichen Hostlauf als
-bestanden gelten. Azure/Flex, Entra, Kusto-Ingestion,
-Benachrichtigungszustellung, Actions und T20 werden dadurch nicht abgenommen;
-der separate Checkov-Gate bleibt unveraendert.
+Gefilterte Ergebnisdateien: `t12-runtime-results.json` und
+`t12-terminal-verification.json`; der separate Offline-/Commitnachweis bindet
+die geprueften Dateihashes an den integrierbaren Folgecommit.
+Azure/Flex, Entra/Managed Identity, private Cloud-Netzpfade, Kusto-Ingestion,
+Benachrichtigungszustellung, Actions und T20 werden nicht abgenommen. Die
+Cloud-Dreiminutenmessung und der separate Checkov-Gate bleiben unveraendert offen.
 
 ## Bewusst manueller Deploymentworkflow
 

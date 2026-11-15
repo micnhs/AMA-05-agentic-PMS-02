@@ -22,7 +22,7 @@ SOURCE_PARENT = "a5c75454553e1325246546578a8ab3ef624ab119"
 LABEL = "cohors.t12.run"
 BASE_IMAGES = {
     "sql": "mcr.microsoft.com/mssql/server:2022-latest",
-    "azurite": "mcr.microsoft.com/azure-storage/azurite:3.35.0",
+    "azurite": "mcr.microsoft.com/azure-storage/azurite:3.37.0",
     "driver": "node:22-bookworm-slim",
 }
 HOSTS = {"api": "Api", "agents": "AgentHost", "workflows": "Workflows", "operations": "Operations"}
@@ -83,6 +83,16 @@ def filtered_json(value, prohibited):
     require(not re.search(r'(?i)"(?:password|workloadkey|storagekey|controlkey|cookie|authorization|csrfToken)"\s*:', text),
             "Authentication field detected; evidence publication refused.")
     return text + "\n"
+
+
+def timer_counts(text, function):
+    invocation = r"([a-fA-F0-9]{8}-(?:[a-fA-F0-9]{4}-){3}[a-fA-F0-9]{12})"
+    prefix = rf"'Functions\.{re.escape(function)}'"
+    started = set(re.findall(rf"Executing {prefix} \(Reason='Timer fired at [^\r\n]*?\bId={invocation}", text))
+    succeeded = set(re.findall(rf"Executed {prefix} \(Succeeded,\s*Id={invocation}", text))
+    failed = set(re.findall(rf"Executed {prefix} \(Failed,\s*Id={invocation}", text))
+    return {"timerExecutions": len(started), "successfulExecutions": len(started & succeeded),
+            "failedExecutions": len(started & failed)}
 
 
 class Harness:
@@ -147,6 +157,12 @@ class Harness:
                     line = line.replace(secret, "[REDACTED]")
                 if not re.search(r"(?i)Authorization|Cookie|access_token|refresh_token|password=|[?&](?:code|sig)=", line):
                     messages.append(line[:400])
+        for code in sorted(set(re.findall(r"\bStatus:\s*([0-9]{3})\b", text))):
+            messages.append(f"Storage HTTP status: {code}")
+        for code in sorted(set(re.findall(r"\bErrorCode:\s*([A-Za-z0-9_-]+)\b", text))):
+            messages.append(f"Storage error code: {code}")
+        for version in sorted(set(re.findall(r"API version ([0-9]{4}-[0-9]{2}-[0-9]{2}) is not supported", text))):
+            messages.append(f"Azurite does not support requested REST version {version}.")
         return messages[-8:]
 
     def docker(self, *args, **kwargs):
@@ -184,6 +200,15 @@ class Harness:
 
     def heartbeat(self):
         return json.loads(self.sql("SELECT Json FROM dbo.Aggregates WHERE Kind='operations' AND Id='heartbeat';") or "null")
+
+    def timer_logs(self):
+        result = {}
+        for role, function in (("workflows", "DispatchOutbox"), ("operations", "DeadlineWatchdog")):
+            logs = self.command(["docker", "logs", self.containers[role]])
+            result[function] = timer_counts(logs.stdout + logs.stderr, function)
+            require(not self.inspect(role)["OOMKilled"], f"{role} was memory terminated.")
+        self.evidence["checks"]["realTimerLogs"] = result
+        return result
 
     def business(self, case_id, event_id):
         require(re.fullmatch(r"[a-f0-9]{32}", case_id) and re.fullmatch(r"[a-f0-9]{32}", event_id), "Invalid observed SQL identifiers.")
@@ -317,6 +342,12 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;"""
         self.container("azurite", self.images["azurite"], ["--env-file", str(azurite_env),
             "--mount", f"type=volume,src={azurite_volume},dst=/data"],
             ["azurite", "--location", "/data", "--blobHost", "127.0.0.1", "--queueHost", "127.0.0.1", "--tableHost", "127.0.0.1", "--silent"])
+        emulator = json.loads(self.docker("exec", self.containers["azurite"], "node", "-e",
+            'console.log(JSON.stringify({version:require("./package.json").version,services:Object.fromEntries('
+            '["blob","queue","table"].map(service=>[service,require("./dist/src/"+service+"/utils/constants.js")'
+            '.ValidAPIVersions.includes("2026-02-06")]))}))'))
+        require(all(emulator["services"].values()), "The local emulator rejects the pinned app's Storage REST version.")
+        self.evidence["emulator"] = emulator | {"requiredRestVersion": "2026-02-06", "apiVersionCheckSkipped": False}
         initializer = self.container("state-init", self.images["driver"],
             ["--cap-add", "CHOWN", "--mount", f"type=volume,src={api_volume},dst=/state"],
             ["node", "-e", "require('node:fs').chownSync('/state',1654,1654)"])
@@ -362,8 +393,10 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;"""
                 "FUNCTIONS_EXTENSION_VERSION": "~4", "AZURE_FUNCTIONS_ENVIRONMENT": "Development",
                 "DOTNET_ENVIRONMENT": "Development", "ASPNETCORE_ENVIRONMENT": "Development",
                 "ASPNETCORE_URLS": f"http://127.0.0.1:{8082 + index}",
-                "WEBSITE_HOSTNAME": f"127.0.0.1:{8082 + index}", "AzureWebJobsSecretStorageType": "files",
-                "AzureFunctionsJobHost__logging__logLevel__Host.Executor": "Information"}
+                "WEBSITE_HOSTNAME": f"127.0.0.1:{8082 + index}", "AzureWebJobsSecretStorageType": "files"}
+            timer = "DispatchOutbox" if role == "workflows" else "DeadlineWatchdog"
+            environment[f"AzureFunctionsJobHost__logging__logLevel__Function.{timer}"] = "Information"
+            environment[f"AzureFunctionsJobHost__logging__logLevel__Function.{timer}.User"] = "Warning"
             if role == "workflows":
                 environment.update({"Cohors__ApiBaseUrl": "http://127.0.0.1:8084",
                     "Cohors__LocalWorkloadKey": workload_key, "AzureFunctionsJobHost__extensions__durableTask__hubName": hub})
@@ -390,6 +423,8 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;"""
             self.evidence["hostIdentities"][role].update({"pid": state["Pid"], "startedAt": state["StartedAt"]})
         self.wait("initial real outbox drain", lambda: int(self.sql("SELECT COUNT(*) FROM dbo.Outbox WHERE CompletedAt IS NULL;")),
                   lambda count: count <= 2, 180)
+        self.evidence["checks"]["initialTimerLogs"] = self.wait("matching real Timer start/success logs",
+            self.timer_logs, lambda counts: all(item["successfulExecutions"] > 0 for item in counts.values()), 60, 3)
         self.stage("real-replay-effect-held-before-durable-ack")
         requested = self.driver("request-assessment")
         require(requested["mode"] == "Replay" and requested["status"] == "Queued", "Replay was not durably queued.")
@@ -407,10 +442,13 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;"""
         heartbeat_before = self.heartbeat()
         process_before = self.inspect("workflows")
         self.docker("kill", "--signal", "KILL", self.containers["workflows"])
-        require(not self.inspect("workflows")["Running"], "Own Workflows host was not interrupted.")
+        workflow_stopped = self.inspect("workflows")
+        require(not workflow_stopped["Running"], "Own Workflows host was not interrupted.")
         self.stage("operations-continues-while-workflows-is-down")
         heartbeat_during = self.wait("independent Operations ticks while Workflows is down", self.heartbeat,
                                     lambda hb: hb["version"] >= heartbeat_before["version"] + 2, 100)
+        require(datetime.fromisoformat(heartbeat_during["lastTick"]) > datetime.fromisoformat(workflow_stopped["FinishedAt"]),
+                "Operations must tick after the Workflows process has actually terminated.")
         require(self.driver("durable")["instances"][0]["RuntimeStatus"] == "Running", "Interrupted work did not remain persisted.")
         self.driver("release")
         self.docker("start", self.containers["workflows"])
@@ -430,16 +468,22 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;"""
             "durableAfter": durable_after, "recoveryVerified": True,
             "hostBefore": {"pid": process_before["Pid"], "startedAt": process_before["StartedAt"]},
             "hostAfter": {key: self.inspect("workflows")[key] for key in ("Pid", "StartedAt")},
+            "hostStoppedAt": workflow_stopped["FinishedAt"],
             "operationsBefore": heartbeat_before, "operationsDuringOutage": heartbeat_during})
         self.stage("operations-remains-independent-of-api-and-agenthost")
-        independent_before = self.heartbeat()
         require(self.inspect("api")["Running"] and self.inspect("agents")["Running"],
                 "API and AgentHost must run before their controlled independent stop.")
         self.docker("stop", "--time", "10", self.containers["api"], self.containers["agents"], timeout=40)
+        stopped_hosts = {role: self.inspect(role) for role in ("api", "agents")}
+        require(all(not state["Running"] for state in stopped_hosts.values()), "API and AgentHost did not both stop.")
+        independent_before = self.heartbeat()
         independent_after = self.wait("Operations tick with API and AgentHost stopped", self.heartbeat,
                                      lambda hb: hb["version"] > independent_before["version"], 75)
         require(not self.inspect("api")["Running"] and not self.inspect("agents")["Running"], "Host independence was not exercised.")
-        self.evidence["checks"]["independentOperations"] = {"before": independent_before, "after": independent_after}
+        require(all(datetime.fromisoformat(independent_after["lastTick"]) > datetime.fromisoformat(state["FinishedAt"])
+                    for state in stopped_hosts.values()), "Operations tick predates the completed host stops.")
+        self.evidence["checks"]["independentOperations"] = {"before": independent_before, "after": independent_after,
+            "hostsStoppedAt": {role: state["FinishedAt"] for role, state in stopped_hosts.items()}}
         self.docker("start", self.containers["agents"], self.containers["api"])
         self.ready("api", 180)
         self.ready("agents")
@@ -475,15 +519,8 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;"""
         self.evidence["checks"]["operationsRestart"] = {"before": heartbeat_at_stop, "samples": samples, "after": heartbeat_after,
             "hostBefore": {key: operations_before[key] for key in ("Pid", "StartedAt")},
             "hostAfter": {key: operations_after[key] for key in ("Pid", "StartedAt")}}
-        timer_evidence = {}
-        for role, function in (("workflows", "DispatchOutbox"), ("operations", "DeadlineWatchdog")):
-            logs = self.docker("logs", self.containers[role])
-            executions = len(re.findall(rf"Executing 'Functions\.{function}'.*Timer fired", logs))
-            completions = len(re.findall(rf"Executed 'Functions\.{function}' \(Succeeded", logs))
-            require(executions > 0 and completions > 0, f"No genuine {function} Timer execution/completion log evidence.")
-            require(not self.inspect(role)["OOMKilled"], f"{role} was memory terminated.")
-            timer_evidence[function] = {"timerExecutions": executions, "successfulExecutions": completions}
-        self.evidence["checks"]["realTimerLogs"] = timer_evidence
+        require(all(item["successfulExecutions"] > 0 for item in self.timer_logs().values()),
+                "Missing real Timer start/success pairs after restart.")
         require(all(hashlib.sha256((self.source / name).read_bytes()).hexdigest() == digest
                     for name, digest in self.source_hashes.items()), "Exported application source changed during the test.")
         self.evidence["status"] = "passed"
@@ -544,7 +581,7 @@ FOR JSON PATH, WITHOUT_ARRAY_WRAPPER;"""
                                         "message": str(error) if isinstance(error, RuntimeFailure) else "Local contract execution failed; raw details withheld.",
                                         "diagnostics": self.last_diagnostic}
             for role, container_id in self.containers.items():
-                logs = self.command(["docker", "logs", "--tail", "80", container_id], allow_failure=True)
+                logs = self.command(["docker", "logs", container_id], allow_failure=True)
                 state = self.command(["docker", "container", "inspect", container_id, "--format", "{{json .State}}"], allow_failure=True)
                 self.evidence["failure"][role] = {"state": json.loads(state.stdout) if state.returncode == 0 else {"unavailable": True},
                     "diagnostics": self.diagnostics(logs.stdout + logs.stderr)}
