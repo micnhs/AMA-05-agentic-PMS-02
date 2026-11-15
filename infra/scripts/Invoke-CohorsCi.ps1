@@ -16,6 +16,27 @@ function Assert-Exit([string]$Step) {
     if ($LASTEXITCODE -ne 0) { throw "$Step failed with exit code $LASTEXITCODE." }
 }
 
+function Get-CiSqlPassword {
+    param([object]$ConnectionString)
+    if ($ConnectionString -isnot [string] -or [string]::IsNullOrWhiteSpace($ConnectionString)) {
+        throw 'Fresh SQL connection string is missing or invalid; credential publication remains blocked.'
+    }
+    $connection = [System.Data.Common.DbConnectionStringBuilder]::new()
+    try {
+        # PowerShell's IDictionary adapter shadows the property; invoke the CLR setter.
+        $connection.set_ConnectionString($ConnectionString)
+    } catch [ArgumentException] {
+        throw 'Fresh SQL connection string is malformed; credential publication remains blocked.'
+    }
+    $password = $null
+    if (-not $connection.TryGetValue('Password', [ref]$password) -or
+        $password -isnot [string] -or [string]::IsNullOrWhiteSpace($password) -or
+        $password -match '[\x00-\x1F\x7F]') {
+        throw 'Fresh SQL password is missing or invalid; credential publication remains blocked.'
+    }
+    return $password
+}
+
 function Stop-OwnedProcessTree([int]$ProcessId) {
     $children = @(& ps -o pid= --ppid $ProcessId)
     if ($LASTEXITCODE -notin @(0, 1)) { throw 'Could not enumerate the owned CI process tree.' }
@@ -62,9 +83,7 @@ try {
     $settings.Cohors.PublicSources = $false
     $settings | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath $settingsPath -Encoding utf8NoBOM
 
-    $connection = [System.Data.Common.DbConnectionStringBuilder]::new()
-    $connection.ConnectionString = $settings.ConnectionStrings.Cohors
-    $prohibitedValues.Add($connection['Password'])
+    $prohibitedValues.Add((Get-CiSqlPassword -ConnectionString $settings.ConnectionStrings.Cohors))
     $prohibitedValues.Add($settings.Authentication.WorkloadKey)
     foreach ($account in $settings.Authentication.Users) {
         $prohibitedValues.Add($account.Salt)
