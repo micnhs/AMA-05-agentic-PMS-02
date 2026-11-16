@@ -268,6 +268,18 @@ public sealed class PsurGroupTests : IAsyncLifetime
             PsurGroupRules.Documents(p.Snapshot), Reason, 0);
         Assert.Throws<DomainException>(() => AgentBoundary.ValidateResult(input,
             new("synthetic-output-boundary", AgentRunner.PromptVersion, null, overLimit, [], [])));
+        var atLimit = correction.PadRight(AgentBoundary.MaximumNarrativeLength);
+        AgentBoundary.ValidateResult(input, new("synthetic-output-boundary", AgentRunner.PromptVersion, null, atLimit, [], []));
+        revised = await service.Revise(revised.Id, new(revised.Version, atLimit, Reason), SqlFixture.Medical, CaseScenario.Key());
+        Assert.Equal(atLimit, revised.Draft);
+        Assert.Equal(snapshot, Canonical.Serialize(revised.Snapshot));
+        var paddedOverLimit = atLimit + "\n";
+        var editError = await Record.ExceptionAsync(() => service.Revise(revised.Id,
+            new(revised.Version, paddedOverLimit, Reason), SqlFixture.Medical, CaseScenario.Key()));
+        var agentError = Record.Exception(() => AgentBoundary.ValidateResult(input,
+            new("synthetic-output-boundary", AgentRunner.PromptVersion, null, paddedOverLimit, [], [])));
+        Assert.True(editError is DomainException && agentError is DomainException,
+            "Both generation and editing must reject the actual over-limit text, including whitespace; no hidden trim or unbounded padding.");
         Assert.Equal(Canonical.Hash(revised), Canonical.Hash(await service.GetPsur(revised.Id, SqlFixture.Pms)));
     }
 }

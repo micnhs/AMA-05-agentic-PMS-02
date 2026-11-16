@@ -14,37 +14,38 @@ public static class PsurSupplement
 {
     public static PsurActionManifest Actions(PortfolioSnapshotInput input)
     {
-        var cutoff = PsurSources.EndExclusive(input.End);
-        var start = new DateTimeOffset(input.Start.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        PsurActionState<T> Freeze<T>(string kind, T current, Func<T, string> id, Func<T, int> version,
-            Func<T, string> status, string terminal) where T : class
-        {
-            var history = (input.History ?? []).Where(h => h.Kind == kind && h.Id == id(current)).ToArray();
-            var revision = history.Where(h => h.At < cutoff).OrderByDescending(h => h.Version).FirstOrDefault();
-            var original = revision is null ? null : Canonical.Read<T>(revision.Json);
-            var selected = original is null
-                ? history.Length == 0 ? "UnknownHistoricalState" : "PostCutoffAddendum"
-                : status(original) != terminal
-                    ? history.Min(h => h.At) < start ? "OpenCarryOver" : "OpenInPeriod"
-                    : history.Any(h => h.At >= start && h.At < cutoff) ? "UpdatedInPeriod" : "ExcludedClosedBeforePeriod";
-            return new(new(id(current), version(current), Canonical.Hash(current)), current,
-                revision is null ? null : new(revision.Id, revision.Version, revision.Hash), original, revision?.At,
-                original is null ? "NotRecordedAtCutoff" : status(original), selected,
-                selected switch
-                {
-                    "OpenCarryOver" => "Am N-Stichtag offene Altmassnahme; ein spaeterer Abschluss ersetzt diesen Status nicht.",
-                    "OpenInPeriod" => "In N erfasste, am Stichtag offene Massnahme.",
-                    "UpdatedInPeriod" => "In N dokumentierter Massnahmenstand, auch wenn am Stichtag abgeschlossen.",
-                    "ExcludedClosedBeforePeriod" => "Schon vor N abgeschlossen; nur im vollstaendigen Auswahlverzeichnis, nicht als offene Altmassnahme.",
-                    "PostCutoffAddendum" => "Erst nach dem Stichtag in SQL dokumentiert; separat gekennzeichneter Nachtrag, kein erfundener historischer Status.",
-                    _ => "Keine historische SQL-Version vorliegend; aktueller Zustand ist kein Stichtagsnachweis."
-                });
-        }
-        return new("cohors-psur-actions-1", cutoff,
+        return new("cohors-psur-actions-1", PsurSources.EndExclusive(input.End),
             input.Capas.Where(c => c.ProductId == input.ProductId).OrderBy(c => c.Id, StringComparer.Ordinal)
-                .Select(c => Freeze("capa", c, v => v.Id, v => v.Version, v => v.Status, "Verified")).ToArray(),
+                .Select(c => FreezeState(input.Start, input.End, input.History ?? [], "capa", c, v => v.Id, v => v.Version, v => v.Status, "Verified")).ToArray(),
             input.Changes.Where(c => c.ProductId == input.ProductId).OrderBy(c => c.Id, StringComparer.Ordinal)
-                .Select(c => Freeze("change", c, v => v.Id, v => v.Version, v => v.Status, "Implemented")).ToArray());
+                .Select(c => FreezeState(input.Start, input.End, input.History ?? [], "change", c, v => v.Id, v => v.Version, v => v.Status, "Implemented")).ToArray());
+    }
+
+    internal static PsurActionState<T> FreezeState<T>(DateOnly periodStart, DateOnly periodEnd, AggregateRevision[] revisions, string kind, T current,
+        Func<T, string> id, Func<T, int> version, Func<T, string> status, string terminal) where T : class
+    {
+        var cutoff = PsurSources.EndExclusive(periodEnd);
+        var start = new DateTimeOffset(periodStart.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        var history = revisions.Where(h => h.Kind == kind && h.Id == id(current) && h.Version <= version(current)).ToArray();
+        var revision = history.Where(h => h.At < cutoff).OrderByDescending(h => h.Version).FirstOrDefault();
+        var original = revision is null ? null : Canonical.Read<T>(revision.Json);
+        var selected = original is null
+            ? history.Length == 0 ? "UnknownHistoricalState" : "PostCutoffAddendum"
+            : status(original) != terminal
+                ? history.Min(h => h.At) < start ? "OpenCarryOver" : "OpenInPeriod"
+                : history.Any(h => h.At >= start && h.At < cutoff) ? "UpdatedInPeriod" : "ExcludedClosedBeforePeriod";
+        return new(new(id(current), version(current), Canonical.Hash(current)), current,
+            revision is null ? null : new(revision.Id, revision.Version, revision.Hash), original, revision?.At,
+            original is null ? "NotRecordedAtCutoff" : status(original), selected,
+            selected switch
+            {
+                "OpenCarryOver" => "Am N-Stichtag offene Altmassnahme; ein spaeterer Abschluss ersetzt diesen Status nicht.",
+                "OpenInPeriod" => "In N erfasste, am Stichtag offene Massnahme.",
+                "UpdatedInPeriod" => "In N dokumentierter Massnahmenstand, auch wenn am Stichtag abgeschlossen.",
+                "ExcludedClosedBeforePeriod" => "Schon vor N abgeschlossen; nur im vollstaendigen Auswahlverzeichnis, nicht als offene Altmassnahme.",
+                "PostCutoffAddendum" => "Erst nach dem Stichtag in SQL dokumentiert; separat gekennzeichneter Nachtrag, kein erfundener historischer Status.",
+                _ => "Keine historische SQL-Version vorliegend; aktueller Zustand ist kein Stichtagsnachweis."
+            });
     }
 
     public static PsurDataDirectory Directory(PortfolioSnapshotInput input, PsurSnapshot snapshot)
@@ -84,6 +85,7 @@ public static class PsurSupplement
             AddActions("capa", actions.Capas, c => c.Title);
             AddActions("change", actions.Changes, c => c.ProposedChange);
         }
+        entries.AddRange(PsurRegulatoryRules.Directory(snapshot.RegulatoryHistory));
         void AddActions<T>(string kind, PsurActionState<T>[] actions, Func<T, string> title) where T : class
         {
             foreach (var action in actions)
@@ -142,7 +144,8 @@ public static class PsurSupplement
         var keys = directory.Entries.Select(e => (e.Kind, e.Source)).ToHashSet();
         if (keys.Count != directory.Entries.Length ||
             snapshot.Documents.Any(e => !keys.Contains(("evidence", new(e.Id, e.Version, Canonical.Hash(e))))) ||
-            (snapshot.SourceManifest?.Cases ?? []).Any(c => !keys.Contains(("case", c.Reference))))
+            (snapshot.SourceManifest?.Cases ?? []).Any(c => !keys.Contains(("case", c.Reference))) ||
+            PsurRegulatoryRules.Directory(snapshot.RegulatoryHistory).Any(e => !directory.Entries.Contains(e)))
             findings.Add(Invalid("Ausgewaehlte Dokument-/Fallversionen fehlen im eindeutigen Quellenverzeichnis."));
         return findings.ToArray();
     }

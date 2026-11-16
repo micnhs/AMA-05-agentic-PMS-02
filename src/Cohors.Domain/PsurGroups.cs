@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Cohors.Domain;
 
 public sealed record PsurGroupProduct(string ProductId, VersionReference GovernanceSource, string BasicUdi,
@@ -6,7 +8,8 @@ public sealed record PsurGroupDefinition(string Id, int Version, string ProductI
     PsurGroupProduct[] Members, DateOnly FirstPeriodStart, string Rationale, string ScheduleBasis, DateTimeOffset RecordedAt);
 public sealed record PsurGroupMember(PsurGroupProduct Product, ProductGovernance Governance, PsurSnapshot Snapshot);
 public sealed record PsurGrouping(string Contract, VersionReference DefinitionSource, PsurGroupDefinition Definition,
-    PsurGroupMember[] Members, string SeparationRule);
+    PsurGroupMember[] Members, string SeparationRule,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PsurRegulatoryHistory? RegulatoryHistory = null);
 
 public static class PsurGroupRules
 {
@@ -78,7 +81,11 @@ public static class PsurGroupRules
 
     public static string[] Products(PsurSnapshot snapshot) =>
         new[] { snapshot.ProductId }.Concat(snapshot.Group?.Definition.Members.Select(m => m.ProductId) ?? [])
-            .Concat(snapshot.Group?.Members.Select(m => m.Snapshot.ProductId) ?? []).Distinct(StringComparer.Ordinal).ToArray();
+            .Concat(snapshot.Group?.Members.Select(m => m.Snapshot.ProductId) ?? [])
+            .Concat(PsurRegulatoryRules.Products(snapshot.RegulatoryHistory))
+            .Concat(PsurRegulatoryRules.Products(snapshot.Group?.RegulatoryHistory))
+            .Concat(snapshot.Group?.Members.SelectMany(m => PsurRegulatoryRules.Products(m.Snapshot.RegulatoryHistory)) ?? [])
+            .Distinct(StringComparer.Ordinal).ToArray();
     public static void RequireScope(PsurSnapshot snapshot, Actor actor)
     {
         foreach (var product in Products(snapshot)) actor.RequireProduct(product);

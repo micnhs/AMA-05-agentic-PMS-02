@@ -59,7 +59,7 @@ Der erste End-to-End-Schnitt wurde mit echter lokaler SQL-Persistenz und Browser
 
 SQL-Tests verwenden eine **eigene zufaellig benannte Testdatenbank**, niemals die Demo-Datenbank. Sie verweigern nicht lokale SQL-Server. Die Recovery-Kategorie startet zusaetzlich eigene Docker-SQL-Instanzen; `Test-Local.ps1` ist deshalb kein leichter Preview-Check.
 
-Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich eines auf eine Familie beschraenkten Kontos. Die laufende Demo auf 5187 wird nicht neu initialisiert oder veraendert. Das explizite `Preview`-Profil umfasst fuenf Szenarien mit **`Retention:PhysicalMode=Disabled`**; der getrennte `PhysicalRetention`-Test gehoert nicht zu dieser Teilabnahme und ist damit nicht freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist moeglich:
+Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich zweier unabhaengiger Einzelfamilienkonten. Die laufende Demo auf 5187 wird nicht neu initialisiert oder veraendert. Das explizite `Preview`-Profil umfasst sechs Szenarien mit **`Retention:PhysicalMode=Disabled`**, einschliesslich des getrennten BS-Rueckfrage-/Antwort-/Massnahmenzyklus und seiner historischen PSUR-Snapshotbindung; der getrennte `PhysicalRetention`-Test gehoert nicht zu dieser Teilabnahme und ist damit nicht freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist moeglich:
 
 ```powershell
 .\.tools\dotnet\dotnet.exe publish src\Cohors.Api\Cohors.Api.csproj --configuration Debug --no-build --no-restore --output .local\ui-package

@@ -52,23 +52,39 @@ export interface PsurActionState<T> {
   recordedAtCutoff: string | null; statusAtCutoff: string; selection: string; reason: string;
 }
 export interface PsurGroupProduct { productId: string; governanceSource: VersionReference; basicUdi: string; riskClass: string; notifiedBodyNumber: string }
+export interface PsurDataSource { kind: string; source: VersionReference; name: string; sourceType: string; origin: string; selection: string; reason: string }
+export interface PsurReviewReport { source: VersionReference; seriesReference: string; reportNumber: number; start: string; end: string; snapshotHash: string; scopeHash: string; products: string[] }
+export interface PsurReviewQuestion { round: number; text: string; dueAt: string; actionRequired: boolean; scheduleBasis: string; recordedAt: string }
+export interface PsurReviewAction { kind: string; source: VersionReference; productId: string; title: string; status: string }
+export interface PsurReviewDraft { report: PsurReviewReport; response: string; sources: PsurDataSource[]; actions: PsurReviewAction[]; noActionRationale: string }
+export interface PsurReview {
+  id: string; version: number; productId: string; products: string[]; reference: string; originalReport: PsurReviewReport;
+  jurisdiction: string; language: string; recipient: string; questions: PsurReviewQuestion[]; status: string;
+  draft: PsurReviewDraft | null; scopeHash: string; approvals: Approval[]; alerts: string[]; simulated: boolean; contract: string;
+  submissions: { round: number; question: PsurReviewQuestion; reply: PsurReviewDraft; scopeHash: string; approvals: Approval[]; simulatedReceipt: string; sentAt: string }[];
+  assessments: { round: number; outcome: string; rationale: string; actionEvidence: PsurReviewAction[]; recordedBy: string; recordedAt: string }[];
+}
 export interface PsurGroupDefinition {
   id: string; version: number; productId: string; reference: string; members: PsurGroupProduct[]; firstPeriodStart: string;
   rationale: string; scheduleBasis: string; recordedAt: string;
+}
+export interface PsurRegulatoryHistory {
+  contract: string; products: string[]; cutoffExclusiveUtc: string; reviews: PsurActionState<PsurReview>[]; coverage: string;
 }
 export interface PsurSnapshot {
   start: string; end: string; region: string; productId: string; leadProductId: string; frozenAt: string; dateBasis: string; completeness: string;
   cases: { id: string; version: number; reference: string; stage: string; disposition: string; openQuestions: string[]; statusAtCutoff?: string; knowledgeStatus?: string }[];
   series?: PsurSeries | null;
   group?: { contract: string; definitionSource: VersionReference; definition: PsurGroupDefinition;
-    members: { product: PsurGroupProduct; governance: ProductGovernance; snapshot: PsurSnapshot }[]; separationRule: string } | null;
+    members: { product: PsurGroupProduct; governance: ProductGovernance; snapshot: PsurSnapshot }[]; separationRule: string; regulatoryHistory?: PsurRegulatoryHistory | null } | null;
+  regulatoryHistory?: PsurRegulatoryHistory | null;
   documents: Evidence[];
   periods: { label: string; start: string; end: string; regions: { region: string; dataStatus: string; events: number | null; exposure: number | null; unit: string | null; ratePerThousand: number | null; exposureId: string | null; exposureVersion: number | null; numeratorSources?: VersionReference[] | null }[] }[];
   sourceManifest?: { version: string; knowledgeCutoffExclusiveUtc: string; periodKnowledgeRule: string; stateEvidence: string;
     cases: { reference: VersionReference; cutoffVersion: VersionReference | null; statusAtCutoff: string }[];
     postCutoffCases: { period: string; source: VersionReference; awarenessAt: string; reason: string }[] } | null;
   actions?: { cutoffExclusiveUtc: string; capas: PsurActionState<Capa>[]; changes: PsurActionState<ChangeRequest>[] } | null;
-  directory?: { documentsEffectiveAt: string; coverage: string; entries: { kind: string; source: VersionReference; name: string; sourceType: string; origin: string; selection: string; reason: string }[] } | null;
+  directory?: { documentsEffectiveAt: string; coverage: string; entries: PsurDataSource[] } | null;
   codingTables?: { period: string; region: string; completeness: string; explicitDeathCases: VersionReference[]; missingAnnexCodes: VersionReference[]; unverifiedHistoricalDeathCases?: VersionReference[] | null;
     rows: { annex: string; code: string; term: string; historical: boolean; status: string; cases: VersionReference[]; originalCodes: string[] }[] }[] | null;
 }

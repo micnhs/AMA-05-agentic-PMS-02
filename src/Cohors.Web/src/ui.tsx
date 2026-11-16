@@ -38,7 +38,7 @@ export function CaseTable({ cases, open }: { cases: CaseSummary[]; open: (id: st
     <td><button className="icon-button" onClick={() => open(c.id)} aria-label={`${c.reference} öffnen`}><ChevronRight size={19} /></button></td>
   </tr> })}</tbody></table></div>
 }
-export type Field = { name: string; label: string; value?: string; type?: 'textarea' | 'date' | 'datetime-local' | 'select' | 'text'; options?: { value: string; label: string }[]; required?: boolean; minLength?: number }
+export type Field = { name: string; label: string; value?: string; type?: 'textarea' | 'date' | 'datetime-local' | 'select' | 'text'; options?: { value: string; label: string }[]; required?: boolean; minLength?: number; multiple?: boolean; values?: string[] }
 export type Dialog = { title: string; description?: string; fields: Field[]; submitLabel?: string; onSubmit: (values: Record<string, string>) => Promise<void> }
 export function ActionDialog({ dialog, close }: { dialog: Dialog; close: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -49,8 +49,16 @@ export function ActionDialog({ dialog, close }: { dialog: Dialog; close: () => v
     <header><div><span className="eyebrow">KONTROLLIERTER SCHRITT</span><h2>{dialog.title}</h2></div><button type="button" className="icon-button" disabled={busy} onClick={close} aria-label="Dialog schließen"><X /></button></header>
     <p>{dialog.description ?? 'Die Änderung wird serverseitig geprüft und mit Identität, Version und Begründung protokolliert.'}</p>
     {error && <ErrorBanner message={error} />}
-    <form onSubmit={async e => { e.preventDefault(); const values = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>; setBusy(true); setError(''); try { await dialog.onSubmit(values); close() } catch (error) { setError(error instanceof Error ? error.message : 'Operation nicht bestätigt.') } finally { setBusy(false) } }}>
-      {dialog.fields.map(f => <label key={f.name} className="field">{f.label}{f.type === 'textarea' ? <textarea name={f.name} defaultValue={f.value} required={f.required !== false} minLength={f.minLength} rows={4} /> : f.type === 'select' ? <select name={f.name} defaultValue={f.value} required={f.required !== false}>{f.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select> : <input name={f.name} type={f.type ?? 'text'} defaultValue={f.value} required={f.required !== false} minLength={f.minLength} />}</label>)}
+    <form onSubmit={async e => {
+      e.preventDefault(); const form = new FormData(e.currentTarget); setBusy(true); setError('')
+      try {
+        const values: Record<string, string> = {}
+        for (const [name, value] of form) { if (typeof value !== 'string') throw new Error('Dieses Formular akzeptiert keine Dateifelder.'); values[name] = value }
+        for (const field of dialog.fields.filter(f => f.multiple)) values[field.name] = JSON.stringify(form.getAll(field.name))
+        await dialog.onSubmit(values); close()
+      } catch (error) { setError(error instanceof Error ? error.message : 'Operation nicht bestätigt.') } finally { setBusy(false) }
+    }}>
+      {dialog.fields.map(f => <label key={f.name} className="field">{f.label}{f.type === 'textarea' ? <textarea name={f.name} defaultValue={f.value} required={f.required !== false} minLength={f.minLength} rows={4} /> : f.type === 'select' ? <select name={f.name} multiple={f.multiple} defaultValue={f.multiple ? f.values ?? [] : f.value} required={f.required !== false}>{f.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select> : <input name={f.name} type={f.type ?? 'text'} defaultValue={f.value} required={f.required !== false} minLength={f.minLength} />}</label>)}
       <footer><button type="button" className="button secondary" disabled={busy} onClick={close}>Abbrechen</button><button className="button primary" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17} /> : <ArrowUpRight size={17} />}{dialog.submitLabel ?? 'Begründet bestätigen'}</button></footer>
     </form>
   </dialog>

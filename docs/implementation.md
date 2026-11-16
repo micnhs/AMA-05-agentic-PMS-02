@@ -128,10 +128,48 @@ Einzelfamilienmarker bleiben unterstuetzt. Der Autorenvertrag ist
 `cohors-agent-contract-2026.2`.
 
 Erzeugte und menschlich revidierte PSUR-Narrative verwenden dieselbe endliche
-Obergrenze von 200.000 Zeichen. Ein bereits akzeptierter laengerer Entwurf
+Obergrenze von 200.000 tatsaechlichen Zeichen einschliesslich Leerraum.
+Die gemeinsame Narrativpruefung zaehlt vor dem Trimmen; innerhalb der
+Grenze bleiben die Originalbytes erhalten. Ein bereits akzeptierter laengerer Entwurf
 wird bei der Bearbeitung nicht auf 60.000 Zeichen reduziert; keine Quelle
 oder Kennzahl wird abgeschnitten. Eine Textrevision loescht weiterhin alle
 Freigaben, laesst aber die eingefrorenen Snapshotbytes unveraendert.
+
+### Getrennte BS-Rueckfragen, Antworten und Bewertungen
+
+`PsurReview` ist ein eigener versionierter, ausschliesslich synthetischer
+Vorgang zu einem bereits quittierten PSUR. Technischer Eingang, konkrete
+Rueckfrage, begruendete Antwort, getrennte Medical-/RA-Antwortfreigaben,
+simulierte Antwortquittung und explizite Bewertung sind verschiedene
+Schritte. Termin und Vereinbarungsgrund werden ausdruecklich erfasst;
+ein unabhaengiger Watchdog eskaliert, ohne alte Termine zu verschieben.
+Eine neue Runde oder Serie schliesst keine fruehere Massnahmenpflicht.
+Der Abschluss verlangt wirksame/umgesetzte Massnahmen aus **allen**
+Antworten. Bericht, ausgewaehlte Quellen und Massnahmen sind versioniert
+gebunden; ein SQL-Transaktionsgate prueft aktuelle Abhaengigkeiten atomar.
+Revisionen invalidieren Antwortfreigaben, nicht die Original-PSUR-Bytes.
+
+Neue PSUR-Schnitte verwenden Vorlage `cohors-psur-2026.4` und das optionale
+Manifest `cohors-psur-regulatory-history-1`. Es bindet unveraenderte
+BS-Quellversionen und den tatsaechlichen SQL-Stichtagsstand, einschliesslich
+Vorgaengen frueherer Serien. Spaetere Rueckfragen/Bewertungen erscheinen
+als Nachtrag, nicht als damals bekannte Sicherheitsbewertung. Ein
+Fragenabschluss ersetzt nicht den separat eingefrorenen CAPA-Stichtagsstand.
+Jeder relevante Vorgang braucht einen `[psurReview:ID@Version]`-Beleg.
+Die 200.000-Zeichen-Narrativgrenze bleibt bestehen; die komprimierte
+Darstellung verweist auf den vollstaendigen unverkuerzten Korrespondenzanhang.
+
+Einzelfamilien-Schnitte enthalten nur Vorgaenge innerhalb ihrer eigenen
+Mitgliedschaft. Gruppenweite Korrespondenz steht in einem getrennten
+Gruppenmanifest, ohne die unveraenderte Leitproduktkopie zu veraendern.
+Breitere Vorgaenge werden weder in engere Datenkopien aufgenommen noch
+als erledigt oder nicht vorhanden ausgegeben. Lesezugriff und Exports
+verlangen saemtliche behaltenen Produktscopes. Alte Snapshotformate
+lassen neue Nullfelder weiter aus und werden nicht rueckwirkend umgeformt.
+Die UI trennt Antwortzeitpunkt, letzte dokumentierte Bewertung, historischen
+Snapshot und aktuelle Vorgaenge. PDF/JSON/ZIP binden die vollstaendige
+synthetische Korrespondenz; fehlende oder abweichende BS-Quellversionen
+scheitern ausdruecklich. Kein echter BS-Zugang und keine Risikoakzeptanz.
 
 ### Authentifizierte PSUR-Leseexports
 

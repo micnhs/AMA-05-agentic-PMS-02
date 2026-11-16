@@ -111,11 +111,11 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         using var query = Command(connection, transaction, """
             SELECT a.Kind,a.Id,a.Json,a.UpdatedAt,h.Hash,CAST(0 AS bit) AS Historical FROM dbo.Aggregates a
             LEFT JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
-            WHERE a.ProductId IN (SELECT value FROM OPENJSON(@products)) AND a.Kind IN ('case','exposure','trend','capa','change','productGovernance','psur','source','psurGroup')
+            WHERE a.ProductId IN (SELECT value FROM OPENJSON(@products)) AND a.Kind IN ('case','exposure','trend','capa','change','productGovernance','psur','source','psurGroup','psurReview')
             UNION ALL
             SELECT h.Kind,h.Id,h.Json,h.At,h.Hash,CAST(1 AS bit) AS Historical FROM dbo.AggregateVersions h
             INNER JOIN dbo.Aggregates a ON a.Kind=h.Kind AND a.Id=h.Id
-            WHERE h.Kind IN ('evidence','case','capa','change') AND a.ProductId IN (SELECT value FROM OPENJSON(@products))
+            WHERE h.Kind IN ('evidence','case','capa','change','psurReview') AND a.ProductId IN (SELECT value FROM OPENJSON(@products))
             """, ("products", Canonical.Serialize(products)));
         var rows = new List<(string Kind, string Json)>();
         var history = new List<AggregateRevision>();
@@ -137,7 +137,8 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         T[] Read<T>(string kind) => rows.Where(r => r.Kind == kind).Select(r => Canonical.Read<T>(r.Json)).ToArray();
         return new(Read<SafetyCase>("case"), Read<Evidence>("evidence"), Read<Exposure>("exposure"),
             Read<TrendRun>("trend"), Read<Capa>("capa"), Read<ChangeRequest>("change"), history.ToArray(),
-            Read<ProductGovernance>("productGovernance"), Read<Psur>("psur"), Read<PublicSourceRun>("source"), Read<PsurGroupDefinition>("psurGroup"));
+            Read<ProductGovernance>("productGovernance"), Read<Psur>("psur"), Read<PublicSourceRun>("source"), Read<PsurGroupDefinition>("psurGroup"),
+            RegulatoryReviews: Read<PsurReview>("psurReview"));
     }
 
     public Task<T> Execute<T>(CommandContext c, Func<T?, T> change, CancellationToken ct = default) =>
@@ -276,12 +277,13 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         var requestHash = Canonical.Hash(new { c.Id, c.ProductId, c.ExpectedVersion, c.Request });
         await using var connection = await Open(ct);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        // A destructive scan must exclude new references until its SQL outcome commits.
+        // Destructive scans and current-version decisions exclude competing writers until commit.
         using (var objectGate = Command(connection, transaction,
             "DECLARE @r int; EXEC @r=sp_getapplock @Resource='cohors-object-reference-gate',@LockMode=@mode,@LockOwner='Transaction',@LockTimeout=15000; SELECT @r;",
-            ("mode", deletion ? "Exclusive" : "Shared")))
-            Guard.Against((int)(await objectGate.ExecuteScalarAsync(ct))! < 0, "retention_busy",
-                "Objektbindungen werden kontrolliert abgeglichen; unveraenderten Auftrag spaeter erneut pruefen.", 409);
+            ("mode", deletion || c.Dependencies.Length > 0 ? "Exclusive" : "Shared")))
+            Guard.Against((int)(await objectGate.ExecuteScalarAsync(ct))! < 0,
+                c.Dependencies.Length > 0 ? "dependency_busy" : "retention_busy",
+                "Objekt-/Versionsbindungen werden abgeglichen; unveraenderten Auftrag spaeter erneut pruefen.", 409);
         using (var lockCommand = Command(connection, transaction,
             "DECLARE @r int; EXEC @r=sp_getapplock @Resource=@key,@LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=15000; SELECT @r;",
             ("key", commandKey)))
@@ -338,6 +340,17 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         }
         Guard.Against(version != c.ExpectedVersion, "version_conflict",
             $"Veraltete Version {c.ExpectedVersion}; aktuell ist {version}. Bitte neu laden.", 409);
+        foreach (var dependency in c.Dependencies.Distinct())
+        {
+            using var read = Command(connection, transaction,
+                "SELECT Version,Json,ProductId FROM dbo.Aggregates WHERE Kind=@kind AND Id=@id",
+                ("kind", dependency.Kind), ("id", dependency.Source.Id));
+            await using var reader = await read.ExecuteReaderAsync(ct);
+            Guard.Against(!await reader.ReadAsync(ct) || reader.GetInt32(0) != dependency.Source.Version ||
+                Canonical.HashText(reader.GetString(1)) != dependency.Source.Hash,
+                "dependency_version", "Gebundener Quell-/Massnahmenstand hat sich geaendert; neu laden und erneut begruendet pruefen.", 409);
+            c.Actor.RequireProduct(reader.GetString(2));
+        }
         var next = await change(current);
         var json = Canonical.Serialize(next);
         await RequireNoRetiredReferences(connection, transaction, c, json, ct);
@@ -536,7 +549,10 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         using var query = Command(connection, null, """
             SELECT Id,ProductId,Type,Attempts,Error,LeaseUntil,NextAttemptAt,RecoveryVersion FROM dbo.Outbox
             WHERE CompletedAt IS NULL AND (Attempts>0 OR Error IS NOT NULL)
-                AND ProductId IN (SELECT value FROM OPENJSON(@products)) ORDER BY CreatedAt,Id;
+                AND ProductId IN (SELECT value FROM OPENJSON(@products))
+                AND NOT EXISTS(SELECT 1 FROM OPENJSON(Payload,'$.products') required
+                    WHERE required.value NOT IN (SELECT value FROM OPENJSON(@products)))
+            ORDER BY CreatedAt,Id;
             """, ("products", Canonical.Serialize(products)));
         var result = new List<OutboxIssue>();
         await using var reader = await query.ExecuteReaderAsync(ct);

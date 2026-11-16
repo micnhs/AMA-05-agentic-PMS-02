@@ -91,6 +91,7 @@ builder.Services.AddSingleton<PublicSourceService>();
 builder.Services.AddSingleton<EvidenceService>();
 builder.Services.AddSingleton<QualityService>();
 builder.Services.AddSingleton<AnalyticsService>();
+builder.Services.AddSingleton<PsurReviewService>();
 builder.Services.AddSingleton<RetentionService>();
 builder.Services.AddSingleton<PsurExportService>();
 builder.Services.AddSingleton<IMirComposer, MirComposer>();
@@ -299,6 +300,23 @@ api.MapPost("/psurs", (FreezePsurCommand input, AnalyticsService service, HttpCo
 api.MapPost("/psurs/{id}/revise", (string id, RevisePsurCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.Revise(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/psurs/{id}/approve", (string id, VersionCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.Approve(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/psurs/{id}/simulate", (string id, VersionCommand input, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.Simulate(id, input, Who(ctx), Key(ctx), ct));
+api.MapGet("/psurs/{id}/reviews", (string id, PsurReviewService service, HttpContext ctx, CancellationToken ct) => service.List(id, Who(ctx), ct));
+api.MapPost("/psur-reviews", (OpenPsurReviewCommand input, PsurReviewService service, HttpContext ctx, CancellationToken ct) => service.Open(input, Who(ctx), Key(ctx), ct));
+api.MapGet("/psur-reviews/{id}", (string id, PsurReviewService service, HttpContext ctx, CancellationToken ct) => service.Get(id, Who(ctx), ct));
+api.MapPost("/psur-reviews/{id}/draft", (string id, DraftPsurReplyCommand input, PsurReviewService service, HttpContext ctx, CancellationToken ct) => service.Draft(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/psur-reviews/{id}/approve", (string id, VersionCommand input, PsurReviewService service, HttpContext ctx, CancellationToken ct) => service.Approve(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/psur-reviews/{id}/simulate", (string id, VersionCommand input, PsurReviewService service, HttpContext ctx, CancellationToken ct) => service.Simulate(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/psur-reviews/{id}/assess", (string id, AssessPsurReplyCommand input, PsurReviewService service, HttpContext ctx, CancellationToken ct) => service.Assess(id, input, Who(ctx), Key(ctx), ct));
+api.MapGet("/psur-reviews/{id}/export", async (string id, int version, PsurReviewService service, SqlStateStore store, HttpContext ctx, CancellationToken ct) =>
+{
+    var review = await service.Get(id, Who(ctx), ct);
+    Guard.Against(review.Version != version, "version_conflict", "BS-Vorgang hat sich geaendert; neu laden.", 409);
+    var audit = await store.Manifest(id, ct, "psurReview");
+    Guard.Against((await service.Get(id, Who(ctx), ct)).Version != version, "version_conflict", "BS-Vorgang wurde waehrend des Exports geaendert.", 409);
+    var data = new { format = "cohors-psur-review-export-1", review, audit,
+        boundary = "SYNTHETISCH. Technische Quittung, Rueckfragen und Bewertung sind getrennte Simulationen. Keine echte BS-Kommunikation, Konformitaets- oder Risikoakzeptanz." };
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(Canonical.Serialize(data)), "application/json", $"COHORS-DEMO-{id}-v{version}.json");
+});
 api.MapGet("/operations/outbox", (IStateStore store, HttpContext ctx, CancellationToken ct) => store.OutboxIssues(Who(ctx).Products, ct));
 api.MapGet("/retention/policy", (RetentionService service, HttpContext ctx) =>
 {

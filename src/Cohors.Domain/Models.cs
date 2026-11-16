@@ -128,7 +128,8 @@ public sealed record PsurSnapshot(string ProductId, string LeadProductId, DateOn
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PsurSeries? Series = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PsurActionManifest? Actions = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PsurDataDirectory? Directory = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PsurGrouping? Group = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PsurGrouping? Group = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] PsurRegulatoryHistory? RegulatoryHistory = null);
 public sealed record Psur(string Id, int Version, string ProductId, PsurSnapshot Snapshot,
     string SnapshotHash, string Draft, string ScopeHash, string Status, Approval[] Approvals,
     string? NotifiedBodyReceipt, bool Simulated, QualityFinding[] Findings, AgentMode Mode,

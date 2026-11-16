@@ -85,6 +85,27 @@ public sealed class OperationsService(IStateStore store, TimeProvider clock)
                 continue;
             }
         }
+        var psurReviews = await store.List<PsurReview>("psurReview", CaseService.Workflow.Products, ct);
+        foreach (var review in psurReviews.Where(r => r.Status is "QuestionOpen" or "ReplyDraft" or "MedicalApproved" or "ReplyApproved"))
+        {
+            PsurReviewRules.RequireScope(review, CaseService.Workflow);
+            var question = review.Questions[^1];
+            var alert = $"PSUR-BS:{question.Round}:Vereinbarte Antwortfrist ueberschritten; RA/Medical nachverfolgen. Keine gesetzliche Pauschalfrist und kein Neustart alter Fristen.";
+            if (now <= question.DueAt || review.Alerts.Contains(alert)) continue;
+            try
+            {
+                await store.Execute<PsurReview>(new(review.Id, "psurReview", review.ProductId, review.Version,
+                    "psur-watchdog-" + Canonical.Hash(new { review.Id, question.Round }),
+                    "PsurQuestionEscalated", alert, CaseService.Workflow, new { alert }, now), value =>
+                    value! with { Version = value.Version + 1, Alerts = [.. value.Alerts, alert] }, ct);
+                escalations++;
+            }
+            catch (DomainException error) when (error.Code == "version_conflict")
+            {
+                // A human transition won; the next tick reads the persisted question again.
+                continue;
+            }
+        }
         var previous = await store.Get<OperationsHeartbeat>("operations", "heartbeat", ct);
         var heartbeat = new OperationsHeartbeat("heartbeat", (previous?.Version ?? 0) + 1, now, now,
             cases.Sum(c => c.Deadlines.Count(d => d.Status == "Open")), escalations, "Running",

@@ -4,7 +4,9 @@
 
 ## Qualifizierter lokaler Preview-Schnitt
 
-Der isolierte Windows-Browserlauf `.local\ui-replay-review-03` besteht mit
+Die aktuell veroeffentlichte 5187-Vorschau ist an den sauberen lokalen
+Checkpoint `ee13e91fd6909dba61b3e70fe53f644566368067` gebunden.
+Der isolierte Windows-Browserlauf `.local\ui-replay-ee13e91` besteht mit
 **5/5 Preview-Szenarien, ohne Skips**, bei
 **`Retention:PhysicalMode=Disabled`**. Er prueft den durchgaengigen PMS-/MIR-Pfad,
 getrennte menschliche Konten, CSRF, Dublin-Fristen, gruppierte PSUR-Berichte
@@ -13,7 +15,13 @@ JSON-/PDF-/ZIP-Exporte, menschlicher Revision und neuer zweifacher Freigabe.
 Der Standard-Retention-Fall prueft auch die serverseitige Ablehnung eines
 gefaelschten Client-Profilwechsels und das getrennte Lifecycle-Fristbeispiel.
 Der eigene API-Prozess und die eigene SQL-Testdatenbank wurden danach beendet
-beziehungsweise entfernt; die bestehende 5187-Demo blieb dabei unveraendert.
+beziehungsweise entfernt; die bestehende Demo blieb im isolierten Test
+unveraendert. Ihre anschliessende additive Aktualisierung bewahrte die
+vorhandenen Aggregate, Historien, Fristen, Audit-/Outbox-Daten und
+urspruenglichen Objekte; keine Neuerzeugung der bestehenden Faelle.
+`browser-results.json`: SHA256
+`3270b242ddc63e5a54e7ab9a167985b62bdecbb2521848b570c2c1e69077362b`,
+`sourceTreeDirty=false`.
 
 UI01 brach beim begrenzten Startup-Request ab. UI02 blieb **3/5**: zwei Tests
 suchten faelschlich ein explizites `type=submit`-Attribut an einem regulaeren
@@ -23,17 +31,91 @@ fachlichen Assertions. Die fehlgeschlagenen Laeufe werden nicht umetikettiert.
 
 `browser-results.json` bindet die ausgefuehrten Test-/Runnerdateien, fuenf
 Anwendungsassemblies und alle veroeffentlichten Browserassets per SHA256.
-UI03 stammt noch aus dem Arbeitsbaum auf `b9a94b9`, ausdruecklich
-`sourceTreeDirty=true`; er ist allein kein sauberer Commitnachweis oder
-Nachweis einer bereits aktualisierten 5187-Seite. Ein spaeterer
-checkpointgebundener Lauf wird mit eigenem Ergebnisordner ausgewiesen.
+Der vorangehende UI03-Lauf stammt noch aus dem Arbeitsbaum auf `b9a94b9`,
+ausdruecklich `sourceTreeDirty=true`. Er bleibt vom spaeteren sauberen
+ee13e91-Lauf getrennt.
 
 Dies ist eine **Teilabnahme der lokalen Replay-Vorschau**. Der separat
 deklarierte `PhysicalRetention`-Browserfall wurde hier nicht ausgefuehrt und
-ist nicht freigegeben. Lokale Outbox-/Watchdog-Emulation ist kein aktueller
+ist dadurch nicht freigegeben. Lokale Outbox-/Watchdog-Emulation ist kein aktueller
 getrennter Functions-Hostlauf. Retention-I/O-Ursache, erneute Recovery auf
 abschliessenden Quellen, aktuelles T12, Lastprofil, Linux-Gesamtintegration,
 Cloud und Live-KI bleiben eigenstaendige offene Gates.
+
+## Nachfolgende BS-/Recovery-Integration
+
+- **13/13 Windows-Recovery, keine Skips**, auf sauberem **ee13e91**:
+  `.local\recovery-ee13e91-current\recovery-results.json`,
+  SHA256 `118cb0525cae037def6e4094041e86d7127197e52135ce00e50ba2fec3c9ae14`.
+  Alle fuenf ausgefuehrten Anwendungsassemblies sind bytegleich mit dem
+  genannten sauberen Preview-Paket. Echte getrennte SQL-/Objektwiederherstellung,
+  aktuelle/historische Belege, beibehaltene Rohdaten, exaktes Loeschjournal,
+  abgewiesene alte Cuts, eingefrorenes MIR, persistente Fristen,
+  Unknown-/Outbox-/Receipt-Stand und neu aufgebaute lokale Search-Projektion
+  wurden geprueft. Die exakte Eigentuemerlabel-Nachkontrolle ergab
+  null eigene Container/Volumes. Keine Linux-SQL-Recovery oder Cloud-DR.
+- Der danach ergaenzte BS-Zyklus bestand getrennt mit **6/6 SQL-Faellen**
+  (`psur-review-cycle.trx`) und **6/6 Preview-Browserfaellen**
+  (`.local\ui-bs-cycle-01`), keine Skips. Zwei gebundene Quellen,
+  medizinische Revision mit Freigabeinvalidierung, getrennte Konten,
+  verweigerter Abschluss einer offenen CAPA, spaeterer Wirksamkeitsnachweis,
+  explizite Bewertung, authentifizierter JSON-Export und unveraenderte
+  Original-PSUR-Bytes wurden tatsaechlich durchlaufen.
+  Browserbericht-SHA256:
+  `d8e765ded01b490fc1ae4cd95175e95ea3c3e1cbe81254a67bf5d22dccc00142`.
+- Der ausdruecklich getrennte **PhysicalRetention-Browserlauf 1/1**
+  (`.local\ui-physical-bs-cycle-01`) bestand ohne Skips im isolierten
+  `SyntheticLocal`-Profil. Der Bericht
+  `3e91a9f6b3f6757952a53f7d9582b72b9f367f72f73463ad0162369941b3f3e9`
+  bindet exakt dieselben fuenf Assemblies wie der 6/6-Preview-Lauf.
+  Der Runner entfernte seine API/DB; Port 5197 wurde danach ohne Listener
+  bestaetigt. Das schaltet die veroeffentlichte Vorschau nicht frei und
+  erklaert den frueheren Retention-I/O-Fehler nicht.
+- Diese beiden neuen Browserberichte sind ausdruecklich
+  `sourceTreeDirty=true` auf ee13e91; sie pruefen **nicht** den danach
+  ergaenzten F08/F14-BS-Snapshotschnitt. Dessen erster SQL-Lauf
+  `psur-bs-snapshot.trx` blieb **8/9**: im neuen Folgeperiodentest fehlte
+  die Pflichtbegruendung der neuen Fassung. Nach Ergaenzung nur dieses
+  Testeingangs bestand `psur-bs-cutoff-corrected.trx` mit **1/1**.
+  Keine Produktionsregel wurde gelockert und der 8/9-Lauf bleibt erhalten.
+  Keine dieser Pruefungen erteilt eine Gesamtfreigabe der urspruenglichen
+  Pilotaufgabe.
+- Der anschliessende Anwendungslauf bestand mit **122/122, ohne Skips**:
+  `.local\test-results\current-bs-application.trx`,
+  SHA256 `827339d14f976b59af614f89ebe60c5c34af86494e746db2b15972b76c11f59d`.
+  Der Filter `FullyQualifiedName!~Cohors.Tests.RecoveryTests` trennt die
+  eigene Docker-Recovery-Suite ausdruecklich ab; er enthaelt weiterhin die
+  nicht-Docker-abhaengigen Recovery-Vertrags-/Pfadtests. Kein neuer
+  vollstaendiger Recovery- oder separater Hostnachweis.
+- Der BS-Snapshot-Browsererstlauf `.local\ui-bs-snapshot-01` blieb
+  **5/6, ohne Skips**. Im neuen Refreeze-Schritt war der Standard-Submitname
+  statt des sichtbaren individuellen Buttonnamens angegeben. Nur dieser
+  Locator wurde korrigiert. Die komplette Wiederholung
+  `.local\ui-bs-snapshot-02` bestand im identischen Anwendungspaket mit
+  **6/6, ohne Skips**, weiterhin `Disabled` und `sourceTreeDirty=true`.
+  Browserbericht-SHA256
+  `e3c31c60c0c09e5a80806d1fcbf454eed8bb04959017b3cd32b10b1b34204252`,
+  JUnit-SHA256
+  `2c48ddafc519ae476a9b07b4213602f68e568b5d16325ad1ab59d6799dcfad58`.
+  Die echte neue Berichtsfassung bewahrt den Original-PSUR, bindet den
+  nachtraeglichen BS-Vorgang als `PostCutoffAddendum` und trennt
+  `NotRecordedAtCutoff` von `QuestionClosed` beim Freeze. JSON und
+  fehlender Mitgliedsscope wurden geprueft; beide BS-Screenshots wurden
+  eingesehen. Der Runner entfernte seine API/DB, Port 5197 war danach frei.
+- Ein danach ergaenzter Grenzfall reproduzierte im Langberichtstest eine
+  bislang ungetestete Luecke: die getrimmte Laengenpruefung liess durch
+  angehaengten Leerraum tatsaechlich mehr als 200.000 Zeichen zu.
+  `psur-literal-limit-before.trx` bleibt **0/1**
+  (`19ed145c37bfeebb0bffb48dd89da4549caf97922791ef7fa2203fa321fc9899`).
+  Die gemeinsame Pruefung zaehlt jetzt vor dem Trimmen, ohne den
+  gespeicherten Text zu veraendern. Der korrigierte echte Langberichtsfall
+  besteht mit **1/1** in `psur-literal-limit-corrected.trx`
+  (`9aaf6f534371956066e02d34200d675df8e2c9608ed3acfb7a9288068e52b84b`):
+  medizinische Revision, Freigabeinvalidierung, unveraenderter Snapshot,
+  exakte Grenze und abgewiesener Ueberlauf einschliesslich Leerraum in
+  Erzeugung und Bearbeitung. Die zuvor genannten 122/122 und 6/6 liegen
+  vor dieser engen Haertung; die 5187-Vorschau bleibt bis zur
+  gesonderten quellengebundenen Aktualisierung auf ee13e91.
 
 ## Bereits ausgefuehrte Nachweise
 

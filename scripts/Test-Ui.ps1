@@ -66,15 +66,20 @@ try {
     $config.Cohors.Search = 'Local'
     $physical = $Profile -eq 'PhysicalRetention'
     $config.Retention = @{ PhysicalMode = if ($physical) { 'SyntheticLocal' } else { 'Disabled' } }
-    $secret = 'Pilot!' + [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(12))
-    $salt = [Security.Cryptography.RandomNumberGenerator]::GetBytes(16)
-    $hash = [Security.Cryptography.Rfc2898DeriveBytes]::Pbkdf2($secret, $salt, 210000, [Security.Cryptography.HashAlgorithmName]::SHA256, 32)
-    $config.Authentication.Users = @($config.Authentication.Users) + @{
-        Id = [Guid]::NewGuid().ToString(); Username = 'pms-ortho.demo'; Name = 'Synthetic ortho-scoped reviewer'
-        Role = 'PmsSpecialist'; Products = @('ortho'); Salt = [Convert]::ToBase64String($salt); Hash = [Convert]::ToBase64String($hash)
+    $access = [IO.File]::ReadAllText((Join-Path $root '.local\demo-access.txt'))
+    foreach ($product in @('ortho','cardio')) {
+        $secret = 'Pilot!' + [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(12))
+        $salt = [Security.Cryptography.RandomNumberGenerator]::GetBytes(16)
+        $hash = [Security.Cryptography.Rfc2898DeriveBytes]::Pbkdf2($secret, $salt, 210000, [Security.Cryptography.HashAlgorithmName]::SHA256, 32)
+        $username = "pms-$product.demo"
+        $config.Authentication.Users = @($config.Authentication.Users) + @{
+            Id = [Guid]::NewGuid().ToString(); Username = $username; Name = "Synthetic $product-scoped reviewer"
+            Role = 'PmsSpecialist'; Products = @($product); Salt = [Convert]::ToBase64String($salt); Hash = [Convert]::ToBase64String($hash)
+        }
+        $access += "`n$username : $secret`n"
     }
     [IO.File]::WriteAllText($settingsPath, (ConvertTo-Json -InputObject $config -Depth 30))
-    [IO.File]::WriteAllText($accessPath, [IO.File]::ReadAllText((Join-Path $root '.local\demo-access.txt')) + "`npms-ortho.demo : $secret`n")
+    [IO.File]::WriteAllText($accessPath, $access)
     $start = [Diagnostics.ProcessStartInfo]::new($dotnet)
     $start.ArgumentList.Add((Join-Path $application 'Cohors.Api.dll'))
     $start.WorkingDirectory = $application
@@ -109,7 +114,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw
     $cases = $junit.SelectNodes('//testcase')
-    $expected = if ($physical) { 1 } else { 5 }
+    $expected = if ($physical) { 1 } else { 6 }
     if ($cases.Count -ne $expected -or $junit.SelectNodes('//testcase/skipped | //testcase/failure | //testcase/error').Count) {
         throw 'Browser acceptance requires every named scenario of the explicitly selected profile, without failures or skips.'
     }

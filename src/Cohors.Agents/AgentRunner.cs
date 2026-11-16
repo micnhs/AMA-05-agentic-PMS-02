@@ -97,7 +97,8 @@ public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
             {string.Join("\n", group.Members.Select(m => $"Mitglied {m.Product.ProductId}: {m.Product.BasicUdi}, Klasse {m.Product.RiskClass}, BS {m.Product.NotifiedBodyNumber}; Profil {m.Product.GovernanceSource.Id}@{m.Product.GovernanceSource.Version}, SHA-256 {m.Product.GovernanceSource.Hash}."))}
 
             """ + string.Join("\n\n", group.Members.Select(m =>
-                FamilyPsurText(m.Snapshot, m.Product.ProductId + ":", m.Governance, s.Series, group.Definition.ProductId)));
+                FamilyPsurText(m.Snapshot, m.Product.ProductId + ":", m.Governance, s.Series, group.Definition.ProductId))) +
+            "\n\n" + RegulatoryText(group.RegulatoryHistory);
     }
 
     private static string FamilyPsurText(PsurSnapshot s, string metricPrefix = "", ProductGovernance? memberProfile = null,
@@ -153,6 +154,7 @@ public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
         {string.Join("\n", (s.Actions?.Capas ?? []).Select(a => $"- CAPA {a.CurrentSource.Id}: Auswahl {a.Selection}; Status am N-Stichtag {a.StatusAtCutoff}, SQL-Version {a.CutoffSource?.Version.ToString() ?? "unbekannt"}; aktueller eingefrorener Status {a.CurrentAtFreeze.Status}. " +
             $"Damals gebundene Massnahme: {a.AtCutoff?.Action ?? "kein historischer Stand"}; Wirksamkeitskriterium: {a.AtCutoff?.EffectivenessCriterion ?? "unbekannt"}. {a.Reason}"))}
         {string.Join("\n", (s.Actions?.Changes ?? []).Select(a => $"- Aenderung {a.CurrentSource.Id}: Auswahl {a.Selection}; Stichtagsstatus {a.StatusAtCutoff}, Version {a.CutoffSource?.Version.ToString() ?? "unbekannt"}; aktueller eingefrorener Status {a.CurrentAtFreeze.Status}. {a.Reason}"))}
+        {(groupLead is null ? RegulatoryText(s.RegulatoryHistory) : "")}
 
         ## PMCF, klinische und technische Evidenz
         {s.Documents.Length} gebundene Dokumentversionen. CER, PMCF, SSCP, Risikodatei und technische Spezifikation werden nicht automatisch ueberschrieben.
@@ -174,6 +176,20 @@ public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
         Eine simulierte Antwort der Benannten Stelle ist keine echte regulatorische Akzeptanz. Die 118 Matrix-IDs sind zugeordnet; konkrete Erfuellung und Fachabnahmen bleiben gesonderte Gates.
         """;
     }
+
+    private static string RegulatoryText(PsurRegulatoryHistory? history) => """
+        ## Fruehere BS-Vorgaenge und fortbestehende Massnahmen
+        Technische Eingangs- und Antwortquittungen sind keine inhaltliche BS-Akzeptanz. Ein Frageabschluss ist keine autonome Risikoakzeptanz.
+        """ + "\n" + (history is null ? "Kein gesonderter historischer BS-Schnitt vorhanden; kein behaupteter Nullbestand." :
+        $"Gebundene Mitgliedschaft: {string.Join(", ", history.Products)}. {history.Coverage}\n" +
+        string.Join("\n", history.Reviews.Select(s =>
+            $"- [psurReview:{s.CurrentSource.Id}@{s.CurrentSource.Version}] {s.CurrentAtFreeze.Reference}; Ausgangsserie {s.CurrentAtFreeze.OriginalReport.SeriesReference}, Bericht Nr. {s.CurrentAtFreeze.OriginalReport.ReportNumber}. " +
+            $"Auswahl {s.Selection}; Stichtagsstatus {s.StatusAtCutoff}, SQL v{s.CutoffSource?.Version.ToString() ?? "unbekannt"}; Freeze-Status {s.CurrentAtFreeze.Status}. {s.Reason} " +
+            $"Runden am Stichtag {s.AtCutoff?.Questions.Length.ToString() ?? "unbekannt"}, beim Freeze {s.CurrentAtFreeze.Questions.Length}. " +
+            $"Urspruengliche Antworttermine: {string.Join("; ", s.CurrentAtFreeze.Questions.Select(q => $"Runde {q.Round} bis {q.DueAt:O}"))}. " +
+            $"Massnahmen in damaligen Antworten (nicht heutiger Status): {string.Join("; ", s.CurrentAtFreeze.Submissions.SelectMany(r => r.Reply.Actions).Select(a => $"{a.Kind}:{a.Source.Id}@{a.Source.Version} / {a.Status}"))}. " +
+            $"Explizite Bewertungen beim Freeze: {string.Join("; ", s.CurrentAtFreeze.Assessments.Select(a => $"Runde {a.Round}, {a.Outcome}, {a.RecordedAt:O}; Nachweise {string.Join(", ", a.ActionEvidence.Select(e => $"{e.Source.Id}@{e.Source.Version}/{e.Status}"))}"))}. " +
+            "Volltexte, Begruendungen, Freigaben, Quellen und Quittungen bleiben ohne Abschneiden im gebundenen Korrespondenzanhang; aktuelle CAPA-Zustaende stehen gesondert im Massnahmenmanifest.")));
 
     private static string CodingText(PsurCodingTable t, string prefix) =>
         $"- {t.Period}/{t.Region}: [metric:{prefix}{t.Period}:{t.Region}:deathCoded={t.ExplicitDeathCases.Length}]; " +

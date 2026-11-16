@@ -4,7 +4,11 @@ using Cohors.Domain;
 namespace Cohors.Application;
 
 public sealed record CommandContext(string Id, string Kind, string ProductId, int ExpectedVersion,
-    string IdempotencyKey, string Action, string Reason, Actor Actor, object Request, DateTimeOffset At);
+    string IdempotencyKey, string Action, string Reason, Actor Actor, object Request, DateTimeOffset At)
+{
+    public StoreDependency[] Dependencies { get; init; } = [];
+}
+public sealed record StoreDependency(string Kind, VersionReference Source);
 public sealed record StoreEntry<T>(string Id, string Kind, string ProductId, int Version, T Value);
 public interface IStateStore
 {
@@ -87,7 +91,7 @@ public sealed record PsurCaptureScope(string[] Products, string? GroupId, string
 public sealed record PortfolioState(SafetyCase[] Cases, Evidence[] Evidence, Exposure[] Exposures,
     TrendRun[] Trends, Capa[] Capas, ChangeRequest[] Changes, AggregateRevision[]? History = null,
     ProductGovernance[]? Governance = null, Psur[]? Psurs = null, PublicSourceRun[]? SourceRuns = null,
-    PsurGroupDefinition[]? Groups = null, PsurLeadingPeriod[]? LeadingPeriods = null);
+    PsurGroupDefinition[]? Groups = null, PsurLeadingPeriod[]? LeadingPeriods = null, PsurReview[]? RegulatoryReviews = null);
 
 public sealed record ReadPublicSourceCommand(string ProductId);
 public sealed record ApprovePublicSourceCommand(int ExpectedVersion, string ExternalId, string Reason);
@@ -135,6 +139,14 @@ public sealed record FreezePsurCommand(string ProductId, string LeadProductId, D
 public sealed record RecordPsurGroupCommand(int ExpectedVersion, string Reference, string LeadProductId,
     string[] MemberProductIds, DateOnly FirstPeriodStart, string Rationale, string ScheduleBasis);
 public sealed record RevisePsurCommand(int ExpectedVersion, string Draft, string Reason);
+public sealed record OpenPsurReviewCommand(string PsurId, int PsurVersion, string Reference, string Question,
+    DateTimeOffset DueAt, bool ActionRequired, string ScheduleBasis, string Language, string Reason);
+public sealed record PsurReviewSelection(string Kind, string Id, int Version);
+public sealed record DraftPsurReplyCommand(int ExpectedVersion, string PsurId, int PsurVersion, string Response,
+    PsurReviewSelection[] Sources, PsurReviewSelection[] Actions, string NoActionRationale, string Reason);
+public sealed record AssessPsurReplyCommand(int ExpectedVersion, string Outcome, string Reason,
+    string? NextQuestion = null, DateTimeOffset? NextDueAt = null, bool NextActionRequired = false,
+    string? NextScheduleBasis = null);
 public sealed record MirCommand(int ExpectedVersion, MirFacts Facts, string Reason);
 public sealed record ReclassifyCommand(int ExpectedVersion, Seriousness Seriousness, string Reason);
 

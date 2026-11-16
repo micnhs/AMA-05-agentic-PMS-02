@@ -31,6 +31,10 @@ public sealed class PsurExportService(SqlStateStore store, TimeProvider clock)
         Guard.Against(!report.Simulated || report.SnapshotHash != Canonical.Hash(report.Snapshot) ||
             report.ScopeHash.Length > 0 && report.ScopeHash != PortfolioRules.PsurScope(report),
             "psur_hash", "Exportquelle stimmt nicht mit dem gebundenen Snapshot/Entwurf ueberein.", 409);
+        var regulatory = PsurRegulatoryRules.For(report.Snapshot);
+        if (regulatory is not null)
+            PsurRegulatoryRules.RequireSources(regulatory,
+                (await store.Capture(PsurGroupRules.Products(report.Snapshot), ct)).History ?? [], report.Snapshot.Start, report.Snapshot.End);
         var audit = await store.Manifest(id, ct, "psur");
         Guard.Against((await store.Get<Psur>("psur", id, ct))?.Version != version, "version_conflict",
             "Bericht wurde waehrend der Exportpruefung geaendert; Fassung neu laden.", 409);
@@ -64,6 +68,10 @@ public sealed class PsurExportService(SqlStateStore store, TimeProvider clock)
                 data.Report.Id, data.Report.Version, data.Report.SnapshotHash, data.Report.ScopeHash,
                 data.Report.Status, data.Report.Approvals, data.Report.NotifiedBodyReceipt,
                 data.Report.Snapshot.Series, data.Report.Snapshot.DateBasis,
+                regulatoryHistory = PsurRegulatoryRules.For(data.Report.Snapshot) is { } history ? new {
+                    history.Contract, history.Products, history.CutoffExclusiveUtc, history.Coverage,
+                    sources = PsurRegulatoryRules.References(history)
+                } : null,
                 products = PsurGroupRules.Products(data.Report.Snapshot),
                 group = data.Report.Snapshot.Group is { } group ? new {
                     group.Contract, group.DefinitionSource, group.Definition, group.SeparationRule,
@@ -136,6 +144,40 @@ public sealed class PsurExportService(SqlStateStore store, TimeProvider clock)
             if (line.StartsWith("## ", StringComparison.Ordinal)) section.AddParagraph(line[3..].TrimEnd('\r'), StyleNames.Heading2);
             else if (line.StartsWith("# ", StringComparison.Ordinal)) section.AddParagraph(line[2..].TrimEnd('\r'), StyleNames.Heading1);
             else section.AddParagraph(line.TrimEnd('\r'));
+        }
+        if (PsurRegulatoryRules.For(report.Snapshot) is { } regulatory)
+        {
+            section.AddParagraph("Gebundener BS-Korrespondenzanhang / ausschliesslich synthetisch", StyleNames.Heading1);
+            section.AddParagraph(regulatory.Coverage);
+            foreach (var state in regulatory.Reviews)
+            {
+                var review = state.CurrentAtFreeze;
+                section.AddParagraph($"{review.Reference} / SQL v{review.Version}", StyleNames.Heading2);
+                section.AddParagraph($"Stichtagsstatus {state.StatusAtCutoff} / v{state.CutoffSource?.Version.ToString() ?? "unbekannt"}; Freeze-Status {review.Status}. {state.Reason}");
+                section.AddParagraph("Quellhash: " + state.CurrentSource.Hash);
+                foreach (var question in review.Questions)
+                    section.AddParagraph($"Frage {question.Round}, erfasst {question.RecordedAt:O}, vereinbart bis {question.DueAt:O}: {question.Text} {question.ScheduleBasis}");
+                foreach (var reply in review.Submissions)
+                {
+                    section.AddParagraph($"Eingefrorene Antwort {reply.Round} / {reply.SentAt:O} / simulierte Quittung {reply.SimulatedReceipt}. Scope {reply.ScopeHash}.");
+                    section.AddParagraph(reply.Reply.Response);
+                    section.AddParagraph(reply.Reply.NoActionRationale);
+                    foreach (var source in reply.Reply.Sources)
+                        section.AddParagraph($"{source.Kind}:{source.Source.Id}@{source.Source.Version} / SHA-256 {source.Source.Hash}. {source.Reason}");
+                }
+                foreach (var assessment in review.Assessments)
+                {
+                    section.AddParagraph($"Explizite Bewertung {assessment.Round} / {assessment.RecordedAt:O}: {assessment.Outcome}. {assessment.Rationale}");
+                    foreach (var action in assessment.ActionEvidence)
+                        section.AddParagraph($"Damals gepruefte Massnahme {action.Kind}:{action.Source.Id}@{action.Source.Version} / {action.Status} / SHA-256 {action.Source.Hash}.");
+                }
+                if (review.Draft is not null && review.Status is not ("ReplySubmitted" or "QuestionClosed"))
+                {
+                    section.AddParagraph("Offener Antwortentwurf / nicht eingereicht");
+                    section.AddParagraph(review.Draft.Response);
+                    section.AddParagraph(review.Draft.NoActionRationale);
+                }
+            }
         }
         var renderer = new PdfDocumentRenderer { Document = document };
         renderer.RenderDocument();

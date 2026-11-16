@@ -101,18 +101,33 @@ public static partial class PortfolioRules
             actions.Changes.Where(c => c.Selection != "ExcludedClosedBeforePeriod").Select(c => c.CurrentAtFreeze).ToArray(), "OccurredAt.UtcDate",
             "Synthetic dataset; no clinical completeness claim. Each numerator binds all unique source IDs, versions and hashes, including other regions and closed comparison-period cases. Period-end organizational knowledge cutoffs apply; later knowledge is a separate addendum. Freeze time does not prove historical case state. Documents use the single effective approved revision per ID at FrozenAt, not the case-knowledge cutoff. Missing periods remain unknown, not zero.",
             sourceManifest, CodingRules.Tables(periods.ToArray(), sourceManifest.Cases), series, actions);
+        result = result with { RegulatoryHistory = input.RegulatoryReviews is null ? null : PsurRegulatoryRules.Capture(input, [input.ProductId]) };
         return result with { Directory = PsurSupplement.Directory(input, result) };
     }
 
     public static string PsurScope(Psur p) => Canonical.Hash(new { p.SnapshotHash, p.Draft, p.Findings,
         language = "de", recipient = "NOTIFIED-BODY-SIMULATOR",
-        template = p.Snapshot.Group is not null ? "cohors-psur-2026.3" : p.Snapshot.Series is null ? "cohors-psur-2026.1" : "cohors-psur-2026.2" });
+        template = PsurRegulatoryRules.For(p.Snapshot) is not null ? "cohors-psur-2026.4" :
+            p.Snapshot.Group is not null ? "cohors-psur-2026.3" : p.Snapshot.Series is null ? "cohors-psur-2026.1" : "cohors-psur-2026.2" });
 
     public static QualityFinding[] CheckPsur(PsurSnapshot snapshot, string draft)
     {
         var families = PsurGroupRules.Snapshots(snapshot);
         var findings = new List<QualityFinding>([.. PsurSeriesRules.Check(snapshot), .. PsurGroupRules.Check(snapshot),
             .. families.SelectMany(CheckFamilyData)]);
+        var regulatory = PsurRegulatoryRules.For(snapshot);
+        findings.AddRange(PsurRegulatoryRules.Check(regulatory,
+            snapshot.Group?.Members.Select(m => m.Product.ProductId).ToArray() ?? [snapshot.ProductId], snapshot.End));
+        if (snapshot.Group is not null)
+            foreach (var family in families)
+            {
+                findings.AddRange(PsurRegulatoryRules.Check(family.RegulatoryHistory, [family.ProductId], family.End));
+                if ((family.RegulatoryHistory?.Reviews ?? []).Any(r =>
+                    regulatory?.Reviews.Any(g => Canonical.Hash(g) == Canonical.Hash(r)) != true))
+                    findings.Add(new("psur_bs_group_source", "Critical", "Einzelfamilien- und gruppenweiter BS-Schnitt widersprechen sich.",
+                        "Alle Mitglieder aus demselben konsistenten SQL-Schnitt einfrieren.", null));
+            }
+        var regulatoryRefs = PsurRegulatoryRules.References(regulatory).Select(r => $"psurReview:{r.Id}@{r.Version}").ToHashSet(StringComparer.Ordinal);
         var caseRefs = families.SelectMany(s => s.SourceManifest?.Cases.Select(c => $"case:{c.Reference.Id}@{c.Reference.Version}") ??
             s.Cases.Select(c => $"case:{c.Id}@{c.Version}")).ToHashSet(StringComparer.Ordinal);
         var evidenceRefs = families.SelectMany(s => s.Documents).Select(e => $"evidence:{e.Id}@{e.Version}").ToHashSet(StringComparer.Ordinal);
@@ -122,9 +137,13 @@ public static partial class PortfolioRules
                 family.Documents.Length > 0 && !references.Any(r => family.Documents.Any(e => r == $"evidence:{e.Id}@{e.Version}")))
                 findings.Add(new("psur_sources_missing", "Critical", $"Tragende Fall-/Dokumentbelege fuer {family.ProductId} fehlen.",
                     "Konkrete [case:ID@Version] und [evidence:ID@Version] aus jeder eingefrorenen Familie zitieren.", null));
-        if (references.Any(r => !caseRefs.Contains(r) && !evidenceRefs.Contains(r)))
+        if (references.Any(r => !caseRefs.Contains(r) && !evidenceRefs.Contains(r) && !regulatoryRefs.Contains(r)))
             findings.Add(new("psur_source_invalid", "Critical", "PSUR enthaelt einen nicht aufloesbaren Versionsbezug.",
                 "Nur die gebundenen Snapshot-Versionen verwenden.", null));
+        if (regulatory?.Reviews.Any(r => r.Selection != "ExcludedClosedBeforePeriod" &&
+            !references.Contains($"psurReview:{r.CurrentSource.Id}@{r.CurrentSource.Version}", StringComparer.Ordinal)) == true)
+            findings.Add(new("psur_bs_source_missing", "Critical", "Ein offener, aktualisierter oder nachtraeglich bekannter BS-Vorgang fehlt im belegten Narrativ.",
+                "Jeden relevanten [psurReview:ID@Version]-Bezug mit getrenntem Stichtags-/Freeze-Zustand aufnehmen.", null));
         foreach (var c in families.SelectMany(s => s.Cases).Where(c => c.Stage != "Closed"))
             if (!references.Contains($"case:{c.Id}@{c.Version}", StringComparer.Ordinal))
                 findings.Add(new("psur_open_case_missing", "Critical", $"Offener Fall {c.Reference} fehlt im belegten Narrativ.",
@@ -185,7 +204,7 @@ public static partial class PortfolioRules
             ($"{prefix}{t.Period}:{t.Region}:historicalDeathClaimed", t.UnverifiedHistoricalDeathCases.Length.ToString(CultureInfo.InvariantCulture))
         })));
 
-    [GeneratedRegex(@"\[((?:case|evidence):[^\]\r\n]+)\]")]
+    [GeneratedRegex(@"\[((?:case|evidence|psurReview):[^\]\r\n]+)\]")]
     private static partial Regex ReferencePattern();
     [GeneratedRegex(@"\[metric:([^=\]\r\n]+)=([^\]\r\n]+)\]")]
     private static partial Regex MetricPattern();
@@ -194,4 +213,4 @@ public static partial class PortfolioRules
 public sealed record PortfolioSnapshotInput(string ProductId, string LeadProductId, DateOnly Start, DateOnly End,
     string Region, SafetyCase[] Cases, Exposure[] Exposure, TrendRun[] Trends, Capa[] Capas,
     Evidence[] Documents, ChangeRequest[] Changes, DateTimeOffset FrozenAt, AggregateRevision[]? History = null,
-    PublicSourceRun[]? SourceRuns = null);
+    PublicSourceRun[]? SourceRuns = null, PsurReview[]? RegulatoryReviews = null);

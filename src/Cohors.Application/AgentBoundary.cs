@@ -40,9 +40,16 @@ public static class AgentBoundary
             "Der Runtime-Scope muss alle eingefrorenen Gruppenmitglieder erlauben.", 403);
     }
 
+    public static void ValidateNarrative(string? text, string field, int minimumLength)
+    {
+        Guard.Against(text is { Length: > MaximumNarrativeLength }, "invalid_field",
+            $"{field}: hoechstens {MaximumNarrativeLength} Zeichen einschliesslich Leerraum; kein automatisches Abschneiden.");
+        Guard.Text(text, field, minimumLength, MaximumNarrativeLength);
+    }
+
     public static void ValidateResult(AgentInput input, AgentOutput output)
     {
-        Guard.Text(output.Narrative, "Agentenentwurf", 1, MaximumNarrativeLength);
+        ValidateNarrative(output.Narrative, "Agentenentwurf", 1);
         Guard.Against(output.Findings is null || output.Tools is null || output.Findings.Length > 100 ||
             output.Findings.Any(f => f.Severity is not ("Critical" or "Major" or "Minor")),
             "agent_output", "Qualitaetsbefunde sind strukturell ungueltig.");

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Activity, ArrowUpRight, CheckCheck, Download, FileCheck2, FileText, Fingerprint, Link2, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api, downloadApi } from './api'
-import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Evidence, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, RetentionRecord, RetentionView, SourceRun, Trend, VersionReference } from './types'
+import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Evidence, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, Trend, VersionReference } from './types'
 import { Badge, date, Empty, ErrorBanner, hash, label, Loading, SectionHead, type Dialog, type Field } from './ui'
 
 function useData<T>(path: string, revision: number) {
@@ -274,11 +274,13 @@ export function PsurWorkspace({ actor, revision, openDialog, mutate }: Workspace
         {blocked && <ErrorBanner message="Wesentlicher Befund oder fehlender Snapshot-Nachweis: keine Freigabe. Altstände bleiben unverändert." />}
         {canWrite && psur.status !== 'Authoring' && !psur.notifiedBodyReceipt && <button className="button secondary full" onClick={() => openDialog({ title: 'Konkreten PSUR-Text nachbearbeiten', description: 'Änderungen invalidieren alle Freigaben. Der Daten-Snapshot wird nicht geändert; dafür eine neue Fassung einfrieren.', fields: [{ name: 'draft', label: 'Vollständiger ausführlicher Bericht mit Belegmarkern', type: 'textarea', value: psur.draft, minLength: 300 }, { ...reason, minLength: 30 }], onSubmit: v => mutate(`/psurs/${psur.id}/revise`, { ...v, expectedVersion: psur.version }) })}>Text kontrolliert nachbearbeiten</button>}
         {canApprove && <button className="button primary full" onClick={() => openDialog({ title: 'PSUR-Inhalt und Snapshot prüfen', fields: [{ ...reason, minLength: 40 }], onSubmit: v => mutate(`/psurs/${psur.id}/approve`, { ...v, expectedVersion: psur.version }) })}><ShieldCheck size={17} />Mit eigener Rolle freigeben</button>}
-        {actor.roles.includes('RegulatoryAffairs') && psur.status === 'Approved' && !psur.notifiedBodyReceipt && <button className="button primary full" onClick={() => openDialog({ title: 'Antwort der Benannten Stelle simulieren', fields: [{ ...reason, minLength: 40 }], onSubmit: v => mutate(`/psurs/${psur.id}/simulate`, { ...v, expectedVersion: psur.version }) })}>BS-Antwort simulieren</button>}
-        {psur.notifiedBodyReceipt && <div className="receipt"><Badge tone="blue">SIMULIERTE BS-ANTWORT</Badge><b>{psur.notifiedBodyReceipt}</b><p>Keine reale Behörden- oder BS-Akzeptanz.</p></div>}
+        {actor.roles.includes('RegulatoryAffairs') && psur.status === 'Approved' && !psur.notifiedBodyReceipt && <button className="button primary full" onClick={() => openDialog({ title: 'Technischen PSUR-Eingang simulieren', fields: [{ ...reason, minLength: 40 }], onSubmit: v => mutate(`/psurs/${psur.id}/simulate`, { ...v, expectedVersion: psur.version }) })}>PSUR-Eingang simulieren</button>}
+        {psur.notifiedBodyReceipt && <div className="receipt"><Badge tone="blue">SIMULIERTE EINGANGSQUITTUNG</Badge><b>{psur.notifiedBodyReceipt}</b><p>Keine inhaltliche BS-Bewertung, Risikoakzeptanz oder reale Übermittlung. Rückfragen und Bewertung werden getrennt dokumentiert.</p></div>}
         <h3>Authentifizierter Leseexport</h3><p className="muted">PDF ist eine abgeleitete Lesekopie; ZIP enthält Original-JSON, Snapshot, Audit, Metadaten und Prüfsummen. Keine neue Signatur, Formatannahme oder Übermittlung.</p>
         <div className="row">{(['pdf', 'json', 'zip'] as const).map(format => <button className="button secondary" key={format} disabled={!!exporting} onClick={() => void download(format)}><Download size={15} />{exporting === format ? 'Export…' : format.toUpperCase()}</button>)}</div>
       </aside></div>
+      <PsurReviewPanel actor={actor} revision={revision} openDialog={openDialog} mutate={mutate} report={psur} reports={data ?? []} />
+      <PsurRegulatorySnapshot report={psur} />
       <section className="panel"><SectionHead eyebrow="GEMEINSAM GEBUNDEN · EINZELN AUSWERTBAR" title="Eingefrorene Basic-UDI-Mitgliedschaft" />
         {psur.snapshot.group ? <><p>Definition {psur.snapshot.group.definition.reference}@{psur.snapshot.group.definition.version}; festes Leitprodukt {psur.snapshot.leadProductId}.</p><p>{psur.snapshot.group.definition.rationale}</p><p>{psur.snapshot.group.definition.scheduleBasis}</p><PsurReferences values={[psur.snapshot.group.definitionSource]} />
           {psur.snapshot.group.members.map(m => <div className="history-entry" key={m.product.productId}><b>{m.product.productId === psur.snapshot.leadProductId ? 'Leitprodukt' : 'Mitglied'}: {m.product.productId} / {m.product.basicUdi}</b><p>Klasse {m.product.riskClass} · BS {m.product.notifiedBodyNumber}</p><PsurReferences values={[m.product.governanceSource]} /></div>)}
@@ -321,8 +323,151 @@ export function PsurWorkspace({ actor, revision, openDialog, mutate }: Workspace
 
 function PsurReferences({ values }: { values?: VersionReference[] | null }) {
   if (!values) return <p>Kein hinreichendes Quellenmanifest vorhanden.</p>
-  if (!values.length) return <p>Keine ausgewiesenen Quellfälle in dieser Liste; Datenstatus und Nenner gesondert beachten.</p>
+  if (!values.length) return <p>Keine ausgewiesenen Quellversionen in dieser Liste; Datenstatus und Geltungsbereich gesondert beachten.</p>
   return <div>{values.map((value, i) => <p key={`${value.id}-${value.version}-${i}`}><b>{value.id}@{value.version}</b><br /><small className="mono">{value.hash}</small></p>)}</div>
+}
+
+function PsurRegulatorySnapshot({ report }: { report: Psur }) {
+  const history = report.snapshot.group ? report.snapshot.group.regulatoryHistory : report.snapshot.regulatoryHistory
+  return <section className="panel" aria-label="Eingefrorene BS-Historie"><SectionHead eyebrow="UNVERÄNDERLICHER SNAPSHOT · KEIN LIVE-STATUS" title="BS-Vorfassungen und Stichtagsstatus" />
+    {!history ? <p className="callout">Dieser Altstand enthält keinen gesonderten BS-Korrespondenzschnitt. Das bedeutet keinen Nullbestand; historische Bytes werden nicht nachträglich ergänzt.</p> : <>
+      <p>Geltungsbereich: {history.products.join(', ')}. {report.snapshot.group ? 'Gruppenweite Korrespondenz, nicht einer einzelnen Basic-UDI zugeschlagen.' : 'Nur Korrespondenz innerhalb dieser Einzelfamilie.'}</p>
+      <p>{history.coverage}</p><p>Exklusiver Stichtag {date(history.cutoffExclusiveUtc, true, 'UTC')} UTC. Freeze {date(report.snapshot.frozenAt, true)}.</p>
+      {!history.reviews.length && <p>Keine dokumentierten Vorgänge vollständig innerhalb dieser eingefrorenen Mitgliedschaft. Keine Aussage über weiter gefasste Gruppen.</p>}
+      {history.reviews.map(state => <details key={state.currentSource.id}><summary>{state.currentAtFreeze.reference} · Stichtag {state.statusAtCutoff} · Freeze {state.currentAtFreeze.status}</summary>
+        <p>{state.selection}: {state.reason}</p><p>Ausgangsserie {state.currentAtFreeze.originalReport.seriesReference}, Bericht Nr. {state.currentAtFreeze.originalReport.reportNumber}. Serienwechsel schließen diesen Vorgang nicht.</p>
+        <PsurReferences values={[state.currentSource, ...(state.cutoffSource ? [state.cutoffSource] : [])]} />
+        {state.currentAtFreeze.questions.map(q => <div className="history-entry" key={q.round}><b>Frage {q.round}</b><p>{q.text}</p><p>Erfasst {date(q.recordedAt, true)}, vereinbart bis {date(q.dueAt, true, 'UTC')} UTC. {q.scheduleBasis}</p></div>)}
+        {state.currentAtFreeze.submissions.map(s => <div className="history-entry" key={s.round}><b>Eingefrorene Antwort {s.round} · {s.simulatedReceipt}</b><p>{s.reply.response}</p><p>{s.reply.noActionRationale}</p><p className="mono">{s.scopeHash}</p>
+          <PsurReferences values={[s.reply.report.source, ...s.reply.sources.map(e => e.source), ...s.reply.actions.map(a => a.source)]} /></div>)}
+        {state.currentAtFreeze.assessments.map(a => <div className="history-entry" key={a.round}><b>Explizite Bewertung {a.round}: {a.outcome}</b><p>{a.rationale}</p><p>{date(a.recordedAt, true)} · {a.recordedBy}</p>
+          {a.actionEvidence.map(e => <p key={e.source.id}>Damals geprüfter Zustand: {e.title} · {e.status} · v{e.source.version}</p>)}<PsurReferences values={a.actionEvidence.map(e => e.source)} /></div>)}
+        {state.currentAtFreeze.draft && !['ReplySubmitted', 'QuestionClosed'].includes(state.currentAtFreeze.status) && <div className="history-entry"><b>Offener Antwortentwurf, nicht eingereicht</b><p>{state.currentAtFreeze.draft.response}</p><p>{state.currentAtFreeze.draft.noActionRationale}</p></div>}
+      </details>)}
+    </>}
+  </section>
+}
+
+function PsurReviewPanel({ actor, revision, openDialog, mutate, report, reports }: WorkspaceProps & { report: Psur; reports: Psur[] }) {
+  const reviews = useData<PsurReview[]>(`/psurs/${report.id}/reviews`, revision)
+  const capas = useData<Capa[]>('/capas', revision)
+  const changes = useData<ChangeRequest[]>('/changes', revision)
+  const [selected, setSelected] = useState('')
+  const [error, setError] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const items = [...(reviews.data ?? [])].sort((a, b) => b.questions[0].recordedAt.localeCompare(a.questions[0].recordedAt))
+  const review = items.find(r => r.id === selected) ?? items[0]
+  const question = review?.questions.at(-1)
+  const assessment = review?.assessments.at(-1)
+  const regulatory = actor.roles.includes('RegulatoryAffairs')
+  const writer = actor.roles.some(r => ['PmsSpecialist', 'MedicalSafetyReviewer'].includes(r))
+  const statuses: Record<string, string> = { QuestionOpen: 'Rückfrage offen', ReplyDraft: 'Antwortentwurf', MedicalApproved: 'Antwort im RA-Review',
+    ReplyApproved: 'Antwort getrennt freigegeben', ReplySubmitted: 'Antwort technisch quittiert, Bewertung offen', QuestionClosed: 'Frage ausdrücklich geschlossen (simuliert)' }
+  const products = review?.products ?? report.snapshot.group?.members.map(m => m.product.productId) ?? [report.productId]
+  const eligible = reports.filter(p => p.notifiedBodyReceipt && p.snapshot.series?.reference === report.snapshot.series?.reference &&
+    p.snapshot.start === (review?.originalReport.start ?? report.snapshot.start) && p.snapshot.end === (review?.originalReport.end ?? report.snapshot.end))
+  const sourceChoices = eligible.flatMap(p => {
+    const directory = (p.snapshot.group?.members.map(m => m.snapshot) ?? [p.snapshot]).flatMap(s => s.directory?.entries ?? [])
+    const shared = (p.snapshot.group?.regulatoryHistory?.reviews ?? []).flatMap(s => [
+      { kind: 'psurReview', source: s.currentSource, name: s.currentAtFreeze.reference, selection: s.selection },
+      ...(s.cutoffSource && s.cutoffSource.version !== s.currentSource.version
+        ? [{ kind: 'psurReview', source: s.cutoffSource, name: s.currentAtFreeze.reference, selection: 'AtCutoff' }] : [])])
+    return [...directory, ...shared].map(e => ({ key: `${p.id}:${e.kind}:${e.source.id}@${e.source.version}`, reportId: p.id,
+      kind: e.kind, id: e.source.id, version: e.source.version, label: `Bericht Nr. ${p.snapshot.series?.reportVersion} · ${e.kind} · ${e.name} · v${e.source.version} · ${e.selection}` }))
+  })
+    .filter((e, i, all) => all.findIndex(a => a.key === e.key) === i)
+  const actionChoices = [...(capas.data ?? []).filter(c => products.includes(c.productId)).map(c =>
+    ({ key: `capa:${c.id}`, kind: 'capa', id: c.id, version: c.version, label: `CAPA · ${c.productId} · ${c.title} · ${label(c.status)} · v${c.version}` })),
+  ...(changes.data ?? []).filter(c => products.includes(c.productId)).map(c =>
+    ({ key: `change:${c.id}`, kind: 'change', id: c.id, version: c.version, label: `Änderung · ${c.productId} · ${c.documentId} · ${c.status} · v${c.version}` }))]
+  const select = (value: string, choices: { key: string; kind: string; id: string; version: number }[]) => {
+    const keys: unknown = JSON.parse(value)
+    if (!Array.isArray(keys) || keys.some(k => typeof k !== 'string')) throw new Error('Ungültige Mehrfachauswahl.')
+    return keys.map(key => { const entry = choices.find(c => c.key === key); if (!entry) throw new Error('Ausgewählte Quell-/Maßnahmenfassung fehlt.'); return { kind: entry.kind, id: entry.id, version: entry.version } })
+  }
+  function openQuestion() {
+    openDialog({ title: 'Synthetische BS-Rückfrage erfassen', description: 'Ein eigenständiger Vorgang zum bereits freigegebenen und synthetisch quittierten Bericht. Der Bericht und seine Signaturen bleiben unverändert. Termin ausdrücklich vereinbaren; kein Upload-/Retry-Fristbeginn.',
+      fields: [{ name: 'reference', label: 'Synthetische Referenz (DEMO-...)', value: `DEMO-BS-QUESTION-${Date.now()}` },
+        { name: 'question', label: 'Konkrete begründete Rückfrage', type: 'textarea', minLength: 40 },
+        { name: 'dueAt', label: 'Gesondert vereinbarte Antwortfrist (ISO-Zeit in UTC, kein Standardintervall)' },
+        { name: 'scheduleBasis', label: 'Explizite Grundlage der Terminvereinbarung', type: 'textarea', minLength: 30 },
+        { name: 'actionRequired', label: 'Explizit eine Folgemaßnahme verlangt', type: 'select', value: 'false', options: [{ value: 'false', label: 'Nein / Begründung ohne Maßnahme erforderlich' }, { value: 'true', label: 'Ja / CAPA oder Änderungsauftrag erforderlich' }] },
+        { name: 'language', label: 'Antwortsprache', type: 'select', options: [{ value: 'de', label: 'Deutsch' }, { value: 'en', label: 'Englisch' }] }, { ...reason, minLength: 40 }],
+      onSubmit: async v => { await mutate('/psur-reviews', { ...v, psurId: report.id, psurVersion: report.version, actionRequired: v.actionRequired === 'true' }); setSelected('') } })
+  }
+  function draft() {
+    if (!review) return
+    openDialog({ title: 'BS-Antwort kontrolliert bearbeiten', description: 'Eigenständige Antwort mit ausgewählten gebundenen Quellen und konkreten Maßnahmen. Jede Änderung verwirft die Antwortfreigaben; ursprüngliche und gegebenenfalls neu eingereichte PSUR-Bytes bleiben unverändert.',
+      fields: [{ name: 'psurId', label: 'Ausdrücklich verwendete quittierte PSUR-Fassung derselben Periode', type: 'select', value: review.draft?.report.source.id ?? review.originalReport.source.id,
+        options: eligible.map(p => ({ value: p.id, label: `Nr. ${p.snapshot.series?.reportVersion} · SQL v${p.version} · ${p.id}` })) },
+        { name: 'response', label: 'Medizinisch-technische Antwort und Begründung (max. 20.000 Zeichen)', type: 'textarea', minLength: 80, value: review.draft?.response ?? '' },
+        { name: 'sources', label: 'Gebundene Quellen der gewählten Fassung (Mehrfachauswahl)', type: 'select', multiple: true, values: review.draft?.sources.map(s => `${review.draft!.report.source.id}:${s.kind}:${s.source.id}@${s.source.version}`) ?? [],
+          options: sourceChoices.map(s => ({ value: s.key, label: s.label })) },
+        { name: 'actions', label: 'Konkrete CAPA / Änderungsaufträge (Mehrfachauswahl, falls erforderlich)', type: 'select', multiple: true, required: false,
+          values: review.draft?.actions.map(a => `${a.kind}:${a.source.id}`) ?? [], options: actionChoices.map(a => ({ value: a.key, label: a.label })) },
+        { name: 'noActionRationale', label: 'Begründung ohne Folgemaßnahme (nur dann erforderlich)', type: 'textarea', required: false, minLength: 40, value: review.draft?.noActionRationale ?? '' },
+        { ...reason, minLength: 40 }],
+      onSubmit: v => { const target = eligible.find(p => p.id === v.psurId); if (!target) throw new Error('Die ausgewählte PSUR-Fassung fehlt.'); return mutate(`/psur-reviews/${review.id}/draft`,
+        { ...v, expectedVersion: review.version, psurVersion: target.version, sources: select(v.sources, sourceChoices.filter(s => s.reportId === target.id)), actions: select(v.actions, actionChoices) }) } })
+  }
+  function approveOrSend(action: 'approve' | 'simulate') {
+    if (!review) return
+    openDialog({ title: action === 'approve' ? 'Konkrete BS-Antwort prüfen' : 'Technischen Antwortempfang simulieren',
+      description: 'Gebunden werden Frage, Berichtsfassung, Quellen, Maßnahmen, Sprache, Jurisdiktion, Simulator und Paket-Hash. Keine echte Kommunikation oder automatische Sicherheitsentscheidung.',
+      fields: [{ ...reason, minLength: 40 }], onSubmit: v => mutate(`/psur-reviews/${review.id}/${action}`, { ...v, expectedVersion: review.version }) })
+  }
+  function assess() {
+    if (!review) return
+    openDialog({ title: 'BS-Bewertung ausdrücklich simulieren', description: 'Eine technische Quittung ist noch keine inhaltliche Bewertung. Offene/unwirksame verknüpfte Maßnahmen aller Runden blockieren den Fragenabschluss. Eine weitere Frage erhält eine eigene vereinbarte Frist; alte Fristen bleiben erhalten.',
+      fields: [{ name: 'outcome', label: 'Dokumentiertes Simulationsergebnis', type: 'select', options: [{ value: 'FurtherResponseRequired', label: 'Weitere konkrete Antwort erforderlich' }, { value: 'NoFurtherQuestion', label: 'Frage begründet schließen; keine Risikoakzeptanz' }] },
+        { ...reason, minLength: 80 }, { name: 'nextQuestion', label: 'Weitere konkrete Rückfrage (nur bei weiterer Runde)', type: 'textarea', required: false, minLength: 40 },
+        { name: 'nextDueAt', label: 'Neuer gesondert vereinbarter Termin (UTC, nur bei weiterer Runde)', required: false },
+        { name: 'nextScheduleBasis', label: 'Grundlage dieser neuen Terminvereinbarung', type: 'textarea', required: false, minLength: 30 },
+        { name: 'nextActionRequired', label: 'Weitere Frage verlangt eine Maßnahme', type: 'select', value: 'false', options: [{ value: 'false', label: 'Nein' }, { value: 'true', label: 'Ja' }] }],
+      onSubmit: v => mutate(`/psur-reviews/${review.id}/assess`, { ...v, expectedVersion: review.version,
+        nextQuestion: v.nextQuestion || null, nextDueAt: v.nextDueAt || null, nextScheduleBasis: v.nextScheduleBasis || null, nextActionRequired: v.nextActionRequired === 'true' }) })
+  }
+  async function download() {
+    if (!review) return
+    setExporting(true); setError('')
+    try { await downloadApi(`/psur-reviews/${review.id}/export?version=${review.version}`, `COHORS-DEMO-${review.reference}-v${review.version}.json`) }
+    catch (e) { setError(e instanceof Error ? e.message : 'BS-Vorgangsexport nicht bestätigt.') }
+    finally { setExporting(false) }
+  }
+  const canApprove = review && !review.approvals.some(a => a.actorId === actor.id) &&
+    (review.status === 'ReplyDraft' && actor.roles.includes('MedicalSafetyReviewer') || review.status === 'MedicalApproved' && regulatory)
+  return <section className="panel" aria-label="BS-Rückfragen und Maßnahmen"><SectionHead eyebrow="QUITTUNG ≠ BEWERTUNG ≠ MASSNAHMENABSCHLUSS" title="BS-Rückfragen und Maßnahmen">
+    {regulatory && report.notifiedBodyReceipt && <button className="button secondary" onClick={openQuestion}>BS-Rückfrage erfassen</button>}
+  </SectionHead><p>Nur synthetische Korrespondenz. Neue Serien oder Berichtsperioden schließen keinen offenen Vorgang. Alle betroffenen Produktberechtigungen bleiben erforderlich.</p>
+    {(reviews.error || capas.error || changes.error || error) && <ErrorBanner message={reviews.error || capas.error || changes.error || error} />}
+    {!reviews.data && !reviews.error && <Loading />}
+    {reviews.data && !items.length && <Empty title="Keine BS-Rückfrage dokumentiert">Eine simulierte Eingangsquittung behauptet keine inhaltliche BS-Akzeptanz.</Empty>}
+    {review && question && <><label className="field">BS-Vorgang dieser Serie<select value={review.id} onChange={e => { setSelected(e.target.value); setError('') }}>{items.map(r => <option key={r.id} value={r.id}>{r.reference} · bis {r.originalReport.end} · {statuses[r.status] ?? r.status}</option>)}</select></label>
+      <Badge tone={review.status === 'QuestionClosed' ? 'neutral' : 'amber'}>{statuses[review.status] ?? review.status}</Badge>
+      <p>Bericht Nr. {review.originalReport.reportNumber} · {review.originalReport.start} – {review.originalReport.end} · {review.products.join(', ')} · {review.language} / {review.jurisdiction}</p><PsurReferences values={[review.originalReport.source]} />
+      <h3>Aktuelle Rückfrage / Runde {question.round}</h3><p>{question.text}</p><p><b>Vereinbart bis {date(question.dueAt, true, 'UTC')} UTC</b> · {question.scheduleBasis}</p><p>{question.actionRequired ? 'Konkrete Folgemaßnahme verlangt.' : 'Ohne Folgemaßnahme ist eine ausdrückliche Begründung nötig.'}</p>
+      {review.alerts.map(alert => <p key={alert}><Badge tone="danger">{alert}</Badge></p>)}
+      {assessment && <div className="callout"><h3>Letzte ausdrücklich dokumentierte BS-Bewertung</h3><p>Runde {assessment.round}: {assessment.outcome === 'NoFurtherQuestion' ? 'Fragenabschluss' : 'Weitere Frage erforderlich'} · {date(assessment.recordedAt, true)}</p><p>{assessment.rationale}</p>
+        {assessment.actionEvidence.map(a => <p key={a.source.id}>Bei dieser Bewertung geprüft: {a.title} · {a.status} · v{a.source.version}</p>)}<p>Historischer Prüfstand, keine automatische heutige Risikoakzeptanz.</p></div>}
+      {review.draft && <div className="history-entry"><h3>{['ReplySubmitted', 'QuestionClosed'].includes(review.status) ? 'Eingefrorene eingereichte Antwort' : 'Gebundener Antwortentwurf'}</h3><p>{review.draft.response}</p><p>{review.draft.noActionRationale}</p>
+        <p>Bericht Nr. {review.draft.report.reportNumber} / SQL v{review.draft.report.source.version}</p><p className="mono">{review.scopeHash}</p>
+        {review.draft.sources.map(s => <details key={`${s.kind}-${s.source.id}-${s.source.version}`}><summary>{s.name} · {s.kind} · {s.selection}</summary><p>{s.reason}</p><PsurReferences values={[s.source]} /></details>)}
+        {review.draft.actions.map(a => <div key={`${a.kind}-${a.source.id}`}><b>{a.kind} · {a.productId} · {a.title}</b><p>Beim Binden dieser Antwort: {a.status}; kein heutiger Maßnahmenstatus.</p><PsurReferences values={[a.source]} /></div>)}
+      </div>}
+      {review.approvals.map(a => <div className="history-entry" key={a.id}><b>{a.actorName} · {a.role}</b><p>{a.meaning}</p><p>{a.rationale}</p><small className="mono">{a.scopeHash}</small></div>)}
+      <div className="row">{writer && ['QuestionOpen', 'ReplyDraft', 'MedicalApproved', 'ReplyApproved'].includes(review.status) && <button className="button secondary" disabled={!eligible.length || !capas.data || !changes.data} onClick={draft}>BS-Antwort bearbeiten</button>}
+        {canApprove && <button className="button primary" onClick={() => approveOrSend('approve')}>BS-Antwort mit eigener Rolle freigeben</button>}
+        {regulatory && review.status === 'ReplyApproved' && <button className="button primary" onClick={() => approveOrSend('simulate')}>BS-Antwortempfang simulieren</button>}
+        {regulatory && review.status === 'ReplySubmitted' && <button className="button secondary" onClick={assess}>BS-Bewertung dokumentieren</button>}
+        <button className="button secondary" disabled={exporting} onClick={() => void download()}><Download size={15} />BS-Vorgang als JSON</button>
+      </div>
+      <details><summary>Alle Fristen, eingefrorenen Antworten und Bewertungen</summary>
+        {review.questions.map(q => <div className="history-entry" key={q.round}><b>Frage {q.round} · {date(q.dueAt, true, 'UTC')} UTC</b><p>{q.text}</p><p>{q.scheduleBasis}</p></div>)}
+        {review.submissions.map(s => <div className="history-entry" key={s.round}><Badge tone="blue">SIMULIERTE ANTWORTQUITTUNG</Badge><p>{s.simulatedReceipt} · {date(s.sentAt, true)}</p><p>{s.reply.response}</p><p className="mono">{s.scopeHash}</p><PsurReferences values={[s.reply.report.source, ...s.reply.sources.map(e => e.source), ...s.reply.actions.map(a => a.source)]} /></div>)}
+        {review.assessments.map(a => <div className="history-entry" key={a.round}><b>Bewertung {a.round} · {a.outcome === 'NoFurtherQuestion' ? 'Fragenabschluss' : 'Weitere Frage'}</b><p>{a.rationale}</p><p>{a.recordedBy} · {date(a.recordedAt, true)}</p>{a.actionEvidence.map(e => <p key={e.source.id}>{e.title} · {e.status} · v{e.source.version}</p>)}<PsurReferences values={a.actionEvidence.map(e => e.source)} /></div>)}
+      </details>
+    </>}
+  </section>
 }
 
 export function AuditWorkspace({ cases, revision }: { cases: CaseSummary[]; revision: number }) {
