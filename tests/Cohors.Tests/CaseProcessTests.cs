@@ -141,6 +141,22 @@ public sealed class CaseProcessTests
         Assert.Contains(outcome.Sources, s => s.Code == (classification == "Death" ? "Death" : "SeriousDeterioration") && s.Status == "MedicalReviewed");
     }
 
+    [Fact]
+    public void ANewDraftWithoutMirDoesNotEraseTheHistoricalExplicitDeath()
+    {
+        var c = MedicalMir("Death");
+        var previous = c.CurrentReport!;
+        var draft = previous with { Version = previous.Version + 1, State = ReportState.Draft, Mir = null, FrozenJson = null };
+        draft = draft with { ScopeHash = ReportRules.Scope(c.CurrentAssessment!, draft) };
+        c = c with { Reports = [previous with { State = ReportState.Superseded }, draft] };
+        var outcome = CaseOutcomes.Read(c);
+        Assert.Equal("Death", outcome.Code);
+        Assert.Equal("Historical", outcome.Status);
+        Assert.DoesNotContain(outcome.Sources, source => source.Status == "MedicalReviewed");
+        Assert.Contains(outcome.Sources, source => source.Source.Contains($"Bericht v{previous.Version};", StringComparison.Ordinal));
+        Assert.NotEqual("completed", Step(CaseProcess.Read(c), "medical").State);
+    }
+
     private static SafetyCase WithCoding(SafetyCase c, string code, bool historical = false, bool stale = false)
     {
         var evidence = c.Evidence[0];

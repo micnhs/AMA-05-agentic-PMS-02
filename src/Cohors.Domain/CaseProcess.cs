@@ -136,13 +136,6 @@ public static class CaseOutcomes
     public static CaseOutcome Read(SafetyCase c)
     {
         var sources = new List<CaseOutcomeSource>();
-        var report = c.CurrentReport;
-        var mirCode = report?.Mir?.Facts.EventClassification switch
-        {
-            "Death" => "Death",
-            "Unanticipated serious deterioration in state of health" => "SeriousDeterioration",
-            _ => null
-        };
         if (c.Coding is { } coding && coding.Codes.Any(code => code.Source.Annex == "F"))
         {
             var outcomes = coding.Codes.Where(code => code.Source.Annex == "F").ToArray();
@@ -157,11 +150,19 @@ public static class CaseOutcomes
                         status == "Stale" ? " Beleg-/Terminologiebezug erneut pruefen." : "")));
             }
         }
-        if (mirCode is not null)
+        foreach (var report in c.Reports.OrderByDescending(r => r.Version))
         {
-            var current = CurrentMedicalReport(c);
-            sources.Add(new(mirCode, current ? "MedicalReviewed" : report!.State == ReportState.Superseded ? "Historical" : "Unreviewed",
-                report!.Mir!.Facts.EventClassification!, $"Strukturierte MIR-Angabe in Bericht v{report.Version}; " +
+            var mirCode = report.Mir?.Facts.EventClassification switch
+            {
+                "Death" => "Death",
+                "Unanticipated serious deterioration in state of health" => "SeriousDeterioration",
+                _ => null
+            };
+            if (mirCode is null) continue;
+            var latest = report.Version == c.CurrentReport?.Version;
+            var current = latest && CurrentMedicalReport(c);
+            sources.Add(new(mirCode, current ? "MedicalReviewed" : !latest || report.State == ReportState.Superseded ? "Historical" : "Unreviewed",
+                report.Mir!.Facts.EventClassification!, $"Strukturierte MIR-Angabe in Bericht v{report.Version}; " +
                 (current ? "aktuell medizinisch freigegeben." : "keine aktuelle medizinische Paketfreigabe bestaetigt.")));
         }
         if (sources.Count == 0)
