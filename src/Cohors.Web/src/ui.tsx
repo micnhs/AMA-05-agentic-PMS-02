@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, ArrowUpRight, Check, ChevronRight, FileText, HeartPulse, LoaderCircle, X } from 'lucide-react'
-import type { CaseOutcome, CaseSummary, Deadline } from './types'
+import type { CaseOutcome, CaseOutcomeSource, CaseSummary, Deadline } from './types'
 
 export const roleNames: Record<string, string> = { PmsSpecialist: 'PMS Specialist', MedicalSafetyReviewer: 'Medical Safety Reviewer', RegulatoryAffairs: 'Regulatory Affairs', QualityManager: 'Quality Manager', Auditor: 'Auditor' }
 const names: Record<string, string> = { Intake: 'Intake', Assessing: 'Analyse läuft', AwaitingInformation: 'Befund ausstehend', AwaitingMedicalReview: 'Medical Review', Investigating: 'Untersuchung', Monitoring: 'Beobachtung', Closed: 'Abgeschlossen', Draft: 'Entwurf', MedicalApproved: 'RA-Review', Frozen: 'Freigegeben & eingefroren', TransmissionUnknown: 'Übermittlung unklar', SimulatedAccepted: 'Simuliert angenommen', SimulatedReported: 'Simuliert erledigt', NonReportableReviewed: 'Nichtmeldepflicht geprüft', Rejected: 'Abgelehnt', Superseded: 'Überholt', Undetermined: 'Offen', Reportable: 'Meldepflicht bestätigt', NonReportable: 'Nicht meldepflichtig', Completed: 'Abgeschlossen', Queued: 'Eingeplant', Running: 'In Bearbeitung', Failed: 'Fehlgeschlagen', Abandoned: 'Kontrolliert abgebrochen', SimulatedSent: 'Simuliert angefragt', SimulatedAnswered: 'Simuliert beantwortet', Open: 'Offen', Verified: 'Wirksamkeit bestätigt', Approved: 'Freigegeben' }
@@ -44,14 +44,19 @@ export function Criticality({ seriousness, outcome, compact = false }: { serious
   const statuses: Record<string, string> = { Documented: 'menschlich dokumentiert', MedicalReviewed: 'medizinisch freigegeben',
     Historical: 'historische Angabe, nicht aktuell bestätigt', Stale: 'Quellenbezug veraltet / nicht bestätigt',
     Unreviewed: 'Angabe nicht medizinisch bestätigt', Conflict: 'widersprüchliche Angaben – prüfen' }
-  const consequence = outcome?.code === 'Death' ? 'Todesfall' : outcome?.code === 'SeriousDeterioration'
-    ? 'Schwere gesundheitliche Verschlechterung' : outcome?.code === 'CodedOther' ? outcome.term : 'Patientenausgang unklar / nicht bestätigt'
+  const consequence = (source: CaseOutcomeSource) => source.code === 'Death' ? 'Todesfall' : source.code === 'SeriousDeterioration'
+    ? 'Schwere gesundheitliche Verschlechterung' : source.code === 'CodedOther' ? source.term : 'Patientenausgang unklar / nicht bestätigt'
+  const sources = outcome ? outcome.sources.length ? outcome.sources : [outcome] : []
   return <div className={`criticality ${compact ? 'compact' : ''}`} aria-label="Kritikalität und Patientenausgang">
     <span className={`criticality-urgency ${seriousness === 'OtherSerious' ? 'amber' : 'danger'}`}><AlertTriangle size={14} aria-hidden="true" />
       <span>Fristenklasse: <b>{urgency[seriousness] ?? seriousness}</b></span></span>
-    <span className={`criticality-outcome ${outcome?.code === 'Death' ? 'danger' : ''}`} data-outcome-status={outcome?.status ?? 'Loading'}>
-      <HeartPulse size={14} aria-hidden="true" /><span>{outcome ? <><b>{consequence}</b>{outcome.code !== 'Unknown' && ` · ${statuses[outcome.status] ?? 'Prüfstand unklar'}`}</> : 'Patientenausgang wird geprüft …'}</span></span>
-    {!compact && outcome && <small>{outcome.source}</small>}
+    {!outcome && <span className="criticality-outcome"><HeartPulse size={14} aria-hidden="true" />Patientenausgang wird geprüft …</span>}
+    {sources.map((source, index) => <span key={`${source.source}-${source.term}-${index}`}
+      className={`criticality-outcome ${source.code === 'Death' && ['Documented', 'MedicalReviewed'].includes(source.status) ? 'danger' : ''}`}
+      data-outcome-status={source.status}><HeartPulse size={14} aria-hidden="true" /><span><b>{consequence(source)}</b>
+        {source.code !== 'Unknown' && ` · ${statuses[source.status] ?? 'Prüfstand unklar'}`}
+        {!compact && <small>{source.source}</small>}</span></span>)}
+    {!compact && sources.length > 1 && <small>Strukturierte Quellen mit getrenntem Prüfstand. Andere F-Kodes schließen einen Todesfall nicht aus; mehrere Folgen sind nicht automatisch widersprüchlich.</small>}
   </div>
 }
 export function Empty({ title, children }: { title: string; children?: ReactNode }) { return <div className="empty"><div className="empty-symbol"><Check size={25} /></div><h3>{title}</h3><p>{children}</p></div> }

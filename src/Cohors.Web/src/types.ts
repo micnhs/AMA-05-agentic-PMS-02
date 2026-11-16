@@ -6,7 +6,8 @@ export interface FollowUpSchedule { reportDate: string; dueAt: string; safetyDue
 export interface FollowUpObligation { id: string; jurisdiction: string; sourceReportHash: string; sourceReportVersion: number; sourceReceiptReference: string; schedule: FollowUpSchedule; status: string; createdAt: string; completedByReportHash: string | null; completedAt: string | null }
 export interface Evidence { id: string; version: number; title: string; kind: string; content: string; hash: string; locator: string; origin: string; approved: boolean; synthetic: boolean; recordedAt: string; productId: string; validFrom: string }
 export interface EvidenceDocument { evidence: Evidence; content: string; hashVerified: boolean }
-export interface CaseOutcome { code: string; status: string; term: string; source: string }
+export interface CaseOutcomeSource { code: string; status: string; term: string; source: string }
+export interface CaseOutcome extends CaseOutcomeSource { sources: CaseOutcomeSource[] }
 export interface CaseProcessView {
   caseId: string; caseVersion: number; reference: string; jurisdiction: string; recipient: string;
   currentStep: string; nextAction: string; nextRole: string; targetTab: string; blockers: string[];

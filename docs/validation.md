@@ -524,13 +524,17 @@ Die gemeinsame Fristenklasse Tod/schwere Verschlechterung, Freitext und
 KI-Verdacht erzeugen keinen Todesfallnachweis. Quellen, Bibliothek und Dialog
 zeigen dieselben verstaendlichen Kategorien aus dem gespeicherten `Evidence.kind`.
 
-Vorbereitet: dreizehn SQL-freie Prozess-/Ausgangsfaelle, vier gezielte SQL-Faelle und zwei
+Vorbereitet: sechzehn SQL-freie Prozess-/Ausgangsfaelle, vier gezielte SQL-Faelle und zwei
 `CaseDocuments`-Browserfaelle fuer Prozessnavigation, Fehlerstatus, Claimbezug,
 historische Revision, schmale/lange Ansicht, Fokus, reale Scope-Verweigerung und
 verspaetete Antwort. Diese Anzahl ist vor Ausfuehrung kein Laufnachweis.
 Der bisherige unveraenderte private fe6-Paketstand dient nur als Vorheransicht;
 die veroeffentlichte 2a-Vorschau auf 5187 und ihre Nutzereingaben bleiben getrennt.
 B10-Arbeit ist geparkt; Meldungsvorbefuellung wird danach separat integriert.
+Strukturierte Outcome-Quellen werden nebeneinander mit ihrem jeweiligen
+Pruefstand gezeigt: fehlendes F02 verdeckt kein medizinisch freigegebenes
+MIR-Death, und historische/veraltete F02-Angaben ersetzen nicht den Pruefstand
+eines neueren MIR. Mehrere F-Folgen gelten nicht automatisch als Widerspruch.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 

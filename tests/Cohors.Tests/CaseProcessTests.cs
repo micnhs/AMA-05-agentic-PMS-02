@@ -1,4 +1,5 @@
 using Cohors.Domain;
+using Cohors.Infrastructure;
 
 namespace Cohors.Tests;
 
@@ -112,17 +113,67 @@ public sealed class CaseProcessTests
     [InlineData(false, true, "Stale")]
     public void ExplicitHumanDeathCodingRetainsItsActualEvidenceAndHistoricalStatus(bool historical, bool changedSource, string status)
     {
-        var c = Case();
-        var evidence = c.Evidence[0];
-        var term = new TerminologyTerm("F02", "F", "Death", 1, 1, ["F02"], null, true, true, null, null, "F", 1, "F02");
-        c = c with { Coding = new(1, "synthetic-current-reference", Canonical.HashText("synthetic-reference"),
-            [new(term, "F02", "Death", "CurrentMapping")], [new(evidence.Id, evidence.Hash, evidence.Locator, evidence.Content)],
-            "SYNTHETISCH: explizite menschliche Testkodierung, keine echte klinische Aussage.", "medical-user", Now,
-            historical ? new DateOnly(2020, 1, 1) : null) };
-        if (changedSource) c = c with { Evidence = [evidence with { Hash = Canonical.HashText("changed source") }] };
+        var c = WithCoding(Case(), "F02", historical, changedSource);
         var outcome = CaseOutcomes.Read(c);
         Assert.Equal("Death", outcome.Code);
         Assert.Equal(status, outcome.Status);
+    }
+
+    [Fact]
+    public void OtherFCodingDoesNotHideACurrentMedicallyReviewedMirDeath()
+    {
+        var outcome = CaseOutcomes.Read(WithCoding(MedicalMir("Death"), "F01"));
+        Assert.Equal("Death", outcome.Code);
+        Assert.Equal("MedicalReviewed", outcome.Status);
+        Assert.Contains(outcome.Sources, s => s.Code == "CodedOther" && s.Status == "Documented");
+        Assert.Contains(outcome.Sources, s => s.Code == "Death" && s.Status == "MedicalReviewed");
+        Assert.DoesNotContain(outcome.Sources, s => s.Status == "Conflict");
+    }
+
+    [Theory]
+    [InlineData(true, false, "Death", "Historical")]
+    [InlineData(false, true, "Unanticipated serious deterioration in state of health", "Stale")]
+    public void HistoricalOrStaleDeathAndNewMedicalMirKeepSeparateReviewStates(bool historical, bool stale, string classification, string oldStatus)
+    {
+        var outcome = CaseOutcomes.Read(WithCoding(MedicalMir(classification), "F02", historical, stale));
+        Assert.Equal("MedicalReviewed", outcome.Status);
+        Assert.Contains(outcome.Sources, s => s.Code == "Death" && s.Status == oldStatus);
+        Assert.Contains(outcome.Sources, s => s.Code == (classification == "Death" ? "Death" : "SeriousDeterioration") && s.Status == "MedicalReviewed");
+    }
+
+    private static SafetyCase WithCoding(SafetyCase c, string code, bool historical = false, bool stale = false)
+    {
+        var evidence = c.Evidence[0];
+        var term = new TerminologyTerm(code, "F", code == "F02" ? "Death" : "Synthetic other health impact", 1, 1, [code],
+            null, true, true, null, null, "F", 1, code);
+        return c with { Coding = new(1, "synthetic-current-reference", Canonical.HashText("synthetic-reference"),
+            [new(term, code, term.Term, "CurrentMapping")],
+            [new(evidence.Id, stale ? Canonical.HashText("older source") : evidence.Hash, evidence.Locator, evidence.Content)],
+            "SYNTHETISCH: explizite menschliche Testkodierung, keine echte klinische Aussage.", "medical-user", Now.AddDays(-1),
+            historical ? new DateOnly(2020, 1, 1) : null) };
+    }
+
+    private static SafetyCase MedicalMir(string classification)
+    {
+        var c = Approved() with { Jurisdiction = "EU-IE", Country = "IE", Seriousness = Seriousness.DeathOrSeriousDeterioration };
+        c = c with { Deadlines = c.Deadlines.Select(d => d with { Jurisdiction = c.Jurisdiction }).ToArray() };
+        var report = c.CurrentReport! with { Jurisdiction = c.Jurisdiction, FormVersion = "MIR-7.3.1", SchemaVersion = "SB11252", FrozenJson = null };
+        var facts = new MirFacts
+        {
+            EventDateFrom = new(2026, 11, 16), EventDateTo = new(2026, 11, 16), NextReportDate = new(2026, 11, 23),
+            EventClassification = classification, DeviceProblemCode = "ZZZ", DeviceLocation = "Unknown",
+            PreliminaryAnalysis = "SYNTHETISCH: strukturierte Meldungsangabe fuer einen isolierten Anzeige-Regressionsfall; Kausalitaet bleibt offen.",
+            EvidenceIds = c.Evidence.Select(e => e.Id).ToArray(),
+            Rationale = "SYNTHETISCHE ANZEIGEPRUEFUNG: ZZZ ist kein fachlich gepruefter IMDRF-Code und diese Daten sind keine reale klinische Beobachtung."
+        };
+        var mir = new MirComposer().Build(c, report, new("ortho", "Synthetic device", "Implant", "DEMO-BASIC",
+                "Synthetic intended use", "DEMO-MODEL", ["IE"]),
+            new("EU-IE", "synthetic-test-calendar", "UTC", new(2026, 1, 1), new(2027, 12, 31), [], true), facts, Now);
+        Assert.True(mir.Valid, string.Join("; ", mir.Errors));
+        report = report with { Mir = mir };
+        report = report with { ScopeHash = ReportRules.Scope(c.CurrentAssessment!, report) };
+        report = report with { FrozenJson = Canonical.Serialize(report) };
+        return c with { Reports = [report], Approvals = c.Approvals.Select(a => a with { ScopeHash = report.ScopeHash }).ToArray() };
     }
 
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-11-16T15:00:00Z");

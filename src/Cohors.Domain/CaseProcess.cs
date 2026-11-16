@@ -4,7 +4,8 @@ namespace Cohors.Domain;
 
 public sealed record CaseProcessStep(string Id, string Label, string State, string Role, string Detail);
 public sealed record CaseProcessContext(bool HumanAssessmentReplacesRun, bool NonReportableDecisionCurrent, bool NonReportableApproved);
-public sealed record CaseOutcome(string Code, string Status, string Term, string Source);
+public sealed record CaseOutcomeSource(string Code, string Status, string Term, string Source);
+public sealed record CaseOutcome(string Code, string Status, string Term, string Source, CaseOutcomeSource[] Sources);
 public sealed record CaseProcessView(string CaseId, int CaseVersion, string Reference, string Jurisdiction,
     string Recipient, string CurrentStep, string NextAction, string NextRole, string TargetTab,
     CaseProcessStep[] Steps, string[] Blockers, CaseOutcome Outcome);
@@ -134,6 +135,7 @@ public static class CaseOutcomes
 {
     public static CaseOutcome Read(SafetyCase c)
     {
+        var sources = new List<CaseOutcomeSource>();
         var report = c.CurrentReport;
         var mirCode = report?.Mir?.Facts.EventClassification switch
         {
@@ -144,26 +146,30 @@ public static class CaseOutcomes
         if (c.Coding is { } coding && coding.Codes.Any(code => code.Source.Annex == "F"))
         {
             var outcomes = coding.Codes.Where(code => code.Source.Annex == "F").ToArray();
-            var death = outcomes.Any(code => code.Source.Code == "F02");
-            var outcomeCode = death ? "Death" : "CodedOther";
-            var term = string.Join("; ", outcomes.Select(code => $"{code.Source.Code}: {code.Source.Term}"));
             var source = $"Menschliche Kodierung v{coding.Version} / {coding.ReleaseId}. Separate Analyse- und Paketfreigaben beachten.";
-            if (coding.HistoricalAsOf is not null) return new(outcomeCode, "Historical", term, source + " Historische Release-Gueltigkeit nicht bestaetigt.");
-            if (coding.Evidence.Length == 0 || !coding.Evidence.All(citation => EvidenceRules.CitationMatches(citation, c.Evidence)) ||
-                outcomes.Any(code => !code.Source.CurrentSelectable) || (coding.Findings ?? []).Any(f => f.Severity is "Critical" or "Major"))
-                return new(outcomeCode, "Stale", term, source + " Beleg-/Terminologiebezug erneut pruefen.");
-            if (death && mirCode == "SeriousDeterioration" && CurrentMedicalReport(c))
-                return new("Death", "Conflict", term, source + " Aktuell freigegebenes MIR nennt eine andere Patientenfolge.");
-            return new(outcomeCode, "Documented", term, source);
+            var evidenceCurrent = coding.Evidence.Length > 0 && coding.Evidence.All(citation => EvidenceRules.CitationMatches(citation, c.Evidence));
+            foreach (var code in outcomes)
+            {
+                var status = coding.HistoricalAsOf is not null ? "Historical" :
+                    !evidenceCurrent || !code.Source.CurrentSelectable || (coding.Findings ?? []).Any(f => f.Severity is "Critical" or "Major") ? "Stale" : "Documented";
+                sources.Add(new(code.Source.Code == "F02" ? "Death" : "CodedOther", status, $"{code.Source.Code}: {code.Source.Term}",
+                    source + (status == "Historical" ? " Historische Release-Gueltigkeit nicht bestaetigt." :
+                        status == "Stale" ? " Beleg-/Terminologiebezug erneut pruefen." : "")));
+            }
         }
         if (mirCode is not null)
         {
             var current = CurrentMedicalReport(c);
-            return new(mirCode, current ? "MedicalReviewed" : report!.State == ReportState.Superseded ? "Historical" : "Unreviewed",
+            sources.Add(new(mirCode, current ? "MedicalReviewed" : report!.State == ReportState.Superseded ? "Historical" : "Unreviewed",
                 report!.Mir!.Facts.EventClassification!, $"Strukturierte MIR-Angabe in Bericht v{report.Version}; " +
-                (current ? "aktuell medizinisch freigegeben." : "keine aktuelle medizinische Paketfreigabe bestaetigt."));
+                (current ? "aktuell medizinisch freigegeben." : "keine aktuelle medizinische Paketfreigabe bestaetigt.")));
         }
-        return new("Unknown", "Unknown", "", "Keine explizite, aktuell belegte Patientenfolge in Kodierung/MIR. Fristenklasse und KI-Hypothesen sind kein Ausgangsnachweis.");
+        if (sources.Count == 0)
+            return new("Unknown", "Unknown", "", "Keine explizite, aktuell belegte Patientenfolge in Kodierung/MIR. Fristenklasse und KI-Hypothesen sind kein Ausgangsnachweis.", []);
+        var ordered = sources.OrderBy(s => s.Status switch { "MedicalReviewed" => 0, "Documented" => 1, _ => 2 })
+            .ThenBy(s => s.Code == "Death" ? 0 : 1).ToArray();
+        var primary = ordered[0];
+        return new(primary.Code, primary.Status, primary.Term, primary.Source, ordered);
     }
 
     private static bool CurrentMedicalReport(SafetyCase c)
