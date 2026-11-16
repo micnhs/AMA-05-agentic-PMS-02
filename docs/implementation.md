@@ -315,6 +315,11 @@ und die originale Nichtmeldeentscheidung werden in einem SQL-Read gebunden,
 nicht durch einen Process-/Historienrequest pro Fall. Stage ist kein Ersatz
 fuer den aktuellen Schritt. Medical-/RA-KPI zaehlen den jeweiligen aktuellen
 Pruefschritt, nicht alle spaeter irgendwann erforderlichen Freigaben.
+Schluessel, Beschriftung und Rollen kommen aus der gemeinsamen
+`CaseProcess.Definition`; auch Schritte ohne aktuelle Faelle werden mit
+Null angezeigt. Ein bestehender Prozess-Drilldown bleibt bei einem
+Leerwerden der Gruppe gueltig und liefert eine leere Liste, keinen
+Filterfehler. Wirklich unbekannte Schluessel bleiben ungueltig.
 
 **Risikogruppen sind derzeit nicht strukturiert gespeichert.** Das Cockpit
 weist diesen Datenmangel aus: ohne Assessment bzw. Assessment ohne

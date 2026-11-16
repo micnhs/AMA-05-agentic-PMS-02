@@ -140,9 +140,8 @@ public sealed class WorkspaceReadService(IWorkspaceReadStore store, TimeProvider
         var reviews = ReviewLabels.Select(r => new WorkspaceCount(r.Key, r.Label, projected.Count(c => c.ReviewState == r.Key))).ToArray();
         var urgency = UrgencyLabels.Select(r => new WorkspaceCount(r.Key, r.Label, projected.Count(c =>
             (UrgencyLabels.Any(u => u.Key == c.Seriousness) ? c.Seriousness : "Unknown") == r.Key))).ToArray();
-        var processes = projected.GroupBy(c => c.CurrentStep)
-            .Select(g => new WorkspaceCount(g.Key, g.First().StepLabel, g.Count()))
-            .OrderBy(g => Array.IndexOf(new[] { "intake", "analysis", "assurance", "report", "medical", "regulatory", "delivery", "followup" }, g.Key)).ToArray();
+        var processes = CaseProcess.Definition.Select(step =>
+            new WorkspaceCount(step.Id, step.Label, projected.Count(c => c.CurrentStep == step.Id))).ToArray();
         IEnumerable<CockpitCase> matching = focus switch
         {
             "all" => projected,
@@ -152,7 +151,7 @@ public sealed class WorkspaceReadService(IWorkspaceReadStore store, TimeProvider
             "obligations" => projected.Where(c => c.OpenObligations > 0),
             "upcoming" => projected.Where(c => c.UpcomingObligations > 0),
             "overdue" => projected.Where(c => c.OverdueObligations > 0),
-            _ => Focus(projected, focus, risk, reviews, urgency, processes, intake.ToArray(), zone)
+            _ => Focus(projected, focus, risk, reviews, urgency, intake.ToArray(), zone)
         };
         var matches = matching.OrderByDescending(c => c.OverdueObligations).ThenByDescending(c => c.SystemReceivedAt)
             .ThenBy(c => c.Id, StringComparer.Ordinal).ToArray();
@@ -165,7 +164,7 @@ public sealed class WorkspaceReadService(IWorkspaceReadStore store, TimeProvider
     }
 
     private static IEnumerable<CockpitCase> Focus(CockpitCase[] rows, string focus, WorkspaceCount[] risk,
-        WorkspaceCount[] reviews, WorkspaceCount[] urgency, WorkspaceCount[] processes, IntakePoint[] intake, TimeZoneInfo zone)
+        WorkspaceCount[] reviews, WorkspaceCount[] urgency, IntakePoint[] intake, TimeZoneInfo zone)
     {
         var parts = focus.Split(':', 2);
         if (parts.Length == 2)
@@ -175,7 +174,7 @@ public sealed class WorkspaceReadService(IWorkspaceReadStore store, TimeProvider
             if (parts[0] == "review" && reviews.Any(r => r.Key == key)) return rows.Where(c => c.ReviewState == key);
             if (parts[0] == "urgency" && urgency.Any(r => r.Key == key))
                 return rows.Where(c => (UrgencyLabels.Any(u => u.Key == c.Seriousness) ? c.Seriousness : "Unknown") == key);
-            if (parts[0] == "process" && processes.Any(r => r.Key == key)) return rows.Where(c => c.CurrentStep == key);
+            if (parts[0] == "process" && CaseProcess.Definition.Any(step => step.Id == key)) return rows.Where(c => c.CurrentStep == key);
             if (parts[0] == "intake" && intake.FirstOrDefault(p => p.From.ToString("yyyy-MM-dd") == key) is { } point)
                 return rows.Where(c => WorkspaceDates.Day(c.SystemReceivedAt, zone) >= point.From && WorkspaceDates.Day(c.SystemReceivedAt, zone) <= point.Through);
         }

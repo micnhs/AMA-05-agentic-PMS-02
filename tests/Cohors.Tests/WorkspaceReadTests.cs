@@ -34,6 +34,28 @@ public sealed class WorkspaceReadRuleTests
     }
 
     [Fact]
+    public void KnownProcessDrilldownSurvivesItsLastCaseMovingAndAnEmptyAuthorizedCohort()
+    {
+        var c = WorkspaceTestData.Case("moving", Now);
+        CockpitSnapshot Read(CaseProcessInput[] cases, string focus) => WorkspaceReadService.ProjectCockpit(cases,
+            Actor, null, new(2026, 10, 25), new(2026, 10, 25), Berlin, Now, focus);
+        Assert.Equal(1, Read([new(c, 0, 0, null)], "process:analysis").MatchingCases);
+
+        var assessed = WorkspaceTestData.Assessed(c);
+        var moved = Read([new(assessed, 0, 0, null)], "process:analysis");
+        Assert.Equal(1, moved.TotalCases);
+        Assert.Equal(0, moved.MatchingCases);
+        Assert.Empty(moved.Cases);
+        Assert.Equal(0, moved.ProcessSteps.Single(p => p.Key == "analysis").Count);
+        Assert.Equal(0, Read([new(assessed, 0, 0, null)], "process:medical").MatchingCases);
+        var empty = Read([], "process:medical");
+        Assert.Equal(0, empty.TotalCases);
+        Assert.Empty(empty.Cases);
+        Assert.All(empty.ProcessSteps, step => Assert.Equal(0, step.Count));
+        Assert.Equal("workspace_focus", Assert.Throws<DomainException>(() => Read([], "process:not-a-step")).Code);
+    }
+
+    [Fact]
     public void HumanReplacementAndEvidenceStalenessUseSharedProcessRules()
     {
         var c = WorkspaceTestData.Assessed(WorkspaceTestData.Case("human", Now), "Human");
@@ -177,6 +199,11 @@ public sealed class WorkspaceReadSqlTests(SqlFixture fixture)
         Assert.Equal(1, reviewedView.Kpis.PendingRegulatory);
         Assert.Equal("MedicalReviewed", Assert.Single(reviewedView.Cases).ReviewState);
         Assert.False(reviewedView.RiskGroupsAvailable);
+        var medicalNowEmpty = WorkspaceReadService.ProjectCockpit([reviewed], SqlFixture.Pms, "ortho",
+            new(2026, 11, 16), new(2026, 11, 16), WorkspaceDates.Zone("UTC"), s.Clock.Now, "process:medical");
+        Assert.Equal(1, medicalNowEmpty.TotalCases);
+        Assert.Equal(0, medicalNowEmpty.MatchingCases);
+        Assert.Empty(medicalNowEmpty.Cases);
         var content = s.Case.CurrentAssessment!.Content with
             { Uncertainties = [.. s.Case.CurrentAssessment.Content.Uncertainties, "Synthetischer menschlicher Review fuer die Leseprojektion."] };
         s.Case = await s.Service.Revise(s.Case.Id, new(s.Case.Version, content, WorkspaceTestData.Reason), SqlFixture.Medical, CaseScenario.Key());

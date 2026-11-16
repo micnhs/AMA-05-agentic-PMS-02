@@ -3,6 +3,7 @@ using System.Text.Json;
 namespace Cohors.Domain;
 
 public sealed record CaseProcessStep(string Id, string Label, string State, string Role, string Detail);
+public sealed record CaseProcessDefinition(string Id, string Label, string Role);
 public sealed record CaseProcessContext(bool HumanAssessmentReplacesRun, bool NonReportableDecisionCurrent, bool NonReportableApproved);
 public sealed record CaseOutcomeSource(string Code, string Status, string Term, string Source);
 public sealed record CaseOutcome(string Code, string Status, string Term, string Source, CaseOutcomeSource[] Sources);
@@ -12,6 +13,24 @@ public sealed record CaseProcessView(string CaseId, int CaseVersion, string Refe
 
 public static class CaseProcess
 {
+    public static IReadOnlyList<CaseProcessDefinition> Definition { get; } = Array.AsReadOnly<CaseProcessDefinition>(
+    [
+        new("intake", "Hinweis & Frist", Roles.Pms),
+        new("analysis", "Analyse", Roles.Pms),
+        new("assurance", "Assurance", Roles.Medical),
+        new("report", "Meldungsentwurf", Roles.Pms),
+        new("medical", "Medical Safety", Roles.Medical),
+        new("regulatory", "Regulatory Affairs", Roles.Regulatory),
+        new("delivery", "Meldesimulator", Roles.Regulatory),
+        new("followup", "Nachverfolgung", Roles.Pms)
+    ]);
+
+    private static CaseProcessStep Step(string id, string state, string detail)
+    {
+        var definition = Definition.Single(d => d.Id == id);
+        return new(id, definition.Label, state, definition.Role, detail);
+    }
+
     public static CaseProcessView Read(SafetyCase c, CaseProcessContext? context = null)
     {
         var assessment = c.CurrentAssessment;
@@ -70,35 +89,35 @@ public static class CaseProcess
             requests == 0 && investigations == 0 && unknown.Length == 0;
         CaseProcessStep[] steps =
         [
-            new CaseProcessStep("intake", "Hinweis & Frist", c.Sources.Length > 0 ? "completed" : "blocked", Roles.Pms,
+            Step("intake", c.Sources.Length > 0 ? "completed" : "blocked",
                 "Originalkenntnis und persistente Fristen; kein Reset durch Bearbeitung."),
-            new("analysis", "Analyse", analysisCurrent ? "completed" : busy ? "current" : assessment is null && !failed ? "pending" : "blocked",
-                Roles.Pms, busy ? "Erneuter oder erster Analyselauf arbeitet; kein fertiger neuer Entwurf." :
+            Step("analysis", analysisCurrent ? "completed" : busy ? "current" : assessment is null && !failed ? "pending" : "blocked",
+                busy ? "Erneuter oder erster Analyselauf arbeitet; kein fertiger neuer Entwurf." :
                 failed ? "Letzter Analyselauf fehlgeschlagen/abgebrochen; alter Entwurf ist kein neuer Erfolg." :
                 assessment is null ? "KI- oder menschlicher Assessment-Entwurf fehlt." :
                 !evidenceCurrent ? "Assessment passt nicht zum aktuellen Evidenzstand." : $"Assessment v{assessment.Version} ({assessment.Mode}) liegt vor; noch keine Sicherheitsfreigabe."),
-            new("assurance", "Assurance", qaComplete ? "completed" : analysisCurrent ? "blocked" : "pending",
-                Roles.Medical, !qualityCurrent ? "Versionsgebundene Qualitaetssicht ausstehend." :
+            Step("assurance", qaComplete ? "completed" : analysisCurrent ? "blocked" : "pending",
+                !qualityCurrent ? "Versionsgebundene Qualitaetssicht ausstehend." :
                 critical ? "Kritische Aussagen/Fundstellen zuerst korrigieren." :
                 major && !qaComplete ? "Major-Befunde brauchen Korrektur oder eine begruendete vorlaeufige medizinische Disposition." :
                 major ? "Major-Befunde vorlaeufig menschlich disponiert, nicht als erledigt ausgegeben." : "Qualitaetssicht vorhanden; sie ersetzt keine Freigabe."),
-            new("report", "Meldungsentwurf", bound && mirIssue.Length == 0 ? "completed" : report is null ? "pending" : "blocked",
-                Roles.Pms, report is null ? "Konkretes zielgebundenes Meldungspaket fehlt." :
+            Step("report", bound && mirIssue.Length == 0 ? "completed" : report is null ? "pending" : "blocked",
+                report is null ? "Konkretes zielgebundenes Meldungspaket fehlt." :
                 !bound ? "Historischer, supersedierter oder nicht mehr passender Bericht ist keine aktuelle Freigabegrundlage." :
                 mirIssue.Length > 0 ? "Pflichtangaben/Formularpruefung offen; Human Review & Meldung oeffnen." :
                 $"Bericht v{report.Version} / {report.Kind} / {report.Language}; Ziel {report.Jurisdiction}." +
                 (report.Jurisdiction == "GB" ? " GB-SIM-1 ist nur ein Pilotnarrativ, keine GB-MIR-Pflichtfeldpruefung." : "")),
-            new("medical", "Medical Safety", medicalComplete ? "completed" : "pending", Roles.Medical,
+            Step("medical", medicalComplete ? "completed" : "pending",
                 medicalComplete ? "Medizinische Signatur bindet das aktuelle Paket." : "Aktuelle medizinische Pruefung und Signatur fehlen."),
-            new("regulatory", "Regulatory Affairs", regulatoryComplete ? "completed" : "pending", Roles.Regulatory,
+            Step("regulatory", regulatoryComplete ? "completed" : "pending",
                 regulatoryComplete ? "Getrennte RA-Identitaet und eingefrorenes Paket vorhanden." : "Getrennte aktuelle RA-Freigabe und unveraendertes Paket erforderlich."),
-            new("delivery", "Meldesimulator", unknown.Length > 0 ? "blocked" : accepted && regulatoryComplete ? "completed" :
-                previousAccepted ? "historical" : "pending", Roles.Regulatory,
+            Step("delivery", unknown.Length > 0 ? "blocked" : accepted && regulatoryComplete ? "completed" :
+                previousAccepted ? "historical" : "pending",
                 unknown.Length > 0 ? "TransmissionUnknown: vorhandene Korrelation abgleichen; kein neuer Sendeversuch." :
                 accepted && regulatoryComplete ? "Nur simulierte technische Annahme dieses Pakets, kein Fallabschluss." :
                 previousAccepted ? "Frueheres Paket simuliert empfangen; aktuelle Fassung und Ziel separat pruefen." : "Keine bestaetigte simulierte Zustellung."),
-            new("followup", "Nachverfolgung", closed ? "completed" : previousAccepted ? "current" : "pending",
-                Roles.Pms, closed ? "Fall menschlich geschlossen; Produktbeobachtung bleibt separat." :
+            Step("followup", closed ? "completed" : previousAccepted ? "current" : "pending",
+                closed ? "Fall menschlich geschlossen; Produktbeobachtung bleibt separat." :
                 $"{deadlines} offene Einzelpflicht(en), {followUps} Folgepflicht(en), {requests} Nachforderung(en), {investigations} Untersuchungsauftrag/-auftraege. Kein automatischer Fallabschluss.")
         ];
         var nonReportable = analysisCurrent && qualityCurrent && !critical && !major && context?.NonReportableDecisionCurrent == true;

@@ -731,13 +731,16 @@ Prozessableitung, Fallzugangsdiagramm, exakte Risiko-/Pruefstand-/Prozesszahlen,
 KPI-Drilldowns und Monatskalender mit Agenda/Quellnavigation. Es werden keine
 fehlenden Risikogruppen oder Termine erfunden und keine Fristen neu berechnet.
 
-Vorbereitet sind acht SQL-freie `WorkspaceReadRuleTests` (einschliesslich
+Vorbereitet sind neun SQL-freie `WorkspaceReadRuleTests` (einschliesslich
 beider DST-Tageslaengen) und drei `WorkspaceReadSqlTests`. Sie pruefen
 Fallzugang statt Kenntnis/Ereignis, Umfang/Produktberechtigung, unbekannte
 Risikogruppen, menschlichen Override und veraltete Analyse, aktuellen
 Medical-/RA-Stand, Original-Nichtmeldeweg, genau einen Pflichtzaehler trotz
 zweier Marker, echte Monats-/UTC-/DST-Grenzen, reine PSUR-Kalendertage,
 historische Fassungen, BS-Runden sowie paginierte Quellen ohne Snapshottext.
+Ein legitimer Prozessfilter bleibt auch nach dem Wechsel des letzten
+Falles, bei null Medical-Treffern und bei leerem berechtigten Bestand
+gueltig; nicht definierte Schluessel werden weiter abgelehnt.
 
 Das neue isolierte Browserprofil `CockpitCalendar` umfasst exakt vier Faelle:
 `D01`, `D02` und die beiden eng betroffenen bestehenden Regressionsfaelle
