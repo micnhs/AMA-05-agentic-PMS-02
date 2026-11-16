@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory)][string]$ApplicationDirectory,
     [Parameter(Mandatory)][string]$ArtifactDirectory,
-    [ValidateSet('Preview','AuditExport','SummaryReport','PhysicalRetention')][string]$Profile = 'Preview',
+    [ValidateSet('Preview','AuditExport','SummaryReport','CaseDocuments','PhysicalRetention')][string]$Profile = 'Preview',
     [int]$Port = 5197
 )
 $ErrorActionPreference = 'Stop'
@@ -34,6 +34,9 @@ $settingsPath = Join-Path $private 'settings.json'
 $accessPath = Join-Path $private 'demo-access.txt'
 $created = $false
 $apiProcess = $null
+$apiPid = $null
+$apiStopped = $false
+$databaseRemoved = $false
 $passed = $false
 $started = [DateTimeOffset]::UtcNow.ToString('O')
 $assemblyNames = @('Cohors.Api.dll','Cohors.Application.dll','Cohors.Domain.dll','Cohors.Infrastructure.dll','Cohors.Agents.dll')
@@ -91,6 +94,9 @@ try {
     $start.Environment['ASPNETCORE_CONTENTROOT'] = $application
     $start.Environment['ASPNETCORE_URLS'] = "http://localhost:$Port"
     $apiProcess = [Diagnostics.Process]::Start($start)
+    $apiPid = $apiProcess.Id
+    [IO.File]::WriteAllText((Join-Path $artifacts 'owned-resources-start.json'),
+        (ConvertTo-Json -InputObject @{ apiPid = $apiPid; database = $database; port = $Port; runtime = $runtime }))
     $stdout = $apiProcess.StandardOutput.ReadToEndAsync()
     $stderr = $apiProcess.StandardError.ReadToEndAsync()
     $ready = $false
@@ -109,12 +115,12 @@ try {
     $env:COHORS_URL = "http://localhost:$Port"
     $env:COHORS_TEST_ACCESS_FILE = $accessPath
     $env:COHORS_UI_ARTIFACT_DIR = $artifacts
-    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } default { 'preview' } }
+    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } 'CaseDocuments' { 'case-documents' } default { 'preview' } }
     & npm --prefix (Join-Path $root 'src\Cohors.Web') run test:e2e -- "--project=$project" *> (Join-Path $artifacts 'private-browser.log')
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw
     $cases = $junit.SelectNodes('//testcase')
-    $expected = if ($Profile -eq 'Preview') { 8 } else { 1 }
+    $expected = if ($Profile -eq 'Preview') { 10 } elseif ($Profile -eq 'CaseDocuments') { 2 } else { 1 }
     if ($cases.Count -ne $expected -or $junit.SelectNodes('//testcase/skipped | //testcase/failure | //testcase/error').Count) {
         throw 'Browser acceptance requires every named scenario of the explicitly selected profile, without failures or skips.'
     }
@@ -148,6 +154,7 @@ try {
     if ($apiProcess) {
         if (-not $apiProcess.HasExited) { $apiProcess.Kill($true) }
         $apiProcess.WaitForExit()
+        $apiStopped = $true
         [IO.File]::WriteAllText((Join-Path $artifacts 'private-api.log'), $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult())
         $apiProcess.Dispose()
     }
@@ -157,6 +164,7 @@ try {
         if ((Invoke-RecoverySql $master "SELECT COUNT(*) FROM sys.databases WHERE name=N'$database'" -Scalar) -ne 0) {
             throw 'Owned browser-test database cleanup is incomplete.'
         }
+        $databaseRemoved = $true
     }
     $master.Dispose()
     [IO.File]::Delete($settingsPath)
@@ -166,6 +174,12 @@ try {
         $objects = Assert-RecoveryPath $objects
         [IO.Directory]::Delete($objects, $true)
     }
+    [IO.File]::WriteAllText((Join-Path $artifacts 'owned-resources-terminal.json'), (ConvertTo-Json -InputObject @{
+        apiPid = $apiPid; ownApiStopped = $apiStopped; database = $database; ownDatabaseRemoved = $databaseRemoved
+        settingsRemoved = -not (Test-Path -LiteralPath $settingsPath); accessFileRemoved = -not (Test-Path -LiteralPath $accessPath)
+        objectDirectoryRemoved = -not (Test-Path -LiteralPath $objects); browserPassed = $passed
+        finishedUtc = [DateTimeOffset]::UtcNow.ToString('O')
+    }))
     if ($passed) {
         $report.ownApiStopped = $true
         $report.ownDatabaseRemoved = $true

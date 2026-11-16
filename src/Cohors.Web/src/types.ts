@@ -5,6 +5,13 @@ export interface Deadline { id: string; jurisdiction: string; legalDue: string; 
 export interface FollowUpSchedule { reportDate: string; dueAt: string; safetyDue: string; timeZone: string; calendarVersion: string; ruleVersion: string }
 export interface FollowUpObligation { id: string; jurisdiction: string; sourceReportHash: string; sourceReportVersion: number; sourceReceiptReference: string; schedule: FollowUpSchedule; status: string; createdAt: string; completedByReportHash: string | null; completedAt: string | null }
 export interface Evidence { id: string; version: number; title: string; kind: string; content: string; hash: string; locator: string; origin: string; approved: boolean; synthetic: boolean; recordedAt: string; productId: string; validFrom: string }
+export interface EvidenceDocument { evidence: Evidence; content: string; hashVerified: boolean }
+export interface CaseOutcome { code: string; status: string; term: string; source: string }
+export interface CaseProcessView {
+  caseId: string; caseVersion: number; reference: string; jurisdiction: string; recipient: string;
+  currentStep: string; nextAction: string; nextRole: string; targetTab: string; blockers: string[];
+  steps: { id: string; label: string; state: string; role: string; detail: string }[]; outcome: CaseOutcome;
+}
 export interface Citation { evidenceId: string; hash: string; locator: string; quote: string }
 export interface Claim { id: string; text: string; kind: string; citations: Citation[] }
 export interface Section { key: string; title: string; text: string; claimIds: string[] }
@@ -28,7 +35,7 @@ export interface Approval { id: string; actorId: string; actorName: string; role
 export interface Submission { id: string; correlationId: string; reportScopeHash: string; status: string; receiptReference: string | null; attemptedAt: string; simulated: boolean; attempts: number }
 export interface AgentRun { id: string; role: string; mode: string; status: string; startedAt: string; finishedAt: string; errorCode: string | null; model: string }
 export interface InfoRequest { id: string; question: string; minimalData: string; relevance: string; manufacturerBasis: string; disclosureBasis: string; dueAt: string; status: string; approvals: Approval[]; response: string | null }
-export interface CaseSummary { id: string; version: number; reference: string; productId: string; title: string; stage: string; disposition: string; jurisdiction: string; seriousness: string; firstAwarenessAt: string; systemReceivedAt: string; udi: string | null; batch: string | null; deadlines: Deadline[]; followUps?: FollowUpObligation[] | null; alerts: string[]; sourceCount: number; reportState: string | null; assessmentVersion: number | null; synthetic: boolean }
+export interface CaseSummary { id: string; version: number; reference: string; productId: string; title: string; stage: string; disposition: string; jurisdiction: string; seriousness: string; outcome?: CaseOutcome; firstAwarenessAt: string; systemReceivedAt: string; udi: string | null; batch: string | null; deadlines: Deadline[]; followUps?: FollowUpObligation[] | null; alerts: string[]; sourceCount: number; reportState: string | null; assessmentVersion: number | null; synthetic: boolean }
 export interface SafetyCase extends CaseSummary { description: string; country: string; occurredAt: string | null; sources: { id: string; externalId: string; title: string; awarenessAt: string; receivedAt: string; hash: string; matchReason: string }[]; awareness: { id: string; kind: string; at: string; recordedAt: string; source: string; reason: string }[]; evidence: Evidence[]; assessments: Assessment[]; currentAssessment: Assessment | null; currentReport: Report | null; reports: Report[]; approvals: Approval[]; submissions: Submission[]; informationRequests: InfoRequest[]; agentRuns: AgentRun[] }
 export interface AuditEvent { sequence: number; aggregateId: string; version: number; actorId: string; actorName: string; action: string; reason: string; at: string; hash: string; previousHash: string }
 export interface Status { persistence: string; objects: string; search: string; orchestration: string; foundryConfigured: boolean; heartbeatMissing: boolean; heartbeat: { lastTick: string; openDeadlines: number } | null; warnings: string[] }

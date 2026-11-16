@@ -507,6 +507,31 @@ bleiben getrennt.
 
 Die vom Auftraggeber uebergebenen unabhhaengigen Referenzen liegen unveraendert in `tests\Cohors.Tests\Fixtures\cohors-acceptance-references.json`. Deren ursprüngliches `applicationVerified: false` dokumentiert die Herkunft des Referenzsatzes; nur ausgefuehrte Anwendungstests liefern den zusaetzlichen Nachweis.
 
+## Prozessleiste und Dokumentdialoge: neuer, noch nicht veroeffentlichter UI-Schnitt
+
+Die fallversionsgebundene Leseprojektion unterscheidet erneute/fehlgeschlagene
+Analyse, Assurance, aktuelle Paketfreigaben, Unknown, Nichtmeldeweg und
+Nachverfolgung. Sie erteilt keine Freigabe und fuehrt keine Meldung aus.
+Ein gemeinsamer Dialog liest die ausgewaehlte Fall- oder Bibliotheksrevision
+autorisiert aus dem Objektbestand. SQL-Text, Referenzhash und gelesene Bytes
+muessen zusammenpassen; gespeicherte Texte werden nicht als komplette PDF- oder
+Word-Originale ausgegeben.
+
+Fristenklasse und expliziter Patientenausgang sind getrennt sichtbar. Aktuelle
+menschliche F-Kodierung und medizinisch freigegebene strukturierte MIR-Angaben
+bleiben von historischen, unbelegten oder veralteten Angaben unterscheidbar.
+Die gemeinsame Fristenklasse Tod/schwere Verschlechterung, Freitext und
+KI-Verdacht erzeugen keinen Todesfallnachweis. Quellen, Bibliothek und Dialog
+zeigen dieselben verstaendlichen Kategorien aus dem gespeicherten `Evidence.kind`.
+
+Vorbereitet: dreizehn SQL-freie Prozess-/Ausgangsfaelle, vier gezielte SQL-Faelle und zwei
+`CaseDocuments`-Browserfaelle fuer Prozessnavigation, Fehlerstatus, Claimbezug,
+historische Revision, schmale/lange Ansicht, Fokus, reale Scope-Verweigerung und
+verspaetete Antwort. Diese Anzahl ist vor Ausfuehrung kein Laufnachweis.
+Der bisherige unveraenderte private fe6-Paketstand dient nur als Vorheransicht;
+die veroeffentlichte 2a-Vorschau auf 5187 und ihre Nutzereingaben bleiben getrennt.
+B10-Arbeit ist geparkt; Meldungsvorbefuellung wird danach separat integriert.
+
 ## MIR-Herkunft, nicht Behoerdenabnahme
 
 Der unabhaengige Koordinatornachweis vom 15.11.2026 ist unveraendert unter

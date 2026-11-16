@@ -2,19 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowUpRight, CheckCheck, ChevronRight, CircleAlert, ClipboardCheck, FileCheck2, FileText, Fingerprint, FlaskConical, Link2, LockKeyhole, PencilLine, Send, ShieldCheck, Sparkles, Stethoscope } from 'lucide-react'
 import { api, downloadApi } from './api'
 import type { Actor, Evidence, SafetyCase } from './types'
-import { Badge, date, Empty, ErrorBanner, hash, label, primaryDeadline, roleNames, type Dialog, type Field } from './ui'
+import { Badge, date, Empty, ErrorBanner, EvidenceCategory, hash, label, primaryDeadline, roleNames, type Dialog, type Field } from './ui'
 import MirPanel from './MirPanel'
+import DocumentDialog, { type DocumentRequest } from './DocumentDialog'
+import CaseProcessBar from './CaseProcessBar'
 
 export default function Workbench({ value: c, actor, openDialog, mutate, busy, back }: {
   value: SafetyCase; actor: Actor; openDialog: (d: Dialog) => void; mutate: (path: string, body: unknown) => Promise<void>; busy: boolean; back: () => void
 }) {
   const [tab, setTab] = useState('analysis')
-  const [source, setSource] = useState<Evidence | null>(null)
-  const [verified, setVerified] = useState(false)
+  const [document, setDocument] = useState<DocumentRequest | null>(null)
+  const [sourceId, setSourceId] = useState('')
   const [error, setError] = useState('')
   const [claimId, setClaimId] = useState('')
-  const sourceRequest = useRef(0)
-  useEffect(() => { sourceRequest.current++; setSource(null); setVerified(false); setClaimId('') }, [c.version])
+  const workbench = useRef<HTMLDivElement>(null)
+  useEffect(() => { setDocument(null); setSourceId(''); setClaimId('') }, [c.id, c.version])
   const assessment = c.currentAssessment
   const report = c.currentReport
   const deadline = primaryDeadline(c)
@@ -25,18 +27,21 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
   const action = (title: string, path: string, fields: Field[], extra: object = {}, submitLabel?: string) => openDialog({ title,
     description: `Sie bearbeiten ${c.reference}, Version ${c.version}. Eine veraltete Version wird abgewiesen. Keine Handlung übermittelt echte Informationen.`,
     fields, submitLabel, onSubmit: values => mutate(`/cases/${c.id}/${path}`, { expectedVersion: c.version, ...extra, ...values }) })
-  async function evidence(e: Evidence) {
-    const request = ++sourceRequest.current
-    setSource(e); setVerified(false); setError('')
-    try { const result = await api<{ evidence: Evidence; hashVerified: boolean }>(`/cases/${c.id}/evidence/${e.id}`); if (request === sourceRequest.current) { setSource(result.evidence); setVerified(result.hashVerified) } }
-    catch (e) { if (request === sourceRequest.current) setError(e instanceof Error ? e.message : 'Fundstelle nicht verifiziert.') }
+  function evidence(e: Evidence, claim?: DocumentRequest['claim']) {
+    setSourceId(e.id); setError('')
+    setDocument({ evidence: e, path: `/cases/${encodeURIComponent(c.id)}/evidence/${encodeURIComponent(e.id)}?caseVersion=${c.version}`,
+      context: `${c.reference}, ausgewählte Fallfassung ${c.version}`, claim })
+  }
+  function navigateTab(value: string) {
+    setTab(value)
+    workbench.current?.scrollIntoView({ block: 'start' })
   }
   function showClaim(id: string) {
     setClaimId(id)
     const citation = assessment?.content.claims.find(claim => claim.id === id)?.citations[0]
     const document = c.evidence.find(e => e.id === citation?.evidenceId && e.hash === citation.hash)
-    if (document) void evidence(document)
-    else { sourceRequest.current++; setSource(null); setVerified(false); setError('Dieser Claim-Bezug ist im aktuellen Evidenzstand nicht auflösbar. Assessment neu prüfen.') }
+    if (document) evidence(document, assessment?.content.claims.find(claim => claim.id === id))
+    else { setDocument(null); setSourceId(''); setError('Dieser Claim-Bezug ist im aktuellen Evidenzstand nicht auflösbar. Assessment neu prüfen.') }
   }
   async function linkEvidence() {
     try {
@@ -53,11 +58,13 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
     { name: 'preliminary', label: 'Untersuchungsstand', type: 'select', options: [{ value: 'true', label: 'Vorläufig: Datenlücken ausdrücklich offenlegen' }, { value: 'false', label: 'Vollständig untersucht' }] },
     { name: 'openQuestions', label: 'Verbleibende offene Fragen', type: 'textarea', value: assessment?.content.uncertainties.join('\n') ?? 'Ursachenuntersuchung steht aus.' }, reason,
   ], submitLabel: 'Versionierten Entwurf erstellen', onSubmit: values => mutate(`/cases/${c.id}/report`, { ...values, preliminary: values.preliminary === 'true', expectedVersion: c.version, jurisdiction: c.jurisdiction }) })
-  return <div className="workbench">
+  return <div className="workbench" ref={workbench}>
+    <CaseProcessBar c={c} actor={actor} navigate={navigateTab} prepare={prepare} />
+    {document && <DocumentDialog request={document} close={() => setDocument(null)} />}
     <button className="text-button back-link" onClick={back}><ArrowLeft size={16} />Zurück zu den Fallakten</button>
     <div className="workbench-heading"><div><div className="row"><span className="eyebrow">{c.reference}</span><Badge tone="amber">SYNTHETISCH</Badge><Badge>{label(c.stage)}</Badge></div><h1>{c.title}</h1><p>{c.productId === 'ortho' ? 'OrthoLink Modular Hip / OL-M3' : 'CardioFlow Valve / CF-V2'} <span>·</span> {c.jurisdiction} <span>·</span> Fallversion {c.version}</p></div><div className="row">{editor && <button disabled={busy || c.agentRuns.some(r => r.status === 'Queued' || r.status === 'Running')} className="button primary" onClick={() => action('Begründete Analyse beauftragen', 'assessment', [{ name: 'mode', label: 'Expliziter Ausführungsmodus', type: 'select', options: [{ value: 'Replay', label: 'Replay · reproduzierbare Demo, kein Live-Modell' }, { value: 'Live', label: 'Live · konfiguriertes Foundry-Modell, kein Fallback' }, { value: 'Failure', label: 'Fehlerdemo · sichtbarer KI-Ausfall' }] }, { ...reason, value: 'Medizinisch-technische Bewertung mit Quellen, Gegenhypothesen und verbleibender Unsicherheit anfordern.' }], {}, 'Analyse starten')}><Sparkles size={17} />Analyse beauftragen</button>}</div></div>
     <div className="case-context"><span><small>ERSTES WISSEN · {deadline?.timeZone}</small><b>{date(c.firstAwarenessAt, true, deadline?.timeZone)}</b></span><span><small>SYSTEMEINGANG · {deadline?.timeZone}</small><b>{date(c.systemReceivedAt, true, deadline?.timeZone)}</b></span><span><small>{deadline?.title.toUpperCase()} · {deadline?.timeZone}</small><b>{date(deadline?.dueAt, true, deadline?.timeZone)}</b></span><span><small>PRODUKTIDENTITÄT</small><b>{c.udi ?? 'UDI unbekannt'}</b></span></div>
-    <div className="tabs" role="tablist" aria-label="Fallansichten">{[{ id: 'analysis', text: 'Analyse & Evidenz' }, { id: 'report', text: 'Human Review & Meldung' }, { id: 'information', text: 'Informationsbedarf' }, { id: 'history', text: 'Chronologie & Läufe' }].map(t => <button role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'selected' : ''} onClick={() => setTab(t.id)} key={t.id}>{t.text}{t.id === 'information' && c.informationRequests.length > 0 && <span>{c.informationRequests.length}</span>}</button>)}</div>
+    <div className="tabs" role="tablist" aria-label="Fallansichten">{[{ id: 'analysis', text: 'Analyse & Evidenz' }, { id: 'report', text: 'Human Review & Meldung' }, { id: 'information', text: 'Informationsbedarf' }, { id: 'history', text: 'Chronologie & Läufe' }].map(t => <button role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'selected' : ''} onClick={() => navigateTab(t.id)} key={t.id}>{t.text}{t.id === 'information' && c.informationRequests.length > 0 && <span>{c.informationRequests.length}</span>}</button>)}</div>
     {tab === 'analysis' && <div className="analysis-grid"><aside className="case-timeline panel"><span className="eyebrow">FALLVERLAUF</span><div className="timeline-item"><span><FileText size={15} /></span><div><b>Originalhinweis</b><small>{date(c.firstAwarenessAt, true)}</small><p>{c.sources.length} Quelle(n), ein Vorfall</p></div></div><div className="timeline-item"><span><Sparkles size={15} /></span><div><b>Assessment</b><small>{assessment ? `v${assessment.version} · ${assessment.mode}` : 'Ausstehend'}</small><p>{assessment ? 'Begründeter Entwurf' : 'Analyse oder menschliche Erstbewertung'}</p></div></div><div className="timeline-item"><span><ClipboardCheck size={15} /></span><div><b>Evidence Assurance</b><small>{assessment?.quality.findings.length ?? '–'} offene Befunde</small><p>QA ist keine Freigabe</p></div></div><div className="timeline-item"><span><Stethoscope size={15} /></span><div><b>Medical Safety</b><small>{c.approvals.some(a => a.scopeHash === report?.scopeHash && a.role === 'MedicalSafetyReviewer') ? 'Freigegeben' : 'Menschliche Entscheidung offen'}</small></div></div><div className="timeline-item"><span><ShieldCheck size={15} /></span><div><b>Regulatory Affairs</b><small>{c.approvals.some(a => a.scopeHash === report?.scopeHash && a.role === 'RegulatoryAffairs') ? 'Freigegeben' : 'Getrenntes Konto erforderlich'}</small></div></div><div className="timeline-foot"><LockKeyhole size={16} />Freigaben binden Inhalt und Hash.</div></aside>
       <article className="panel assessment-panel"><header className="assessment-head"><span className="eyebrow">MEDIZINISCH-TECHNISCHE BEWERTUNG</span><div className="row-between"><h2>{assessment ? `Assessment v${assessment.version}` : 'Bewertung vorbereiten'}</h2>{assessment && <Badge tone="blue">{assessment.mode === 'Replay' ? 'REPLAY-ENTWURF' : assessment.mode === 'Human' ? 'MENSCHLICHER ENTWURF' : 'LIVE-ENTWURF'}</Badge>}</div>{assessment && <p>Modell: {assessment.model} · {date(assessment.createdAt, true)}<br /><span className="mono">Evidenzsnapshot {hash(assessment.evidenceHash)}</span></p>}</header>
         {!assessment ? <Empty title="Noch keine Sicherheitsbewertung">{c.agentRuns.some(r => r.status === 'Running' || r.status === 'Queued') ? 'Der Auftrag ist persistent gespeichert und wird bearbeitet. Die Frist läuft unabhängig weiter.' : 'Eine KI-Analyse kann angefordert werden. Bei Ausfall steht Medical Safety ein unabhängiger menschlicher Entwurf offen.'}</Empty> : <>
@@ -76,8 +83,8 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
       </article>
       <aside className="evidence-column"><section className="panel"><div className="row-between"><h3>Quellen & Fundstellen</h3><Badge>{c.evidence.length}</Badge></div><p className="muted">Originale prüfen. Nicht nur Referenzen lesen.</p>{error && <ErrorBanner message={error} />}{editor && <button className="button secondary" onClick={() => void linkEvidence()}><Link2 size={15} />Evidenzversion verknüpfen</button>}
         {assessment?.content.claims.filter(claim => claim.id === claimId).map(claim => <div className="callout" key={claim.id}><Badge>{claim.id} · {claim.kind}</Badge><p>{claim.text}</p>{claim.citations.map(citation => <div key={`${citation.evidenceId}-${citation.hash}`}><b>{citation.locator}</b><blockquote>{citation.quote}</blockquote><small className="mono">{citation.evidenceId} · {hash(citation.hash)}</small></div>)}</div>)}
-        {c.evidence.map(e => <button key={e.id} className={`evidence-item ${source?.id === e.id ? 'selected' : ''}`} onClick={() => void evidence(e)}><FileCheck2 size={17} /><span><b>{e.title}</b><small>{e.kind} · v{e.version}</small></span><ChevronRight size={15} /></button>)}
-        {source && <div className="source-preview">{error && <ErrorBanner message={error} />}<Badge tone={verified ? 'blue' : 'amber'}>{verified ? 'Original-Hash verifiziert' : 'Prüfung ausstehend'}</Badge><h4>{source.locator}</h4><blockquote>{source.content}</blockquote><p className="mono">{hash(source.hash)}</p><small>{source.synthetic ? 'Synthetische Evidenz' : 'Öffentliche Vergleichsevidenz'}</small></div>}</section>
+        {c.evidence.map(e => <button key={e.id} className={`evidence-item ${sourceId === e.id ? 'selected' : ''}`} onClick={() => evidence(e)}><FileCheck2 size={17} /><span><b>{e.title}</b><EvidenceCategory kind={e.kind} /><small>v{e.version} · {e.synthetic ? 'Synthetisch' : 'Öffentlich'} · Dokument öffnen</small></span><ChevronRight size={15} /></button>)}
+        </section>
         <section className="panel qa-panel"><h3><FlaskConical size={18} />Evidence Assurance</h3>{assessment ? <><p className="muted">{assessment.quality.summary}</p>{assessment.quality.findings.map((f, i) => <div className="qa-finding" key={`${f.code}-${i}`}><Badge tone={f.severity === 'Critical' ? 'danger' : 'amber'}>{f.severity}</Badge><b>{f.description}</b><p>{f.remedy}</p></div>)}{assessment.quality.findings.length === 0 && <p>Keine strukturellen Befunde. Human Review bleibt verpflichtend.</p>}</> : <p className="muted">Wird getrennt vom Assessment ausgeführt.</p>}</section>
       </aside></div>}
     {tab === 'report' && <div className="review-grid"><section className="panel"><div className="row-between"><h2>Das konkrete Freigabepaket</h2>{report && <Badge tone="blue">{label(report.state)}</Badge>}</div><p className="muted">Assessment, Evidenz, Bericht, Sprache, Formular, Jurisdiktion und Empfänger sind gebunden. Neue Inhalte brauchen neue Freigaben.</p>

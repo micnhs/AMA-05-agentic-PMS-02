@@ -130,6 +130,7 @@ public sealed record SubmissionCommand(int ExpectedVersion, string Scenario, str
 public sealed record AwarenessCommand(int ExpectedVersion, DateTimeOffset At, string Source,
     string Reason, bool NewReportabilityInformation);
 public sealed record LinkEvidenceCommand(int ExpectedVersion, string EvidenceId, string Reason, int? EvidenceVersion = null);
+public sealed record EvidenceDocument(Evidence Evidence, string Content, bool HashVerified);
 public sealed record ReviseEvidenceCommand(int ExpectedVersion, string ChangeId, string Title, string Content,
     DateTimeOffset ValidFrom, string Reason);
 public sealed record RequestInformationCommand(int ExpectedVersion, string Question, string MinimalData,

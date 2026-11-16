@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Capa, CaseSummary, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SummaryAgreement } from '../src/types'
+import type { Capa, CaseSummary, ChangeRequest, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SummaryAgreement } from '../src/types'
 
 const home = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const artifacts = process.env.COHORS_UI_ARTIFACT_DIR ?? path.join(home, '.local')
@@ -65,6 +65,207 @@ function readSmallAuditZip(bytes: Buffer) {
   expect(entries.size).toBe(count)
   return entries
 }
+
+test('UI01: persistent case process, explicit next action, failed reanalysis and verified claim document', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(150_000)
+  const pms = await playwright.request.newContext({ baseURL })
+  let context: BrowserContext | undefined
+  try {
+    const csrf = await signIn(pms, 'pms.demo')
+    const incidentKey = `UI-PROCESS-${Date.now()}`
+    const input = { incidentKey, sourceId: crypto.randomUUID(), title: 'Synthetischer UI-Prüffall: Prozess und Fundstellen',
+      description: 'SYNTHETISCH: Vorzeitiger Funktionsverlust wurde berichtet. Technischer Befund und Ursachenabgrenzung stehen aus. Dieser Fall dient nur der isolierten Bedienprüfung.',
+      productId: 'ortho', udi: null, batch: 'DEMO-UI-PROCESS', country: 'IE', jurisdiction: 'EU-IE',
+      seriousness: 'DeathOrSeriousDeterioration', occurredAt: null, awarenessAt: new Date(Date.now() - 86_400_000).toISOString(),
+      scenario: 'case-documents-ui', synthetic: true }
+    let c = await command(pms, csrf, '/cases', input)
+    c = await command(pms, csrf, `/cases/${c.id}/assessment`, { expectedVersion: c.version, mode: 'Replay',
+      reason: 'Isolierte Bedienprüfung mit begründeter synthetischer Analyse und echten gespeicherten Fundstellen.' })
+    await expect.poll(async () => {
+      c = await (await pms.get(`/api/cases/${c.id}`)).json()
+      return c.currentAssessment?.version
+    }).toBe(1)
+    const due = c.deadlines[0].legalDue
+    context = await browser.newContext({ storageState: await pms.storageState() })
+    const page = await context.newPage()
+    await page.goto(baseURL!)
+    await expect(page.getByRole('heading', { name: 'Sicherheit im Blick.' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Fallprozess', exact: true })).toHaveCount(0)
+    await page.getByRole('navigation').getByRole('button', { name: 'Fallakten', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Fälle durchsuchen' }).fill(incidentKey)
+    const row = page.getByRole('row').filter({ has: page.getByRole('button', { name: input.title, exact: true }) })
+    await expect(row).toBeVisible()
+    const listText = await row.textContent()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-case-list.png') })
+    await row.getByRole('button', { name: input.title, exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Assessment v1', exact: true })).toBeVisible()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-case-overview.png') })
+    const progress = page.getByRole('region', { name: 'Fallprozess', exact: true })
+    await expect(progress.locator('[data-step=analysis]')).toHaveAttribute('data-state', 'completed')
+    expect(listText).toContain('Fristenklasse:')
+    expect(listText).toContain('Patientenausgang unklar / nicht bestätigt')
+    await expect(progress.getByText('Fristenklasse:', { exact: false })).toBeVisible()
+    await expect(progress.getByText('Patientenausgang unklar / nicht bestätigt', { exact: true })).toBeVisible()
+    await expect(progress.locator('[data-step=medical]')).not.toHaveAttribute('data-state', 'completed')
+    await progress.getByRole('button', { name: 'Entwurf vorbereiten', exact: true }).click()
+    await expect(page.getByRole('tab', { name: 'Human Review & Meldung' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('dialog')).toBeVisible()
+    expect((await (await pms.get(`/api/cases/${c.id}`)).json() as SafetyCase).reports).toHaveLength(0)
+    await page.getByRole('dialog').getByRole('button', { name: 'Abbrechen', exact: true }).click()
+    await page.getByRole('tab', { name: 'Analyse & Evidenz' }).click()
+    const source = c.evidence[0]
+    const opener = page.locator('.evidence-item').filter({ hasText: source.title })
+    await expect(opener.getByLabel('Dokumentenkategorie: Beschwerde', { exact: true })).toBeVisible()
+    await opener.click()
+    const document = page.getByRole('dialog', { name: source.title, exact: true })
+    await expect(document.getByText('Ausgewählte Textfassung · Original-Hash verifiziert', { exact: true })).toBeVisible()
+    await expect(document.getByLabel('Dokumentenkategorie: Beschwerde', { exact: true })).toBeVisible()
+    expect(await document.getByRole('region', { name: 'Verifizierter Dokumenttext' }).textContent()).toBe(source.content)
+    await expect(document.getByText(`Referenzhash: ${source.hash}`, { exact: true })).toBeVisible()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-case-document.png') })
+    for (let i = 0; i < 8; i++) await page.keyboard.press('Tab')
+    expect(await document.evaluate(element => element.contains(window.document.activeElement))).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(document).not.toBeVisible()
+    await expect(opener).toBeFocused()
+    const claim = c.currentAssessment!.content.claims[0]
+    const citation = page.locator('button.citation').filter({ hasText: claim.id }).first()
+    await citation.click()
+    await expect(page.getByRole('dialog').getByText(claim.text, { exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog').getByText(claim.citations[0].quote, { exact: false })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(citation).toBeFocused()
+    await page.evaluate(() => window.scrollTo(0, 900))
+    await expect.poll(async () => Math.round((await progress.boundingBox())!.y)).toBe(0)
+    await page.screenshot({ path: path.join(artifacts, 'cohors-case-process-sticky.png') })
+    c = await (await pms.get(`/api/cases/${c.id}`)).json()
+    c = await command(pms, csrf, `/cases/${c.id}/assessment`, { expectedVersion: c.version, mode: 'Failure',
+      reason: 'Expliziter synthetischer Ausfalltest: alter Entwurf darf nicht als erfolgreicher neuer Lauf erscheinen.' })
+    await expect.poll(async () => {
+      c = await (await pms.get(`/api/cases/${c.id}`)).json()
+      return c.agentRuns.filter(run => run.role === 'CausalityRisk').at(-1)?.status
+    }).toBe('Failed')
+    await expect(progress.locator('[data-step=analysis]')).toHaveAttribute('data-state', 'blocked')
+    await expect(progress.locator('[data-step=regulatory]')).not.toHaveAttribute('data-state', 'completed')
+    await expect(progress.getByRole('button', { name: 'Entwurf vorbereiten', exact: true })).toHaveCount(0)
+    expect(c.deadlines[0].legalDue).toBe(due)
+    expect(c.currentAssessment?.version).toBe(1)
+    writeFileSync(path.join(artifacts, 'cohors-case-process.json'), JSON.stringify({
+      caseId: c.id, caseVersion: c.version, originalLegalDue: due, finalLegalDue: c.deadlines[0].legalDue,
+      projection: await (await pms.get(`/api/cases/${c.id}/process`)).json(),
+      failedRun: c.agentRuns.filter(run => run.role === 'CausalityRisk').at(-1),
+    }, null, 2))
+  } finally { await context?.close(); await pms.dispose() }
+})
+
+test('UI02: historical library document, long narrow content, access failure and late-response isolation', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(150_000)
+  const pms = await playwright.request.newContext({ baseURL })
+  const quality = await playwright.request.newContext({ baseURL })
+  let context: BrowserContext | undefined
+  let release: (() => void) | undefined
+  try {
+    const csrf = await signIn(pms, 'pms.demo')
+    const qualityCsrf = await signIn(quality, 'quality.demo')
+    const c = await command(pms, csrf, '/cases', { incidentKey: `UI-DOCUMENT-${Date.now()}`, sourceId: crypto.randomUUID(),
+      title: 'Synthetischer UI-Prüffall: kontrollierte Dokumentrevision',
+      description: 'SYNTHETISCH: Die isolierte Dokumentansicht wird an einer nachvollziehbaren Revision geprüft. Keine reale Änderung eines Medizinproduktes.',
+      productId: 'ortho', udi: null, batch: 'DEMO-UI-DOCUMENT', country: 'IE', jurisdiction: 'EU-IE',
+      seriousness: 'OtherSerious', occurredAt: null, awarenessAt: new Date(Date.now() - 86_400_000).toISOString(),
+      scenario: 'case-documents-ui', synthetic: true })
+    const original = ((await (await pms.get('/api/evidence')).json()) as Evidence[]).find(e => e.id === 'ortho-spec-v3')!
+    expect(original).toBeTruthy()
+    let change = await command<ChangeRequest>(pms, csrf, '/changes', { caseId: c.id, productId: 'ortho',
+      documentId: original.id, documentVersion: original.version,
+      proposedChange: 'Synthetischen kontrollierten Lesetext ergänzen, um historische Revision und lange Dokumentansicht zu prüfen.',
+      rationale: 'Isolierte Nachverfolgbarkeit der unveränderten Vorversion; keine klinische oder regulatorische Freigabebehauptung.' })
+    change = await command<ChangeRequest>(quality, qualityCsrf, `/changes/${change.id}/approve`, { expectedVersion: change.version,
+      reason: 'Getrennte QM-Identität genehmigt ausschließlich die nachvollziehbare synthetische Testrevision.' })
+    const revised = await command<Evidence>(quality, qualityCsrf, `/evidence/${original.id}/revise`, {
+      expectedVersion: original.version, changeId: change.id, title: original.title + ' / synthetische UI-Langfassung',
+      content: original.content + '\n\n' + 'SYNTHETISCHE LESERPRÜFUNG: Randbedingungen bleiben anhand tatsächlicher Befunde getrennt zu beurteilen.\n'.repeat(150) +
+        '\n' + 'LANGE_UNGEBROCHENE_TESTREFERENZ_'.repeat(20) + '\nENDE DER SYNTHETISCHEN LANGFASSUNG.',
+      validFrom: new Date(Date.now() + 86_400_000).toISOString(),
+      reason: 'Genehmigte synthetische Revision nur im isolierten Prüfbestand; Originalfassung bleibt unverändert erhalten.',
+    })
+    context = await browser.newContext({ storageState: await pms.storageState() })
+    const page = await context.newPage()
+    await page.goto(baseURL!)
+    await page.getByRole('navigation').getByRole('button', { name: 'Evidenzbibliothek', exact: true }).click()
+    const card = page.getByRole('article').filter({ has: page.getByRole('heading', { name: revised.title, exact: true }) })
+    await expect(card).toBeVisible()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-library-overview.png') })
+    const currentOpener = card.getByRole('button', { name: `Dokument öffnen · v${revised.version}`, exact: true })
+    await currentOpener.click()
+    const document = page.getByRole('dialog')
+    await expect(document.getByText('Ausgewählte Textfassung · Original-Hash verifiziert', { exact: true })).toBeVisible()
+    await expect(document.getByLabel('Dokumentenkategorie: Technische Spezifikation', { exact: true })).toBeVisible()
+    expect(await document.getByRole('region', { name: 'Verifizierter Dokumenttext' }).textContent()).toBe(revised.content)
+    await page.screenshot({ path: path.join(artifacts, 'cohors-library-current-document.png') })
+    await page.setViewportSize({ width: 390, height: 844 })
+    const box = (await document.boundingBox())!
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(390)
+    expect(await document.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    expect(await document.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+    await document.evaluate(element => { element.scrollTop = element.scrollHeight })
+    await page.screenshot({ path: path.join(artifacts, 'cohors-library-document-narrow.png') })
+    await page.keyboard.press('Escape')
+    await expect(currentOpener).toBeFocused()
+    await page.setViewportSize({ width: 1512, height: 982 })
+    await card.getByRole('button', { name: 'Versionshistorie laden', exact: true }).click()
+    await card.getByRole('combobox', { name: 'Unveränderliche Revision' }).selectOption(String(original.version))
+    const historicalCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: original.title, exact: true }) })
+    const historicalOpener = historicalCard.getByRole('button', { name: `Dokument öffnen · v${original.version}`, exact: true })
+    await historicalOpener.click()
+    await expect(document.getByRole('heading', { name: original.title, exact: true })).toBeVisible()
+    await expect(document.getByLabel('Dokumentenkategorie: Technische Spezifikation', { exact: true })).toBeVisible()
+    await expect(document.getByText('Ausgewählte Textfassung · Original-Hash verifiziert', { exact: true })).toBeVisible()
+    expect(await document.getByRole('region', { name: 'Verifizierter Dokumenttext' }).textContent()).toBe(original.content)
+    await expect(document.getByText(`Referenzhash: ${original.hash}`, { exact: true })).toBeVisible()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-library-historical-document.png') })
+    await page.keyboard.press('Escape')
+    await expect(historicalOpener).toBeFocused()
+    await signIn(context.request, 'pms-cardio.demo')
+    const denied = page.waitForResponse(response => response.url().endsWith(`/evidence/${original.id}/versions/${original.version}/content`))
+    await historicalOpener.click()
+    expect((await denied).status()).toBe(403)
+    await expect(document.getByRole('alert')).toBeVisible()
+    await expect(document.getByText('Nicht verifiziert', { exact: true })).toBeVisible()
+    await expect(document.getByRole('region', { name: 'Verifizierter Dokumenttext' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await signIn(context.request, 'pms.demo')
+    const held = new Promise<void>(resolve => { release = resolve })
+    let delayed = false
+    let complete!: () => void
+    const completed = new Promise<void>(resolve => { complete = resolve })
+    await page.route(`**/api/evidence/${original.id}/versions/${original.version}/content`, async route => {
+      const response = await route.fetch()
+      delayed = true
+      await held
+      await route.fulfill({ response })
+      complete()
+    })
+    await historicalOpener.click()
+    await expect.poll(() => delayed).toBe(true)
+    await expect(document.getByText('Originalprüfung läuft', { exact: true })).toBeVisible()
+    await document.getByRole('button', { name: 'Dokument schließen', exact: true }).first().click()
+    await historicalCard.getByRole('combobox', { name: 'Unveränderliche Revision' }).selectOption(String(revised.version))
+    await currentOpener.click()
+    await expect(document.getByText('Ausgewählte Textfassung · Original-Hash verifiziert', { exact: true })).toBeVisible()
+    expect(await document.getByRole('region', { name: 'Verifizierter Dokumenttext' }).textContent()).toBe(revised.content)
+    release!()
+    await completed
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await expect(document.getByRole('heading', { name: revised.title, exact: true })).toBeVisible()
+    expect(await document.getByRole('region', { name: 'Verifizierter Dokumenttext' }).textContent()).toBe(revised.content)
+    writeFileSync(path.join(artifacts, 'cohors-document-versions.json'), JSON.stringify({
+      id: original.id, original: { version: original.version, hash: original.hash },
+      revised: { version: revised.version, hash: revised.hash, length: revised.content.length },
+      actualOutOfScopeStatus: 403, delayedHistoricalResponseDidNotReplaceCurrent: true,
+    }, null, 2))
+  } finally { release?.(); await context?.close(); await pms.dispose(); await quality.dispose() }
+})
 
 test('SQL-backed complaint → grounded assessment → distinct approvals → unknown/reconcile → verified audit', async ({ playwright, browser, baseURL }) => {
   test.setTimeout(150_000)

@@ -198,9 +198,11 @@ api.MapGet("/cases", async (IStateStore store, HttpContext ctx, CancellationToke
     (await store.List<SafetyCase>("case", Who(ctx).Products, ct)).Select(c => new { c.Id, c.Version, c.Reference, c.ProductId, c.Title,
         c.Stage, c.Disposition, c.Jurisdiction, c.Seriousness, c.FirstAwarenessAt, c.SystemReceivedAt, c.Udi, c.Batch,
         c.Deadlines, c.FollowUps, c.Alerts, sourceCount = c.Sources.Length, assessmentVersion = c.CurrentAssessment?.Version,
-        reportState = c.CurrentReport?.State.ToString(), c.Synthetic }));
+        reportState = c.CurrentReport?.State.ToString(), outcome = CaseOutcomes.Read(c), c.Synthetic }));
 api.MapPost("/cases", (RegisterComplaint input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Register(input, Who(ctx), Key(ctx), ct));
 api.MapGet("/cases/{id}", (string id, CaseService service, HttpContext ctx, CancellationToken ct) => service.Get(id, Who(ctx), ct));
+api.MapGet("/cases/{id}/process", (string id, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.Process(id, Who(ctx), ct));
 api.MapPost("/cases/{id}/assessment", (string id, AssessmentCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.RequestAssessment(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/assessment/revise", (string id, ReviseAssessmentCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Revise(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/manual", (string id, ManualAssessmentCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Manual(id, input, Who(ctx), Key(ctx), ct));
@@ -226,16 +228,13 @@ api.MapGet("/cases/{id}/manifest", async (string id, CaseService service, SqlSta
     await service.Get(id, Who(ctx), ct);
     return Results.Ok(await store.Manifest(id, ct));
 });
-api.MapGet("/cases/{id}/evidence/{evidenceId}", async (string id, string evidenceId, CaseService service, IObjectStore objects, HttpContext ctx, CancellationToken ct) =>
-{
-    var c = await service.Get(id, Who(ctx), ct);
-    var evidence = c.Evidence.SingleOrDefault(e => e.Id == evidenceId) ?? throw new DomainException("not_found", "Fundstelle fehlt.", 404);
-    var content = await objects.Read(evidence.Hash, ct);
-    return new { evidence, content, hashVerified = true };
-});
+api.MapGet("/cases/{id}/evidence/{evidenceId}", (string id, string evidenceId, int? caseVersion,
+    CaseService service, HttpContext ctx, CancellationToken ct) => service.ReadEvidence(id, evidenceId, caseVersion, Who(ctx), ct));
 api.MapGet("/evidence", (IStateStore store, HttpContext ctx, CancellationToken ct) => store.List<Evidence>("evidence", Who(ctx).Products, ct));
 api.MapGet("/evidence/{id}/versions", async (string id, IStateStore store, HttpContext ctx, CancellationToken ct) =>
     (await store.History<Evidence>("evidence", Who(ctx).Products, ct)).Where(e => e.Id == id));
+api.MapGet("/evidence/{id}/versions/{version:int}/content", (string id, int version, EvidenceService service,
+    HttpContext ctx, CancellationToken ct) => service.Read(id, version, Who(ctx), ct));
 api.MapPost("/evidence/{id}/revise", (string id, ReviseEvidenceCommand input, EvidenceService service, HttpContext ctx, CancellationToken ct) =>
     service.Revise(id, input, Who(ctx), Key(ctx), ct));
 api.MapGet("/exposures", (IStateStore store, HttpContext ctx, CancellationToken ct) => store.List<Exposure>("exposure", Who(ctx).Products, ct));

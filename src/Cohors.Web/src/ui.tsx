@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpRight, Check, ChevronRight, LoaderCircle, X } from 'lucide-react'
-import type { CaseSummary, Deadline } from './types'
+import { AlertTriangle, ArrowUpRight, Check, ChevronRight, FileText, HeartPulse, LoaderCircle, X } from 'lucide-react'
+import type { CaseOutcome, CaseSummary, Deadline } from './types'
 
 export const roleNames: Record<string, string> = { PmsSpecialist: 'PMS Specialist', MedicalSafetyReviewer: 'Medical Safety Reviewer', RegulatoryAffairs: 'Regulatory Affairs', QualityManager: 'Quality Manager', Auditor: 'Auditor' }
 const names: Record<string, string> = { Intake: 'Intake', Assessing: 'Analyse läuft', AwaitingInformation: 'Befund ausstehend', AwaitingMedicalReview: 'Medical Review', Investigating: 'Untersuchung', Monitoring: 'Beobachtung', Closed: 'Abgeschlossen', Draft: 'Entwurf', MedicalApproved: 'RA-Review', Frozen: 'Freigegeben & eingefroren', TransmissionUnknown: 'Übermittlung unklar', SimulatedAccepted: 'Simuliert angenommen', SimulatedReported: 'Simuliert erledigt', NonReportableReviewed: 'Nichtmeldepflicht geprüft', Rejected: 'Abgelehnt', Superseded: 'Überholt', Undetermined: 'Offen', Reportable: 'Meldepflicht bestätigt', NonReportable: 'Nicht meldepflichtig', Completed: 'Abgeschlossen', Queued: 'Eingeplant', Running: 'In Bearbeitung', Failed: 'Fehlgeschlagen', Abandoned: 'Kontrolliert abgebrochen', SimulatedSent: 'Simuliert angefragt', SimulatedAnswered: 'Simuliert beantwortet', Open: 'Offen', Verified: 'Wirksamkeit bestätigt', Approved: 'Freigegeben' }
@@ -24,14 +24,45 @@ export const hash = (value?: string) => value ? `${value.slice(0, 12)}…${value
 export const isLate = (c: CaseSummary) => deadlineItems(c).some(d => d.status === 'Open' && new Date(d.dueAt) < new Date())
 export const isUrgent = (c: CaseSummary) => deadlineItems(c).some(d => d.status === 'Open' && (d.immediateAction || new Date(d.safetyDue) < new Date(Date.now() + 3 * 86400000)))
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: string }) { return <span className={`badge ${tone}`}><span className="status-dot" />{children}</span> }
+const evidenceKinds: Record<string, string> = {
+  Complaint: 'Beschwerde', Specification: 'Technische Spezifikation', BenchTest: 'Technischer Prüfbericht',
+  RiskFile: 'Risikodatei', CER: 'Klinische Bewertung', PMCF: 'PMCF-Dokument', SSCP: 'Kurzbericht zu Sicherheit und klinischer Leistung',
+  ClinicalFollowUp: 'Klinischer Befundrücklauf', PublicMetadata: 'Öffentliche Quellenmetadaten',
+  Governance: 'Zuständigkeiten / Governance', PMSPlan: 'PMS-Plan', IFU: 'Gebrauchsanweisung / Produktinformation',
+  RiskQuantification: 'Risikoquantifizierung', PMCFPlan: 'PMCF-Plan', PMCFReport: 'PMCF-Ergebnisbericht',
+  SSCPChecklist: 'SSCP-Prüfliste', TDIndex: 'Technischer Dokumentationsindex', SOP: 'Verfahrensanweisung',
+  Certificate: 'Bescheinigung / Auflagen', Terminology: 'Terminologieprofil', Coding: 'Menschliche Kodierung',
+  HistoricalCodingRecord: 'Historischer Kodierungsbeleg', Classification: 'Medizinische Reklassifizierung',
+}
+export const evidenceKindLabel = (kind: string) => evidenceKinds[kind] ?? `Dokumentenkategorie: ${kind}`
+export function EvidenceCategory({ kind }: { kind: string }) {
+  return <span className="evidence-category" aria-label={`Dokumentenkategorie: ${evidenceKindLabel(kind)}`}><FileText size={13} aria-hidden="true" />{evidenceKindLabel(kind)}</span>
+}
+export function Criticality({ seriousness, outcome, compact = false }: { seriousness: string; outcome?: CaseOutcome; compact?: boolean }) {
+  const urgency: Record<string, string> = { PublicHealthThreat: 'Gefahr für die öffentliche Gesundheit',
+    DeathOrSeriousDeterioration: 'Tod oder schwere Verschlechterung', OtherSerious: 'Sonstiges schweres Vorkommnis' }
+  const statuses: Record<string, string> = { Documented: 'menschlich dokumentiert', MedicalReviewed: 'medizinisch freigegeben',
+    Historical: 'historische Angabe, nicht aktuell bestätigt', Stale: 'Quellenbezug veraltet / nicht bestätigt',
+    Unreviewed: 'Angabe nicht medizinisch bestätigt', Conflict: 'widersprüchliche Angaben – prüfen' }
+  const consequence = outcome?.code === 'Death' ? 'Todesfall' : outcome?.code === 'SeriousDeterioration'
+    ? 'Schwere gesundheitliche Verschlechterung' : outcome?.code === 'CodedOther' ? outcome.term : 'Patientenausgang unklar / nicht bestätigt'
+  return <div className={`criticality ${compact ? 'compact' : ''}`} aria-label="Kritikalität und Patientenausgang">
+    <span className={`criticality-urgency ${seriousness === 'OtherSerious' ? 'amber' : 'danger'}`}><AlertTriangle size={14} aria-hidden="true" />
+      <span>Fristenklasse: <b>{urgency[seriousness] ?? seriousness}</b></span></span>
+    <span className={`criticality-outcome ${outcome?.code === 'Death' ? 'danger' : ''}`} data-outcome-status={outcome?.status ?? 'Loading'}>
+      <HeartPulse size={14} aria-hidden="true" /><span>{outcome ? <><b>{consequence}</b>{outcome.code !== 'Unknown' && ` · ${statuses[outcome.status] ?? 'Prüfstand unklar'}`}</> : 'Patientenausgang wird geprüft …'}</span></span>
+    {!compact && outcome && <small>{outcome.source}</small>}
+  </div>
+}
 export function Empty({ title, children }: { title: string; children?: ReactNode }) { return <div className="empty"><div className="empty-symbol"><Check size={25} /></div><h3>{title}</h3><p>{children}</p></div> }
 export function ErrorBanner({ message, dismiss }: { message: string; dismiss?: () => void }) { return <div className="error-banner" role="alert"><AlertTriangle size={19} /><span>{message}</span>{dismiss && <button className="icon-button" onClick={dismiss} aria-label="Fehler schließen"><X size={18} /></button>}</div> }
 export function Loading() { return <div className="loading" role="status"><LoaderCircle className="spin" size={22} />Wird geladen…</div> }
 export function SectionHead({ eyebrow, title, children }: { eyebrow?: string; title: string; children?: ReactNode }) { return <div className="section-head"><div>{eyebrow && <span className="eyebrow">{eyebrow}</span>}<h2>{title}</h2></div>{children}</div> }
 export function CaseTable({ cases, open }: { cases: CaseSummary[]; open: (id: string) => void }) {
   if (!cases.length) return <Empty title="Keine Fälle in dieser Ansicht">Die Liste enthält ausschließlich tatsächlich gespeicherte Fälle.</Empty>
-  return <div className="table-scroll"><table className="case-table"><thead><tr><th>Fall / Produkt</th><th>Bearbeitung</th><th>Jurisdiktion</th><th>Frist</th><th>Priorität</th><th><span className="sr-only">Öffnen</span></th></tr></thead><tbody>{cases.map(c => { const deadline = primaryDeadline(c); return <tr key={c.id}>
+  return <div className="table-scroll"><table className="case-table"><thead><tr><th>Fall / Produkt</th><th>Kritikalität / Ausgang</th><th>Bearbeitung</th><th>Jurisdiktion</th><th>Frist</th><th>Priorität</th><th><span className="sr-only">Öffnen</span></th></tr></thead><tbody>{cases.map(c => { const deadline = primaryDeadline(c); return <tr key={c.id}>
     <td><button className="case-title" onClick={() => open(c.id)}>{c.title}</button><span className="subline">{c.reference} <span>·</span> {c.productId === 'ortho' ? 'OrthoLink' : 'CardioFlow'} <span>·</span> v{c.version}</span></td>
+    <td><Criticality seriousness={c.seriousness} outcome={c.outcome} compact /></td>
     <td><Badge tone={c.stage === 'AwaitingMedicalReview' ? 'amber' : 'neutral'}>{label(c.reportState ?? c.stage)}</Badge></td><td>{c.jurisdiction}</td>
     <td><span className={isLate(c) ? 'danger-text' : ''}>{date(deadline?.dueAt, false, deadline?.timeZone)}</span><small className="subline">{deadline?.title} · {deadline?.timeZone}</small></td>
     <td>{isLate(c) ? <Badge tone="danger">Überfällig</Badge> : isUrgent(c) ? <Badge tone="amber">Priorisiert</Badge> : <span className="muted">Regulär</span>}</td>

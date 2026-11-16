@@ -16,6 +16,51 @@ public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyC
         return c;
     }
 
+    public async Task<EvidenceDocument> ReadEvidence(string id, string evidenceId, int? caseVersion,
+        Actor actor, CancellationToken ct = default)
+    {
+        var current = await Get(id, actor, ct);
+        var selected = caseVersion is null || caseVersion == current.Version ? current :
+            (await store.History<SafetyCase>("case", [current.ProductId], ct))
+                .SingleOrDefault(c => c.Id == id && c.Version == caseVersion)
+                ?? throw new DomainException("case_version_missing", "Die ausgewaehlte Fallfassung fehlt.", 404);
+        var evidence = selected.Evidence.SingleOrDefault(e => e.Id == evidenceId)
+            ?? throw new DomainException("evidence_missing", "Fundstelle fehlt in dieser Fallfassung.", 404);
+        return await EvidenceService.ReadOriginal(evidence, objects, ct);
+    }
+
+    public async Task<CaseProcessView> Process(string id, Actor actor, CancellationToken ct = default)
+    {
+        var c = await Get(id, actor, ct);
+        var humanReplacesRun = false;
+        if (c.CurrentAssessment?.Mode == "Human")
+        {
+            var audit = (await store.Audit(id, ct)).Where(e => e.Version <= c.Version).ToArray();
+            humanReplacesRun = audit.Where(e => e.Action == "AssessmentRevised").Select(e => e.Version).DefaultIfEmpty(0).Max() >
+                audit.Where(e => e.Action == "AssessmentRequested").Select(e => e.Version).DefaultIfEmpty(0).Max();
+        }
+        var decisionCurrent = false;
+        var decisionApproved = false;
+        if (c.Decisions.LastOrDefault() is { Disposition: Disposition.NonReportable } decision && c.CurrentAssessment is { } assessment)
+        {
+            var source = (await store.History<SafetyCase>("case", [c.ProductId], ct))
+                .Where(v => v.Id == id && v.Version <= c.Version && v.Decisions.LastOrDefault()?.Id == decision.Id)
+                .MinBy(v => v.Version);
+            if (source is not null)
+            {
+                var obligations = source.Deadlines.Where(d => d.Status == "Open").ToArray();
+                decisionCurrent = source.Jurisdiction == c.Jurisdiction && decision.AssessmentVersion == assessment.Version &&
+                    decision.ScopeHash == DispositionScope(source, assessment, decision.Disposition, decision.Rationale, decision.ExpectedSideEffect) &&
+                    obligations.All(before => c.Deadlines.Any(after => after.Id == before.Id &&
+                        after.Status is "Open" or "NonReportableReviewed" && Canonical.Hash(after with { Status = "Open" }) == Canonical.Hash(before))) &&
+                    c.Deadlines.Where(d => d.Status == "Open").All(d => obligations.Any(before => before.Id == d.Id));
+                decisionApproved = decisionCurrent && c.Disposition == Disposition.NonReportable && !c.Deadlines.Any(d => d.Status == "Open") &&
+                    c.Approvals.Any(a => a.Role == Roles.Regulatory && a.ScopeHash == decision.ScopeHash && a.ActorId != decision.ActorId);
+            }
+        }
+        return CaseProcess.Read(c, new(humanReplacesRun, decisionCurrent, decisionApproved));
+    }
+
     private CommandContext Context(SafetyCase c, int version, string key, string action, string reason, Actor actor, object request) =>
         new(c.Id, "case", c.ProductId, version, key, action, reason, actor, request, clock.GetUtcNow());
 

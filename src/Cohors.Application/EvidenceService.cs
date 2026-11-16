@@ -4,6 +4,27 @@ namespace Cohors.Application;
 
 public sealed class EvidenceService(IStateStore store, IObjectStore objects, TimeProvider clock)
 {
+    public async Task<EvidenceDocument> Read(string id, int version, Actor actor, CancellationToken ct = default)
+    {
+        var current = await store.Get<Evidence>("evidence", id, ct)
+            ?? throw new DomainException("evidence_missing", "Dokument fehlt.", 404);
+        actor.RequireProduct(current.ProductId);
+        var selected = current.Version == version ? current :
+            (await store.History<Evidence>("evidence", [current.ProductId], ct))
+                .SingleOrDefault(e => e.Id == id && e.Version == version)
+                ?? throw new DomainException("evidence_version_missing", "Die ausgewaehlte Dokumentrevision fehlt.", 404);
+        return await ReadOriginal(selected, objects, ct);
+    }
+
+    public static async Task<EvidenceDocument> ReadOriginal(Evidence evidence, IObjectStore objects, CancellationToken ct)
+    {
+        EvidenceRules.RequireIntegrity(evidence);
+        var content = await objects.Read(evidence.Hash, ct);
+        Guard.Against(Canonical.HashText(content) != evidence.Hash, "evidence_object_hash",
+            "Gespeicherter Text und Originalobjekt stimmen nicht ueberein.", 409);
+        return new(evidence, content, true);
+    }
+
     public async Task<Evidence> Revise(string id, ReviseEvidenceCommand input, Actor actor, string key, CancellationToken ct = default)
     {
         actor.RequireHuman(Roles.Quality);

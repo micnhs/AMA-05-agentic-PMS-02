@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, ArrowUpRight, CheckCheck, Download, FileCheck2, FileText, Fingerprint, Link2, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api, downloadApi } from './api'
 import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Device, Evidence, PeriodicSummaryReport, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, SummaryAgreement, SummaryContent, Trend, VersionReference } from './types'
-import { Badge, date, Empty, ErrorBanner, hash, label, Loading, SectionHead, type Dialog, type Field } from './ui'
+import { Badge, date, Empty, ErrorBanner, EvidenceCategory, hash, label, Loading, SectionHead, type Dialog, type Field } from './ui'
+import DocumentDialog, { type DocumentRequest } from './DocumentDialog'
 
 function useData<T>(path: string, revision: number) {
   const [data, setData] = useState<T | null>(null)
@@ -257,7 +258,23 @@ function EvidenceCard({ current, actor, openDialog, mutate }: Omit<WorkspaceProp
   const [versions, setVersions] = useState<Evidence[]>([current])
   const [version, setVersion] = useState(current.version)
   const [error, setError] = useState('')
-  const e = versions.find(item => item.version === version) ?? current
+  const [document, setDocument] = useState<DocumentRequest | null>(null)
+  const [loadingVersions, setLoadingVersions] = useState(false)
+  const historyRequest = useRef(0)
+  useEffect(() => () => { historyRequest.current++ }, [])
+  const e = versions.find(item => item.version === version)
+  async function loadVersions() {
+    const request = ++historyRequest.current
+    setLoadingVersions(true); setError('')
+    try {
+      const result = await api<Evidence[]>(`/evidence/${encodeURIComponent(current.id)}/versions`)
+      if (request !== historyRequest.current) return
+      if (!result.some(item => item.version === version) || result.some(item => item.id !== current.id))
+        throw new Error('Die ausgewählte Dokumentfassung fehlt in der geladenen Historie.')
+      setVersions(result)
+    } catch (error) { if (request === historyRequest.current) setError(error instanceof Error ? error.message : 'Versionshistorie nicht geladen.') }
+    finally { if (request === historyRequest.current) setLoadingVersions(false) }
+  }
   async function revise() {
     try {
       const changes = (await api<ChangeRequest[]>('/changes')).filter(c => c.documentId === current.id && c.documentVersion === current.version && c.status === 'Approved')
@@ -270,8 +287,12 @@ function EvidenceCard({ current, actor, openDialog, mutate }: Omit<WorkspaceProp
       ], onSubmit: v => mutate(`/evidence/${current.id}/revise`, { ...v, expectedVersion: current.version, validFrom: new Date(v.validFrom).toISOString() }) })
     } catch (error) { setError(error instanceof Error ? error.message : 'Änderungsauftrag konnte nicht geprüft werden.') }
   }
-  return <article className="panel"><div className="row-between"><span className="document-icon"><FileCheck2 size={24} /></span><Badge>{e.kind}</Badge></div><h3>{e.title}</h3><p className="muted">{e.productId} · {e.locator}</p><blockquote>{e.content}</blockquote><div className="row-between"><Badge tone="blue">{e.synthetic ? 'Synthetisches Dokument' : 'Öffentliche Evidenz'}</Badge><span>v{e.version}</span></div><p className="mono">{hash(e.hash)}</p><small className="muted">Fachliche Gültigkeit ab {date(e.validFrom)} · Erfasst {date(e.recordedAt)}</small>{error && <ErrorBanner message={error} />}
-    <div className="row"><button className="button secondary" onClick={() => api<Evidence[]>(`/evidence/${e.id}/versions`).then(setVersions).catch(e => setError(e.message))}>Versionshistorie laden</button>{current.synthetic && actor.roles.includes('QualityManager') && <button className="button secondary" onClick={() => void revise()}>Genehmigte Folgeversion</button>}</div>{versions.length > 1 && <label className="field">Unveränderliche Revision<select value={version} onChange={event => setVersion(Number(event.target.value))}>{versions.map(v => <option key={v.version} value={v.version}>v{v.version} · gültig ab {date(v.validFrom)}</option>)}</select></label>}
+  if (!e) return <ErrorBanner message="Ausgewählte Dokumentfassung fehlt; Bibliothek neu laden." />
+  return <article className="panel">{document && <DocumentDialog request={document} close={() => setDocument(null)} />}
+    <div className="row-between"><span className="document-icon"><FileCheck2 size={24} /></span><EvidenceCategory kind={e.kind} /></div><h3>{e.title}</h3><p className="muted">{e.productId} · {e.locator}</p><blockquote className="document-excerpt">{e.content}</blockquote><div className="row-between"><Badge tone="blue">{e.synthetic ? 'Synthetisches Dokument' : 'Öffentliche Evidenz'}</Badge><span>v{e.version}</span></div><p className="mono">{hash(e.hash)}</p><small className="muted">Fachliche Gültigkeit ab {date(e.validFrom)} · Erfasst {date(e.recordedAt)}</small>{error && <ErrorBanner message={error} />}
+    <div className="row"><button className="button secondary" onClick={() => setDocument({ evidence: e,
+      path: `/evidence/${encodeURIComponent(e.id)}/versions/${e.version}/content`, context: `Evidenzbibliothek, ausgewählte Revision ${e.version}` })}>Dokument öffnen · v{e.version}</button>
+      <button className="button secondary" disabled={loadingVersions} onClick={() => void loadVersions()}>{loadingVersions ? 'Versionshistorie lädt …' : 'Versionshistorie laden'}</button>{current.synthetic && actor.roles.includes('QualityManager') && <button className="button secondary" onClick={() => void revise()}>Genehmigte Folgeversion</button>}</div>{versions.length > 1 && <label className="field">Unveränderliche Revision<select value={version} onChange={event => setVersion(Number(event.target.value))}>{versions.map(v => <option key={v.version} value={v.version}>v{v.version} · gültig ab {date(v.validFrom)}</option>)}</select></label>}
   </article>
 }
 
