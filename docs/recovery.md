@@ -14,7 +14,8 @@ getrennte Functions-Host-/Neustartnachweis bleiben separate Pruefungen.
 `d0e864dc0f7ccdbfd3758499bc4a9b4d88f59684` wurde nach Abschluss des begrenzten
 L03-/Diagnostikblocks als **`c90664121339d81ca56a4d225203e768c2ebe146`**
 integriert. Die zwei Git-Blobs in `scripts\Test-Recovery.ps1` und
-`tests\Cohors.Tests\RecoveryTests.cs` entsprechen exakt der Uebergabe.
+`tests\Cohors.Tests\RecoveryTests.cs` entsprechen in diesem Integrationscommit
+exakt der Uebergabe.
 **Backup-/Restore-Produktionscode blieb unveraendert.**
 
 Die neue Fixture ergaenzt drei PSURs in zwei getrennten Mehrproduktserien,
@@ -25,10 +26,26 @@ und Mitgliedsscope unveraendert sein; der historische Receipt-Replay darf
 keine neuen Schreibvorgaenge erzeugen. Die anfangs ausgewaehlte Originalevidenz
 liegt zeitlich vor `CurrentEvidence.ValidFrom`.
 
-Die Vorbereitung und Integration sind **kein Typecheck, Build, SQL- oder
-Restorelauf**. Die echte Typpruefung sowie **14 Faelle / 11
-Fixture-Abschlusspruefungen** stehen fuer den naechsten freigegebenen
-Pruefblock aus. Historische 13/13 werden nicht als 14/14 umgedeutet.
+Die anschliessende erste echte Typpruefung des Testprojekts ist nun
+abgeschlossen: Basis `75bee999fff3c1bb723274a16486283aa8883892` plus explizite
+Arbeitsfassung einschliesslich Sammelbericht-C#-Quellen. Der erste Build
+scheiterte an genau zwei `xUnit2031` in `RequireSeparateApprovals`.
+`Assert.Single(collection, predicate)` ersetzt dort die vorgeschaltete
+`Where`-Filterung; exakt-eins-Pruefung und Rollenpraedikate bleiben gleich.
+Der zweite Build endete mit **Exit 0, 0 Warnungen, 0 Fehlern**.
+`.local\recovery-typecheck-01\source-02.json` bindet die Quellen und
+aufgeloesten Dependencygraphen, SHA256
+`ea29c9fdc7ed4b50d0590b22d0d207a403a023ce35adc7bf1a884e3325364f51`.
+Beide Buildausgaenge, sechs Ausgabeassemblyhashes und der unabhaengig
+gepruefte eigene Ressourcenabschluss stehen im kleinen `handoff.json`
+derselben Ablage, SHA256
+`281bddf277de1a76c4a01ed92733a8b65696d9120fb04de1e475c050f46cbaa4`.
+
+Privates SDK 10.0.404/CLI-Home, beide First-use-Flags `false`,
+`--no-restore`, keine globale Profilaenderung. **Kein SQL-, Docker- oder
+Restorelauf wurde ausgefuehrt.** Die **14 Faelle / 11
+Fixture-Abschlusspruefungen** bleiben ungetestete Laufzeiterwartungen;
+historische 13/13 werden nicht als 14/14 umgedeutet.
 
 ## Isolierter Gesamtablauf
 

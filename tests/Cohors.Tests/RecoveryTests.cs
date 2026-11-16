@@ -268,8 +268,8 @@ public sealed class RecoveryTests(RecoveryFixture fixture)
     private static void RequireSeparateApprovals(Approval[] approvals, string scope)
     {
         Assert.Equal(2, approvals.Length);
-        var medical = Assert.Single(approvals.Where(a => a.Role == Roles.Medical));
-        var regulatory = Assert.Single(approvals.Where(a => a.Role == Roles.Regulatory));
+        var medical = Assert.Single(approvals, a => a.Role == Roles.Medical);
+        var regulatory = Assert.Single(approvals, a => a.Role == Roles.Regulatory);
         Assert.NotEqual(medical.ActorId, regulatory.ActorId);
         Assert.All(approvals, a => Assert.Equal(scope, a.ScopeHash));
     }
