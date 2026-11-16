@@ -61,7 +61,8 @@ public sealed record Submission(string Id, string ReportScopeHash, int ReportVer
 
 public sealed record InformationRequest(string Id, string Question, string MinimalData, string Relevance,
     string RecipientRole, string ManufacturerBasis, string DisclosureBasis, DateTimeOffset DueAt,
-    string ScopeHash, Approval[] Approvals, string Status, string? Response, bool Simulated);
+    string ScopeHash, Approval[] Approvals, string Status, string? Response, bool Simulated,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] InformationRequestLifecycle? Lifecycle = null);
 
 public sealed record AgentRun(string Id, AgentRole Role, AgentMode Mode, string Status, DateTimeOffset StartedAt,
     DateTimeOffset FinishedAt, string Model, string PromptVersion, string InputHash, string? OutputHash,
@@ -85,7 +86,8 @@ public sealed record SafetyCase(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FollowUpObligation[]? FollowUps = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CaseCoding? Coding = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SpecimenInvestigation[]? Investigations = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalReview[]? SignalReviews = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalReview[]? SignalReviews = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] InformationResponse[]? InformationResponses = null)
 {
     public Assessment? CurrentAssessment => Assessments.LastOrDefault();
     public ReportDraft? CurrentReport => Reports.LastOrDefault();

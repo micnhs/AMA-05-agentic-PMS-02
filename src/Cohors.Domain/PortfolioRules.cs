@@ -80,6 +80,8 @@ public static partial class PortfolioRules
                     c.Disposition == Disposition.NonReportable && c.Approvals.Any(a => a.Role == Roles.Regulatory && a.ScopeHash == decision.ScopeHash));
             var questions = (assessment?.Content.Uncertainties ?? ["Kein aktuelles Assessment."])
                 .Concat(c.InformationRequests.Where(r => r.Status != "SimulatedAnswered").Select(r => r.Question))
+                .Concat(InformationRules.PendingResponses(c) > 0
+                    ? ["Eingegangene Ruecklaeufe sind noch nicht vollstaendig zugeordnet oder medizinisch als Quelle geprueft."] : [])
                 .Concat(c.OccurredAt is null ? ["Ereignisdatum unbekannt; aus periodischen Raten ausgeschlossen."] : [])
                 .Concat(currentEvidence ? [] : ["Assessment/Evidenzstand nicht aktuell freigegeben."]).Distinct().ToArray();
             return new CaseSnapshot(c.Id, c.Version, c.Reference, c.Disposition.ToString(), c.Stage.ToString(), c.Country,

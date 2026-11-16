@@ -13,7 +13,7 @@ public static class ReplayAssessment
             ?? throw new DomainException("test_evidence_missing", "Pruefevidenz fehlt; menschliche Erstbewertung erforderlich.");
         var risk = evidence.FirstOrDefault(e => e.Kind == "RiskFile")
             ?? throw new DomainException("risk_evidence_missing", "Risikobaseline fehlt; menschliche Erstbewertung erforderlich.");
-        var clinical = evidence.FirstOrDefault(e => e.Kind == "ClinicalFollowUp");
+        var clinical = evidence.FirstOrDefault(e => e.Kind == "ClinicalFollowUp" && e.Approved);
         Citation Cite(Evidence e) => new(e.Id, e.Hash, e.Locator, e.Content);
         Claim[] claims =
         [

@@ -502,6 +502,205 @@ test('D02: stored PSUR date-only and BS UTC month-boundary calendar, exact sourc
   } finally { await context?.close(); await pms.dispose(); await medical.dispose(); await ra.dispose(); await limited.dispose() }
 })
 
+test('R01: named recipient, independent simulated dispatch and original-bound response review', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(210_000)
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  const ra = await playwright.request.newContext({ baseURL })
+  const limited = await playwright.request.newContext({ baseURL })
+  const contexts: BrowserContext[] = []
+  const pageErrors: string[] = []
+  const posts: string[] = []
+  const reason = 'SYNTHETISCH: Kontakt, konkreter Minimaldatensatz und exakte Originalreferenzen wurden getrennt geprueft. Keine reale Kommunikation und keine abschliessende Kausalitaetsbewertung.'
+  const trace: { version: number; status: string }[] = []
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    await signIn(medical, 'medical.demo')
+    const raCsrf = await signIn(ra, 'ra.demo')
+    const limitedCsrf = await signIn(limited, 'rfi-cardio.demo')
+    const stamp = `RFI-${Date.now()}`
+    const input = signalInput(stamp)
+    let c = await command(pms, pmsCsrf, '/cases', input)
+    const deadlines = JSON.stringify(c.deadlines)
+    const awareness = c.firstAwarenessAt
+    const originalEvidence = c.evidence.length
+    async function read() {
+      c = await (await pms.get(`/api/cases/${c.id}`)).json()
+      return c
+    }
+    async function pageFor(client: APIRequestContext) {
+      const context = await browser.newContext({ storageState: await client.storageState(), timezoneId: 'UTC' })
+      contexts.push(context)
+      const page = await context.newPage()
+      page.on('pageerror', e => pageErrors.push(e.message))
+      page.on('request', request => { if (request.method() === 'POST') posts.push(new URL(request.url()).pathname) })
+      await page.goto(baseURL!)
+      await showCase(page, stamp, input.title)
+      await page.getByRole('tab', { name: /^Informationsbedarf/ }).click()
+      return page
+    }
+    const pmsPage = await pageFor(pms)
+    await pmsPage.getByRole('button', { name: 'Anfrage entwerfen', exact: true }).click()
+    let dialog = pmsPage.getByRole('dialog')
+    await dialog.getByLabel('Synthetische Kontaktreferenz', { exact: true }).fill(`CONTACT-${stamp}`)
+    await dialog.getByLabel('Organisation des Kontakts', { exact: true }).fill('Synthetische Demo-Klinik Nord')
+    await dialog.getByLabel('Benannter Kontakt oder eindeutige Empfangsstelle', { exact: true }).fill('Synthetisches Befundteam Nord')
+    await dialog.getByLabel('Rolle des Kontakts', { exact: true }).fill('Synthetische klinische Sicherheitsstelle')
+    await dialog.getByRole('combobox', { name: 'Vorgesehener Kontaktkanal (nur simuliert)', exact: true }).selectOption('Email')
+    await dialog.getByLabel('Synthetische Zielreferenz - keine echten Kontaktdaten', { exact: true }).fill('nord@example.invalid')
+    await dialog.getByRole('combobox', { name: 'Pilotgrenze bestaetigen', exact: true }).selectOption('true')
+    await submitDialog(dialog, 'Anfrageentwurf speichern')
+    await read()
+    let request = c.informationRequests[0]
+    expect(request.lifecycle?.recipient.contact).toBe('Synthetisches Befundteam Nord')
+    expect(request.lifecycle?.recipient.destination).toBe('nord@example.invalid')
+    expect(request.status).toBe('Draft')
+    trace.push({ version: c.version, status: request.status })
+    const requestCard = (page: Page) => page.getByRole('article', { name: `Anfrage ${request.id}`, exact: true })
+    await expect(requestCard(pmsPage)).toContainText('Synthetische Demo-Klinik Nord')
+    await expect(requestCard(pmsPage)).toContainText('nord@example.invalid')
+    await expect(requestCard(pmsPage).getByRole('button', { name: /^Als .* genehmigen$/ })).toHaveCount(0)
+    const medicalPage = await pageFor(medical)
+    await requestCard(medicalPage).getByRole('button', { name: 'Als Medical Safety genehmigen', exact: true }).click()
+    dialog = medicalPage.getByRole('dialog')
+    await dialog.getByLabel('Fachliche Begruendung', { exact: true }).fill(reason)
+    await submitDialog(dialog)
+    const raPage = await pageFor(ra)
+    await requestCard(raPage).getByRole('button', { name: 'Als RA genehmigen', exact: true }).click()
+    dialog = raPage.getByRole('dialog')
+    await dialog.getByLabel('Fachliche Begruendung', { exact: true }).fill(reason)
+    await submitDialog(dialog)
+    await read()
+    request = c.informationRequests[0]
+    expect(request.status).toBe('Approved')
+    expect(request.lifecycle?.dispatches).toHaveLength(0)
+    expect(new Set(request.approvals.map(a => a.actorId)).size).toBe(2)
+    trace.push({ version: c.version, status: request.status })
+    await expect(requestCard(raPage)).toContainText('Freigegeben - noch nicht versendet')
+    const denied = await limited.post(`/api/cases/${c.id}/information/${request.id}/dispatch`, {
+      headers: { 'X-CSRF-Token': limitedCsrf, 'Idempotency-Key': crypto.randomUUID() },
+      data: { expectedVersion: c.version, scenario: 'Accept', reason },
+    })
+    expect(denied.status()).toBe(403)
+
+    async function dispatch(scenario: string, expected: string) {
+      await requestCard(raPage).getByRole('button', { name: 'Simulierten Versand beauftragen', exact: true }).click()
+      const prompt = raPage.getByRole('dialog')
+      await prompt.getByRole('combobox', { name: 'Explizites Simulator-Szenario', exact: true }).selectOption(scenario)
+      await prompt.getByLabel('Fachliche Begruendung', { exact: true }).fill(reason)
+      const pendingResponse = raPage.waitForResponse(response => response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/cases/${c.id}/information/${request.id}/dispatch`)
+      await submitDialog(prompt, 'Nur internen Simulator beauftragen')
+      const pending: SafetyCase = await (await pendingResponse).json()
+      expect(pending.informationRequests[0].status).toBe('SendPending')
+      expect(pending.informationRequests[0].lifecycle?.dispatches.at(-1)?.receiptReference).toBeNull()
+      trace.push({ version: pending.version, status: 'SendPending' })
+      await expect.poll(async () => { await read(); return c.informationRequests[0].status }).toBe(expected)
+      request = c.informationRequests[0]
+      trace.push({ version: c.version, status: request.status })
+    }
+    await dispatch('Fail', 'SendFailed')
+    await expect(requestCard(raPage).getByText('Versand fehlgeschlagen', { exact: true })).toBeVisible()
+    expect(request.lifecycle?.dispatches[0].receiptReference).toBeNull()
+    await dispatch('Unknown', 'TransmissionUnknown')
+    await expect(requestCard(raPage).getByText('Versand unklar - Abgleich erforderlich', { exact: true })).toBeVisible()
+    await expect(requestCard(raPage).getByRole('button', { name: 'Simulierten Versand beauftragen', exact: true })).toHaveCount(0)
+    expect(request.lifecycle?.dispatches).toHaveLength(2)
+    await requestCard(raPage).getByRole('button', { name: 'Empfang gezielt abgleichen', exact: true }).click()
+    dialog = raPage.getByRole('dialog')
+    await dialog.getByLabel('Fachliche Begruendung', { exact: true }).fill(reason)
+    await submitDialog(dialog)
+    await read()
+    request = c.informationRequests[0]
+    expect(request.status).toBe('SimulatedSent')
+    expect(request.lifecycle?.dispatches).toHaveLength(2)
+    expect(request.lifecycle?.dispatches[1].receiptReference).toMatch(/^DEMO-RFI-/)
+    trace.push({ version: c.version, status: request.status })
+    await raPage.screenshot({ path: path.join(artifacts, 'cohors-rfi-recipient-and-delivery.png') })
+    await expect(requestCard(pmsPage).getByText('Im Simulator zugestellt', { exact: true })).toBeVisible()
+    await requestCard(pmsPage).getByRole('button', { name: 'Antwort simulieren', exact: true }).click()
+    dialog = pmsPage.getByRole('dialog')
+    const externalId = `ORIGINAL-${stamp}`
+    await dialog.getByLabel('Originalreferenz des Ruecklaufs', { exact: true }).fill(externalId)
+    await expect(dialog.getByLabel('Anfrage-ID laut Original (leer, wenn nicht vorhanden)', { exact: true })).toHaveValue(request.id)
+    await expect(dialog.getByLabel('Korrelation laut Original (leer, wenn nicht vorhanden)', { exact: true })).toHaveValue(request.lifecycle!.correlationId)
+    await dialog.getByLabel('Anfrage-ID laut Original (leer, wenn nicht vorhanden)', { exact: true }).fill('')
+    await dialog.getByLabel('Korrelation laut Original (leer, wenn nicht vorhanden)', { exact: true }).fill('')
+    await dialog.getByRole('combobox', { name: 'Pilotgrenze bestaetigen', exact: true }).selectOption('true')
+    const original = 'SYNTHETISCHER ORIGINALBEFUND:\nFunktionsverlust beschrieben; Ursache und klinische Befundqualitaet bleiben ungeklaert.'
+    await dialog.getByLabel('Synthetischer Originalbefund', { exact: true }).fill(original)
+    await dialog.getByLabel('Fachliche Begruendung', { exact: true }).fill(reason)
+    await submitDialog(dialog, 'Originalruecklauf speichern')
+    await read()
+    let response = c.informationResponses![0]
+    expect(response.status).toBe('Held')
+    expect(response.mapping).toBeNull()
+    expect(c.evidence).toHaveLength(originalEvidence)
+    expect(response.content).toBe(original)
+    expect(response.contentHash).toBe(createHash('sha256').update(original).digest('hex'))
+    trace.push({ version: c.version, status: response.status })
+    const responseCard = (page: Page) => page.getByRole('article', { name: `Ruecklauf ${externalId}`, exact: true })
+    await expect(responseCard(pmsPage)).toContainText('Zurueckgehalten - Zuordnung unklar')
+    await responseCard(pmsPage).getByRole('button', { name: 'Ruecklauf begruendet zuordnen', exact: true }).click()
+    dialog = pmsPage.getByRole('dialog')
+    const select = dialog.getByRole('combobox', { name: 'Exakte Anfrage mit bestaetigtem simuliertem Empfang', exact: true })
+    await expect(select).toHaveValue('')
+    await select.selectOption(request.id)
+    await dialog.getByLabel('Fachliche Begruendung', { exact: true }).fill(reason)
+    await dialog.getByRole('button', { name: 'Als unbestaetigte Evidenz zuordnen', exact: true }).click()
+    await expect(dialog.getByRole('alert')).toContainText('Fehlende Originalreferenzen')
+    await dialog.getByRole('combobox', { name: 'Fehlende Originalreferenzen', exact: true }).selectOption('true')
+    await submitDialog(dialog, 'Als unbestaetigte Evidenz zuordnen')
+    await read()
+    response = c.informationResponses![0]
+    expect(response.status).toBe('Mapped')
+    expect(response.mapping?.requestId).toBe(request.id)
+    expect(response.mapping?.missingReferencesConfirmed).toBe(true)
+    expect(response.declaredRequestId).toBe('')
+    expect(response.envelope.correlationId).toBeNull()
+    expect(c.evidence.find(e => e.id === response.mapping?.evidenceId)?.approved).toBe(false)
+    expect(c.stage).toBe('AwaitingMedicalReview')
+    expect(c.agentRuns).toHaveLength(0)
+    trace.push({ version: c.version, status: 'MappedUnconfirmed' })
+    await expect(responseCard(pmsPage)).toContainText('Zugeordnet - Befund unbestaetigt')
+    const deniedReview = await ra.post(`/api/cases/${c.id}/information/responses/${response.id}/review`, {
+      headers: { 'X-CSRF-Token': raCsrf, 'Idempotency-Key': crypto.randomUUID() }, data: { expectedVersion: c.version, reason },
+    })
+    expect(deniedReview.status()).toBe(403)
+    await expect(responseCard(medicalPage)).toContainText('Zugeordnet - Befund unbestaetigt')
+    await medicalPage.setViewportSize({ width: 980, height: 850 })
+    await responseCard(medicalPage).scrollIntoViewIfNeeded()
+    await medicalPage.screenshot({ path: path.join(artifacts, 'cohors-rfi-unconfirmed-response.png') })
+    await responseCard(medicalPage).getByRole('button', { name: 'Herkunft und Befundquelle pruefen', exact: true }).click()
+    dialog = medicalPage.getByRole('dialog')
+    await dialog.getByLabel('Fachliche Begruendung', { exact: true }).fill(reason)
+    await submitDialog(dialog, 'Nur Quelle fuer Bewertung freigeben')
+    await read()
+    response = c.informationResponses![0]
+    expect(response.review?.actorId).toBe(request.approvals.find(a => a.role === 'MedicalSafetyReviewer')?.actorId)
+    expect(c.evidence.find(e => e.id === response.mapping?.evidenceId)?.approved).toBe(true)
+    expect(c.evidence.find(e => e.id === response.mapping?.evidenceId)?.content).toBe(original)
+    expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+    expect(c.firstAwarenessAt).toBe(awareness)
+    expect(c.agentRuns).toHaveLength(0)
+    expect(c.submissions).toHaveLength(0)
+    expect(c.approvals).toHaveLength(0)
+    expect(posts.some(p => /\/assessment$|\/report$|\/submit$/.test(p))).toBe(false)
+    expect(pageErrors).toEqual([])
+    trace.push({ version: c.version, status: 'SourceReviewedNotCaseApproved' })
+    writeFileSync(path.join(artifacts, 'information-lifecycle-workflow.json'), JSON.stringify({ caseId: c.id, version: c.version,
+      requestId: request.id, correlationId: request.lifecycle?.correlationId, recipient: request.lifecycle?.recipient,
+      trace, responseId: response.id, originalHash: response.originalHash, contentHash: response.contentHash,
+      preservedMissingReferences: response.declaredRequestId === '' && response.envelope.correlationId === null,
+      separateMedicalSourceReview: true, deadlinesPreserved: true, originalAwarenessPreserved: true,
+      automaticAnalyses: 0, realTransmissions: 0, currentCaseApprovals: 0, pageErrors }, null, 2))
+  } finally {
+    for (const context of contexts) await context.close()
+    await pms.dispose(); await medical.dispose(); await ra.dispose(); await limited.dispose()
+  }
+})
+
 test('V01: agent-prefilled report, grounded fields, missing-data return and separate Medical/RA review', async ({ playwright, browser, baseURL }) => {
   test.setTimeout(210_000)
   const pms = await playwright.request.newContext({ baseURL })

@@ -148,8 +148,13 @@ public sealed record RecordSpecimenPlanCommand(int ExpectedVersion, string Refer
 public sealed record SimulateSpecimenCommand(int ExpectedVersion, string Findings, string RemainingState,
     string ConsequencesAndGaps, string Reason);
 public sealed record RequestInformationCommand(int ExpectedVersion, string Question, string MinimalData,
-    string Relevance, string RecipientRole, string ManufacturerBasis, string DisclosureBasis, DateTimeOffset DueAt);
-public sealed record RespondInformationCommand(int ExpectedVersion, string RequestId, string Response, string Reason);
+    string Relevance, string RecipientRole, string ManufacturerBasis, string DisclosureBasis, DateTimeOffset DueAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] InformationRecipient? Recipient = null);
+public sealed record RespondInformationCommand(int ExpectedVersion, string RequestId, string Response, string Reason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] InformationResponseEnvelope? Envelope = null);
+public sealed record DispatchInformationCommand(int ExpectedVersion, string Scenario, string Reason);
+public sealed record MapInformationResponseCommand(int ExpectedVersion, string RequestId, string CorrelationId,
+    string RecipientHash, bool ConfirmMissingReferences, string Reason);
 public sealed record OpenCapaCommand(string CaseId, string ProductId, string Title, string Action,
     string Rationale, string OwnerId, string EffectivenessCriterion, DateTimeOffset DueAt);
 public sealed record VerifyCapaCommand(int ExpectedVersion, string Evidence, bool Effective, string Reason);

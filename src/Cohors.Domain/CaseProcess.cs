@@ -84,9 +84,10 @@ public static class CaseProcess
         var followUps = (c.FollowUps ?? []).Count(f => f.Status == "Open");
         var deadlines = c.Deadlines.Count(d => d.Status == "Open");
         var requests = c.InformationRequests.Count(r => r.Status != "SimulatedAnswered");
+        var pendingResponses = InformationRules.PendingResponses(c);
         var investigations = (c.Investigations ?? []).Count(i => i.Status is not ("SimulatedExamined" or "Cancelled"));
         var closed = c.Stage == CaseStage.Closed && c.ClosedAt is not null && deadlines == 0 && followUps == 0 &&
-            requests == 0 && investigations == 0 && unknown.Length == 0;
+            requests == 0 && pendingResponses == 0 && investigations == 0 && unknown.Length == 0;
         CaseProcessStep[] steps =
         [
             Step("intake", c.Sources.Length > 0 ? "completed" : "blocked",
@@ -118,7 +119,9 @@ public static class CaseProcess
                 previousAccepted ? "Frueheres Paket simuliert empfangen; aktuelle Fassung und Ziel separat pruefen." : "Keine bestaetigte simulierte Zustellung."),
             Step("followup", closed ? "completed" : previousAccepted ? "current" : "pending",
                 closed ? "Fall menschlich geschlossen; Produktbeobachtung bleibt separat." :
-                $"{deadlines} offene Einzelpflicht(en), {followUps} Folgepflicht(en), {requests} Nachforderung(en), {investigations} Untersuchungsauftrag/-auftraege. Kein automatischer Fallabschluss.")
+                $"{deadlines} offene Einzelpflicht(en), {followUps} Folgepflicht(en), {requests} Nachforderung(en), {investigations} Untersuchungsauftrag/-auftraege." +
+                (pendingResponses > 0 ? $" {pendingResponses} Ruecklauf/Ruecklaeufe noch zuzuordnen oder medizinisch als Quelle zu pruefen." : "") +
+                " Kein automatischer Fallabschluss.")
         ];
         var nonReportable = analysisCurrent && qualityCurrent && !critical && !major && context?.NonReportableDecisionCurrent == true;
         if (nonReportable)
@@ -142,7 +145,8 @@ public static class CaseProcess
         else if (!medicalComplete) (current, action, role, tab) = ("medical", "review", Roles.Medical, "report");
         else if (!regulatoryComplete) (current, action, role, tab) = ("regulatory", "review", Roles.Regulatory, "report");
         else if (!accepted) (current, action, role, tab) = ("delivery", "review", Roles.Regulatory, "report");
-        else (current, action, role, tab) = ("followup", requests > 0 ? "information" : "review", Roles.Pms, requests > 0 ? "information" : "report");
+        else (current, action, role, tab) = ("followup", requests > 0 || pendingResponses > 0 ? "information" : "review",
+            Roles.Pms, requests > 0 || pendingResponses > 0 ? "information" : "report");
         for (var i = 0; i < steps.Length; i++)
             if (steps[i].Id == current && steps[i].State == "pending") steps[i] = steps[i] with { State = "current" };
         blockers.AddRange(steps.Where(s => s.State == "blocked").Select(s => s.Detail));

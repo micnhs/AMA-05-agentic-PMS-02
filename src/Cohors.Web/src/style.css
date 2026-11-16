@@ -330,6 +330,11 @@ blockquote { border-left: 2px solid var(--cp-accent); padding-left: 14px; margin
 .information-card, .history-entry, .trend-card, .capa-card, .source-run { border-top: 1px solid var(--cp-border); padding: 23px 0; }
 .information-card:last-child, .history-entry:last-child, .capa-card:last-child { padding-bottom: 0; }
 .information-card p, .capa-card p, .history-entry p { font-size: 12px; }
+.information-panel { min-width: 0; overflow-wrap: anywhere; }
+.information-panel .row-between { flex-wrap: wrap; gap: 12px; }
+.rfi-recipient, .rfi-dispatch { margin: 12px 0; padding: 12px 16px; border-left: 3px solid var(--cp-border-strong); background: var(--cp-surface-soft); }
+.rfi-recipient p, .rfi-dispatch p { margin: 4px 0; }
+.information-panel > h3 { margin-top: 24px; }
 .history-entry small { color: var(--cp-text-muted); }
 .callout { background: var(--cp-accent-soft); border-left: 3px solid var(--cp-accent); padding: 15px 18px; font-size: 12px; line-height: 1.8; margin: 20px 0; }
 .callout p { margin: 5px 0 0; }

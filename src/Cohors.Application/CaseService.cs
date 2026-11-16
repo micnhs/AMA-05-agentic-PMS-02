@@ -573,73 +573,6 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
         }, ct);
     }
 
-    public async Task<SafetyCase> AddInformationRequest(string id, RequestInformationCommand input, Actor actor, string key, CancellationToken ct = default)
-    {
-        actor.RequireHuman(Roles.Pms, Roles.Medical);
-        var c = await Get(id, actor, ct);
-        Guard.Text(input.Question, "Fragestellung", 20);
-        Guard.Text(input.MinimalData, "Minimaldatensatz", 15, 1500);
-        Guard.Text(input.Relevance, "Medizinisch-technische Relevanz", 30);
-        Guard.Text(input.ManufacturerBasis, "Hersteller-Rechtsgrundlage", 20);
-        Guard.Text(input.DisclosureBasis, "Eigenstaendige Offenlegungsbefugnis", 20);
-        Guard.Against(input.MinimalData.Contains("vollstaendige Patientenakte", StringComparison.OrdinalIgnoreCase)
-            || input.MinimalData.Contains("full patient record", StringComparison.OrdinalIgnoreCase), "data_minimization", "Pauschale Vollaktenanforderung ist nicht zugelassen.");
-        Guard.Against(input.DueAt <= clock.GetUtcNow(), "request_due", "Interne Rueckmeldefrist muss in der Zukunft liegen.");
-        return await store.Execute<SafetyCase>(Context(c, input.ExpectedVersion, key, "InformationRequestDrafted",
-            input.Relevance, actor, input), current =>
-        {
-            var value = Require(current);
-            Guard.Against(value.Stage == CaseStage.Closed, "case_closed", "Abgeschlossenen Fall zuerst begruendet wiederaufnehmen.");
-            var request = new InformationRequest(Guid.NewGuid().ToString("N"), input.Question, input.MinimalData, input.Relevance,
-                input.RecipientRole, input.ManufacturerBasis, input.DisclosureBasis, input.DueAt, Canonical.Hash(input),
-                [], "Draft", null, true);
-            return value with { Version = value.Version + 1, Stage = CaseStage.AwaitingInformation,
-                InformationRequests = [.. value.InformationRequests, request] };
-        }, ct);
-    }
-
-    public async Task<SafetyCase> ApproveInformation(string id, string requestId, ApprovalCommand input, Actor actor, string key, CancellationToken ct = default)
-    {
-        actor.RequireHuman(Roles.Medical, Roles.Regulatory);
-        var c = await Get(id, actor, ct);
-        return await store.Execute<SafetyCase>(Context(c, input.ExpectedVersion, key, "InformationRequestApproved", input.Reason, actor, new { requestId, input }), current =>
-        {
-            var value = Require(current);
-            var request = value.InformationRequests.SingleOrDefault(r => r.Id == requestId)
-                ?? throw new DomainException("request_missing", "Anfrage fehlt.", 404);
-            var role = actor.Roles.Contains(Roles.Medical) ? Roles.Medical : Roles.Regulatory;
-            Guard.Against(request.Status != "Draft" || request.Approvals.Any(a => a.Role == role || a.ActorId == actor.Id),
-                "request_gate", "Anfrage braucht zwei verschiedene berechtigte Personen und Rollen.");
-            if (role == Roles.Regulatory)
-                Guard.Against(!request.Approvals.Any(a => a.Role == Roles.Medical), "medical_required", "Medizinische Notwendigkeit zuerst genehmigen.");
-            var approval = new Approval(Guid.NewGuid().ToString("N"), actor.Id, actor.Name, role, request.ScopeHash,
-                clock.GetUtcNow(), "Ausschliesslich simulierte minimale Informationsanforderung", Guard.Text(input.Reason, "Begruendung", 20), null);
-            var next = request with { Approvals = [.. request.Approvals, approval], Status = role == Roles.Regulatory ? "SimulatedSent" : "Draft" };
-            return value with { Version = value.Version + 1, InformationRequests = value.InformationRequests.Select(r => r.Id == requestId ? next : r).ToArray() };
-        }, ct);
-    }
-
-    public async Task<SafetyCase> RespondInformation(string id, RespondInformationCommand input, Actor actor, string key, CancellationToken ct = default)
-    {
-        actor.RequireHuman(Roles.Pms, Roles.Medical);
-        var c = await Get(id, actor, ct);
-        var text = Guard.Text(input.Response, "Synthetische Antwort", 30, 5000);
-        var hash = await objects.Put(text, ct);
-        return await store.Execute<SafetyCase>(Context(c, input.ExpectedVersion, key, "InformationResponseReceived", input.Reason, actor, input), current =>
-        {
-            var value = Require(current);
-            var request = value.InformationRequests.SingleOrDefault(r => r.Id == input.RequestId)
-                ?? throw new DomainException("request_missing", "Anfrage fehlt.", 404);
-            Guard.Against(request.Status != "SimulatedSent", "request_not_sent", "Erst nach beiden Freigaben simuliert beantworten.");
-            var evidence = new Evidence("response-" + request.Id, 1, c.ProductId, "Synthetischer Befundruecklauf", "ClinicalFollowUp",
-                text, hash, "cohors:simulated-clinic", "Simulierter gezielter Befund: Antwort", "Synthetic", "Product",
-                value.OccurredAt ?? value.FirstAwarenessAt, null, clock.GetUtcNow(), true, true, hash);
-            return Invalidate(value) with { Version = value.Version + 1,
-                InformationRequests = value.InformationRequests.Select(r => r.Id == request.Id ? r with { Status = "SimulatedAnswered", Response = text } : r).ToArray(),
-                Evidence = [.. value.Evidence, evidence], Stage = CaseStage.AwaitingMedicalReview };
-        }, ct);
-    }
-
     public async Task<SafetyCase> RecordCoding(string id, RecordCodingCommand input, Actor actor, string key, CancellationToken ct = default)
     {
         actor.RequireHuman(Roles.Medical);
@@ -724,6 +657,7 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
                 (current.FollowUps ?? []).Any(f => f.Status == "Open") ||
                 current.Submissions.Any(s => s.Status == "TransmissionUnknown") ||
                 current.InformationRequests.Any(r => r.Status != "SimulatedAnswered") ||
+                InformationRules.PendingResponses(current) > 0 ||
                 (current.Investigations ?? []).Any(i => i.Status is not ("SimulatedExamined" or "Cancelled")) ||
                 current.AgentRuns.Any(r => r.Status is "Queued" or "Running") || assessment.EvidenceHash != Canonical.Hash(current.Evidence),
                 "case_unresolved", "Offene Verpflichtungen, Nachforderungen, unklare Laeufe oder veraltete Evidenz verhindern den Abschluss.");

@@ -20,6 +20,13 @@ public sealed class OutboxProcessor(IStateStore store, CaseService cases, IKnowl
                 var requested = Canonical.Read<SafetyCase>(e.Payload);
                 await cases.ProcessAssessment(requested.Id, requested.AgentRuns.Last().Id, timeout.Token);
             }
+            if (e.Type == "InformationDispatchQueued")
+            {
+                var requested = Canonical.Read<SafetyCase>(e.Payload);
+                var dispatch = requested.InformationRequests.SelectMany(r => (r.Lifecycle?.Dispatches ?? [])
+                    .Where(d => d.QueuedCaseVersion == requested.Version).Select(d => new { RequestId = r.Id, Dispatch = d })).Single();
+                await cases.ProcessInformationDispatch(requested.Id, dispatch.RequestId, dispatch.Dispatch.Id, timeout.Token);
+            }
             if (e.Type is "EvidenceSeeded" or "PublicSourceApproved" or "EvidenceVersionPublished")
                 await search.Rebuild(timeout.Token);
             await store.CompleteEvent(id, consumer, owner, null, timeout.Token);

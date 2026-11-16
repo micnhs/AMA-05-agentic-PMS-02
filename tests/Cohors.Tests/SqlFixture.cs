@@ -172,16 +172,31 @@ public sealed class CaseScenario
     }
     public async Task Respond()
     {
+        var recipient = new InformationRecipient("test-clinical-contact", "Synthetic test clinic", "Synthetic findings desk",
+            "Simulated clinical safety contact", "Email", "findings@example.invalid", true);
         Case = await Service.AddInformationRequest(Case.Id, new(Case.Version,
             "Welche gezielten Befunde liegen zur Ursachenabgrenzung vor?", "Minimaler relevanter synthetischer Revisionsbefund",
             "Direkte Befunde sollen konkurrierende klinische und technische Ursachen abgrenzen.",
             "Simulated clinical safety contact", "Nur synthetische Demo, keine echte Patientenverarbeitung.",
-            "Nur simulierte Offenlegung, keine echte Klinikkommunikation.", Clock.Now.AddDays(7)), SqlFixture.Medical, Key());
+            "Nur simulierte Offenlegung, keine echte Klinikkommunikation.", Clock.Now.AddDays(7), recipient), SqlFixture.Medical, Key());
         var request = Case.InformationRequests.Last();
         Case = await Service.ApproveInformation(Case.Id, request.Id, new(Case.Version, "Medizinische Notwendigkeit und Datensparsamkeit geprueft.", null), SqlFixture.Medical, Key());
         Case = await Service.ApproveInformation(Case.Id, request.Id, new(Case.Version, "Getrennte Offenlegungsbefugnis und Simulatorgrenze geprueft.", null), SqlFixture.Ra, Key());
+        Case = await Service.DispatchInformation(Case.Id, request.Id, new(Case.Version, "Accept",
+            "Exakt freigegebene synthetische Anfrage separat intern zustellen."), SqlFixture.Pms, Key());
+        var dispatch = Case.InformationRequests.Last().Lifecycle!.Dispatches.Single();
+        Case = await Service.ProcessInformationDispatch(Case.Id, request.Id, dispatch.Id);
         Case = await Service.RespondInformation(Case.Id, new(Case.Version, request.Id,
             "SYNTHETISCH: Gezielter Befund liegt vor. Mechanische und klinische Ursachen bleiben unabhaengig zu pruefen.",
-            "Simulierten gezielten Befundausschnitt als neue Evidenz speichern."), SqlFixture.Pms, Key());
+            "Simulierten gezielten Befundausschnitt als neue Evidenz speichern.",
+            new("test-response-" + request.Id, Case.Id, Case.ProductId, request.Lifecycle!.CorrelationId, recipient,
+                "Synthetischer Testbefund, kein Klinikabruf.", true)), SqlFixture.Pms, Key());
+        var response = Case.InformationResponses!.Last();
+        Case = await Service.MapInformationResponse(Case.Id, response.Id, new(Case.Version, request.Id,
+            request.Lifecycle.CorrelationId, Canonical.Hash(recipient), false,
+            "Anfrage, Korrelation, Produkt und synthetischer Originalabsender wurden genau gegengeprueft."), SqlFixture.Pms, Key());
+        Case = await Service.ReviewInformationResponse(Case.Id, response.Id, new(Case.Version,
+            "Synthetische Herkunft und Befundrelevanz fuer die Bewertung geprueft; Kausalitaet bleibt weiterhin offen."),
+            SqlFixture.Medical, Key());
     }
 }
