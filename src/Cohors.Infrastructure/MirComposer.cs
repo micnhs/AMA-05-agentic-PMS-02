@@ -64,6 +64,10 @@ public sealed class MirComposer : IMirComposer
         foreach (var item in new[] { ("DeviceProblemCode", facts.DeviceProblemCode), ("DeviceLocation", facts.DeviceLocation),
             ("PreliminaryAnalysis", facts.PreliminaryAnalysis) })
             if (string.IsNullOrWhiteSpace(item.Item2)) errors.Add($"{item.Item1}: belegte Angabe fehlt.");
+        if (report.Kind == "FollowUp")
+            foreach (var item in new[] { ("InitialCorrectiveAction", facts.InitialCorrectiveAction), ("FurtherInvestigation", facts.FurtherInvestigation) })
+                if (string.IsNullOrWhiteSpace(item.Item2))
+                    errors.Add($"{item.Item1}: belegter Massnahmen-/Untersuchungsstand der Folgemeldung fehlt; keine Durchfuehrung erfinden.");
         if (facts.UdiDi is not null && c.Udi is not null && facts.UdiDi != c.Udi)
             errors.Add("UDI weicht vom Fallstamm ab; Identitaet zuerst kontrolliert klaeren.");
         var previous = c.Submissions.LastOrDefault(s => s.Status == "SimulatedAccepted" && c.Reports.Any(r =>

@@ -200,7 +200,11 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     expect(c.currentReport?.preparation?.target.nationalSubmissionReady).toBe(false)
     await raPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-ra-approved.png') })
     await raPage.setViewportSize({ width: 390, height: 844 })
-    await expect(raPage.locator('.report-target')).toBeVisible()
+    const target = raPage.locator('.report-target').first()
+    await target.scrollIntoViewIfNeeded()
+    const processHeight = (await raPage.getByRole('region', { name: 'Fallprozess', exact: true }).boundingBox())!.height
+    await target.evaluate((element, offset) => { element.scrollIntoView({ block: 'start' }); window.scrollBy(0, -offset) }, processHeight + 16)
+    await expect(target).toBeInViewport()
     expect(await raPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await raPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-ra-narrow.png') })
     expect(pageErrors).toEqual([])

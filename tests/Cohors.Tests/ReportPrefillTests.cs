@@ -112,7 +112,72 @@ public sealed class ReportPrefillRuleTests
         Assert.Contains(receipt.Checks!.ContentErrors, e => e.Contains("Simulatorquittung", StringComparison.Ordinal));
         var unknown = composer.Build(c, report, Device, Calendar, Facts() with { AuthorityReference = "Unknown", AuthorityReferenceRationale = null }, Now);
         Assert.False(unknown.Valid);
-        Assert.True(composer.Build(c, report, Device, Calendar, Facts() with { AuthorityReference = "Unknown" }, Now).Valid);
+        var justified = composer.Build(c, report, Device, Calendar, Facts() with { AuthorityReference = "Unknown",
+            AuthorityReferenceRationale = "SYNTHETISCH: Es gab keine reale NCA-Meldung und daher kein externes Aktenzeichen; nur eine interne Simulatorquittung." }, Now);
+        Assert.True(justified.Valid, string.Join("\n", justified.Errors));
+    }
+
+    [Fact]
+    public void FollowUpMissingActionAndInvestigationRemainExplicitGaps()
+    {
+        var c = WithReceipt(Case());
+        var artifact = new MirComposer().Build(c, Report(c, "FollowUp"), Device, Calendar,
+            Facts() with { InitialCorrectiveAction = null, FurtherInvestigation = null }, Now);
+        Assert.False(artifact.Valid);
+        Assert.Contains(artifact.Checks!.ContentErrors, e => e.StartsWith("InitialCorrectiveAction:", StringComparison.Ordinal));
+        Assert.Contains(artifact.Checks.ContentErrors, e => e.StartsWith("FurtherInvestigation:", StringComparison.Ordinal));
+        Assert.Empty(XDocument.Parse(artifact.Xml).Descendants("manufacturersInitialCorrecAction"));
+    }
+
+    [Theory]
+    [InlineData("EU-IE", "HPRA")]
+    [InlineData("EU-DE", "BfArM")]
+    [InlineData("EU-FR", "ANSM")]
+    [InlineData("EU-IT", "Ministero della Salute")]
+    [InlineData("NI", "Northern Ireland")]
+    public void SupportedDocumentedTargetsUseRealAuthorityNamesAndNeverClaimNationalReadiness(string jurisdiction, string authority)
+    {
+        var c = Case() with { Jurisdiction = jurisdiction };
+        c = c with { Deadlines = c.Deadlines.Select(d => d with { Jurisdiction = jurisdiction }).ToArray() };
+        var report = Report(c) with { Jurisdiction = jurisdiction, Recipient = PolicyCatalog.Recipient(jurisdiction) };
+        var calendar = Calendar with { Id = jurisdiction };
+        var preparation = ReportPrefill.Create(c, report, Device, null, calendar, VigilanceNarrative.Fields(c, "de"), "run", Now).Preparation;
+        var artifact = new MirComposer().Build(c, report with { Preparation = preparation }, Device, calendar, Facts(), Now);
+        Assert.True(artifact.Valid, string.Join("\n", artifact.Errors));
+        var nca = XDocument.Parse(artifact.Xml).Descendants("ncaName").Single().Value;
+        Assert.Contains(authority, nca);
+        Assert.DoesNotContain("SIMULATOR", nca, StringComparison.Ordinal);
+        Assert.False(artifact.Checks!.NationalSubmissionReady);
+        Assert.NotEmpty(artifact.Checks.ExternalRequirements);
+    }
+
+    [Fact]
+    public void SimilarIncidentDefaultDatesCannotMasqueradeAsKnownPeriods()
+    {
+        var c = WithReceipt(Case());
+        var similar = Facts().SimilarIncidents!;
+        var artifact = new MirComposer().Build(c, Report(c, "Final"), Device, Calendar,
+            Facts() with { SimilarIncidents = similar with { Periods = [similar.Periods[0] with { Start = default }] } }, Now);
+        Assert.False(artifact.Valid);
+        Assert.Contains(artifact.Checks!.ContentErrors, e => e.StartsWith("SimilarIncidents:", StringComparison.Ordinal));
+        Assert.Empty(XDocument.Parse(artifact.Xml).Descendants("worldSimInc"));
+    }
+
+    [Theory]
+    [InlineData(2000, true)]
+    [InlineData(2001, false)]
+    public void SimilarMethodLimitIncludesGeographiesAndDataGapReasons(int length, bool valid)
+    {
+        var c = WithReceipt(Case());
+        var composer = new MirComposer();
+        var similar = Facts().SimilarIncidents!;
+        var baseline = composer.Build(c, Report(c, "Final"), Device, Calendar, Facts(), Now);
+        var overhead = XDocument.Parse(baseline.Xml).Descendants("howWereDetermined").Single().Value.Length - similar.Method.Length;
+        var artifact = composer.Build(c, Report(c, "Final"), Device, Calendar,
+            Facts() with { SimilarIncidents = similar with { Method = new string('m', length - overhead) } }, Now);
+        Assert.Equal(valid, artifact.Valid);
+        Assert.Equal(length, XDocument.Parse(artifact.Xml).Descendants("howWereDetermined").Single().Value.Length);
+        Assert.Equal(valid, artifact.Checks!.SchemaValid);
     }
 
     [Theory]
@@ -185,6 +250,8 @@ public sealed class ReportPrefillRuleTests
         EventDateFrom = new(2026, 11, 14), EventDateTo = new(2026, 11, 14), NextReportDate = new(2026, 11, 23),
         EventClassification = "Death", DeviceProblemCode = "ZZZ", DeviceLocation = "Unknown",
         PreliminaryAnalysis = "SYNTHETISCH: ungeklaerte Kausalitaet im gezielten Strukturtest, keine echte medizinische Behauptung.",
+        InitialCorrectiveAction = "SYNTHETISCH: Der Testbefund dokumentiert noch keine abgeschlossene Massnahme, nicht deren erfundene Durchfuehrung.",
+        FurtherInvestigation = "SYNTHETISCH: Eine gezielte weitere Ursachenuntersuchung ist vorgeschlagen; kein menschlicher Termin wird hier erfunden.",
         EvidenceIds = ["proof"], Rationale = "SYNTHETISCHE TESTDATEN: ZZZ und alle Kontaktdaten sind explizite Testangaben, keine validierte Kodierung oder reale Identitaet.",
         ManufacturerName = "SYNTHETIC manufacturer", ManufacturerSrn = "DEMO-SRN", ManufacturerCountry = "IE",
         ContactFirstName = "Synthetic", ContactLastName = "Testcontact", ContactStreet = "Demo street", ContactCity = "Demo city",
@@ -207,6 +274,24 @@ public sealed class ReportPrefillRuleTests
 [Collection("SQL pilot")]
 public sealed class ReportPrefillTests(SqlFixture fixture)
 {
+    [Fact]
+    public async Task GbAuthoringIsExplicitlyNarrativeOnlyAndNeverExportsAnEuSchemaAsGb()
+    {
+        var s = new CaseScenario(fixture);
+        s.Case = await s.Service.Register(s.Input with { Country = "GB", Jurisdiction = "GB" }, SqlFixture.Pms, CaseScenario.Key());
+        await s.Assess(); await s.Prepare();
+        var report = s.Case.CurrentReport!;
+        Assert.Equal("GB-SIM-1", report.FormVersion);
+        Assert.Null(report.Mir);
+        Assert.False(report.Preparation!.Target.MirSupported);
+        Assert.False(report.Preparation.Target.NationalSubmissionReady);
+        Assert.Equal("MHRA-GB-SIMULATOR", report.Recipient);
+        Assert.Contains("7.2.1GB", report.Preparation.Target.FormFamily);
+        Assert.NotEmpty(report.Preparation.Fields.Where(f => f.Origin == "AgentDraft"));
+        Assert.Empty(s.Case.Approvals);
+        Assert.Empty(s.Case.Submissions);
+    }
+
     [Fact]
     public async Task AuthoringCreatesRealPartialMirAndFieldSourcesWithoutSendingOrApproving()
     {

@@ -273,7 +273,11 @@ public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyC
             GovernanceRules.RequireValid(governance, policies.Device(c.ProductId));
             context = context with { Dependencies = [new("productGovernance", new(governance.Id, governance.Version, Canonical.Hash(governance)))] };
         }
-        var mode = Enum.TryParse<AgentMode>(assessment.Mode, out var parsed) ? parsed : AgentMode.Replay;
+        var mode = assessment.Mode switch
+        {
+            "Human" or "Replay" => AgentMode.Replay, "Live" => AgentMode.Live, "Failure" => AgentMode.Failure,
+            _ => throw new DomainException("agent_mode", "Assessment-Modus ist unbekannt; kein stiller Replay-Ersatz.")
+        };
         var started = clock.GetUtcNow();
         var authored = assessment.Mode == "Human"
             ? new AgentOutput("none", "human-report-2", null, VigilanceNarrative.FromAssessment(c, input.Language), [], [],

@@ -24,6 +24,7 @@ public static class ReportPrefill
         var target = ReportTargets.For(report.Jurisdiction);
         CaseField("$reference", c.Reference, "Fuehrende Fallreferenz, kein Behoerdenaktenzeichen.");
         CaseField("$description", c.Description, "Originaler gespeicherter Ereignistext; kein bestaetigter Kausalitaetsnachweis.");
+        CaseField("$country", c.Country, "Dokumentiertes Ereignisland; nicht automatisch Herstellerland oder Meldejurisdiktion.");
         CaseField("$firstAwareness", Day(c.FirstAwarenessAt), "Erste Organisationskenntnis, nicht Systemeingang.");
         var covered = ReportRules.CoveredObligations(c, report);
         CaseField("$reportabilityAwareness", Day(c.Deadlines.Where(d => covered.Contains(d.Id)).Min(d => d.TriggerAt)),

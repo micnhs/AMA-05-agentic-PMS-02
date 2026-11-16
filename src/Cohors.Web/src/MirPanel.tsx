@@ -54,6 +54,7 @@ const originNames: Record<string, string> = { LeadingData: 'Führende Falldaten'
   HumanCoding: 'Menschliche Kodierung · neuer Review nötig', PriorMedicalReport: 'Bisherige medizinische Angabe · neuer Review nötig',
   HumanEntry: 'Menschlich ergänzt · noch keine Paketfreigabe', Missing: 'Fehlend / offen' }
 const systemNames: Record<string, string> = { $reference: 'Hersteller-Fallreferenz', $description: 'Originaler Ereignistext',
+  $country: 'Dokumentiertes Ereignisland',
   $firstAwareness: 'Erste Organisationskenntnis', $reportabilityAwareness: 'Kenntnis gemäß gebundener Meldepflicht',
   $reportDate: 'Entwurfsdatum', $authority: 'Fachlich zuständige Behörde', $simulator: 'Technischer Pilotempfänger',
   $device: 'Produkt / Modell', $basicUdi: 'Basic-UDI', $batch: 'Dokumentierte Charge',
@@ -93,7 +94,7 @@ export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate,
   const visibleFacts = facts.filter(f => (f.final === undefined || f.final === (report.kind === 'Final')) && (!f.afterInitial || report.kind !== 'Initial'))
   const visibleFields = preparation?.fields.filter(f => report.jurisdiction === 'GB'
     ? f.field.startsWith('$') || ['preliminaryAnalysis', 'furtherInvestigation'].includes(f.field)
-    : f.field.startsWith('$') ||
+    : f.field.startsWith('$') || f.field === 'udiDi' && f.value !== null ||
     visibleFacts.some(fact => fact.name === f.field) || f.field === 'submitterIsManufacturerContact' ||
     f.field === 'similarIncidents' && report.kind === 'Final') ?? []
   function edit() {
@@ -145,7 +146,7 @@ export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate,
     </div> : <p className="callout">Historisches Minimal-Mapping, kein nachträglich behaupteter Vorbefüllungs-/Vollständigkeitsnachweis. Für einen neuen Prüfstand einen eigenen Entwurf vorbereiten.</p>}
     <div className="row">
       <Badge tone={mir?.checks?.schemaValid ? 'blue' : 'amber'}>{mir?.checks?.schemaValid ? 'Struktur geprüft' : report.jurisdiction === 'GB' ? 'GB-MIR nicht implementiert' : 'XML-Struktur offen'}</Badge>
-      <Badge tone={mir?.valid ? 'blue' : 'amber'}>{report.jurisdiction === 'GB' ? 'Nur GB-SIM-Narrativ, keine GB-MIR-Freigabe' : mir?.valid ? 'Implementierte Pilot-Pflichtprüfungen bestanden' : 'Freigaberelevante Lücken offen'}</Badge>
+      <Badge tone={mir?.valid ? 'blue' : 'amber'}>{report.jurisdiction === 'GB' ? 'Nur GB-SIM-Narrativ, keine GB-MIR-Freigabe' : mir?.valid ? mir.checks ? 'Implementierte Pilot-Pflichtprüfungen bestanden' : 'Historische Formularprüfung · kein neuer Vollständigkeitsnachweis' : 'Freigaberelevante Lücken offen'}</Badge>
     </div>
     <p className="muted">XSD-Konformität, fachlicher Human Review und nationale Versandbereitschaft sind getrennt. Medical Safety prüft weiterhin zuerst; RA prüft das konkrete Paket oder gibt es zur Korrektur an PMS zurück. Original-PDF und Schutz bleiben unverändert.</p>
     {error && <ErrorBanner message={error} />}
