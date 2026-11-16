@@ -10,7 +10,7 @@ public sealed class InformationRequestCompatibilityTests
     [Fact]
     public void HistoricalRequestRoundTripsWithoutInventingRecipientOrDispatchProof()
     {
-        const string original = """{"id":"old-request","question":"Historical question","minimalData":"Historical minimum","relevance":"Historical relevance","recipientRole":"Historical role only","manufacturerBasis":"Historical manufacturer basis","disclosureBasis":"Historical disclosure basis","dueAt":"2026-11-20T15:00:00+00:00","scopeHash":"unchanged-original-scope","approvals":[],"status":"SimulatedSent","response":null,"simulated":true}""";
+        const string original = """{"approvals":[],"disclosureBasis":"Historical disclosure basis","dueAt":"2026-11-20T15:00:00\u002B00:00","id":"old-request","manufacturerBasis":"Historical manufacturer basis","minimalData":"Historical minimum","question":"Historical question","recipientRole":"Historical role only","relevance":"Historical relevance","response":null,"scopeHash":"unchanged-original-scope","simulated":true,"status":"SimulatedSent"}""";
         var request = Canonical.Read<InformationRequest>(original);
         Assert.Equal(original, Canonical.Serialize(request));
         Assert.Null(request.Lifecycle);
