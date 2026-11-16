@@ -54,6 +54,9 @@ public sealed class SqlFixture : IAsyncLifetime
         Store = new(ConnectionString);
         await Store.Initialize();
         objectDirectory = Path.Combine(home, ".local", database, "blobs");
+        if (Environment.GetEnvironmentVariable("COHORS_TEST_RESOURCE_FILE") is { Length: > 0 } resourceFile)
+            await File.WriteAllTextAsync(resourceFile, Canonical.Serialize(new
+                { database, objectDirectory, testHostPid = Environment.ProcessId, createdAt = DateTimeOffset.UtcNow }));
         Objects = new LocalObjectStore(objectDirectory);
         Policies = DemoBaseline.LoadPolicies(Path.Combine(home, "policies"));
         var clock = new TestClock(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
@@ -76,6 +79,9 @@ public sealed class SqlFixture : IAsyncLifetime
         var directory = Path.GetDirectoryName(objectDirectory);
         if (directory is not null && Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
             Directory.Delete(directory);
+        if (Environment.GetEnvironmentVariable("COHORS_TEST_RESOURCE_FILE") is { Length: > 0 } resourceFile)
+            await File.WriteAllTextAsync(resourceFile + ".terminal.json", Canonical.Serialize(new
+                { database, objectDirectory, databaseRemoved = true, objectsRemoved = !Directory.Exists(objectDirectory), at = DateTimeOffset.UtcNow }));
     }
 }
 
