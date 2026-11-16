@@ -712,10 +712,11 @@ getrennte Identitaeten, Scope-/Originalbelegmanipulation, geaenderte
 Fallgrundlage, keinen Scheinabschluss, Versions-/Idempotenzbindung,
 unveraenderte Fristen, Variantenhistorie, den gespeicherten Audit-Quellhash
 einer aelteren JSON-Form sowie falsche Objektbytes und Scope-Verweigerung.
-Das sind **Testquellen, keine zehn bestandenen Faelle**. Es gab in diesem
+Das waren in diesem Quellblock **Testquellen, keine zehn bestandenen Faelle**. Es gab in diesem
 Folgeblock keinen SDK-/Build-/SQL-/Docker-/Browser-/Lastlauf und keine
 Promotion. Ein eigener B10-Workbench-/Browserfall bleibt nach der neuen
-Cockpit-Priorisierung offen.
+Cockpit-Priorisierung offen. Die spaeter tatsaechlich ausgefuehrten zehn
+Backendfaelle sind unten dem eigenen Cockpit-Pruefstand zugeordnet.
 
 Die laufende d166658-Demo, 27672ae/2a-Rueckfaelle, Konten, Daten, Schluessel
 und Nutzerbrowser bleiben unveraendert. Die beiden historischen
@@ -731,7 +732,7 @@ Prozessableitung, Fallzugangsdiagramm, exakte Risiko-/Pruefstand-/Prozesszahlen,
 KPI-Drilldowns und Monatskalender mit Agenda/Quellnavigation. Es werden keine
 fehlenden Risikogruppen oder Termine erfunden und keine Fristen neu berechnet.
 
-Vorbereitet sind neun SQL-freie `WorkspaceReadRuleTests` (einschliesslich
+Tests04 umfasst neun SQL-freie `WorkspaceReadRuleTests` (einschliesslich
 beider DST-Tageslaengen) und drei `WorkspaceReadSqlTests`. Sie pruefen
 Fallzugang statt Kenntnis/Ereignis, Umfang/Produktberechtigung, unbekannte
 Risikogruppen, menschlichen Override und veraltete Analyse, aktuellen
@@ -757,13 +758,84 @@ Das Profil verwendet eine eigene SQL-Fixture;
 wegen seiner ausdruecklich angelegten Leitserie ist es vom unveraenderten
 elfteiligen `Preview`-Profil getrennt, nicht dessen Ersatz.
 
-Der gebundene Prueflauf soll zudem die sieben B10-Regel-/drei B10-SQL-Faelle,
-bestehende Prozess-/Signatur-/Nichtmelde-/Follow-up-Regressionen einschliessen.
-**Bis zu protokollierten Ergebnissen ist dies Pruefumfang, keine bestandene
-Abnahme.** Ein frischer lesender Alt/Neu-Abgleich muss vor einer Promotion
-auch heutige PSUR-/BS-Fassungen erhalten. Die offene B10-Workbench und der
-neu nachfolgende Pflichtfeld-Vervollstaendigungsauftrag sind nicht als
-Bestandteil dieser UI-Abnahme erledigt.
+### Tatsaechlicher Stand vom 16.11.2026: Browserabnahme blockiert
+
+**Keine neue Bereitstellung.** App-Quelle
+`4b0442680e3c20836908fbfd8c9c8062eaa53e34` ist mit Build04 gebaut und mit
+**44/44 gezielten Domain-/SQL-Faellen, ohne Skips**, geprueft. Enthalten
+sind die zwoelf Workspace-Faelle, sieben B10-Regel-/drei B10-SQL-Faelle,
+17 Prozessfaelle, vier Sicherheits-/Freigaberegressionen und ein
+Follow-up-Fall. Das ist keine neue Vollsuite und keine B10-Workbench-Abnahme.
+
+Die spaetere Browserquelle
+`3a1f0153ccd82d11a4e0bc6780e142b97121e507` aendert ausschliesslich elf
+Select-Lokatoren zu exakten Combobox-Rollen/Namen. App-/Build-/C#-Eingaben,
+sechs Testassemblies und die 16 protokollierten Paketdateien wurden vor
+Wiederverwendung hashgleich geprueft. Build04 und die 44 Ergebnisse sind
+**weiter passende fruehere Belege, keine erneut ausgefuehrten Laeufe**.
+Die Wiederverwendung ist jeweils in `browser-03-binding.json` bzw.
+`browser-04-binding.json` getrennt an App- und Browserquelle gebunden.
+
+| Beleg unter `.local\cockpit-calendar-01` | Ergebnis / SHA256 |
+| --- | --- |
+| `build-04-result.json` | Web/TypeScript und C# erfolgreich; `3279069f90794bd35c9082b38dfadc830911abfc220f203a24f0ab37a2f4d916` |
+| `build-04-source.json` | App-/Build-/Testeingaben; `c1269662d09a2df9eff4eae7e1ef2630e6183bfa48af4564a6bfe8e768548415` |
+| `tests-04.trx` | 44/44, keine Skips; `744f9dd9ec9db9d34decb5b16ec0d8def983d2416ce1f4836e978c0e880b5fc8` |
+| `browser-03\e2e-results.xml` | 3 bestanden, T10 fehlgeschlagen, 0 Skips; `2555e66d259f895182e89361ee3542244b872649949827b6e95b0086275bc78e` |
+| `browser-04-bounded-result.json` | Fehlgeschlagen, 600-s-Aussengrenze erreicht, Streams noch offen; `19b3c49f21ba3afb71f242a695b616afe67e96829b1e8498d55166129d4bf8e7` |
+| `browser-04\private-browser.log` | D01 negativ, nur D02/SQL-Workflow/T10 reporter-ok; keine abgeschlossene JUnit; `438a894c791fd551c82009f03148c15935a10d49e0a47c9fb180488ad72871e5` |
+| `browser-04-independent-cleanup-result.json` | Gesonderter begrenzter Cleanup erfolgreich; kein nachtraeglicher Browserpass; `7c0b987ee4f40ffe8be612250e98bc5b260ae5a875ffdaa894ed16b56fc75ee7` |
+| `browser-04-bounded-cleanup.json` | Erfasste PIDs, genaue Testdatenbank, Zugangsdaten, Objekte und beide privaten Browserprofile abwesend; `adabcb271903f3978f73ab8d101bc4309db61460f61bac55172ef5578d0a18b1` |
+
+Die vorherigen negativen Belege bleiben erhalten: Browser01 fand wegen
+des am vollqualifizierten Titel falsch verankerten Profilfilters keine
+Tests. Browser02 fuehrte alle vier Faelle aus, scheiterte aber an exakten
+Label-Abfragen verschachtelter Selects. Die Korrekturen veraenderten
+weder Fachassertionen noch Falltimeouts. Die abgebrochenen Build03-/Verify05-
+Anlaeufe sind separat protokolliert und nicht als erfolgreiche Laeufe gezaehlt.
+
+Browser03 loeste in T10 nach 90,010 s bereits bei `context.newPage()` vor
+Navigation aus; der gesamte Ergebnis-/Browserabbau dauerte 24,7 Minuten.
+Browser04 pruefte T10 danach erfolgreich in 6 s, hatte jedoch einen eigenen
+D01-Negativbefund und erreichte beim Browserabbau die neue Aussengrenze.
+**Erfolge verschiedener Versuche werden nicht zu 4/4 zusammengesetzt.**
+Der konkrete D01-Fehlertext wurde vor dem abgebrochenen Suiteabschluss
+nicht persistiert; daraus wird kein vermuteter App-Fehler abgeleitet.
+Eine zwischenzeitliche Aussage, alle vier Faelle seien reporter-ok,
+war falsch und wurde anhand des vollstaendigen Logs ausdruecklich korrigiert.
+
+Der erste Cleanup04 blockierte sicher an einer noch vorhandenen erfassten
+Node-PID. Nach deren eigenstaendigem Ende bestaetigte ein unabhaengiger,
+auf 60 s begrenzter Cleanup alle sechs erfassten PIDs und beide Profile als
+abwesend und pruefte die SQL-Abwesenheit der genau zugeordneten Testdatenbank.
+Es gab keinen Prozessabschuss auf ungeklaerte Identitaet, keine globale
+Browser-/Richtlinienaenderung und keinen Eingriff in den Nutzerbrowser.
+Der private Port 5197 wurde danach als frei geprueft; 5187 blieb auf d166658.
+
+Der urspruengliche gebundene Supervisor blieb unveraendert. Eine getrennte
+Helferversion fuehrt Cleanup auch bei einer Ausnahme des Ausfuehrungsabschlusses
+in einem unabhaengigen `finally` aus und erhaelt beide Fehler getrennt.
+`browser-boundary-check-02.json` belegt den echten eigenen Sleep-Prozessstopp
+und drei rein synthetische Fehlerpfade, nicht einen neuen Browserlauf.
+Auch die verstaerkte Bestandssicherung ist nur offline geprueft:
+`preserved-gate-offline-01.json` enthaelt acht bestandene synthetische Faelle.
+Jede aktuelle Zeile muss ihrer eigenen Kind/Id/Version-Historienkopie
+entsprechen, gleiche Versionen zusaetzlich dem Capture; legitime neuere
+Versionen bleiben erlaubt. Alt/Neu-Vergleich ist fuer getrennte frische
+PowerShell-Prozesse mit tatsaechlich geladener Domain-Location/SHA und
+identischem Helferhash vorbereitet, **noch nicht am Livebestand ausgefuehrt**.
+
+Vor einem weiteren Browserlauf sind eine neue ausdrueckliche Laufzuteilung,
+persistente Fehlerdetails beim Testende und die begrenzte Abbau-/Cleanup-
+Strategie erforderlich. Ein separat gebundener Chromium-Gegenversuch
+waere eine Umgebungspruefung, kein Beweis einer Edge-Ursache; das von
+Playwright 1.56.1 erwartete Chromium-1194-Binary fehlt am abgefragten
+Standardpfad. Es wurde kein Browser gestartet oder installiert.
+Erst nach erfolgreicher gebundener Browserabnahme darf der frische lesende
+Alt/Neu-Abgleich heutige Faelle, PSUR-/BS-Fassungen und Historien fuer eine
+Promotion pruefen. Die offene B10-Workbench sowie Pflichtfeld-
+Vervollstaendigung, Informationsnachforderungs-/Antwortzuordnung und
+Reviewhistorie/Neubewertung sind damit nicht erledigt.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 
