@@ -5,18 +5,20 @@
 ## Qualifizierter lokaler Preview-Schnitt
 
 Die aktuell veroeffentlichte **5187-Vorschau** verwendet
-`.local\app-replay-required-a6df31f` aus
-**`a6df31ffa7fc24379b0d27e681b744e32554588a` / Pflichtfelder Build02**.
-Die erneute Pflichtfeld-Vervollstaendigung, nachvollziehbaren Ausnahmen und
-Erhaltung menschlicher Angaben sind mit **44/44 gezielten nativen Faellen
-und 1/1 vollstaendigen V01-Fall im separat gebundenen Chromium Headless Shell**
-geprueft. Die vorherige Ablehnungssicht, direkte Wiederaufnahme und
-Kontowechselgrenzen bleiben erhalten; ihre 25/25- und 4/4-Nachweise sind
-historische, nicht erneut ausgefuehrte Ergebnisse.
+`.local\app-replay-rfi-742db5d` aus
+**`742db5d7fc11b394436f9524b565fbb6f2b1077f` / Nachforderungen Build02**.
+Benannte Empfaenger, getrennte Freigabe und simulierte Zustellung,
+originalgebundene Ruecklaeufe, menschliche Zuordnung und separate
+Medical-Quellenpruefung sind mit **20/20 gezielten nativen Faellen und
+2/2 vollstaendigen R01-/V01-Faellen im privaten Chromium Headless Shell**
+geprueft. Browserquelle ist `8397fe47e67a861b2efd91fbddafe31cb9a7d06a`.
+Die vorherigen Pflichtfeld-, Ablehnungs-/Wiederaufnahme- und
+Kontowechselnachweise bleiben erhalten; ihre 44/44- beziehungsweise
+25/25-Serien sind historische, nicht neu ausgefuehrte Vollumfaenge.
 Die eigenen Abschnitte unten trennen diese Abnahmen. Aktive Grenzen bleiben `Retention:PhysicalMode=Disabled`,
 `Seed=false`, `AutoMigrate=false`, `LocalOperations=true` und
 `AgentTransport=Local`. Der unmittelbare unveraenderte Rueckfall ist
-`.local\app-replay-signals-603ea28`; die vier aelteren Pakete bleiben ebenfalls erhalten.
+`.local\app-replay-required-a6df31f`; die fuenf aelteren Pakete bleiben ebenfalls erhalten.
 
 ### Historischer Vorbefuellungsschnitt d166
 
@@ -1245,6 +1247,124 @@ Migration, Datenkorrektur, echter Versand oder Live-Foundry-Aufruf;
 umfassendere Reviewhistorie und echter On-demand-Dokumentimport bleiben
 die getrennte Folgequeue; dieser Teilabschluss erweitert weder
 Load/Recovery/Cloud-Freigaben noch die fachliche Gesamt-Abnahme.
+
+## Nachforderungen: Kontakt, Zustellung und Originalruecklauf geprueft und bereitgestellt
+
+Am **16.11.2026 um 21:27:27Z** wurde Build02 aus
+`742db5d7fc11b394436f9524b565fbb6f2b1077f` kontrolliert auf5187
+bereitgestellt; beobachtete eigene API-PID **119536**, Start
+21:26:52.8452731Z. Der getrennte Browsercheckpoint ist
+`8397fe47e67a861b2efd91fbddafe31cb9a7d06a`.
+Die alte a6df-API wurde erst nach frischem Identitaets-/Datenabgleich gestoppt.
+Der neue Supervisor bleibt bewusst aktiv; Paket und Belege sind unveraenderlich.
+
+**Bedienweg:** Fallakten -> Informationsbedarf -> Anfrage entwerfen.
+PMS/Medical benennt den synthetischen Kontakt, Organisation, Rolle,
+vorgesehenen Kanal und Zielreferenz ausdruecklich. Medical und die getrennte
+RA-Identitaet genehmigen genau diese Anfrage. Erst der eigene Sendeauftrag
+erzeugt `SendPending`; der vorhandene Outbox-Worker liefert einen separaten
+simulierten Zustellungs-/Fehlerbeleg. E-Mail/Telefon/Portal sind beabsichtigte
+Kontaktkanaele, keine real angeschlossenen Transporte.
+
+Originalruecklauf und Text bleiben hashgebunden erhalten. Fehlende oder
+widerspruechliche Referenzen bleiben sichtbar zurueckgehalten, nicht mit
+der letzten Anfrage verbunden. Nur fehlende Angaben koennen begruendet
+zugeordnet werden; widerspruechliche Angaben werden damit nicht ueberstimmt.
+Die Zuordnung erzeugt unbestaetigte Evidenz und menschliche Reviewarbeit,
+keinen KI-Auftrag. Medical prueft danach getrennt die Quelle.
+Dies ist weder eine klinische Wahrheitsbestaetigung noch eine Fall-,
+Assessment- oder Meldefreigabe. Alte Freigaben, eingefrorene Pakete,
+Awareness und Fristen werden nicht reaktiviert, ueberschrieben oder pausiert.
+Altanfragen ohne Lifecycle bleiben lesbar, aber ihr frueheres
+`SimulatedSent` wird nicht nachtraeglich als eigenstaendiger Versandnachweis ausgegeben.
+
+Build01 aus0c7e2af enthielt den neuen Schnitt. Native01 endete **19/20**:
+Nur die neue historische Test-JSON hatte nicht die bereits zuvor verwendete
+kanonische Feldreihenfolge/Offset-Escapierung. Die separat geladene alte
+a6df-Domain lieferte die exakten historischen Bytes; allein dieses Literal
+wurde in742db5d korrigiert, keine Assertion oder Anwendungslogik.
+Build02 verwendete nach Dateibindungspruefung unveraendertes Web01.
+Native02 pruefte **20/20, keine Skips**: zwoelf neue Lifecycle-/Kompatibilitaetsfaelle
+und acht unmittelbar gekoppelte Assurance-, Awareness-, Follow-up-,
+Abschluss- und Prozessprojektionsregressionen. Eigene SQL-/Objektressourcen
+wurden terminal entfernt; keine neue Vollsuite.
+
+**Negative Browserbelege bleiben erhalten:** Browser01 scheiterte vor
+Readiness und vor jedem Browserfall am nativen SqlClient-SNI-Lader
+(`0x800700CE`, Dateiname/Pfad zu lang). Alle **116** Paketdateien wurden
+byteidentisch an den separat gebundenen kurzen Pfad
+`.local\rfi-b02-742db5d` kopiert; der dokumentierte SNI-Pfad verkuerzte sich
+von253 auf215 Zeichen. Keine Anwendungs-, Betriebssystemrichtlinien- oder
+globale Runtimeaenderung; das urspruengliche Build02 blieb erhalten.
+
+Browser02 endete **1 bestanden/1 fehlgeschlagen/0 uebersprungen**.
+R01 erreichte den zugestellten Anfragezustand, wartete dann bis210s auf
+einen falschen exakten Label-Selektor am vorbelegten Antwort-Textarea.
+Snapshot und installierter Playwright-Selektorcode zeigen: Der umschliessende
+Labeltext enthaelt auch den vorbelegten Text; der zugreifbare Textboxname
+enthaelt ihn nicht. Nur dieser Selektor wurde in8397fe4 korrigiert.
+Der zusaetzliche Context-Close-Fehler am Testtimeout ist kein Nachweis
+eines fachlichen Fristfehlers. Beide negativen Versuche haben terminale,
+erfolgreiche eigene Cleanup-Belege; sie werden nicht zu Erfolgen umgedeutet.
+
+**Browser03** pruefte R01 (**79,728s**) und den unveraenderten V01
+(**87,165s**) gemeinsam: **2/2, keine Skips oder Retries**, nativer JUnit,
+Reporter-Ende, geschlossene Streams und erfolgreiche unabhaengige Bereinigung.
+Die Grenzen bleiben **600s Ausfuehrung /60s Cleanup /10s Stop**;
+beide Falltimeouts bleiben210s. Der private, versionspassende Headless-Shell-
+Bestand und sein vorhandener Shutdown-Nachweis wurden unveraendert wiederverwendet.
+Es ist keine neue Edge-/Full-Chromium-Freigabe.
+
+R01 belegt an einem eigenen synthetischen Fall die Folge
+`Draft -> Approved -> SendPending -> SendFailed -> SendPending ->
+TransmissionUnknown -> SimulatedSent -> Held -> MappedUnconfirmed ->
+SourceReviewedNotCaseApproved`. Der Workflowbeleg zeigt beide Originalhashes,
+bewahrt fehlende Originalreferenzen, bestaetigt unveraenderte Fristen/
+Awareness sowie **0 KI-Analysen, 0 reale Uebermittlungen und 0 Fallfreigaben**.
+Fremder Produktscope und unberechtigte RA-Quellenpruefung wurden abgewiesen.
+Die Screenshots des Empfaengers/Versandbelegs und unbestaetigten Befunds
+wurden gelesen; sie stammen aus der privaten Abnahme, nicht aus Nutzerfaellen.
+
+Der neue frische Alt-a6df-/Neu-Build02-Abgleich umfasst **249 aktuelle/
+historische Zeilen, 30.415.374 Byte,17 Faelle, zwei PSURs, Schema2**.
+Getrennte Prozesse verifizierten die tatsaechlich geladenen Domain-Pfade/
+Hashes. Keine neue typisierte oder Freigabedrift; zwei bekannte Altanomalien
+blieben unveraendert. Das byteidentisch uebernommene starke Preserved-Gate
+prueft jede Live-Zeile gegen ihre eigene Historie, gleiche Versionen gegen
+den Capture und saemtliche alten Versionen; legitime Fortschritte sind erlaubt.
+Die native Eigentumspruefung bleibt vor Stop und nach Start unabhaengig
+begrenzt; keine CIM-/GetOwner-Abfrage, Elevation oder unsichere Annahme.
+
+| Beleg unter `.local\information-request-lifecycle-01` | SHA256 |
+| --- | --- |
+| `build-02-result.json` | `0f5569d9115f1de50c13890bad12d8add0b989c6520cd6f35cc074d1ee678d08` |
+| `tests-02-result.json` | `43b4183d657566070cd909beb7a3d1cc3961e81760abe84822574611edd924a4` |
+| `tests-02.trx` | `c5a8ee2a09689d7dbeab1f8d0f9701d555970e94dfc56fa9bccbc89fdd31cd95` |
+| `browser-03-binding.json` | `96ed76e119ade3e19beac6dd6b60c7c2e37d88e124c0186a77a4d2bc51dc1da2` |
+| `browser-03\e2e-results.xml` | `ba13a60c971d37eca207764c20d8df9e74f6e51f9e8864453ca297dd31aba784` |
+| `browser-03-bounded-result.json` | `6bde9183aac17ef9ed3121e756ba935a80f12caa47f95ea44f36ccb8ca20a7ad` |
+| `browser-03-bounded-cleanup.json` | `41a5aed15777248ef264883d97bed081e5be9cc16f557759987e56df01989ac4` |
+| `browser-03\information-lifecycle-workflow.json` | `ca2e418156595d346a6467b2f4d56d404c127183fa0115035b4a3c49650dd194` |
+| `application-location-02.json` | `c16512272884106cb4c1af9f26108ef23b950fd5f85e18d2bbb75f5a0ea6ab04` |
+| `compatibility-01-verified.json` | `db3e8c931cb50216bd22e2498e778a3234d414022c84225ace4e5a9ca022c682` |
+| `compatibility-01-preserved.json` | `ff410e4d07ab8b530ca5824cd928d182ab251ceedce95cc35d9085dff73762bc` |
+| `promotion-01-preflight.json` | `7018a395051542d872b6800371f18aee436a06d7a0779f85e71869af76dc3433` |
+| `promotion-01-result.json` | `1ce71c675b58c96fc0c72c16c82bbb762f00e7476471adda10b7eb9e3ba0148b` |
+| `promotion-helper-preparation.json` | `868c0ee3185693106dd656e0aacf8663674b43818a3d3512ca67c762da497e14` |
+| `identity-self-check-01.json` | `5bff02fd378bf162211e160c4733e2f8f079a8649f9c20cc6ecf534d7924dee4` |
+| `tests-01.trx` (negativ) | `436822bfbbf976952b0d0813188db4a41e7dee48502c7247ab9d2c1d37c51358` |
+| `browser-01\private-api.log` (negativ) | `3dc742954f2ab8af5e369d5483ec5a1285134d745b7d445017aaa544aaa51507` |
+| `browser-02\e2e-results.xml` (negativ) | `be69b06bb8a0aaf9ba274597f43c32164444fa94876f576b11880e709b9e36d6` |
+
+Tatsaechliche HTML-/JS-/CSS-Bytes, Health, autorisierte lesende Projektionen
+und effektive sichere Overrides wurden nach Umschaltung bestaetigt.
+Nutzerstaende, Accounts, Schluessel, Originalobjekte und alle sechs
+Rueckfallpakete sind erhalten. Kein Seed, keine Migration/Datenkorrektur,
+kein echter Versand, keine Live-Foundry-/Cloud-/Load-/Recovery-Ausfuehrung
+und kein Zugriff auf den Nutzerbrowser `cohors-tryout`.
+EUDAMED/Domibus mit lokalem Simulator ist der ausdruecklich priorisierte
+naechste Auftrag, nicht durch diese Nachforderungsabnahme implementiert.
+Umfassendere Reviewhistorie und echter Dokumentimport bleiben danach offen.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 
