@@ -5,15 +5,18 @@
 ## Qualifizierter lokaler Preview-Schnitt
 
 Die aktuell veroeffentlichte **5187-Vorschau** verwendet
-`.local\app-replay-signals-603ea28` aus
-**`603ea28a093c4e455ade5d4813ff7470425c8175` / Signal-Review Build03**.
-Die Ablehnungssicht, direkte Wiederaufnahme und Kontowechselgrenzen sind mit
-**25/25 gezielten Domain-/SQL-Faellen und 4/4 Chromium-Faellen** geprueft.
-Der eigene Abschnitt unten trennt diese neue Abnahme von den historischen
-Ergebnissen. Aktive Grenzen bleiben `Retention:PhysicalMode=Disabled`,
+`.local\app-replay-required-a6df31f` aus
+**`a6df31ffa7fc24379b0d27e681b744e32554588a` / Pflichtfelder Build02**.
+Die erneute Pflichtfeld-Vervollstaendigung, nachvollziehbaren Ausnahmen und
+Erhaltung menschlicher Angaben sind mit **44/44 gezielten nativen Faellen
+und 1/1 vollstaendigen V01-Fall im separat gebundenen Chromium Headless Shell**
+geprueft. Die vorherige Ablehnungssicht, direkte Wiederaufnahme und
+Kontowechselgrenzen bleiben erhalten; ihre 25/25- und 4/4-Nachweise sind
+historische, nicht erneut ausgefuehrte Ergebnisse.
+Die eigenen Abschnitte unten trennen diese Abnahmen. Aktive Grenzen bleiben `Retention:PhysicalMode=Disabled`,
 `Seed=false`, `AutoMigrate=false`, `LocalOperations=true` und
 `AgentTransport=Local`. Der unmittelbare unveraenderte Rueckfall ist
-`.local\app-replay-cockpit-4b04426`; aeltere Pakete bleiben ebenfalls erhalten.
+`.local\app-replay-signals-603ea28`; die vier aelteren Pakete bleiben ebenfalls erhalten.
 
 ### Historischer Vorbefuellungsschnitt d166
 
@@ -1084,10 +1087,164 @@ Der explizite Intake-Schalter **Explizites Replay-Profil** demonstriert
 Agentenablehnung mit einer klar synthetischen Begruendung; das ist keine
 verifizierte inhaltliche Irrelevanz. Die falllosen Browserquellen waren
 ausdruecklich synthetische Metadaten einer privaten Fixture, kein echter
-Dateiimport oder Publikationsabruf. On-demand-Dokumentimport,
-Pflichtfeld-Vervollstaendigung, Nachforderungszuordnung und umfassendere
-Reviewhistorie bleiben getrennte Folgeauftraege. Load/Recovery/Cloud und
+Dateiimport oder Publikationsabruf. Am Ende dieses Schnitts blieben
+On-demand-Dokumentimport, Pflichtfeld-Vervollstaendigung,
+Nachforderungszuordnung und umfassendere Reviewhistorie getrennte
+Folgeauftraege. Die anschliessende Pflichtfeld-Auslieferung ist unten belegt. Load/Recovery/Cloud und
 eine neue Vollsuite wurden durch diesen Schnitt nicht freigegeben.
+
+## Pflichtfelder erneut vervollstaendigen: geprueft und bereitgestellt
+
+Am 16.11.2026 um **19:42:26Z** wurde die verifizierte Fortsetzung auf
+`http://localhost:5187/` bereitgestellt: **App-/Browserquelle
+`a6df31ffa7fc24379b0d27e681b744e32554588a`, Build02,
+Paket `.local\app-replay-required-a6df31f`**. Der eigene API-PID **113120**
+ist nur die damalige Beobachtung; spaetere Eingriffe erfordern erneut
+eine frische, begrenzte Eigentumspruefung.
+
+Der Nutzerweg liegt im Fall unter **Human Review & Meldung**:
+**Pflichtfelder erneut durch Agenten vervollstaendigen** startet auch fuer
+Medical einen neuen Entwurf ohne erneute Eingabe bekannter Werte.
+Gebundene Fall-/Produkt-/Herstellerdaten und eindeutig geeignete
+Kontaktbelege werden mit Versions-/Hashherkunft uebernommen.
+Vorhandene menschliche Angaben, auch aktuell nicht angezeigte UDI-Felder,
+werden erhalten; abweichende Quellen werden nicht still bevorzugt.
+Die gesonderte Sektion **Nicht automatisch befuellbar - Angaben oder
+Belege erforderlich** nennt lesbare Feldbezeichnung, Grund und benoetigte
+Information mit direktem Bearbeitungs-/Nachforderungs-/Quellenweg.
+Technische Feldschluessel bleiben getrennt einsehbar.
+
+Ein Kontakt muss bereits als integritaetsgepruefte, genehmigte synthetische
+Evidenz fuer genau Produkt, Hersteller-SRN, Zieljurisdiktion und
+Hersteller-Melderrolle an den Fall gebunden sein. Das ist **keine neue
+Kontaktstammdaten- oder Kontaktimport-Oberflaeche** und kein Befuellen aus
+Reviewer-Login oder PRRC. Ohne geeigneten Beleg bleibt die Angabe sichtbar
+offen. Mehrere verschiedene Kontakte oder mehrere Codes fuer ein benoetigtes
+skalares MIR-Feld werden nicht beliebig zusammengefuehrt oder ausgesucht.
+Quellkonflikte erfordern eine ausdruecklich begruendete menschliche
+Aufloesung; Pflicht-/XSD-Pruefungen bleiben wirksam.
+Eine neue Folgeterminzusage bleibt menschlich. Derselbe bereits zugesagte
+Termin bleibt bei der Vervollstaendigung desselben Meldeanlasses erhalten.
+Jeder neue Entwurf benoetigt neue Medical-/RA-Freigaben; alte Berichte,
+Signaturen und Fristen bleiben Historie, nicht aktuelle Freigabe.
+
+**Build01 bleibt negativ:** Web/TypeScript lief erfolgreich, der
+C#-Testbuild scheiterte am fehlenden expliziten `HistoricalAsOf`-Argument
+im neuen Mehrfachcode-Test. Die Korrektur von `8cd4f14` nach `a6df31f`
+betrifft nur diesen Test. Build02 weist alle unveraenderten App-/Web-/
+Build-Eingaenge nach und **verwendet Web01 erneut**, ohne einen zweiten
+Webbuild zu behaupten. C#-Build und privates Publish bestanden;
+**116 Paketdateien, 16 zentrale Anwendungs-/Assetdateien und sechs
+Testassemblies** sind gebunden.
+
+**44/44 neue gezielte native Faelle, keine Skips:** 34
+`ReportPrefillRuleTests`-Instanzen, sechs SQL-`ReportPrefillTests`,
+T07/T08 fuer Freigabescopes/getrennte Menschen, T13 fuer unklaren Empfang
+und beide bestehenden Wiederaufnahmerollen. Geprueft wurden unter anderem
+Kontakteligibilitaet und widerspruechliche Quellen, menschliche Werte und
+Terminzusagen, bedingte Initial-/Final-Codes, Medical-Neuversuch,
+Historien-/Fristerhaltung und alte optionale JSON-Vertraege.
+Eigene SQL-/Objektressourcen wurden entfernt. Diese 44 sind nicht die
+historischen Cockpit-44; nach den Browserproblemen wurden sie **nicht**
+nochmals ausgefuehrt.
+
+**Browser01 und Browser02 bleiben insgesamt fehlgeschlagen.** V01 bestand
+jeweils seine Fachassertionen (79,035 s / 130,023 s), aber beide Laeufe
+blieben beim Browserabbau ohne finales Reporter-Ende/JUnit stehen.
+Die unveraenderten 600-s-Aussengrenzen griffen; die ersten Cleanup-Versuche
+blockierten an verbliebenen aufgezeichneten Node-PIDs. Spaetere getrennte
+Recovery-Belege bestaetigen die Entfernung der genauen Ressourcen.
+Bei Browser02 wurden nur die frisch nativ nach Owner, Image,
+Erstellungszeit und vollstaendiger Befehlszeile geprueften eigenen
+Runner-/Worker-PIDs einzeln beendet. Kein Benutzerbrowser, kein CIM,
+keine Elevation, kein Zusammenrechnen von Teilpasses.
+
+Ein kurzer isolierter **Shutdown-Probe01 ohne Cohors/API/SQL** reproduzierte
+den Stillstand mit drei `about:blank`-Kontexten: CDP-Pipes3/4 schlossen,
+nach 35 s fehlten Prozess-exit/close und Streamabschluss1/2.
+Die 60-s-Grenze hielt. Eine zeitweise gesperrte Datei des eigenen Profils
+wurde nicht durch Beenden eines unbekannten Prozesses freigemacht;
+der spaetere begrenzte Cleanup war erfolgreich. Die genaue native
+Dateihalterabfrage ergab keinen Halter und damit keinen Ursachennachweis.
+
+Als gezielte private Alternative wurde der zur **unveraenderten
+Playwright1.56.1** gehoerende klassische **Chromium Headless Shell1194 /
+141.0.7390.37** gebunden. Erst nach echter SDK-Missing-Binary-Meldung wurde
+die Abhaengigkeit bereitgestellt. Auch der begrenzte CLI-Installationsversuch
+blieb negativ; die alternative native Extraktion des exakt vom SDK
+gewaehlten offiziellen ZIP wurde gegen **alle 13 Archivdateien
+bytegeprueft**. Die Shell besitzt keine PE-Versionsressource: ein erster
+PE-basierter Pruefversuch bleibt negativ, anschliessend wurden die
+tatsaechliche `--version`-Ausgabe und die Browserprotokoll-Version
+jeweils exakt geprueft. Es wird kein erfolgreicher CLI-Installer behauptet.
+Binary-SHA256:
+`ed19d88b4486c39c0265b0c07cbf1d6835d06069e600bede1adb09db0df46c8e`.
+Node26, Playwright, Lockfile, bestehendes Chromium und globale
+Browser-/Unternehmensrichtlinien wurden nicht geaendert.
+**Shutdown-Probe02** schloss alle Streams und den eigenen Prozess normal
+mit Exit0 und separatem erfolgreichem Cleanup; erst danach lief V01 neu.
+
+**Browser03: 1/1 vollstaendiger nativer V01-Fall, 0 Fehler/Skips/Retries,
+32,017 s.** App-/Browserinputs, Assertions und 210-s-Falltimeout sind
+unveraendert; `COHORS_BROWSER=chromium-headless-shell`, Binary, Version,
+privater Cache und neue Helfer sind getrennt gebunden. Nativer JUnit,
+finales Reporter-`end=passed`, normale Ausfuehrung und unabhaengiges
+`finally`-Cleanup mit geschlossenen Streams bestanden gemeinsam.
+Die Grenzen bleiben **600 s Ausfuehrung / 60 s Cleanup / 10 s Stop**.
+Die vier aufgezeichneten API-/Node-/Browser-PIDs, genaue Testdatenbank,
+private Settings/Zugaenge/Objekte und das Profil sind entfernt.
+`prefill-workflow.json` belegt Medical-Neuversuch ohne Wiedereingabe,
+erhaltene verborgene UDI, Agententexte, historische Signaturen und
+Fristen, **0 aktuelle Freigaben, 0 automatische Uebermittlungen und
+0 Seitenfehler**. Die beiden Screenshots fuer Medical und schmale
+RA-Ansicht wurden gelesen. Dies ist ein eigener Headless-Shell-Nachweis,
+keine rueckwirkende Full-Chromium-/Edge-Freigabe oder geklaerte Hostursache.
+
+Der **frische** lesende Capture von 19:37:16Z umfasst 249 aktuelle/
+historische Zeilen einschliesslich aller **17 Faelle und zwei PSURs**,
+Schema2. Alt603 und NeuBuild02 wurden in getrennten frischen Prozessen
+**122988 / 95560** mit demselben Vergleichshelfer-Hash
+`f04cc44490f5ad5fdc18d4584108706774fbdee5b9277b31ca53aa0d0a4451ff`
+verglichen. Die tatsaechlich geladenen Domain-Locations zeigten auf die
+jeweils ausgewaehlten unveraenderlichen Pakete, SHA256
+`e936d1e37494058ffab6dc1b0303062b0d3befc45c74342330a2e9b18da1dd6f`
+und `82bea15f3398a44336c187887e540ca6470049f48a14a160afc1de5ec0492657`.
+Kein neuer typisierter/Freigabescopedrift; zwei bekannte Altanomalien
+blieben unveraendert. Unmittelbar vor Stop wurden Datenfrische und
+native API-Identitaet erneut geprueft. Danach bestaetigte das starke
+Preserved-Gate jede aktuelle Live-Zeile gegen ihre eigene Historie,
+unveraenderte Versionen gegen den Capture und alle Originalversionen.
+Neuere korrekt historisierte Nutzerversionen werden nicht zurueckgesetzt.
+
+| Beleg unter `.local\required-fields-completion-01` | SHA256 |
+| --- | --- |
+| `build-01-result.json` (negativ) | `9e72eab87c28de1c477c9083ec0cd0338c8b3cb4cfe88fbbd3e66094ff2f149d` |
+| `build-02-result.json` | `b6b687bb8abe04b880cc92e070c3b1f8f0a67d2567012247a78e9b6b61476afe` |
+| `tests-02.trx` | `40f44075c922a85771f907f60ff9bd7594eed7396c2a397935b06057d84cadf9` |
+| `browser-01-bounded-result.json` (negativ) | `eb9a2da3fba6437a1b51cb71e92652a0b55b164a0ac7bdeef7421e9a9cd32559` |
+| `browser-02-bounded-result.json` (negativ) | `246eed9a9ed306844b3dc7808f6ae0aa5f4f91c88c99c4e02c3e288476b03bc4` |
+| `browser-02-recovery-cleanup.json` | `d55863dc86b8749301842f295ff39bff541987a977634bb69d8411f4e71d1fc8` |
+| `shutdown-probe-01\bounded-result.json` (negativ) | `adfc80abb0b1575b9a67e483385ddc8e44d3596cc75ccf12aabca56c74392828` |
+| `shutdown-probe-02\bounded-result.json` | `bfbf751e44be545295e171bc2deab997e11401c2c4aac059e5e92c0b33e60c68` |
+| `chromium-headless-runtime-01.json` | `7d060365183e75d385d7800c29ae0b28bd75bddbd060ad158bb1caad659761d1` |
+| `browser-03-binding.json` | `49216ac9c153eef77dc72b56dd6d270ddc82ee58b770312e5d5fa2995ab944c6` |
+| `browser-03\e2e-results.xml` | `00c902fe3c2b74f05ecc392146a52e8cf164dfed3fb4d90c96d065949bf4fca0` |
+| `browser-03\test-events.jsonl` | `bb2d6674fb06db476606e72c70e44dad9988f8d0a3dfd514bebe2168c72c6245` |
+| `browser-03-bounded-result.json` | `8832801792ca00306f69f09c83070ea6b1c2603bf1387d8a87c8aaaeae79577a` |
+| `browser-03-bounded-cleanup.json` | `2edddbcaf74e72e75f1d84c57de3deaefa70e1b71621d7fb3768bf2e8ecd6a9d` |
+| `compatibility-01-verified.json` | `aa17ff314572348517de7c6b4bd0094d428200f40374188ff722cf604c3d6a3c` |
+| `compatibility-01-preserved.json` | `ac83a80b564acb025b4731c562f5131e4b809038665e21d277213f9df62139d2` |
+| `promotion-01-result.json` | `8bc2bf55c696431d34b512b764fef15576fc95ba7fdb8a26794cc37a7e7cf351` |
+
+Die tatsaechlich ausgelieferten HTML-/JS-/CSS-Bytes, Health, autorisierten
+lesenden Projektionen und effektiven Replay-/Local-/Retention-Grenzen sind
+bestaetigt. Vorhandene Nutzerstaende, Accounts, Schluessel, Originalobjekte,
+Build02 und alle fuenf Rueckfallpakete sind erhalten. Kein Seed, keine
+Migration, Datenkorrektur, echter Versand oder Live-Foundry-Aufruf;
+`cohors-tryout` blieb unangetastet. Nachforderungs-Lifecycle/-Zuordnung,
+umfassendere Reviewhistorie und echter On-demand-Dokumentimport bleiben
+die getrennte Folgequeue; dieser Teilabschluss erweitert weder
+Load/Recovery/Cloud-Freigaben noch die fachliche Gesamt-Abnahme.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 
