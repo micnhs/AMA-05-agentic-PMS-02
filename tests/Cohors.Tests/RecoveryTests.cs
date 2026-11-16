@@ -34,7 +34,7 @@ public sealed class RecoveryTests(RecoveryFixture fixture)
         var search = new KnowledgeSearch(sql, objects, sql);
         var clock = new TestClock(DateTimeOffset.Parse("2026-12-16T15:00:00Z"));
         var service = new CaseService(sql, objects, fixture.Policies,
-            new AgentRunner(new(null, null, null, null)), search, clock);
+            new AgentRunner(new(null, null, null, null)), search, clock, new MirComposer());
         var regulatory = new RegulatoryService(sql, objects, service, new MirComposer(), fixture.Policies, clock);
 
         Assert.Equal(fixture.SourceTables, await RecoveryFixture.Tables(target.Connection));

@@ -198,7 +198,7 @@ api.MapGet("/cases", async (IStateStore store, HttpContext ctx, CancellationToke
     (await store.List<SafetyCase>("case", Who(ctx).Products, ct)).Select(c => new { c.Id, c.Version, c.Reference, c.ProductId, c.Title,
         c.Stage, c.Disposition, c.Jurisdiction, c.Seriousness, c.FirstAwarenessAt, c.SystemReceivedAt, c.Udi, c.Batch,
         c.Deadlines, c.FollowUps, c.Alerts, sourceCount = c.Sources.Length, assessmentVersion = c.CurrentAssessment?.Version,
-        reportState = c.CurrentReport?.State.ToString(), outcome = CaseOutcomes.Read(c), c.Synthetic }));
+        reportState = c.CurrentReport?.ReviewReturn is not null ? "ReturnedForCorrection" : c.CurrentReport?.State.ToString(), outcome = CaseOutcomes.Read(c), c.Synthetic }));
 api.MapPost("/cases", (RegisterComplaint input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Register(input, Who(ctx), Key(ctx), ct));
 api.MapGet("/cases/{id}", (string id, CaseService service, HttpContext ctx, CancellationToken ct) => service.Get(id, Who(ctx), ct));
 api.MapGet("/cases/{id}/process", (string id, CaseService service, HttpContext ctx, CancellationToken ct) =>
@@ -207,6 +207,7 @@ api.MapPost("/cases/{id}/assessment", (string id, AssessmentCommand input, CaseS
 api.MapPost("/cases/{id}/assessment/revise", (string id, ReviseAssessmentCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Revise(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/manual", (string id, ManualAssessmentCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Manual(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/report", (string id, PrepareReportCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Prepare(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/cases/{id}/report/return", (string id, VersionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.ReturnReport(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/approve/medical", (string id, ApprovalCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Approve(id, input, Who(ctx), Key(ctx), true, ct));
 api.MapPost("/cases/{id}/approve/regulatory", (string id, ApprovalCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Approve(id, input, Who(ctx), Key(ctx), false, ct));
 api.MapPost("/cases/{id}/submit", (string id, SubmissionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Submit(id, input, Who(ctx), Key(ctx), ct));

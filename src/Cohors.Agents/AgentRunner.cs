@@ -12,7 +12,7 @@ public sealed record FoundryOptions(string? Endpoint, string? Deployment, string
 
 public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
 {
-    public const string PromptVersion = "cohors-agent-contract-2026.2";
+    public const string PromptVersion = "cohors-agent-contract-2026.3";
 
     public async Task<AgentOutput> Run(AgentInput input, CancellationToken ct = default)
     {
@@ -36,6 +36,10 @@ public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
                 Return one JSON AgentOutput matching the supplied example structure, no Markdown fences.
                 Do not invent facts from the example: it describes only the output SHAPE. Use the actual case context.
                 A QA result is not human approval. All external communications are simulated.
+                For VigilanceAuthoring, return vigilance.preliminaryAnalysis and vigilance.furtherInvestigation
+                as proposed text plus exact existing assessment claimIds. Do not generate other facts or codes.
+                Distinguish proposed investigation from completed action; do not claim human-agreed dates.
+                Each MIR text field must fit its 4000-character limit without concealing uncertainty or truncating evidence.
                 """;
             AIAgent agent = new AzureOpenAIClient(uri, new DefaultAzureCredential(),
                     new AzureOpenAIClientOptions { RetryPolicy = new System.ClientModel.Primitives.ClientRetryPolicy(0) })
@@ -71,7 +75,7 @@ public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
                 "Deterministische Befunde sind massgeblich. QA bedeutet weder Meldepflichtentscheidung noch Freigabe.", [], ["claim.verify"]),
             AgentRole.VigilanceAuthoring => new("replay-2026.1", PromptVersion, null,
                 VigilanceNarrative.FromAssessment(c!, input.Language),
-                [], ["assessment.read", "recipient.lookup"]),
+                [], ["assessment.read", "recipient.lookup"], VigilanceNarrative.Fields(c!, input.Language)),
             AgentRole.TrendSignal => new("replay-2026.1", PromptVersion, null,
                 $"Deterministische Auswertung: {input.Trend!.Result.Events} unabhaengige Ereignisse / {input.Trend.Result.Exposure} " +
                 $"passende Expositionen; Rate {input.Trend.Result.RatePerThousand:0.###} je 1.000. " +

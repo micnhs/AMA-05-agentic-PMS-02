@@ -62,7 +62,7 @@ public sealed class SqlFixture : IAsyncLifetime
 
     public CaseService Service(TimeProvider clock, IKnowledgeSearch? knowledge = null) =>
         new(Store, Objects, Policies, new AgentRunner(new(null, null, null, null)),
-            knowledge ?? new KnowledgeSearch(Store, Objects, Store), clock);
+            knowledge ?? new KnowledgeSearch(Store, Objects, Store), clock, new MirComposer());
 
     public async Task DisposeAsync()
     {
@@ -128,6 +128,15 @@ public sealed class CaseScenario
         FurtherInvestigation = "SYNTHETISCH: Ausstehende Befunde nachvollziehbar nachverfolgen.",
         EvidenceIds = Case.Evidence.Select(e => e.Id).ToArray(),
         Rationale = "SYNTHETISCHE TESTANGABEN: ZZZ ist nur eine strukturgueltige Testkodierung, kein fachlich validierter IMDRF-Code.",
+        EventDateRationale = "SYNTHETISCHE TESTANGABE: Ereigniszeitraum aus dem ausdruecklich gewaehlten Testeingang, nicht aus Systemeingang.",
+        AuthorityReference = Case.CurrentReport?.Kind == "Initial" ? null : "DEMO-NCA-REFERENCE",
+        AuthorityReferenceRationale = "SYNTHETISCHE TESTANGABE: separat menschlich eingegebene NCA-Testreferenz, nicht aus einer Simulatorquittung abgeleitet.",
+        ManufacturerName = Case.CurrentReport?.Preparation?.Governance?.Manufacturer.Name ?? "SYNTHETIC manufacturer",
+        ManufacturerSrn = Case.CurrentReport?.Preparation?.Governance?.Manufacturer.Srn ?? "DEMO-SRN",
+        ManufacturerCountry = Case.CurrentReport?.Preparation?.Governance?.Manufacturer.Country ?? "IE",
+        ContactFirstName = "Synthetic", ContactLastName = "Testcontact", ContactStreet = "Demo street",
+        ContactCity = "Demo city", ContactPostcode = "DEMO", ContactPhone = "000000", ContactEmail = "synthetic@example.invalid",
+        SubmitterIsManufacturerContact = true,
         UdiDi = Case.CurrentReport?.Kind == "Final" ? "DEMO-TEST-UDI" : null,
         UdiPi = Case.CurrentReport?.Kind == "Final" ? "DEMO-TEST-LOT" : null,
         UdiEntity = Case.CurrentReport?.Kind == "Final" ? "N/A" : null,
@@ -135,6 +144,15 @@ public sealed class CaseScenario
         Distribution = "SYNTHETISCH: IE; keine echten Marktangaben.",
         RootCauses = "Die Ursache bleibt trotz abgeschlossener synthetischer Untersuchung unsicher; dies ist keine Risikoakzeptanz.",
         RootCauseConfirmed = "No", RiskAssessmentReviewed = "Yes",
+        RiskAssessmentAdequate = "No",
+        RiskAssessmentResults = "SYNTHETISCH: Der Testreview dokumentiert verbleibende Luecken. Keine reale Risikoakzeptanz oder Freigabe eines Produkts.",
+        SimilarIncidents = Case.CurrentReport?.Kind != "Final" ? null : new("Model",
+            "SYNTHETISCHE AUSWAHL: gleiches Testmodell, keine Behauptung einer vollstaendigen realen Recherche.",
+            "Number of devices implanted", null,
+            "SYNTHETISCH: expliziter Testreview der vergleichbaren Meldungen; produkt-/ereignisbezogene Auswahl statt MAUDE-Inzidenz.",
+            "Ereignisland IE; Original-MIR-Region EWR/CH/TR; weltweit jeweils getrennt, nicht addiert.",
+            [new(DateOnly.FromDateTime(Clock.Now.UtcDateTime).AddYears(-1), DateOnly.FromDateTime(Clock.Now.UtcDateTime).AddDays(-1),
+                null, null, null, null, null, null, "SYNTHETISCHE DATENLUECKE: keine belegten Periodenzaehler oder Expositionszahlen im Test, daher keine Nullwerte.")]),
         InvestigationTypeCode = "ZZZ", InvestigationFindingCode = "ZZZ", InvestigationConclusionCode = "ZZZ", ComponentCode = "ZZZ",
         CorrectiveAction = "Synthetische Untersuchung und dokumentierte Massnahmen im PMS-Regelkreis weiterverfolgen.",
         FinalComments = "SYNTHETISCHE ABSCHLUSSMELDUNG: Unsicherheit bleibt dokumentiert; keine reale Behoerdenmeldung."

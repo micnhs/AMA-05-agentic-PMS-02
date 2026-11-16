@@ -12,7 +12,23 @@ public static class ReportRules
         report.OpenQuestions, report.RuleVersion, report.EvidenceHash, report.AttachmentHashes, report.ObligationIds
         };
         var reportScope = report.Mir is null ? Canonical.Hash(content) : Canonical.Hash(new { content, report.Mir });
-        return report.FollowUpObligationIds is null ? reportScope : Canonical.Hash(new { reportScope, report.FollowUpObligationIds });
+        var bound = report.FollowUpObligationIds is null ? reportScope : Canonical.Hash(new { reportScope, report.FollowUpObligationIds });
+        return report.Preparation is null && report.ReviewReturn is null ? bound :
+            Canonical.Hash(new { bound, report.Preparation, report.ReviewReturn });
+    }
+
+    public static bool HasCurrentMedicalApproval(SafetyCase c)
+    {
+        var report = c.CurrentReport;
+        var assessment = c.CurrentAssessment;
+        if (report is null || assessment is null || report.Mir?.Valid != true || report.ReviewReturn is not null ||
+            report.State is not (ReportState.MedicalApproved or ReportState.Frozen or ReportState.TransmissionUnknown or ReportState.SimulatedAccepted) ||
+            assessment.EvidenceHash != Canonical.Hash(c.Evidence) || report.EvidenceHash != assessment.EvidenceHash ||
+            report.AssessmentVersion != assessment.Version || report.ScopeHash != Scope(assessment, report)) return false;
+        var medical = c.Approvals.LastOrDefault(a => a.Role == Roles.Medical && a.ScopeHash == report.ScopeHash);
+        if (medical is null) return false;
+        try { AssessmentRules.RequireReviewable(assessment, report.Preliminary, medical.FindingDisposition); MirSchemas.RequireValid(report); return true; }
+        catch (DomainException) { return false; }
     }
 
     public static Approval ApproveMedical(SafetyCase c, Actor actor, string rationale,
@@ -23,6 +39,7 @@ public static class ReportRules
         var report = c.CurrentReport ?? throw new DomainException("report_required", "Zuerst einen konkreten Berichtsentwurf erstellen.");
         var assessment = c.CurrentAssessment ?? throw new DomainException("assessment_required", "Assessment fehlt.");
         Guard.Against(report.State != ReportState.Draft, "report_state", "Diese Version ist nicht mehr im Entwurf.");
+        Guard.Against(report.ReviewReturn is not null, "report_correction_required", "Zurueckgegebene Fassung zuerst belegt korrigieren; Rueckgabe ist keine Freigabe.", 409);
         Guard.Against(report.ScopeHash != Scope(assessment, report), "scope_changed", "Der Freigabeinhalt hat sich geaendert.", 409);
         AssessmentRules.RequireReviewable(assessment, report.Preliminary, findingDisposition);
         MirSchemas.RequireValid(report);

@@ -55,5 +55,19 @@ public static class AgentBoundary
             "agent_output", "Qualitaetsbefunde sind strukturell ungueltig.");
         Guard.Against(input.Role == AgentRole.CausalityRisk && output.Assessment is null,
             "agent_output", "Tragender Assessment-Entwurf fehlt.");
+        if (input.Role == AgentRole.VigilanceAuthoring)
+        {
+            Guard.Against(output.Vigilance is null, "vigilance_fields", "Pruefbare strukturierte Meldungstexte fehlen; kein Ersatz durch Blindvorbefuellung.");
+            foreach (var field in new[] { output.Vigilance!.PreliminaryAnalysis, output.Vigilance.FurtherInvestigation })
+            {
+                Guard.Against(field is null || field.ClaimIds is not { Length: > 0 },
+                    "vigilance_sources", "Meldungstext braucht konkrete Claim-Referenzen.");
+                ValidateNarrative(field!.Text, "Begruendeter Meldungstext", 40);
+                Guard.Against(field.ClaimIds.Any(id => !input.Case!.CurrentAssessment!.Content.Claims.Any(claim =>
+                    claim.Id == id && claim.Citations.Length > 0 &&
+                    claim.Citations.All(citation => EvidenceRules.CitationMatches(citation, input.Evidence)))),
+                    "vigilance_sources", "Meldungstext verweist auf fehlende oder nicht verifizierbare Assessment-Fundstellen.");
+            }
+        }
     }
 }

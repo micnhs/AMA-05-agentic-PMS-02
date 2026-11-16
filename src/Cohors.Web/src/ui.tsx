@@ -4,7 +4,7 @@ import type { CaseOutcome, CaseOutcomeSource, CaseSummary, Deadline } from './ty
 
 export const roleNames: Record<string, string> = { PmsSpecialist: 'PMS Specialist', MedicalSafetyReviewer: 'Medical Safety Reviewer', RegulatoryAffairs: 'Regulatory Affairs', QualityManager: 'Quality Manager', Auditor: 'Auditor' }
 const names: Record<string, string> = { Intake: 'Intake', Assessing: 'Analyse läuft', AwaitingInformation: 'Befund ausstehend', AwaitingMedicalReview: 'Medical Review', Investigating: 'Untersuchung', Monitoring: 'Beobachtung', Closed: 'Abgeschlossen', Draft: 'Entwurf', MedicalApproved: 'RA-Review', Frozen: 'Freigegeben & eingefroren', TransmissionUnknown: 'Übermittlung unklar', SimulatedAccepted: 'Simuliert angenommen', SimulatedReported: 'Simuliert erledigt', NonReportableReviewed: 'Nichtmeldepflicht geprüft', Rejected: 'Abgelehnt', Superseded: 'Überholt', Undetermined: 'Offen', Reportable: 'Meldepflicht bestätigt', NonReportable: 'Nicht meldepflichtig', Completed: 'Abgeschlossen', Queued: 'Eingeplant', Running: 'In Bearbeitung', Failed: 'Fehlgeschlagen', Abandoned: 'Kontrolliert abgebrochen', SimulatedSent: 'Simuliert angefragt', SimulatedAnswered: 'Simuliert beantwortet', Open: 'Offen', Verified: 'Wirksamkeit bestätigt', Approved: 'Freigegeben' }
-export const label = (value: string) => names[value] ?? value
+export const label = (value: string) => value === 'ReturnedForCorrection' ? 'Zur Korrektur' : names[value] ?? value
 export const date = (value?: string | null, time = false, timeZone?: string) => value ? new Intl.DateTimeFormat('de-DE', {
   day: '2-digit', month: 'short', year: 'numeric', timeZone: /^\d{4}-\d{2}-\d{2}$/.test(value) ? 'UTC' : timeZone,
   ...(time ? { hour: '2-digit', minute: '2-digit' } : {}),

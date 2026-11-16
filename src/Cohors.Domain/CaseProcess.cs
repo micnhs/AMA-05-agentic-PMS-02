@@ -52,6 +52,8 @@ public static class CaseProcess
         {
             try { MirSchemas.RequireValid(report!); ReportRules.CoveredObligations(c, report!); FollowUpRules.Covered(c, report!); }
             catch (DomainException ex) { mirIssue = ex.Message; }
+            if (report!.ReviewReturn is not null)
+                mirIssue = "Zur Korrektur an PMS zurueckgegeben: " + report.ReviewReturn?.Reason;
         }
         if (mirIssue.Length > 0) { medicalComplete = false; regulatoryComplete = false; }
         var qaComplete = qualityCurrent && !critical && (!major ||
@@ -116,7 +118,8 @@ public static class CaseProcess
         else if (nonReportable) (current, action, role, tab) = context!.NonReportableApproved
             ? ("followup", "history", Roles.Pms, "history") : ("regulatory", "review", Roles.Regulatory, "report");
         else if (!bound) (current, action, role, tab) = ("report", "prepare", Roles.Pms, "report");
-        else if (mirIssue.Length > 0 || !medicalComplete) (current, action, role, tab) = ("medical", "review", Roles.Medical, "report");
+        else if (mirIssue.Length > 0) (current, action, role, tab) = ("report", "review", Roles.Pms, "report");
+        else if (!medicalComplete) (current, action, role, tab) = ("medical", "review", Roles.Medical, "report");
         else if (!regulatoryComplete) (current, action, role, tab) = ("regulatory", "review", Roles.Regulatory, "report");
         else if (!accepted) (current, action, role, tab) = ("delivery", "review", Roles.Regulatory, "report");
         else (current, action, role, tab) = ("followup", requests > 0 ? "information" : "review", Roles.Pms, requests > 0 ? "information" : "report");
@@ -160,7 +163,7 @@ public static class CaseOutcomes
             };
             if (mirCode is null) continue;
             var latest = report.Version == c.CurrentReport?.Version;
-            var current = latest && CurrentMedicalReport(c);
+            var current = latest && ReportRules.HasCurrentMedicalApproval(c);
             sources.Add(new(mirCode, current ? "MedicalReviewed" : !latest || report.State == ReportState.Superseded ? "Historical" : "Unreviewed",
                 report.Mir!.Facts.EventClassification!, $"Strukturierte MIR-Angabe in Bericht v{report.Version}; " +
                 (current ? "aktuell medizinisch freigegeben." : "keine aktuelle medizinische Paketfreigabe bestaetigt.")));
@@ -173,17 +176,4 @@ public static class CaseOutcomes
         return new(primary.Code, primary.Status, primary.Term, primary.Source, ordered);
     }
 
-    private static bool CurrentMedicalReport(SafetyCase c)
-    {
-        var report = c.CurrentReport;
-        var assessment = c.CurrentAssessment;
-        if (report is null || assessment is null || report.Mir?.Valid != true ||
-            report.State is not (ReportState.MedicalApproved or ReportState.Frozen or ReportState.TransmissionUnknown or ReportState.SimulatedAccepted) ||
-            assessment.EvidenceHash != Canonical.Hash(c.Evidence) || report.AssessmentVersion != assessment.Version ||
-            report.ScopeHash != ReportRules.Scope(assessment, report)) return false;
-        var medical = c.Approvals.LastOrDefault(a => a.Role == Roles.Medical && a.ScopeHash == report.ScopeHash);
-        if (medical is null) return false;
-        try { AssessmentRules.RequireReviewable(assessment, report.Preliminary, medical.FindingDisposition); MirSchemas.RequireValid(report); return true; }
-        catch (DomainException) { return false; }
-    }
 }

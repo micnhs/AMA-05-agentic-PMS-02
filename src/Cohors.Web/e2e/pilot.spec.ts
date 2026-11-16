@@ -66,6 +66,154 @@ function readSmallAuditZip(bytes: Buffer) {
   return entries
 }
 
+test('V01: agent-prefilled report, grounded fields, missing-data return and separate Medical/RA review', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(210_000)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  const ra = await playwright.request.newContext({ baseURL })
+  const contexts: BrowserContext[] = []
+  const pageErrors: string[] = []
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    await signIn(medical, 'medical.demo')
+    await signIn(ra, 'ra.demo')
+    const incidentKey = `PREFILL-${Date.now()}`
+    const input = { incidentKey, sourceId: crypto.randomUUID(), title: 'Synthetischer Prüffall: agentengestützter Meldungsentwurf',
+      description: 'SYNTHETISCH: Funktionsverlust und Revisionsbedarf wurden berichtet. Die genaue gesundheitliche Folge und Kausalität sind noch nicht bestätigt; keine Schlussfolgerung allein aus der Dringlichkeitsklasse.',
+      productId: 'ortho', udi: null, batch: 'DEMO-PREFILL', country: 'IE', jurisdiction: 'EU-IE',
+      seriousness: 'DeathOrSeriousDeterioration', occurredAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      awarenessAt: new Date(Date.now() - 86_400_000).toISOString(), scenario: 'report-prefill-ui', synthetic: true }
+    let c = await command(pms, pmsCsrf, '/cases', input)
+    c = await command(pms, pmsCsrf, `/cases/${c.id}/assessment`, { expectedVersion: c.version, mode: 'Replay',
+      reason: 'Begründete synthetische Analyse als tatsächliche Grundlage des getrennten Vigilance-Autorenlaufs erstellen.' })
+    await expect.poll(async () => {
+      c = await (await pms.get(`/api/cases/${c.id}`)).json()
+      return c.currentAssessment?.version
+    }).toBe(1)
+    const deadlines = JSON.stringify(c.deadlines)
+    async function pageFor(client: APIRequestContext) {
+      const context = await browser.newContext({ storageState: await client.storageState(), timezoneId: 'UTC' })
+      contexts.push(context)
+      const page = await context.newPage()
+      page.on('pageerror', e => pageErrors.push(e.message))
+      await page.goto(baseURL!)
+      await showCase(page, incidentKey, input.title)
+      return page
+    }
+    const pmsPage = await pageFor(pms)
+    await pmsPage.getByRole('region', { name: 'Fallprozess', exact: true }).getByRole('button', { name: 'Entwurf vorbereiten' }).click()
+    let dialog = pmsPage.getByRole('dialog')
+    await dialog.locator('[name=reason]').fill('Konkreten quellengebundenen Meldungsentwurf erzeugen, aber keine fehlenden Fakten oder menschlichen Termine erfinden.')
+    await submitDialog(dialog, 'Versionierten Entwurf erstellen')
+    await expect(pmsPage.getByRole('heading', { name: 'Prüfansicht des vorausgefüllten Meldungsentwurfs' })).toBeVisible()
+    await expect(pmsPage.locator('.report-target')).toContainText('Health Products Regulatory Authority (HPRA)')
+    await expect(pmsPage.locator('.report-target')).toContainText('HPRA-SIMULATOR')
+    await expect(pmsPage.getByTestId('report-gaps')).toContainText('ContactFirstName')
+    c = await (await pms.get(`/api/cases/${c.id}`)).json()
+    const draft = c.currentReport!
+    expect(draft.preparation?.mode).toBe('Replay')
+    expect(draft.mir?.facts.eventDateFrom).toBe(input.occurredAt.slice(0, 10))
+    expect(draft.mir?.facts.eventClassification).toBeNull()
+    expect(draft.mir?.facts.nextReportDate).toBeNull()
+    expect(draft.mir?.facts.initialCorrectiveAction).toBeNull()
+    expect(c.approvals).toHaveLength(0)
+    expect(c.submissions).toHaveLength(0)
+    expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+    await pmsPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-agent-draft.png') })
+    const proposed = pmsPage.locator('[data-field="preliminaryAnalysis"]')
+    await expect(proposed).toContainText('Agentenvorschlag · unbestätigt')
+    await proposed.scrollIntoViewIfNeeded()
+    await pmsPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-field-origin.png') })
+    await proposed.getByRole('button', { name: /Originalbeleg/ }).first().click()
+    await expect(pmsPage.getByRole('dialog').getByText('Ausgewählte Textfassung · Original-Hash verifiziert', { exact: true })).toBeVisible()
+    await pmsPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-source-document.png') })
+    await pmsPage.keyboard.press('Escape')
+
+    const raPage = await pageFor(ra)
+    await raPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await expect(raPage.getByRole('button', { name: 'MIR-Pflichtdaten bearbeiten' })).toHaveCount(0)
+    await expect(raPage.getByRole('button', { name: 'Regulatorisch freigeben', exact: true })).toHaveCount(0)
+    await raPage.getByRole('button', { name: 'Zur Korrektur zurückgeben', exact: true }).click()
+    dialog = raPage.getByRole('dialog')
+    const returnReason = 'PMS: Belegten Herstellerkontakt, Geräteverbleib, genaue Ereignisfolge und ausdrücklich menschlich zugesagten Folgetermin ergänzen. Keine Daten erfinden.'
+    await dialog.locator('[name=reason]').fill(returnReason)
+    await submitDialog(dialog, 'Zur Korrektur zurückgeben')
+    c = await (await pms.get(`/api/cases/${c.id}`)).json()
+    expect(c.currentReport?.reviewReturn?.role).toBe('RegulatoryAffairs')
+    expect(c.currentReport?.scopeHash).not.toBe(draft.scopeHash)
+    expect(c.currentReport?.reviewReturn?.reason).toBe(returnReason)
+    expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+
+    await pmsPage.reload()
+    await showCase(pmsPage, incidentKey, input.title)
+    await pmsPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await pmsPage.getByRole('button', { name: 'MIR-Pflichtdaten bearbeiten' }).click()
+    dialog = pmsPage.getByRole('dialog')
+    await expect(dialog.locator('[name=preliminaryAnalysis]')).toHaveValue(draft.mir!.facts.preliminaryAnalysis!)
+    await expect(dialog.locator('[name=nextReportDate]')).toHaveValue('')
+    await dialog.locator('[name=eventClassification]').selectOption('Unanticipated serious deterioration in state of health')
+    await dialog.locator('[name=deviceProblemCode]').fill('ASYN')
+    await dialog.locator('[name=deviceLocation]').selectOption('Unknown')
+    const nextDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
+    await dialog.locator('[name=nextReportDate]').fill(nextDate)
+    for (const [key, value] of Object.entries({ contactFirstName: 'Synthetic', contactLastName: 'Testcontact', contactStreet: 'Demo street',
+      contactCity: 'Demo city', contactPostcode: 'DEMO', contactPhone: '000000', contactEmail: 'synthetic@example.invalid' })) {
+      await dialog.locator(`[name=${key}]`).fill(value)
+    }
+    await dialog.locator('[name=submitterIsManufacturerContact]').selectOption('true')
+    await dialog.locator('[name=rationale]').fill('SYNTHETISCHE TESTANGABEN: ASYN und der Herstellerkontakt sind explizite synthetische Prüfwerte, kein realer Kontakt oder fachlich validierter Code. Der Folgetermin wird hier bewusst menschlich zugesagt; die tatsächliche Kausalität bleibt offen.')
+    await dialog.locator('[name=reason]').fill('PMS beantwortet die konkrete Rückgabe mit expliziten synthetischen Belegen; vorhandene Agententexte bleiben unverändert.')
+    await submitDialog(dialog, 'Versioniert speichern und gegen Original-XSD prüfen')
+    await expect.poll(async () => {
+      c = await (await pms.get(`/api/cases/${c.id}`)).json()
+      return c.currentReport?.mir?.valid
+    }).toBe(true)
+    expect(c.currentReport?.reviewReturn).toBeUndefined()
+    expect(c.currentReport?.mir?.facts.preliminaryAnalysis).toBe(draft.mir?.facts.preliminaryAnalysis)
+    expect(c.currentReport?.preparation?.fields.find(f => f.field === 'preliminaryAnalysis')?.origin).toBe('AgentDraft')
+    expect(c.currentReport?.preparation?.fields.find(f => f.field === 'nextReportDate')?.origin).toBe('HumanEntry')
+    expect(c.currentReport?.mir?.followUpSchedule?.reportDate).toBe(nextDate)
+    expect(c.currentReport?.mir?.facts.initialCorrectiveAction).toBeNull()
+    await pmsPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-corrected.png') })
+
+    const medicalPage = await pageFor(medical)
+    await medicalPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await medicalPage.getByRole('button', { name: 'Medizinisch freigeben', exact: true }).click()
+    dialog = medicalPage.getByRole('dialog')
+    await dialog.locator('[name=reason]').fill('Quellen, synthetische Pflichtangaben, Unsicherheit und konkretes Berichtspaket medizinisch geprüft.')
+    await submitDialog(dialog, 'Medizinisch freigeben')
+    await raPage.reload()
+    await showCase(raPage, incidentKey, input.title)
+    await raPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await expect(raPage.getByRole('button', { name: 'MIR-Pflichtdaten bearbeiten' })).toHaveCount(0)
+    await raPage.getByRole('button', { name: 'Regulatorisch freigeben', exact: true }).click()
+    dialog = raPage.getByRole('dialog')
+    await dialog.locator('[name=reason]').fill('RA prüft und bestätigt das bereits ausgefüllte konkrete Paket, Zielprofil und die Grenzen des ausschließlich simulierten Versands.')
+    await submitDialog(dialog, 'Regulatorisch freigeben')
+    c = await (await ra.get(`/api/cases/${c.id}`)).json()
+    expect(c.currentReport?.state).toBe('Frozen')
+    expect(c.submissions).toHaveLength(0)
+    expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+    const approvals = c.approvals.filter(a => a.scopeHash === c.currentReport?.scopeHash)
+    expect(approvals.map(a => a.role).sort()).toEqual(['MedicalSafetyReviewer', 'RegulatoryAffairs'])
+    expect(new Set(approvals.map(a => a.actorId)).size).toBe(2)
+    expect(c.currentReport?.preparation?.target.nationalSubmissionReady).toBe(false)
+    await raPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-ra-approved.png') })
+    await raPage.setViewportSize({ width: 390, height: 844 })
+    await expect(raPage.locator('.report-target')).toBeVisible()
+    expect(await raPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await raPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-ra-narrow.png') })
+    expect(pageErrors).toEqual([])
+    writeFileSync(path.join(artifacts, 'prefill-workflow.json'), JSON.stringify({ caseId: c.id, version: c.version,
+      reportVersion: c.currentReport?.version, scopeHash: c.currentReport?.scopeHash, xmlHash: c.currentReport?.mir?.xmlHash,
+      target: c.currentReport?.preparation?.target, roles: approvals.map(a => a.role), differentIdentities: true,
+      initialGapsPreserved: true, agentTextPreserved: true, deadlinePreserved: true, automaticSubmissions: 0, pageErrors }, null, 2))
+  } finally {
+    for (const context of contexts) await context.close()
+    await Promise.all([pms.dispose(), medical.dispose(), ra.dispose()])
+  }
+})
+
 test('UI01: persistent case process, explicit next action, failed reanalysis and verified claim document', async ({ playwright, browser, baseURL }) => {
   test.setTimeout(150_000)
   const pms = await playwright.request.newContext({ baseURL })
@@ -327,6 +475,12 @@ test('SQL-backed complaint → grounded assessment → distinct approvals → un
   const nextDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10)
   await dialog.locator('[name=eventDateFrom]').fill(eventDate)
   await dialog.locator('[name=eventDateTo]').fill(eventDate)
+  await dialog.locator('[name=eventDateRationale]').fill('SYNTHETISCHE BROWSERTESTANGABE: explizite zeitliche Testspanne aus dem gewählten Eingang, kein systemseitig erfundenes Ereignisdatum.')
+  for (const [key, value] of Object.entries({ contactFirstName: 'Synthetic', contactLastName: 'Testcontact', contactStreet: 'Demo street',
+    contactCity: 'Demo city', contactPostcode: 'DEMO', contactPhone: '000000', contactEmail: 'synthetic@example.invalid' })) {
+    await dialog.locator(`[name=${key}]`).fill(value)
+  }
+  await dialog.locator('[name=submitterIsManufacturerContact]').selectOption('true')
   await dialog.locator('[name=eventClassification]').selectOption('Unanticipated serious deterioration in state of health')
   await dialog.locator('[name=deviceProblemCode]').fill('ASYN')
   await dialog.locator('[name=deviceLocation]').selectOption('Unknown')
@@ -928,7 +1082,11 @@ test('C12: separate periodic summary uses an explicit agreement, distinct human 
     c = await command(pms, pmsCsrf, `/cases/${c.id}/report`, { expectedVersion: c.version, kind: 'Initial',
       jurisdiction: 'EU-IE', language: 'de', preliminary: true, openQuestions: reason, reason })
     c = await command(medical, medicalCsrf, `/cases/${c.id}/mir`, { expectedVersion: c.version, reason, facts: {
+      ...c.currentReport!.mir!.facts,
       eventDateFrom: eventDay, eventDateTo: eventDay, nextReportDate: day(7), eventClassification: 'All other reportable incidents',
+      eventDateRationale: 'SYNTHETISCHE TESTANGABE: menschlich festgelegte Testspanne, keine aus Systemeingang abgeleitete Herstellerinformation.',
+      contactFirstName: 'Synthetic', contactLastName: 'Testcontact', contactStreet: 'Demo street', contactCity: 'Demo city',
+      contactPostcode: 'DEMO', contactPhone: '000000', contactEmail: 'synthetic@example.invalid', submitterIsManufacturerContact: true,
       deviceProblemCode: 'ZZZ', deviceLocation: 'Unknown', preliminaryAnalysis: reason, initialCorrectiveAction: reason,
       furtherInvestigation: reason, evidenceIds: c.evidence.filter(e => e.approved).map(e => e.id),
       rationale: `${reason} ZZZ ist ausschließlich eine strukturgeeignete Testkennung, kein fachlich validierter IMDRF-Code.`,

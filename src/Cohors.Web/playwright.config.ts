@@ -13,6 +13,7 @@ export default defineConfig({
     { name: 'audit-export', grep: /L03:/ },
     { name: 'summary-report', grep: /C12:/ },
     { name: 'case-documents', grep: /UI0[12]:/ },
+    { name: 'report-prefill', grep: /V01:/ },
     { name: 'physical-retention', grep: /@physical-retention/ },
   ],
   reporter: [['list'], ['junit', { outputFile: process.env.COHORS_UI_ARTIFACT_DIR

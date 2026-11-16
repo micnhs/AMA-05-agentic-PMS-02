@@ -179,6 +179,11 @@ public sealed class CaseProcessTests
             EventDateFrom = new(2026, 11, 16), EventDateTo = new(2026, 11, 16), NextReportDate = new(2026, 11, 23),
             EventClassification = classification, DeviceProblemCode = "ZZZ", DeviceLocation = "Unknown",
             PreliminaryAnalysis = "SYNTHETISCH: strukturierte Meldungsangabe fuer einen isolierten Anzeige-Regressionsfall; Kausalitaet bleibt offen.",
+            EventDateRationale = "SYNTHETISCHE ANZEIGEPRUEFUNG: explizit vorgegebener Testzeitraum, keine klinische Schaetzung aus einem Eingang.",
+            ManufacturerName = "SYNTHETIC manufacturer", ManufacturerSrn = "DEMO-SRN", ManufacturerCountry = "IE",
+            ContactFirstName = "Synthetic", ContactLastName = "Testcontact", ContactStreet = "Demo street",
+            ContactCity = "Demo city", ContactPostcode = "DEMO", ContactPhone = "000000", ContactEmail = "synthetic@example.invalid",
+            SubmitterIsManufacturerContact = true,
             EvidenceIds = c.Evidence.Select(e => e.Id).ToArray(),
             Rationale = "SYNTHETISCHE ANZEIGEPRUEFUNG: ZZZ ist kein fachlich gepruefter IMDRF-Code und diese Daten sind keine reale klinische Beobachtung."
         };

@@ -66,7 +66,7 @@ public sealed class LifecycleTests(SqlFixture fixture)
         await s.Create();
         var runner = new BlockingRunner();
         var service = new CaseService(fixture.Store, fixture.Objects, fixture.Policies, runner,
-            new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store), s.Clock);
+            new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store), s.Clock, new MirComposer());
         s.Case = await service.RequestAssessment(s.Case.Id, new(s.Case.Version, AgentMode.Replay,
             "Kontrollierter Test eines unklaren Agentenlaufs."), SqlFixture.Pms, CaseScenario.Key());
         var runId = s.Case.AgentRuns.Last().Id;

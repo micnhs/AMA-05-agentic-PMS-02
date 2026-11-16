@@ -3,7 +3,7 @@ using Cohors.Domain;
 namespace Cohors.Application;
 
 public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyCatalog policies,
-    IAgentRunner agents, IKnowledgeSearch knowledge, TimeProvider clock)
+    IAgentRunner agents, IKnowledgeSearch knowledge, TimeProvider clock, IMirComposer mirComposer)
 {
     private readonly AgentExecutionService execution = new(store, agents, clock);
     public static readonly Actor Workflow = new("cohors-workflow", "Cohors workflow", [Roles.Workflow], ["ortho", "cardio"], false);
@@ -257,37 +257,54 @@ public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyC
         Guard.Against(input.Language is not ("en" or "de"), "report_language", "Der Pilot unterstuetzt Deutsch/Englisch; weitere Sprachen brauchen validierte Vorlagen.");
         Guard.Against(!c.Deadlines.Any(d => d.Jurisdiction == input.Jurisdiction), "jurisdiction_scope",
             "Meldejurisdiktion muss einer dokumentierten Fallverpflichtung entsprechen.");
+        Guard.Against(input.Kind != "Initial" && !c.Submissions.Any(s => s.Status == "SimulatedAccepted" &&
+            c.Reports.Any(r => r.ScopeHash == s.ReportScopeHash && r.Jurisdiction == input.Jurisdiction)),
+            "initial_required", "Folgemeldung erfordert einen abgeglichenen Vorbericht derselben Jurisdiktion.");
+        var obligations = c.Deadlines.Where(d => d.Jurisdiction == input.Jurisdiction && d.Status == "Open").Select(d => d.Id).ToArray();
+        if (input.Kind != "Initial" && obligations.Length == 0)
+            obligations = c.Reports.LastOrDefault(r => r.Jurisdiction == input.Jurisdiction && r.State == ReportState.SimulatedAccepted)?.ObligationIds ?? [];
+        Guard.Against(obligations.Length == 0, "obligation_required", "Keine passende regulatorische Verpflichtung fuer diesen Bericht.");
+        Guard.Against(input.Kind == "Initial" && c.Submissions.Any(s => s.Status == "SimulatedAccepted" &&
+            c.Reports.Any(r => r.ScopeHash == s.ReportScopeHash && r.ObligationIds?.Intersect(obligations).Any() == true)),
+            "initial_already_reported", "Bereits gemeldete Verpflichtung braucht einen begruendeten Folgebericht, keine zweite Erstmeldung.", 409);
+        var governance = await store.Get<ProductGovernance>("productGovernance", c.ProductId, ct);
+        if (governance is not null)
+        {
+            GovernanceRules.RequireValid(governance, policies.Device(c.ProductId));
+            context = context with { Dependencies = [new("productGovernance", new(governance.Id, governance.Version, Canonical.Hash(governance)))] };
+        }
         var mode = Enum.TryParse<AgentMode>(assessment.Mode, out var parsed) ? parsed : AgentMode.Replay;
+        var started = clock.GetUtcNow();
         var authored = assessment.Mode == "Human"
-            ? new AgentOutput("none", "human-report-1", null, VigilanceNarrative.FromAssessment(c, input.Language), [], [])
+            ? new AgentOutput("none", "human-report-2", null, VigilanceNarrative.FromAssessment(c, input.Language), [], [],
+                VigilanceNarrative.Fields(c, input.Language))
             : await execution.Run(Canonical.Hash(new { actorId = actor.Id, caseId = id, key, input }), c.ProductId, new(AgentRole.VigilanceAuthoring, mode, c, null, null, c.Evidence,
-                "Bericht aus bestehendem Assessment; keine neuen Sicherheitsbehauptungen.", 0, input.Language), ct);
+                "Bericht und strukturierte Vigilance-Texte aus bestehendem Assessment mit exakten Claim-Referenzen; keine neuen Sicherheitsbehauptungen, Fakten oder Termine.", 0, input.Language), ct);
+        var now = clock.GetUtcNow();
+        var run = new AgentRun(Guid.NewGuid().ToString("N"), AgentRole.VigilanceAuthoring, mode, "Completed",
+            started, now, authored.Model, authored.PromptVersion, Canonical.Hash(assessment), Canonical.Hash(authored),
+            assessment.EvidenceIds, authored.Tools, null, 0, Canonical.Serialize(authored));
+        var report = new ReportDraft((c.CurrentReport?.Version ?? 0) + 1, assessment.Version, input.Kind,
+            input.Jurisdiction, PolicyCatalog.Recipient(input.Jurisdiction), input.Language,
+            input.Jurisdiction == "GB" ? "GB-SIM-1" : "MIR-7.3.1-SB11154", input.Jurisdiction == "GB" ? "GB-SIM-1" : "MIR-7.3.1-SB11252",
+            authored.Narrative, input.Preliminary, input.OpenQuestions, DeadlineCalculator.RuleVersion,
+            assessment.EvidenceHash, c.Evidence.Select(e => e.Hash).Order().ToArray(), ReportState.Draft, "", null, obligations);
+        report = report with { FollowUpObligationIds = input.Kind == "Initial" ? [] :
+            (c.FollowUps ?? []).Where(f => f.Jurisdiction == input.Jurisdiction && f.Status == "Open").Select(f => f.Id).ToArray() };
+        var prefill = ReportPrefill.Create(c, report, policies.Device(c.ProductId), governance, policies.Calendar(input.Jurisdiction),
+            authored.Vigilance ?? throw new DomainException("vigilance_fields", "Autorenlauf lieferte keine pruefbaren strukturierten Meldungstexte."), run.Id, now);
+        report = report with { Preparation = prefill.Preparation };
+        if (prefill.Preparation.Target.MirSupported)
+        {
+            var mir = mirComposer.Build(c, report, policies.Device(c.ProductId), policies.Calendar(input.Jurisdiction), prefill.Facts, now);
+            await objects.Put(mir.Xml, ct);
+            report = report with { Mir = mir, AttachmentHashes = report.AttachmentHashes.Append(mir.XmlHash).Order(StringComparer.Ordinal).ToArray() };
+        }
+        report = report with { ScopeHash = ReportRules.Scope(assessment, report) };
         return await store.Execute<SafetyCase>(context, current =>
         {
             var value = Require(current);
             ReportRules.RequireNoUnknown(value, input.Jurisdiction);
-            Guard.Against(input.Kind != "Initial" && !value.Submissions.Any(s => s.Status == "SimulatedAccepted" &&
-                value.Reports.Any(r => r.ScopeHash == s.ReportScopeHash && r.Jurisdiction == input.Jurisdiction)),
-                "initial_required", "Folgemeldung erfordert einen abgeglichenen Vorbericht derselben Jurisdiktion.");
-            var obligations = value.Deadlines.Where(d => d.Jurisdiction == input.Jurisdiction && d.Status == "Open").Select(d => d.Id).ToArray();
-            if (input.Kind != "Initial" && obligations.Length == 0)
-                obligations = value.Reports.LastOrDefault(r => r.Jurisdiction == input.Jurisdiction && r.State == ReportState.SimulatedAccepted)?.ObligationIds ?? [];
-            Guard.Against(obligations.Length == 0, "obligation_required", "Keine passende regulatorische Verpflichtung fuer diesen Bericht.");
-            Guard.Against(input.Kind == "Initial" && value.Submissions.Any(s => s.Status == "SimulatedAccepted" &&
-                value.Reports.Any(r => r.ScopeHash == s.ReportScopeHash && r.ObligationIds?.Intersect(obligations).Any() == true)),
-                "initial_already_reported", "Bereits gemeldete Verpflichtung braucht einen begruendeten Folgebericht, keine zweite Erstmeldung.", 409);
-            var report = new ReportDraft((value.CurrentReport?.Version ?? 0) + 1, assessment.Version, input.Kind,
-                input.Jurisdiction, PolicyCatalog.Recipient(input.Jurisdiction), input.Language,
-                input.Jurisdiction == "GB" ? "GB-SIM-1" : "MIR-7.3.1-SB11154", input.Jurisdiction == "GB" ? "GB-SIM-1" : "MIR-7.3.1-SB11252",
-                authored.Narrative, input.Preliminary, input.OpenQuestions, DeadlineCalculator.RuleVersion,
-                assessment.EvidenceHash, value.Evidence.Select(e => e.Hash).Order().ToArray(), ReportState.Draft, "", null, obligations);
-            report = report with { FollowUpObligationIds = input.Kind == "Initial" ? [] :
-                (value.FollowUps ?? []).Where(f => f.Jurisdiction == input.Jurisdiction && f.Status == "Open").Select(f => f.Id).ToArray() };
-            report = report with { ScopeHash = ReportRules.Scope(assessment, report) };
-            var now = clock.GetUtcNow();
-            var run = new AgentRun(Guid.NewGuid().ToString("N"), AgentRole.VigilanceAuthoring, mode, "Completed",
-                now, now, authored.Model, authored.PromptVersion, Canonical.Hash(assessment), Canonical.Hash(authored),
-                assessment.EvidenceIds, authored.Tools, null, 0, Canonical.Serialize(authored));
             return Invalidate(value) with { Version = value.Version + 1, Reports = [.. Supersede(value.Reports), report],
                 AgentRuns = [.. value.AgentRuns, run] };
         }, ct);
@@ -297,8 +314,9 @@ public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyC
     {
         actor.RequireHuman(medical ? Roles.Medical : Roles.Regulatory);
         var c = await Get(id, actor, ct);
-        return await store.Execute<SafetyCase>(Context(c, input.ExpectedVersion, key, medical ? "MedicalApproved" : "RegulatoryApproved",
-            input.Reason, actor, input), current =>
+        var context = Context(c, input.ExpectedVersion, key, medical ? "MedicalApproved" : "RegulatoryApproved", input.Reason, actor, input);
+        if (await store.Receipt<SafetyCase>(context, ct) is { } replay) return replay;
+        return await store.Execute<SafetyCase>(context with { Dependencies = await ReportDependencies(c.CurrentReport, ct) }, current =>
         {
             var value = Require(current);
             var approval = medical
@@ -315,12 +333,46 @@ public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyC
         }, ct);
     }
 
+    public async Task<SafetyCase> ReturnReport(string id, VersionCommand input, Actor actor, string key, CancellationToken ct = default)
+    {
+        actor.RequireHuman(Roles.Medical, Roles.Regulatory);
+        Guard.Text(input.Reason, "Konkrete Korrekturanforderung und benoetigte Belege", 40, 4000);
+        var c = await Get(id, actor, ct);
+        return await store.Execute<SafetyCase>(Context(c, input.ExpectedVersion, key, "ReportReturnedForCorrection",
+            input.Reason, actor, input), current =>
+        {
+            var value = Require(current);
+            var report = value.CurrentReport ?? throw new DomainException("report_required", "Kein zurueckzugebender Bericht.");
+            ReportRules.RequireNoUnknown(value, report.Jurisdiction);
+            Guard.Against(report.State is not (ReportState.Draft or ReportState.MedicalApproved or ReportState.Frozen),
+                "report_state", "Nur einen aktuellen ungesendeten Entwurf zur Korrektur zurueckgeben.", 409);
+            Guard.Against(report.ReviewReturn is not null, "report_correction_required", "Diese Fassung ist bereits zur Korrektur zurueckgegeben.", 409);
+            var role = actor.Roles.Contains(Roles.Regulatory) ? Roles.Regulatory : Roles.Medical;
+            var returned = report with { Version = report.Version + 1, State = ReportState.Draft, FrozenJson = null,
+                ReviewReturn = new(actor.Id, role, clock.GetUtcNow(), input.Reason, report.ScopeHash) };
+            returned = returned with { ScopeHash = ReportRules.Scope(value.CurrentAssessment!, returned) };
+            return Invalidate(value) with { Version = value.Version + 1,
+                Reports = [.. Supersede(value.Reports), returned], Stage = CaseStage.Investigating };
+        }, ct);
+    }
+
+    public async Task<StoreDependency[]> ReportDependencies(ReportDraft? report, CancellationToken ct = default)
+    {
+        if (report?.Preparation?.Governance is not { } bound) return [];
+        var current = await store.Get<ProductGovernance>("productGovernance", bound.Id, ct);
+        Guard.Against(current is null || current.Version != bound.Version || Canonical.Hash(current) != Canonical.Hash(bound),
+            "report_profile_stale", "Das fuehrende Produkt-/Herstellerprofil wurde geaendert. Entwurf neu vorbereiten und getrennt freigeben.", 409);
+        return [new("productGovernance", new(bound.Id, bound.Version, Canonical.Hash(bound)))];
+    }
+
     public async Task<SafetyCase> Submit(string id, SubmissionCommand input, Actor actor, string key, CancellationToken ct = default)
     {
         actor.RequireHuman(Roles.Regulatory);
         Guard.Against(!new[] { "Accept", "Reject", "Unknown" }.Contains(input.Scenario), "simulator_scenario", "Ungueltiges Simulatorszenario.");
         var c = await Get(id, actor, ct);
-        return await store.Execute<SafetyCase>(Context(c, input.ExpectedVersion, key, "SimulatedSubmission", input.Reason, actor, input), current =>
+        var context = Context(c, input.ExpectedVersion, key, "SimulatedSubmission", input.Reason, actor, input);
+        if (await store.Receipt<SafetyCase>(context, ct) is { } replay) return replay;
+        return await store.Execute<SafetyCase>(context with { Dependencies = await ReportDependencies(c.CurrentReport, ct) }, current =>
         {
             var value = Require(current);
             ReportRules.RequireSendable(value, actor);

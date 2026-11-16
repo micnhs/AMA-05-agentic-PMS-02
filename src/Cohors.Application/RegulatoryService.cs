@@ -7,7 +7,7 @@ public sealed class RegulatoryService(IStateStore store, IObjectStore objects, C
 {
     public async Task<SafetyCase> AttachMir(string id, MirCommand input, Actor actor, string key, CancellationToken ct = default)
     {
-        actor.RequireHuman(Roles.Medical, Roles.Regulatory);
+        actor.RequireHuman(Roles.Pms, Roles.Medical, Roles.Regulatory);
         var c = await cases.Get(id, actor, ct);
         Guard.Text(input.Reason, "MIR-Mapping-/Aenderungsbegruendung", 30);
         var context = new CommandContext(id, "case", c.ProductId, input.ExpectedVersion, key, "MirMappedAndValidated",
@@ -21,12 +21,14 @@ public sealed class RegulatoryService(IStateStore store, IObjectStore objects, C
             "report_state", "Bereits versandte Pakete nicht veraendern; eigenen Folgebericht vorbereiten.");
         var assessment = c.CurrentAssessment ?? throw new DomainException("assessment_required", "Assessment fehlt.");
         Guard.Against(assessment.EvidenceHash != Canonical.Hash(c.Evidence), "assessment_stale", "Aktuelles Assessment erforderlich.", 409);
+        context = context with { Dependencies = await cases.ReportDependencies(report, ct) };
         var mir = composer.Build(c, report, policies.Device(c.ProductId), policies.Calendar(report.Jurisdiction), input.Facts, clock.GetUtcNow());
         await objects.Put(mir.Xml, ct);
         return await store.Execute<SafetyCase>(context, value =>
         {
             var current = CaseService.Require(value);
-            var next = report with { Version = report.Version + 1, Mir = mir, State = ReportState.Draft, FrozenJson = null,
+            var next = report with { Version = report.Version + 1, Mir = mir, State = ReportState.Draft, FrozenJson = null, ReviewReturn = null,
+                Preparation = report.Preparation is null ? null : ReportPrefill.Review(report.Preparation, input.Facts, actor, input.Reason, current.Evidence),
                 AttachmentHashes = current.Evidence.Select(e => e.Hash).Append(mir.XmlHash).Order(StringComparer.Ordinal).ToArray() };
             next = next with { ScopeHash = ReportRules.Scope(assessment, next) };
             return current with { Version = current.Version + 1, Reports = [.. current.Reports.SkipLast(1),

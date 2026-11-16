@@ -4,6 +4,23 @@ namespace Cohors.Application;
 
 public static class VigilanceNarrative
 {
+    public static VigilanceFields Fields(SafetyCase c, string language)
+    {
+        var content = c.CurrentAssessment?.Content ?? throw new DomainException("assessment_required", "Assessment fehlt.");
+        VigilanceText Section(string key, string boundary)
+        {
+            var section = content.Sections.SingleOrDefault(s => s.Key == key)
+                ?? throw new DomainException("report_section", $"Assessment-Abschnitt {key} fuer den Meldungsentwurf fehlt.");
+            return new(boundary + "\n\n" + section.Text, section.ClaimIds);
+        }
+        return new(Section("causality", language == "en"
+                ? "DRAFT, NOT CONFIRMED CAUSALITY. Original-language assessment excerpt; a regulator-ready translation is not asserted."
+                : "ENTWURF, KEINE BESTAETIGTE URSACHE. Unveraenderte Begruendung aus dem aktuellen Assessment:"),
+            Section("information", language == "en"
+                ? "PROPOSED INVESTIGATION, NOT A COMPLETED ACTION OR A HUMAN-COMMITTED DEADLINE. Original-language assessment excerpt:"
+                : "UNTERSUCHUNGSVORSCHLAG, KEINE DURCHGEFUEHRTE MASSNAHME ODER MENSCHLICH ZUGESAGTE FRIST. Assessment-Auszug:"));
+    }
+
     public static string FromAssessment(SafetyCase c, string language)
     {
         Guard.Against(language is not ("de" or "en"), "report_language",

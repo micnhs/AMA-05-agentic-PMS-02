@@ -29,12 +29,55 @@ public sealed record MirFacts
     public string? FinalComments { get; init; }
     public string[] EvidenceIds { get; init; } = [];
     public string Rationale { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EventDateRationale { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AuthorityReference { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AuthorityReferenceRationale { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RationaleNoRiskReview { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RiskAssessmentAdequate { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RiskAssessmentResults { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MirSimilarIncidents? SimilarIncidents { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ManufacturerName { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ManufacturerSrn { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ManufacturerCountry { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContactFirstName { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContactLastName { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContactStreet { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContactCity { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContactPostcode { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContactPhone { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContactEmail { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? SubmitterIsManufacturerContact { get; init; }
 }
 
+public sealed record MirSimilarPeriod(DateOnly Start, DateOnly End, int? CountryIncidents, int? RegionalIncidents,
+    int? WorldwideIncidents, int? CountryDevices, int? RegionalDevices, int? WorldwideDevices, string MissingDataReason);
+public sealed record MirSimilarIncidents(string Variant, string Details, string DenominatorBasis,
+    string? OtherDenominator, string Method, string Geography, MirSimilarPeriod[] Periods);
+public sealed record MirChecks(bool SchemaValid, string[] ContentErrors, string ContentBoundary,
+    bool NationalSubmissionReady, string[] ExternalRequirements);
 public sealed record MirArtifact(string Kind, string SchemaFile, string SchemaHash, string MappingVersion,
     string Xml, string XmlHash, bool Valid, string[] Errors, string[] Limitations, MirFacts Facts,
     DateTimeOffset CreatedAt, bool Simulated,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FollowUpSchedule? FollowUpSchedule = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FollowUpSchedule? FollowUpSchedule = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] MirChecks? Checks = null);
 
 public static class MirSchemas
 {
@@ -48,6 +91,7 @@ public static class MirSchemas
 
     public static void RequireValid(ReportDraft report)
     {
+        ReportTargets.RequireBound(report);
         if (report.Jurisdiction == "GB") return;
         var m = report.Mir;
         var schema = For(report.Kind);

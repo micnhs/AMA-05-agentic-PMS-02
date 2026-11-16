@@ -77,7 +77,8 @@ public sealed record RetentionView(RetentionRecord Record, RetentionEvaluation E
 public sealed record AgentInput(AgentRole Role, AgentMode Mode, SafetyCase? Case, PsurSnapshot? Snapshot,
     TrendRun? Trend, Evidence[] Evidence, string Instruction, int Revision, string Language = "de");
 public sealed record AgentOutput(string Model, string PromptVersion, AssessmentContent? Assessment,
-    string Narrative, QualityFinding[] Findings, string[] Tools);
+    string Narrative, QualityFinding[] Findings, string[] Tools,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] VigilanceFields? Vigilance = null);
 public interface IAgentRunner
 {
     Task<AgentOutput> Run(AgentInput input, CancellationToken ct = default);
@@ -187,16 +188,7 @@ public sealed class PolicyCatalog
         ?? throw new DomainException("device_unknown", "Produktfamilie ist nicht im synthetischen Pilotportfolio.");
     public CalendarProfile Calendar(string jurisdiction) => Calendars.SingleOrDefault(c => c.Id == jurisdiction)
         ?? throw new DomainException("jurisdiction_unknown", "Jurisdiktion ist nicht freigegeben.");
-    public static string Recipient(string jurisdiction) => jurisdiction switch
-    {
-        "EU-IE" => "HPRA-SIMULATOR",
-        "EU-DE" => "BfArM-SIMULATOR",
-        "EU-FR" => "ANSM-SIMULATOR",
-        "EU-IT" => "Ministero-Salute-SIMULATOR",
-        "NI" => "MHRA-NI-SIMULATOR",
-        "GB" => "MHRA-GB-SIMULATOR",
-        _ => throw new DomainException("recipient_unknown", "Kein freigegebenes Empfaengerprofil.")
-    };
+    public static string Recipient(string jurisdiction) => ReportTargets.For(jurisdiction).Simulator;
 }
 
 public sealed record RecordCodingCommand(int ExpectedVersion, string ReleaseId, string[] Codes,

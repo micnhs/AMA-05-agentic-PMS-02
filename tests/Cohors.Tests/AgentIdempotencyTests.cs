@@ -20,7 +20,7 @@ public sealed class AgentIdempotencyTests(SqlFixture fixture)
         var runner = new CountingRunner();
         var barrier = new ReadBarrierStore(fixture.Store, s.Case.Id);
         var service = new CaseService(barrier, fixture.Objects, fixture.Policies, runner,
-            new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store), s.Clock);
+            new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store), s.Clock, new MirComposer());
         async Task<string> Process()
         {
             try { await service.ProcessAssessment(s.Case.Id, run.Id); return "completed"; }
@@ -42,7 +42,7 @@ public sealed class AgentIdempotencyTests(SqlFixture fixture)
         await s.Create(); await s.Assess();
         var runner = new CountingRunner();
         var service = new CaseService(fixture.Store, fixture.Objects, fixture.Policies, runner,
-            new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store), s.Clock);
+            new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store), s.Clock, new MirComposer());
         var input = new PrepareReportCommand(s.Case.Version, "Initial", "EU-IE", "de", true,
             "Klinische und technische Befunde bleiben offen.", "Idempotente wiederholte Entwurfsanfrage.");
         var key = CaseScenario.Key();

@@ -62,7 +62,8 @@ public sealed class MirTests(SqlFixture fixture)
         var artifact = s.Case.CurrentReport!.Mir!;
         Assert.True(artifact.Valid, string.Join("\n", artifact.Errors));
         Assert.Equal(MirSchemas.For(kind).Hash, artifact.SchemaHash);
-        Assert.Equal(receipt, XDocument.Parse(artifact.Xml).Root!.Element("admin_info")!.Element("ncaReportNo")!.Value);
+        Assert.Equal("DEMO-NCA-REFERENCE", XDocument.Parse(artifact.Xml).Root!.Element("admin_info")!.Element("ncaReportNo")!.Value);
+        Assert.NotEqual(receipt, artifact.Facts.AuthorityReference);
         await s.Approve();
         s.Case = await s.Service.Submit(s.Case.Id, new(s.Case.Version, "Accept", "Geprueften synthetischen Folge- oder Abschlussbericht simulieren."),
             SqlFixture.Ra, CaseScenario.Key());

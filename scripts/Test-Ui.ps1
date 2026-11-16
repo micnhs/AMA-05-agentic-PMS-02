@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory)][string]$ApplicationDirectory,
     [Parameter(Mandatory)][string]$ArtifactDirectory,
-    [ValidateSet('Preview','AuditExport','SummaryReport','CaseDocuments','PhysicalRetention')][string]$Profile = 'Preview',
+    [ValidateSet('Preview','AuditExport','SummaryReport','CaseDocuments','ReportPrefill','PhysicalRetention')][string]$Profile = 'Preview',
     [int]$Port = 5197
 )
 $ErrorActionPreference = 'Stop'
@@ -115,12 +115,12 @@ try {
     $env:COHORS_URL = "http://localhost:$Port"
     $env:COHORS_TEST_ACCESS_FILE = $accessPath
     $env:COHORS_UI_ARTIFACT_DIR = $artifacts
-    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } 'CaseDocuments' { 'case-documents' } default { 'preview' } }
+    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } 'CaseDocuments' { 'case-documents' } 'ReportPrefill' { 'report-prefill' } default { 'preview' } }
     & npm --prefix (Join-Path $root 'src\Cohors.Web') run test:e2e -- "--project=$project" *> (Join-Path $artifacts 'private-browser.log')
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw
     $cases = $junit.SelectNodes('//testcase')
-    $expected = if ($Profile -eq 'Preview') { 10 } elseif ($Profile -eq 'CaseDocuments') { 2 } else { 1 }
+    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CaseDocuments') { 2 } else { 1 }
     if ($cases.Count -ne $expected -or $junit.SelectNodes('//testcase/skipped | //testcase/failure | //testcase/error').Count) {
         throw 'Browser acceptance requires every named scenario of the explicitly selected profile, without failures or skips.'
     }

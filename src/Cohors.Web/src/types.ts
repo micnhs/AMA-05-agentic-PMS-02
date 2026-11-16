@@ -28,10 +28,21 @@ export interface MirFacts {
   distribution?: string | null; rootCauses?: string | null; rootCauseConfirmed?: string | null; riskAssessmentReviewed?: string | null;
   investigationTypeCode?: string | null; investigationFindingCode?: string | null; investigationConclusionCode?: string | null;
   componentCode?: string | null; correctiveAction?: string | null; finalComments?: string | null;
+  eventDateRationale?: string | null; authorityReference?: string | null; authorityReferenceRationale?: string | null;
+  rationaleNoRiskReview?: string | null; riskAssessmentAdequate?: string | null; riskAssessmentResults?: string | null;
+  manufacturerName?: string | null; manufacturerSrn?: string | null; manufacturerCountry?: string | null;
+  contactFirstName?: string | null; contactLastName?: string | null; contactStreet?: string | null; contactCity?: string | null;
+  contactPostcode?: string | null; contactPhone?: string | null; contactEmail?: string | null;
+  submitterIsManufacturerContact?: boolean | null; similarIncidents?: MirSimilarIncidents | null;
   evidenceIds: string[]; rationale: string;
 }
-export interface MirArtifact { kind: string; schemaFile: string; schemaHash: string; mappingVersion: string; xmlHash: string; valid: boolean; errors: string[]; limitations: string[]; facts: MirFacts; followUpSchedule?: FollowUpSchedule | null; createdAt: string }
-export interface Report { version: number; kind: string; language: string; jurisdiction: string; recipient: string; formVersion: string; schemaVersion: string; narrative: string; state: string; scopeHash: string; preliminary: boolean; openQuestions: string; mir?: MirArtifact | null; obligationIds: string[]; followUpObligationIds?: string[] | null }
+export interface MirSimilarPeriod { start: string; end: string; countryIncidents: number | null; regionalIncidents: number | null; worldwideIncidents: number | null; countryDevices: number | null; regionalDevices: number | null; worldwideDevices: number | null; missingDataReason: string }
+export interface MirSimilarIncidents { variant: string; details: string; denominatorBasis: string; otherDenominator: string | null; method: string; geography: string; periods: MirSimilarPeriod[] }
+export interface ReportTarget { version: string; jurisdiction: string; authority: string; simulator: string; formFamily: string; mirSupported: boolean; nationalSubmissionReady: boolean; externalRequirements: string[] }
+export interface PreparedReportField { field: string; value: string | null; origin: string; source: string; rationale: string; claimIds: string[]; citations: Citation[] }
+export interface ReportPreparation { contract: string; productId: string; caseSource: VersionReference; device: Device; governance: ProductGovernance | null; target: ReportTarget; mode: string; authoringRunId: string; fields: PreparedReportField[] }
+export interface MirArtifact { kind: string; schemaFile: string; schemaHash: string; mappingVersion: string; xmlHash: string; valid: boolean; errors: string[]; limitations: string[]; facts: MirFacts; followUpSchedule?: FollowUpSchedule | null; createdAt: string; checks?: { schemaValid: boolean; contentErrors: string[]; contentBoundary: string; nationalSubmissionReady: boolean; externalRequirements: string[] } | null }
+export interface Report { version: number; assessmentVersion: number; evidenceHash: string; kind: string; language: string; jurisdiction: string; recipient: string; formVersion: string; schemaVersion: string; narrative: string; state: string; scopeHash: string; preliminary: boolean; openQuestions: string; mir?: MirArtifact | null; obligationIds: string[]; followUpObligationIds?: string[] | null; preparation?: ReportPreparation | null; reviewReturn?: { actorId: string; role: string; at: string; reason: string; previousScopeHash: string } | null }
 export interface Approval { id: string; actorId: string; actorName: string; role: string; scopeHash: string; at: string; meaning: string; rationale: string }
 export interface Submission { id: string; correlationId: string; reportScopeHash: string; status: string; receiptReference: string | null; attemptedAt: string; simulated: boolean; attempts: number }
 export interface AgentRun { id: string; role: string; mode: string; status: string; startedAt: string; finishedAt: string; errorCode: string | null; model: string }

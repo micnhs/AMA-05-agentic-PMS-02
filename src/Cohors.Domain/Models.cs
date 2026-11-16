@@ -43,7 +43,9 @@ public sealed record ReportDraft(int Version, int AssessmentVersion, string Kind
     bool Preliminary, string OpenQuestions, string RuleVersion, string EvidenceHash, string[] AttachmentHashes,
     ReportState State, string ScopeHash, string? FrozenJson, string[]? ObligationIds = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] MirArtifact? Mir = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? FollowUpObligationIds = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string[]? FollowUpObligationIds = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReportPreparation? Preparation = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReportReturn? ReviewReturn = null);
 
 public sealed record Approval(string Id, string ActorId, string ActorName, string Role, string ScopeHash,
     DateTimeOffset At, string Meaning, string Rationale, string? FindingDisposition);
