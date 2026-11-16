@@ -20,7 +20,7 @@ Getrennte zufaellig erzeugte Kennwoerter liegen nur in `.local\demo-access.txt`.
 
 | Konto | Verantwortung |
 | --- | --- |
-| `pms.demo` | Intake, Recherche, begruendete Entwurfsauftraege |
+| `pms.demo` | Intake, Recherche, begruendete Entwurfsauftraege und belegte Entwurfskorrekturen |
 | `medical.demo` | Medizinische Bewertung und erste Freigabe |
 | `ra.demo` | Regulatorische Pruefung, zweite Freigabe, Simulator/Abgleich |
 | `quality.demo` | Massnahmen-/Dokumentkontrolle und Wirksamkeitspruefung |
@@ -31,10 +31,12 @@ Ein lokales SDK kann unter `.tools\dotnet` liegen; die Skripte bevorzugen es. Au
 ### Bereits veroeffentlichte Vorschau erhalten
 
 Auf dem Pruefrechner laeuft die qualifizierte 5187-Vorschau aus dem separat
-veroeffentlichten, unveraenderten Paket `.local\app-replay-ui-27672ae`, Quellstand
-`27672ae62dbdecc6c3870252d7270114f6468c3f`. Prozessleiste, Dokumentdialoge,
-getrennte Kritikalitaets-/Ausgangsangaben und Dokumentenkategorien sind darin
-aktiv. Das alte 2a-Paket bleibt unveraendert als Rueckfall. Ihre expliziten Startwerte sind
+veroeffentlichten, unveraenderten Paket `.local\app-replay-prefill-d166658`, Quellstand
+`d16665832fd1066be60c7f15db41b2c3d1233cc7`. Neben Prozessleiste, Dokumentdialogen,
+Kritikalitaet/Ausgang und Kategorien ist die agentengestuetzte
+Meldungsvorbefuellung mit Herkunft, Pflichtluecken und gezielter Rueckgabe aktiv.
+Das UI-Paket `27672ae` bleibt unmittelbarer Rueckfall; auch das alte 2a-Paket
+bleibt unveraendert. Ihre expliziten Startwerte sind
 `Cohors__Seed=false`, `Cohors__AutoMigrate=false`,
 `Cohors__LocalOperations=true`, `Cohors__AgentTransport=Local` und
 `Retention__PhysicalMode=Disabled`. Die lokale Outbox-/Watchdog-Emulation ist
@@ -47,16 +49,23 @@ den urspruenglichen Seed-Standard; ein Neustart ohne die expliziten Overrides
 ist deshalb kein gleichwertiger Erhaltungsweg. Neue Pakete und isolierte
 Testdatenbanken getrennt erstellen, das laufende Paket und die Demo-SQL
 waehrend der weiteren Implementierung unangetastet lassen. Die aktuellen
-21/21 gezielten Domain-/SQL- und 2/2 `CaseDocuments`-Ergebnisse sowie die
+46/46 gezielten Domain-/SQL- und 1/1 `ReportPrefill`-Ergebnisse, der vorherige
+21/21-/2/2-UI-Nachweis sowie die
 **historisch getrennten** 2a-122/6- und ee13e91-Recovery-/Physical-Nachweise stehen in
 [Validierung](docs/validation.md).
+
+Bestehende Fenster selbst neu laden. Alte Berichte werden nicht nachtraeglich
+umgeschrieben: Die Vorbefuellung entsteht bei einer neuen Berichtsversion.
+Die lesende Alt/Neu-Pruefung bewahrte auch zwei schon vorher bestehende
+historische Scope-/Serialisierungsabweichungen; sie wurden nicht repariert
+oder als aktuelle Freigaben bestaetigt.
 
 ## Vorfuehrung
 
 1. Als PMS Specialist eine synthetische Beschwerde mit eigenstaendiger Vorfallreferenz aufnehmen. UDI darf unbekannt sein. Die eingegebene erste Organisationskenntnis ist nicht der Systemeingang.
 2. Eine **Replay**-Analyse beauftragen. Zwoelf Abschnitte, belegte Aussagen, Gegenhypothesen, Empfehlungen und offene Fragen in der Workbench lesen; Originalfundstellen und Hash pruefen.
-3. Einen vorlaeufigen Bericht vorbereiten. Mit `medical.demo` die expliziten synthetischen MIR-Pflichtdaten samt Belegen und fest zugesagtem Folgetermin erfassen, die Original-XSD-Pruefung ansehen und den konkreten Inhalt begruendet freigeben.
-4. Abmelden, mit `ra.demo` anmelden und das gebundene Paket regulatorisch freigeben. Das Paket wird eingefroren.
+3. Als PMS einen Meldungsentwurf vorbereiten. Fuehrende Fall-/Produktdaten und begruendete Replay-Vorschlaege sind vorausgefuellt; Behoerde, Simulator, Quellen und offene Pflichtangaben sind sichtbar. Nur belegte synthetische Korrekturen ergaenzen, einen Folgetermin ausdruecklich menschlich festlegen. Nicht belegbare Angaben bleiben offen und sperren erforderlichenfalls die Freigabe.
+4. Mit `medical.demo` den konkreten Inhalt zuerst medizinisch pruefen und begruendet freigeben. Danach mit dem getrennten `ra.demo`-Konto das Paket pruefen und freigeben oder gezielt zur Korrektur an PMS zurueckgeben. RA muss nicht die Eingabemaske ausfuellen; nur die zweite Freigabe friert das Paket ein.
 5. Im Simulator `Unknown` waehlen. Es liegt **keine bestaetigte Annahme** vor. Zuerst die Korrelations-ID abgleichen, nicht erneut senden.
 6. Audit Explorer und Manifest pruefen. RFI, Folgeberichte, Trends/CAPA und PSUR werden im selben fachlichen Regelkreis bearbeitet.
 
@@ -82,7 +91,7 @@ Der erste End-to-End-Schnitt wurde mit echter lokaler SQL-Persistenz und Browser
 
 SQL-Tests verwenden eine **eigene zufaellig benannte Testdatenbank**, niemals die Demo-Datenbank. Sie verweigern nicht lokale SQL-Server. Die Recovery-Kategorie startet zusaetzlich eigene Docker-SQL-Instanzen; `Test-Local.ps1` ist deshalb kein leichter Preview-Check.
 
-Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich zweier unabhaengiger Einzelfamilienkonten. Die laufende Demo auf 5187 wird dabei nicht neu initialisiert oder veraendert. Das gesamte `Preview`-Profil erwartet inzwischen zehn Szenarien mit **`Retention:PhysicalMode=Disabled`**. Tatsachlich ausgefuehrt wurden die quellengebundenen Teilprofile **`AuditExport` 1/1**, **`SummaryReport` 1/1** und jetzt **`CaseDocuments` 2/2**, nicht eine neue 10/10-Gesamtsuite. Der neue UI-Stand wurde erst nach seinem engen Nachweis getrennt auf 5187 uebernommen. **`PhysicalRetention`** wurde frueher getrennt 1/1 mit echter Fehlerdiagnostik und kontrolliertem Abgleich geprueft; dadurch wird weder der physische Pfad auf 5187 aktiviert noch produktiv freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist nach gesonderter Lauf-Freigabe moeglich:
+Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich zweier unabhaengiger Einzelfamilienkonten. Die laufende Demo auf 5187 wird dabei nicht neu initialisiert oder veraendert. Das gesamte `Preview`-Profil erwartet inzwischen elf Szenarien mit **`Retention:PhysicalMode=Disabled`**. Die Teilprofile **`AuditExport` 1/1**, **`SummaryReport` 1/1**, **`CaseDocuments` 2/2** und jetzt **`ReportPrefill` 1/1** sind jeweils an ihren eigenen Quellstand gebunden, nicht an eine neue 11/11-Gesamtsuite. UI und Vorbefuellung wurden erst nach ihren getrennten engen Nachweisen auf 5187 uebernommen. **`PhysicalRetention`** wurde frueher getrennt 1/1 mit echter Fehlerdiagnostik und kontrolliertem Abgleich geprueft; dadurch wird weder der physische Pfad auf 5187 aktiviert noch produktiv freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist nach gesonderter Lauf-Freigabe moeglich:
 
 ```powershell
 .\.tools\dotnet\dotnet.exe publish src\Cohors.Api\Cohors.Api.csproj --configuration Debug --no-build --no-restore --output .local\ui-package

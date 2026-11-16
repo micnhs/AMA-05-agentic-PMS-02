@@ -5,16 +5,29 @@ Integrationsvertrag, kein Nachweis einer Azure-Abnahme. Die anfaengliche gemeins
 ## Laufende qualifizierte Vorschau
 
 Der aktuell auf 5187 veroeffentlichte lokale Replay-Schnitt verwendet
-`.local\app-replay-ui-27672ae` aus
-`27672ae62dbdecc6c3870252d7270114f6468c3f`, mit `Seed=false`,
+`.local\app-replay-prefill-d166658` aus
+`d16665832fd1066be60c7f15db41b2c3d1233cc7`, mit `Seed=false`,
 `AutoMigrate=false`, `Retention:PhysicalMode=Disabled`, `LocalOperations=true`
 und `AgentTransport=Local`. Er bleibt waehrend weiterer Quellarbeit
-unveraendert. Der neue Build, 21/21 gezielte Domain-/SQL-Faelle, 2/2 isolierte
-`CaseDocuments`-Faelle und die rein lesende echte 5187-Browseransicht sind in
+unveraendert. Der neue Build, 46/46 gezielte Domain-/SQL-Faelle, 1/1 isolierter
+`ReportPrefill`-Fall und die rein lesende echte 5187-Browseransicht sind in
 [Validierung](validation.md) an dieses Paket gebunden. Schema 2 benoetigte
 keine Migration; Demo-SQL, bestehende Objekte, Konten, Schluessel und
-Konfiguration wurden weder neu initialisiert noch zurueckgesetzt. Die
-122/6-Nachweise und das Rueckfallpaket 2a bleiben ebenso wie ee13e91 historisch.
+Konfiguration wurden weder neu initialisiert noch zurueckgesetzt. Der
+unmittelbare Rueckfall ist das unveraenderte UI-Paket `27672ae` mit seinem
+21/21-/2/2-Nachweis. Die 122/6-Nachweise und das weitere Rueckfallpaket 2a
+bleiben ebenso wie ee13e91 historisch.
+
+Vigilance Authoring fuellt neue Berichtsversionen aus fuehrenden Fakten und
+begruendeten Replay-Vorschlaegen vor; es gibt keine Live-Aktivierung.
+Fehlende Pflichtangaben bleiben sichtbar und blockieren die Freigabe.
+PMS darf Entwurfsdaten belegt korrigieren, aber nicht medizinisch oder
+regulatorisch freigeben. RA prueft oder gibt gezielt zurueck; die getrennte
+Medical-Safety-Freigabe bleibt erforderlich. Optionale Vorbereitungs- und
+Rueckgabemetadaten veraendern keine alten Payloads beim Lesen. Der
+Alt/Neu-Vergleich von 17 bestehenden Faellen und drei Berichtsversionen ergab
+keinen zusaetzlichen Serialisierungs-/Scope-Drift. Zwei bereits im UI-Paket
+bestehende historische Abweichungen bleiben offen, nicht neu freigegeben.
 
 Der getrennte lokale Linux-Hostlauf T12 Lauf09 gilt weiterhin fuer
 `245b3b0`, nicht fuer 2a29196 oder spaetere Fachquellen. Weder der folgende

@@ -5,13 +5,15 @@
 ## Qualifizierter lokaler Preview-Schnitt
 
 Die aktuell veroeffentlichte **5187-Vorschau** verwendet das unveraenderte Paket
-`.local\app-replay-ui-27672ae` aus dem sauberen Quellcheckpoint
-**`27672ae62dbdecc6c3870252d7270114f6468c3f`**. Sie laeuft mit
+`.local\app-replay-prefill-d166658` aus dem sauberen Quellcheckpoint
+**`d16665832fd1066be60c7f15db41b2c3d1233cc7`**. Sie laeuft mit
 **`Retention:PhysicalMode=Disabled`**, `Seed=false`, `AutoMigrate=false`,
 `LocalOperations=true` und `AgentTransport=Local`. Weitere Quellarbeit aendert
-dieses bereits veroeffentlichte Paket nicht. Der UI-Schnitt ist mit neuem
-Build, **21/21 gezielten Domain-/SQL-Faellen und 2/2 CaseDocuments-Faellen**
-geprueft, nicht mit einer neuen Vollsuite. Die unten aufgefuehrten UI-Belege
+dieses bereits veroeffentlichte Paket nicht. Der Vorbefuellungsschnitt ist mit
+neuem Build, **46/46 gezielten Domain-/SQL-Faellen und 1/1 ReportPrefill-Fall**
+geprueft, nicht mit einer neuen Vollsuite. Der unmittelbare Rueckfall bleibt
+das unveraenderte UI-Paket `27672ae` mit eigenem 21/21-/2/2-Nachweis.
+Die unten aufgefuehrten Belege
 binden auch die tatsaechlich laufende API, ihre HTTP-Assets und eine eigene
 rein lesende Edge-Ansicht der erhaltenen Demo.
 
@@ -541,7 +543,7 @@ Fehlerstatus, Claimbezug, historische Revision, schmale/lange Ansicht, Fokus,
 reale Scope-Verweigerung und verspaetete Antwort.
 Der bisherige unveraenderte private fe6-Paketstand dient nur als Vorheransicht;
 er wurde nicht als neuer UI-Erfolg ausgegeben. B10-Arbeit ist geparkt;
-Meldungsvorbefuellung wird danach separat integriert.
+Meldungsvorbefuellung wurde danach separat integriert und geprueft (siehe unten).
 Strukturierte Outcome-Quellen werden nebeneinander mit ihrem jeweiligen
 Pruefstand gezeigt: fehlendes F02 verdeckt kein medizinisch freigegebenes
 MIR-Death, und historische/veraltete F02-Angaben ersetzen nicht den Pruefstand
@@ -591,6 +593,108 @@ geprueft. Das benoetigte keine Aenderung der geprueften Anwendung.
 Dies ist keine neue 122er-/10er-Gesamtsuite, kein Lauf der 14 Recoveryfaelle,
 kein getrennter Host-/Last-/Cloudnachweis und keine medizinische oder
 regulatorische Betriebsfreigabe.
+
+## Agentengestuetzte Meldungsvorbefuellung: eigener gepruefter Stand
+
+**BcHG auf d16665832:** Neuer TypeScript-/Vite-Build, neuer C#-Build des
+kleinsten bestehenden Testprojekts und Publish bestanden. Gemeinsam liefen
+**46/46 ohne Skips**: 37 SQL-freie Regel-/Prozessfaelle und neun SQL-Faelle
+fuer Vorbefuellung, MIR und Autoren-Idempotenz. Enthalten sind die gemischten
+Annex-F-/medizinischen MIR-Ausgaenge, alle fuenf unterstuetzten EU-/NI-Ziele,
+Initial/FollowUp/FinalRep, bedingter Final-Riskreview, Similar-Incident-
+Zeitraeume/Nenner und die tatsaechlich zusammengesetzten Feldlaengengrenzen.
+GB wurde gesondert nur als GB-SIM-Narrativ geprueft, nicht als GB-MIR.
+
+Der echte isolierte `V01`-Browserfall bestand **1/1**: PMS beauftragt den
+vorausgefuellten Entwurf, liest Behoerde/Simulator, Pflichtluecken,
+Feldherkunft und verifizierten Originalbeleg. RA hat keine verpflichtende
+Datenerfassung und gibt konkrete Luecken zurueck. PMS korrigiert belegte
+synthetische Fakten und bestaetigt den Folgetermin; die Agententexte bleiben
+unveraendert. Danach pruefen Medical und RA mit genau zwei verschiedenen
+Identitaeten. Das Paket wird eingefroren, aber nicht automatisch gesendet.
+LegalDue/SafetyDue bleiben unveraendert; Desktop und 390-Pixel-Ansicht wurden
+als Dateien erfasst und gelesen. Das ist keine neue 11/11-Preview-Suite.
+
+Fuehrend uebernommen werden vorhandene Fallreferenz/-beschreibung/-land,
+Organisationskenntnis, bekannte Ereigniszeit, Produktmodell, Basic-UDI,
+bekannte UDI/Charge und freigegebene Herstellerstammdaten. Kausalitaets- und
+Untersuchungstexte sind gekennzeichnete, an Claims/Fundstellen gebundene
+Agentenvorschlaege, keine bestaetigte Ursache oder ausgefuehrte Massnahme.
+Nicht belegte Ereignisangaben, Kontakte, Kodierungen und menschliche
+Terminzusagen bleiben offen; sie werden nicht durch Platzhalter erfunden.
+Eine neue Version uebernimmt keinen alten zugesagten Folgetermin.
+
+Alle folgenden Dateien liegen unter `.local\report-prefill-01`:
+
+| Beleg | Tatsaechliches Ergebnis / SHA256 |
+| --- | --- |
+| `build-03-verified.json` | Native Web-/C#-/Publish-Exits 0, Assemblies und entpackte Assets gebunden; `b4f21a566d2bfc9717b7f7865fdbd9f2939702bae0f7cc0a77ac2cac5ecee005` |
+| `tests-02.trx` | 46/46; `a1101e130fa62b65cacc2d5b2b239ff3a1dd7d5edb5b95854092db35bae97ce5` |
+| `browser-02\browser-results.json` | 1/1, eigener SQL-/API-Lauf; `545b7575edb8974310e71fdafba316ff8cca7945383d14736523fd838365e6dc` |
+| `browser-02\e2e-results.xml` | `1f45c7be37bff54d7cbcebeac1b97c3774deb7b6cc605fa19db2fca2c73c4890` |
+| `compatibility-current-verified.json` | Derselbe lesend erfasste Bestand mit alten/neuen Typen; `5304f6bfaddaff0d40e8a9d14abe49080d37c21b32f8676189b90bdb1c5455c0` |
+| `promotion-result.json` | Tatsaechlich laufendes Paket, Prozess/HTTP-Assets und Erhaltung; `e32a7b7e2334279c03ab12886f78dae28ce57b68eec409dfcb55b2310b3df8cf` |
+| `preview-live-browser.json` | Eigener echter Edge, zwei Screenshots, nur lesende Fachzugriffe; `2f8410866abf1cb63fddfbb807ac44fa8cc6b382120550ecff12fb362838c721` |
+| `test-resources-terminal.json` | Exakter eigener Ressourcenabschluss; `2ddf071ea202b5bb5e8b3f52125f3f2d80bc6cd76f9e467a01c22e69b7727771` |
+
+Der Browser-Rohbeleg behaelt sein `sourceTreeDirty=true`: Der Build hatte die
+getrackte `tsconfig.tsbuildinfo` erzeugt. Die 178 fachlichen/Pruef-Quelldateien
+des sauberen Buildinputs, des Browserinputs und des wieder sauberen
+Quellcheckpoints wurden danach hashgleich nachgewiesen. Das ist kein
+nachtraegliches Umschreiben des Browserergebnisses.
+
+Erstfehler bleiben erhalten: `tests-01` bestand 35/36; der neue
+Unknown-Referenz-Test hatte die obligatorischen FollowUp-Aktions-/Planfelder
+nicht geliefert. Die Fixture wurde vervollstaendigt und eine eigene
+Pflichtlueckenregression ergaenzt. `build-02` scheiterte an xUnit2030 in
+einer neuen Assertion; die exakte Praedikatsassertion ersetzt den Where-Aufruf.
+Bei `build-03` waren alle nativen Exits 0, aber sechs alte, gehashte Vite-
+Dateien lagen noch im unpromoteten Kandidaten. Nur diese nachgewiesenen
+Altreste wurden entfernt und alle aktuellen/komprimierten Assets erneut
+gegen den Build geprueft. `build-03-result.json` bleibt deshalb negativ;
+erst `build-03-verified.json` bestaetigt das bereinigte Paket.
+
+Die lesende Promotionsvorpruefung stoppte zunaechst an einer optionalen
+Null-MIR-Metadatenprojektion und danach an einem historischen Scope.
+Der zweite Befund wurde nicht durch Datenreparatur umgangen: Auf demselben
+Bestand ergeben `27672ae` und `d166658` fuer **17 Faelle und drei
+Berichtsversionen** identische typisierte Daten, Scope-Berechnungen und
+eingefrorene Inhalte. Diese drei Bestandsberichte enthalten kein MIR-Artefakt;
+MIR-Altvertraege mit/ohne optionale Metadaten sind nur durch die gezielten
+Regeltests abgedeckt, nicht durch einen vorhandenen Demo-XML-Bestand.
+Zwei schon vorher nicht zum aktuellen
+Lesemodell passende historische Scope-/Frozen-Serialisierungsstaende bleiben
+offen; weder Signaturen noch Original-Payloads wurden normalisiert oder
+neu freigegeben. Die Vorpruefung bindet diese Alt/Neu-Gleichheit ausdruecklich.
+
+Erst danach wurde der frisch identifizierte eigene 5187-Prozess ersetzt.
+Genau ein finales, unveraenderliches Prefill-Verzeichnis wurde durch
+Verschieben des geprueften Kandidaten angelegt. Schema 2, Demo-SQL,
+Einstellungen, Konten, sieben vorhandene Schluessel und 48 vorhandene
+Objektdateien blieben erhalten. Kein Seed, keine Migration, kein
+SQL-/Nutzerdatenrollback und keine gemeinsamen Docker-Eingriffe.
+Die vier eigenen Testdatenbanken und vier aufgezeichneten Test-PIDs wurden
+terminal als abwesend geprueft; 5197 ist frei. Beide Test-Runtimes, das
+Test-CLI-Home und die privaten lesenden Kompatibilitaetssnapshots sind
+entfernt; die bereinigten Belege und Erstfehler bleiben erhalten.
+Nur die gewollte Vorschau **PID 90260**, ihr privater Startprozess und
+`promotion-cli-home` laufen weiter. PID-Angaben sind Zeitpunktnachweise,
+keine Erlaubnis fuer einen spaeteren blinden Stop.
+
+`preview-live-prefill-review.png` zeigt einen unveraenderten historischen
+Demobericht mit ehrlichem Altstandhinweis. Es wurde dafuer kein neuer
+Demobericht erzeugt. Die `browser-02\cohors-prefill-*`-Ansichten zeigen dagegen
+die tatsaechliche neue Vorbefuellung/Rueckgabe/Freigabe im isolierten Test.
+Der Nutzerbrowser blieb unangetastet; nach eigenem Neuladen aktiviert eine
+neue Berichtsversion die Vorbefuellung.
+
+XSD-Konformitaet, implementierte Pilot-Pflichtpruefungen und nationale
+Versandbereitschaft bleiben getrennt. ANSM verlangt PDF **und** XML;
+dieser Pilot weist kein solches nationales Versandpaket nach. GB-SIM-1
+ersetzt nicht GB 7.2.1GB, NI-MORE-Import ist nicht nachgewiesen, nationale
+Kanal-/Sprachdetails bleiben teilweise offen. Es gab keine Live-KI,
+echte Meldung, Recovery-/Last-/Native-Parser-/separate-Host-/Azure-Abnahme
+oder neue medizinische/regulatorische Betriebsfreigabe. B10 bleibt geparkt.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 
