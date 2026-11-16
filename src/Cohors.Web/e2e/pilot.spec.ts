@@ -1,10 +1,10 @@
-import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Capa, CaseSummary, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase } from '../src/types'
+import type { Capa, CaseSummary, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SummaryAgreement } from '../src/types'
 
 const home = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const artifacts = process.env.COHORS_UI_ARTIFACT_DIR ?? path.join(home, '.local')
@@ -677,6 +677,164 @@ test('L03: auditor downloads complete product history and original bytes; member
   } finally {
     await context.close()
     await pms.dispose(); await auditor.dispose(); await limited.dispose()
+  }
+})
+
+test('C12: separate periodic summary uses an explicit agreement, distinct human reviews and a labelled export without closing case deadlines', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(180_000)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  const ra = await playwright.request.newContext({ baseURL })
+  const limited = await playwright.request.newContext({ baseURL })
+  const contexts: BrowserContext[] = []
+  const reason = 'SYNTHETISCH: Die konkret gebundenen Fall-, Quellen- und Vereinbarungsfassungen werden menschlich geprüft. Keine klinische Wahrheitsbehauptung, keine reale Übermittlung und keine Aufhebung einer Einzelpflicht.'
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    const medicalCsrf = await signIn(medical, 'medical.demo')
+    const raCsrf = await signIn(ra, 'ra.demo')
+    await signIn(limited, 'pms-cardio.demo')
+    const today = new Date().toISOString().slice(0, 10)
+    const day = (offset: number) => new Date(Date.parse(`${today}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10)
+    const start = day(-7), end = day(-1), eventDay = day(-6)
+    const sourceDocuments = await (await ra.get('/api/evidence')).json() as Evidence[]
+    const evidence = sourceDocuments.find(e => e.productId === 'ortho' && e.kind === 'RiskFile' && e.approved && e.synthetic && e.validFrom < `${day(-8)}T12:00:00Z`)
+    if (!evidence) throw new Error('A genuinely earlier valid synthetic RiskFile is required; do not backdate the prerequisite fixture.')
+    let c = await command(pms, pmsCsrf, '/cases', {
+      incidentKey: `UI-SUMMARY-${Date.now()}`, sourceId: crypto.randomUUID(), title: 'Synthetischer Fall für eine getrennte Sammelmeldung',
+      description: reason, productId: 'ortho', udi: null, batch: 'DEMO-SUMMARY-LOT', country: 'IE', jurisdiction: 'EU-IE',
+      seriousness: 'OtherSerious', occurredAt: `${eventDay}T08:00:00Z`, awarenessAt: `${day(-5)}T10:00:00Z`,
+      scenario: 'ui-summary', synthetic: true,
+    })
+    c = await command(medical, medicalCsrf, `/cases/${c.id}/information`, {
+      expectedVersion: c.version, question: 'Welche gezielten synthetischen Revisionsbefunde grenzen die offenen Gegenhypothesen ein?',
+      minimalData: 'Minimaler synthetischer Revisionsbefund ohne Patientendaten', relevance: reason,
+      recipientRole: 'Simulierter klinischer Ansprechpartner', manufacturerBasis: reason, disclosureBasis: reason,
+      dueAt: `${day(7)}T12:00:00Z`,
+    })
+    const requestId = c.informationRequests.at(-1)!.id
+    c = await command(medical, medicalCsrf, `/cases/${c.id}/information/${requestId}/approve`, { expectedVersion: c.version, reason })
+    c = await command(ra, raCsrf, `/cases/${c.id}/information/${requestId}/approve`, { expectedVersion: c.version, reason })
+    c = await command(pms, pmsCsrf, `/cases/${c.id}/information/respond`, {
+      expectedVersion: c.version, requestId, response: 'SYNTHETISCH: Gezielter Revisionsbefund liegt vor. Mechanische und klinische Gegenhypothesen bleiben getrennt zu prüfen; keine definitive Kausalitätsbehauptung.', reason,
+    })
+    c = await command(pms, pmsCsrf, `/cases/${c.id}/assessment`, { expectedVersion: c.version, mode: 'Replay', reason })
+    await expect.poll(async () => {
+      c = await (await pms.get(`/api/cases/${c.id}`)).json()
+      return c.currentAssessment?.quality.findings.every(f => !['Major', 'Critical'].includes(f.severity)) && c.agentRuns.at(-1)?.status === 'Completed'
+    }).toBe(true)
+    c = await command(pms, pmsCsrf, `/cases/${c.id}/report`, { expectedVersion: c.version, kind: 'Initial',
+      jurisdiction: 'EU-IE', language: 'de', preliminary: true, openQuestions: reason, reason })
+    c = await command(medical, medicalCsrf, `/cases/${c.id}/mir`, { expectedVersion: c.version, reason, facts: {
+      eventDateFrom: eventDay, eventDateTo: eventDay, nextReportDate: day(7), eventClassification: 'All other reportable incidents',
+      deviceProblemCode: 'ZZZ', deviceLocation: 'Unknown', preliminaryAnalysis: reason, initialCorrectiveAction: reason,
+      furtherInvestigation: reason, evidenceIds: c.evidence.filter(e => e.approved).map(e => e.id),
+      rationale: `${reason} ZZZ ist ausschließlich eine strukturgeeignete Testkennung, kein fachlich validierter IMDRF-Code.`,
+    } })
+    c = await command(medical, medicalCsrf, `/cases/${c.id}/approve/medical`, { expectedVersion: c.version, reason, findingDisposition: reason })
+    c = await command(ra, raCsrf, `/cases/${c.id}/approve/regulatory`, { expectedVersion: c.version, reason })
+    const before = c
+    const raContext = await browser.newContext({ storageState: await ra.storageState(), timezoneId: 'UTC', viewport: { width: 1512, height: 982 } })
+    contexts.push(raContext)
+    const page = await raContext.newPage()
+    const openDesk = async (target: Page) => {
+      await target.goto(baseURL!)
+      await target.getByRole('navigation').getByRole('button', { name: 'Regulatory Desk', exact: true }).click()
+      await expect(target.getByRole('heading', { name: 'Periodische Sammelmeldungen', exact: true })).toBeVisible()
+    }
+    await openDesk(page)
+    await page.getByRole('button', { name: 'Sammelvereinbarung dokumentieren', exact: true }).click()
+    let dialog = page.getByRole('dialog')
+    const reference = `DEMO-UI-SUMMARY-${Date.now()}`
+    await dialog.locator('[name=productId]').selectOption('ortho')
+    await dialog.locator('[name=reference]').fill(reference)
+    await dialog.locator('[name=authorityName]').selectOption('HPRA-SIMULATOR')
+    await dialog.locator('[name=jurisdiction]').selectOption('EU-IE')
+    await dialog.locator('[name=language]').selectOption('de')
+    await dialog.locator('[name=agreementText]').fill(`${reason} Das ausdrücklich gewählte JSON-Pilotformat mit Fallübersicht, Quellen, Untersuchungsstand und Maßnahmen wird alle sieben Kalendertage rein synthetisch vereinbart.`)
+    await dialog.locator('[name=contentRequirements]').fill(`${reason} Gefordert sind getrennte Fallfassungen, Quellen, begründete Gemeinsamkeiten und ausdrücklich offengelegte Lücken.`)
+    await dialog.locator('[name=frequencyDays]').fill('7')
+    await dialog.locator('[name=validFrom]').fill(start)
+    await dialog.locator('[name=validThrough]').fill(end)
+    await dialog.locator('[name=agreedAt]').fill(`${day(-8)}T12:00`)
+    await dialog.locator('[name=prerequisite]').selectOption('CommonAndWellDocumented')
+    await dialog.locator('[name=prerequisiteRationale]').fill(reason)
+    await dialog.locator('[name=document]').selectOption(`${evidence.id}@${evidence.version}`)
+    await dialog.locator('[name=reason]').fill(reason)
+    await dialog.getByRole('button', { name: 'Begründet bestätigen', exact: true }).click()
+    await expect(dialog.getByRole('alert')).toContainText('noch gueltigem Folgetag')
+    expect(((await (await ra.get('/api/summary-agreements')).json()) as SummaryAgreement[]).some(a => a.reference === reference)).toBe(false)
+    await dialog.locator('[name=validThrough]').fill(today)
+    await submitDialog(dialog)
+    const agreement = (await (await ra.get('/api/summary-agreements')).json() as SummaryAgreement[]).find(a => a.reference === reference)
+    if (!agreement) throw new Error('The UI did not persist its explicit summary agreement.')
+    expect(agreement.validThrough).toBe(today)
+    const card = page.locator('article.source-run').filter({ has: page.getByRole('heading', { name: `${reference} · v1`, exact: true }) })
+    await expect(card).toContainText('Letzter berichtsfähiger Zeitraum:')
+    await expect(card).toContainText('Ein erst am Ablauftag endendes Intervall ist nicht mehr berichtsfähig.')
+    await card.getByRole('radio').check()
+    await page.getByRole('checkbox', { name: new RegExp(c.reference) }).check()
+    await page.getByRole('button', { name: 'Sammelentwurf erstellen', exact: true }).click()
+    dialog = page.getByRole('dialog')
+    await dialog.locator('[name=start]').fill(start)
+    await dialog.locator('[name=end]').fill(end)
+    await expect(dialog.locator('[name^="similarity-"]')).toHaveCount(1)
+    await dialog.locator('[name^="similarity-"]').fill(reason)
+    for (const name of ['incidentOverview', 'investigationFindings', 'benefitRiskAndActions', 'agreementComplianceAndGaps', 'reason'])
+      await dialog.locator(`[name=${name}]`).fill(reason)
+    await submitDialog(dialog)
+    const load = async () => {
+      const report = (await (await ra.get('/api/summary-reports')).json() as PeriodicSummaryReport[]).find(r => r.agreement.id === agreement.id)
+      if (!report) throw new Error('The separately identified summary report was not persisted.')
+      return report
+    }
+    let report = await load()
+    const forged = await pms.post(`/api/summary-reports/${report.id}/approve`, {
+      headers: { 'X-CSRF-Token': pmsCsrf, 'Idempotency-Key': crypto.randomUUID() },
+      data: { expectedVersion: report.version, reason, role: 'MedicalSafetyReviewer' },
+    })
+    expect(forged.status()).toBe(403)
+    expect((await limited.get(`/api/summary-reports/${report.id}`)).status()).toBe(403)
+    const medicalContext = await browser.newContext({ storageState: await medical.storageState() })
+    contexts.push(medicalContext)
+    const medicalPage = await medicalContext.newPage()
+    await openDesk(medicalPage)
+    await medicalPage.getByTestId(`summary-${report.id}`).getByRole('button', { name: 'Sammelmeldung fachlich freigeben', exact: true }).click()
+    await medicalPage.getByRole('dialog').locator('[name=reason]').fill(reason)
+    await submitDialog(medicalPage.getByRole('dialog'))
+    expect((await load()).status).toBe('MedicalApproved')
+    await openDesk(page)
+    await page.getByTestId(`summary-${report.id}`).getByRole('button', { name: 'Sammelmeldung fachlich freigeben', exact: true }).click()
+    await page.getByRole('dialog').locator('[name=reason]').fill(reason)
+    await submitDialog(page.getByRole('dialog'))
+    report = await load()
+    expect(report.status).toBe('Frozen')
+    expect(new Set(report.approvals.map(a => a.actorId)).size).toBe(2)
+    const frozenJson = report.frozenJson
+    await page.getByTestId(`summary-${report.id}`).getByRole('button', { name: 'Sammelmeldung simulieren', exact: true }).click()
+    await page.getByRole('dialog').locator('[name=reason]').fill(reason)
+    await submitDialog(page.getByRole('dialog'))
+    report = await load()
+    expect(report.status).toBe('SimulatedAccepted')
+    expect(report.frozenJson).toBe(frozenJson)
+    const download = page.waitForEvent('download')
+    await page.getByTestId(`summary-${report.id}`).getByRole('button', { name: 'Gekennzeichnetes Sammelpaket exportieren', exact: true }).click()
+    const file = await (await download).path()
+    if (!file) throw new Error('No authenticated summary export bytes were downloaded.')
+    const bytes = readFileSync(file)
+    const exported = JSON.parse(bytes.toString('utf8')) as { boundary: string; report: PeriodicSummaryReport }
+    expect(exported.boundary).toContain('Kein MIR, kein PSUR')
+    expect(exported.report.frozenJson).toBe(frozenJson)
+    expect(createHash('sha256').update(exported.report.frozenJson!, 'utf8').digest('hex')).toBe(report.scopeHash)
+    expect(exported.report.agreementSource.version).toBe(agreement.version)
+    const current = await (await pms.get(`/api/cases/${c.id}`)).json() as SafetyCase
+    expect(current).toEqual(before)
+    expect(current.deadlines.every(d => d.status === 'Open')).toBe(true)
+    expect((await limited.get(`/api/summary-reports/${report.id}/export`)).status()).toBe(403)
+    writeFileSync(path.join(artifacts, 'cohors-periodic-summary.json'), bytes)
+    await page.screenshot({ path: path.join(artifacts, 'cohors-periodic-summary.png'), fullPage: true })
+  } finally {
+    for (const context of contexts) await context.close()
+    await Promise.all([pms, medical, ra, limited].map(client => client.dispose()))
   }
 })
 

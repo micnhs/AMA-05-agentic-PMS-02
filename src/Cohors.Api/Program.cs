@@ -242,6 +242,30 @@ api.MapGet("/exposures", (IStateStore store, HttpContext ctx, CancellationToken 
 api.MapPost("/cases/{id}/mir", (string id, MirCommand input, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
     service.AttachMir(id, input, Who(ctx), Key(ctx), ct));
 api.MapGet("/cases/{id}/mir", (string id, RegulatoryService service, HttpContext ctx, CancellationToken ct) => service.Export(id, Who(ctx), ct));
+api.MapGet("/summary-agreements", (RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+    service.ListSummaryAgreements(Who(ctx), ct));
+api.MapPost("/summary-agreements", (RecordSummaryAgreementCommand input, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+    service.RecordSummaryAgreement(input, Who(ctx), Key(ctx), ct));
+api.MapPost("/summary-agreements/{id}/withdraw", (string id, VersionCommand input, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+    service.WithdrawSummaryAgreement(id, input, Who(ctx), Key(ctx), ct));
+api.MapGet("/summary-reports", (RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+    service.ListSummaries(Who(ctx), ct));
+api.MapGet("/summary-reports/{id}", (string id, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+    service.GetSummary(id, Who(ctx), ct));
+api.MapPost("/summary-reports", (DraftSummaryCommand input, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+    service.DraftSummary(input, Who(ctx), Key(ctx), ct));
+api.MapPost("/summary-reports/{id}/approve", (string id, VersionCommand input, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+    service.ApproveSummary(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/summary-reports/{id}/simulate", (string id, VersionCommand input, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+    service.SimulateSummary(id, input, Who(ctx), Key(ctx), ct));
+api.MapGet("/summary-reports/{id}/export", async (string id, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
+{
+    var report = await service.ExportSummary(id, Who(ctx), ct);
+    var json = System.Text.Json.JsonSerializer.Serialize(new {
+        contract = "cohors-periodic-summary-export-1", boundary = SummaryReportingRules.Boundary, report
+    }, new System.Text.Json.JsonSerializerOptions(Canonical.Json) { WriteIndented = true });
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(json), "application/json", $"{report.Reference}.json");
+});
 api.MapGet("/products/profiles", (IStateStore store, HttpContext ctx, CancellationToken ct) =>
     store.List<ProductGovernance>("productGovernance", Who(ctx).Products, ct));
 api.MapPost("/cases/{id}/reclassify", (string id, ReclassifyCommand input, CaseService service, HttpContext ctx, CancellationToken ct) =>

@@ -166,6 +166,14 @@ public sealed record AssessPsurReplyCommand(int ExpectedVersion, string Outcome,
     string? NextQuestion = null, DateTimeOffset? NextDueAt = null, bool NextActionRequired = false,
     string? NextScheduleBasis = null);
 public sealed record MirCommand(int ExpectedVersion, MirFacts Facts, string Reason);
+public sealed record RecordSummaryAgreementCommand(int ExpectedVersion, string ProductId, string Reference,
+    string AuthorityName, string Jurisdiction, string Language, string Format, string AgreementText,
+    string ContentRequirements, int FrequencyDays, DateOnly ValidFrom, DateOnly ValidThrough,
+    DateTimeOffset AgreedAt, string Prerequisite, string PrerequisiteRationale,
+    string EvidenceId, int EvidenceVersion, string Reason);
+public sealed record SummaryCaseSelection(string CaseId, int Version, string SimilarityRationale);
+public sealed record DraftSummaryCommand(int ExpectedVersion, string AgreementId, int AgreementVersion,
+    DateOnly Start, DateOnly End, SummaryCaseSelection[]? Cases, SummaryContent? Content, string Reason);
 public sealed record ReclassifyCommand(int ExpectedVersion, Seriousness Seriousness, string Reason);
 
 public sealed class PolicyCatalog

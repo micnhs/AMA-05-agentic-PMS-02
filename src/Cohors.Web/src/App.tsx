@@ -4,7 +4,7 @@ import { api, loginEntra, logout, session as getSession } from './api'
 import type { CaseSummary, Device, SafetyCase, Session, Status } from './types'
 import { ActionDialog, Badge, CaseTable, date, deadlineItems, Empty, ErrorBanner, isLate, isUrgent, label, Loading, primaryDeadline, roleNames, SectionHead, type Dialog } from './ui'
 import Workbench from './Workbench'
-import { AuditWorkspace, EvidenceWorkspace, FeedbackWorkspace, PsurWorkspace, RetentionWorkspace, SourcesWorkspace } from './Workspaces'
+import { AuditWorkspace, EvidenceWorkspace, FeedbackWorkspace, PsurWorkspace, RetentionWorkspace, SourcesWorkspace, SummaryWorkspace } from './Workspaces'
 
 const navigation = [
   { id: 'cockpit', title: 'PMS Cockpit', icon: LayoutDashboard },
@@ -86,6 +86,7 @@ export default function App() {
         {['cases', 'reviews', 'regulatory', 'inbox'].includes(page) && <>
           <section className="panel"><div className="list-toolbar"><div className="search-field"><Search size={18} /><input aria-label="Fälle durchsuchen" placeholder="Fall, Produkt oder Referenz suchen…" value={query} onChange={e => setQuery(e.target.value)} /></div><Badge>{filtered.length} Fälle</Badge></div><CaseTable cases={page === 'reviews' ? filtered.filter(c => c.stage === 'AwaitingMedicalReview' || c.reportState === 'MedicalApproved') : page === 'regulatory' ? filtered.filter(c => c.reportState !== null) : filtered} open={open} /></section>
           {page === 'inbox' && <SourcesWorkspace revision={revision} actor={actor} mutate={mutate} openDialog={setDialog} />}
+          {page === 'regulatory' && <SummaryWorkspace cases={cases} products={products} revision={revision} actor={actor} mutate={mutate} openDialog={setDialog} />}
         </>}
         {page === 'workbench' && selected && <Workbench key={selected.id} value={selected} actor={actor} openDialog={setDialog} mutate={mutate} busy={working} back={() => setPage('cases')} />}
         {page === 'deadlines' && <div className="deadline-grid">{prioritized.map(c => <section className="panel deadline-card" key={c.id}><div className="row-between"><button className="text-button" onClick={() => open(c.id)}>{c.reference}<ArrowUpRight size={15} /></button><Badge tone={isLate(c) ? 'danger' : isUrgent(c) ? 'amber' : 'neutral'}>{isLate(c) ? 'Überfällig' : label(primaryDeadline(c)?.status ?? 'Open')}</Badge></div><h3>{c.title}</h3>{deadlineItems(c).map(d => <div key={d.id}><h4>{d.title} · {label(d.status)}</h4><div className="deadline-dates"><span><small>INTERNE SAFETYDUE</small><b>{date(d.safetyDue, true, d.timeZone)}</b></span><span><small>{d.kind === 'statutory' ? 'GESETZLICHE LEGALDUE' : 'ZUGESAGTER FOLGETERMIN'}</small><b>{date(d.dueAt, true, d.timeZone)}</b></span></div><p className="muted">{d.jurisdiction} · {d.timeZone} · {d.calendarVersion}</p><details><summary>Auslöser und Rechenweg</summary><p>{d.kind === 'statutory' ? 'Erste Kenntnis' : 'Bestätigter simulierter Empfang des Vorberichts'}: {date(d.triggerAt, true, d.timeZone)}</p>{d.calculation.map((s, i) => <p key={i}>{s}</p>)}</details></div>)}</section>)}</div>}

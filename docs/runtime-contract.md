@@ -27,6 +27,45 @@ aktueller separater Hostlauf und kein Upgrade der 5187-Vorschau. Die
 quellengebundenen Ergebnisse und der terminale eigene Ressourcenabschluss
 stehen in [Validierung](validation.md).
 
+## Periodische Sammelmeldung im weiterentwickelten Quellstand
+
+**A-04/C-12/K-01, noch ohne SQL-/Browsernachweis:** Der Regulatory Desk
+ergaenzt eine eigenstaendige synthetische Sammelvereinbarung und
+`cohors-periodic-summary-1`, nicht MIR oder PSUR. Eine RA muss passenden
+MDR-Behoerdenkontext, Sprache, Format, Inhalt, Geltungszeitraum, feste
+Haeufigkeit in Kalendertagen und den Originalvereinbarungstext ausdruecklich
+dokumentieren. Die Vereinbarung bindet eine gueltige freigegebene
+synthetische Evidenzversion fuer identifizierte Ursache oder ein gemeinsames,
+gut dokumentiertes Muster. Ein lediglich behaupteter abgeschlossener
+FSCA-Pfad wird derzeit abgewiesen; dessen Umsetzung bleibt gesondert offen.
+
+Das Paket bindet genau einen abgeschlossenen, am Vereinbarungsbeginn
+verankerten Zeitraum, die ausgewaehlten Fallversionen, deren erste
+organisatorische Kenntnis, individuelle Aehnlichkeitsbegruendungen und
+ausfuehrliche Inhalte. Schon die Erfassung verlangt mindestens ein volles
+vereinbartes Intervall **plus einen noch gueltigen Folgetag** fuer den
+fruehestmoeglichen Bericht. Bei sieben Tagen sind das mindestens acht
+Kalendertage ab einem zulaessigen verankerten Intervallbeginn; ein spaeterer
+Vereinbarungszeitpunkt verschiebt diesen Beginn auf den naechsten Anker.
+Ein erst am Ablauftag endendes Intervall ist nicht mehr berichtsfaehig.
+Fehlermeldung und UI benennen den letzten moeglichen vollstaendigen Zeitraum;
+der Ablauf-/Widerrufsschutz bleibt bestehen, es entsteht kein neues
+Fristensystem. Medical und eine andere berechtigte RA geben diesen
+Scope getrennt frei. Aenderungen verlangen neue Bindung/Freigaben; Original-
+JSON und Paket-Hash bleiben nach Simulation unveraenderlich. Pro Vereinbarung
+und Zeitraum gibt es nur einen simuliert eingereichten Bericht. Historischer
+Receipt-Replay ist schreibfrei; aktuelle Quellenaenderungen legitimieren
+keine zweite Sendung. Objektintegritaet und Produktscope gelten auch beim
+gekennzeichneten lesbaren JSON-Export.
+
+`/api/summary-agreements` und `/api/summary-reports` verwenden die bestehenden
+menschlichen Rollen-/Command-/Versions-/Audit-/Outbox-Vertraege. Der einzige
+Empfaenger ist `cohors:summary-simulator:<Jurisdiktion>`, ohne Netzwerkaufruf.
+Die Quittung ist keine behoerdliche Annahme und erledigt **keine
+Einzelmeldepflicht**; Fallakte, Awareness, LegalDue und SafetyDue bleiben
+unveraendert. Der Compilercheck dieses Quellstands ist keine fachliche
+Freigabe, kein neuer Hostnachweis und kein Upgrade der laufenden Vorschau.
+
 ## Auslieferung
 
 | Komponente | Artefakt / Entry-Point | Port / Health |

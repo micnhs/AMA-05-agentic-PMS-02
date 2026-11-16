@@ -24,7 +24,8 @@ public static class ProductAuditRules
     private static readonly string[] Kinds =
     [
         "case", "evidence", "exposure", "trend", "capa", "change", "productGovernance", "psur",
-        "source", "psurGroup", "psurReview", "agentInvocation", "retention", "productLifecycle", "delivery-recovery"
+        "source", "psurGroup", "psurReview", "agentInvocation", "retention", "productLifecycle", "delivery-recovery",
+        "summaryAgreement", "summaryReport"
     ];
     private static readonly string[] JsonFields = ["Json", "Payload", "Result", "frozenJson", "inputJson", "outputJson"];
 
@@ -68,6 +69,8 @@ public static class ProductAuditRules
                 "audit_psur_binding", "Historische PSUR-/Gruppen-/Freigabebindung stimmt nicht.", 409);
         }
         if (kind == "psurReview") products.UnionWith(PsurReviewRules.Products(Canonical.Read<PsurReview>(json)));
+        if (kind == "summaryAgreement") SummaryReportingRules.RequireAgreement(Canonical.Read<SummaryAgreement>(json));
+        if (kind == "summaryReport") SummaryReportingRules.RequireIntegrity(Canonical.Read<PeriodicSummaryReport>(json));
         if (kind == "case")
             Guard.Against(!Canonical.Read<SafetyCase>(json).Synthetic, "audit_synthetic",
                 "Dieses Pilotpaket unterstuetzt nur synthetische Fallakten.", 409);

@@ -110,6 +110,63 @@ Konfigurationsdateien und alle 16 Paketdateihashes blieben exakt unveraendert.
 Das ist **keine neue Vollsuite, kein 7/7-Previewlauf, keine Recovery-,
 separate Host-, Last-, Cloud- oder medizinische Abnahme**.
 
+## Compilerblock fuer Recovery-Fixture und Sammelbericht
+
+Der freigegebene reine Compilerblock baute ausschliesslich
+`tests\Cohors.Tests\Cohors.Tests.csproj` mit privatem SDK 10.0.404/CLI-Home,
+beiden First-use-Flags `false`, `--no-restore`, deaktivierten Buildservern
+und einem MSBuild-Knoten. Basis ist
+`75bee999fff3c1bb723274a16486283aa8883892` **plus explizit schmutziger
+Arbeitsfassung**, nicht ein unveraendert getesteter Commit. Enthalten sind
+die integrierten c906641/d0e864dc-Fixtures und die neuen Sammelbericht-C#-
+Quellen. `source-02.json` bindet alle C#-Quellhashes und die sechs
+aufgeloesten Projekt-Dependencygraphen; keine Eingabe aenderte sich im Build.
+
+| Beleg unter `.local\recovery-typecheck-01` | Tatsaechliches Ergebnis / SHA256 |
+| --- | --- |
+| `build-01.log` | **Exit 1**, zwei `xUnit2031` in `RecoveryTests.cs:271/272`; `d0794a78c5dc904c83c376453b52dd70913d1d06cd026d4eaed365813ca318da` |
+| `source-02.json` | `ea29c9fdc7ed4b50d0590b22d0d207a403a023ce35adc7bf1a884e3325364f51` |
+| `build-02.log` | **Exit 0, 0 Warnungen, 0 Fehler**, 42,61 s; `5a4f7686737e0dbef4cded47061155cb14e6b02070bbfbc5f42ade0ca085b9a9` |
+| `handoff.json` | Beide Ausgaenge, sechs Ausgabeassemblyhashes und terminaler eigener Ressourcenabschluss; `281bddf277de1a76c4a01ed92733a8b65696d9120fb04de1e475c050f46cbaa4` |
+
+Einzige Korrektur zwischen den Builds: `Assert.Single(collection, predicate)`
+statt `Assert.Single(collection.Where(predicate))` an den zwei belegten
+Stellen; Rollen und exakt-eins-Anforderung unveraendert. Die nach Wrapperende
+geprueften eigenen Konsolenprozesse waren beendet; das zuvor exakt
+inspizierte private CLI-Home wurde entfernt. Kein Prozessabbruch, keine
+Abhaengigkeitswiederherstellung oder globale SDK-/Profilaenderung.
+
+**Null Laufzeittests:** 14 Recoveryfaelle/11 Fixturechecks bleiben erwartet.
+Der Sammelbericht-Schnitt fuer **A-04/C-12/K-01** enthaelt Vereinbarung,
+eigenstaendiges Paket, getrennte Freigaben, Simulator, Export und UI sowie
+vier vorbereitete SQL-Faelle/einen Browserfall; deren Ausfuehrung fehlt.
+Anwendungs- und E2E-TypeScript wurden separat nur statisch geprueft.
+Das weiterentwickelte Preview-Profil erwartet jetzt acht Faelle, **kein
+8/8-Nachweis**. Der FSCA-basierte Zulassungszweig ist noch nicht implementiert.
+Die 2a-Vorschau wurde weder promoviert noch neu gestartet, ihre Demo-SQL
+nicht angesprochen. Keine neue SQL-/Recovery-/Browser-/Docker-/Host- oder
+Lastabnahme; der schwere Platz ist nach diesem begrenzten Block zurueckgegeben.
+
+**Nach diesem unveraendert archivierten Compilerblock** wurde die
+Sammelvereinbarungsgrenze eng korrigiert: eine volle vereinbarte Periode
+plus ein noch gueltiger Folgetag, gegebenenfalls erst ab dem naechsten
+Intervallanker nach dem Vereinbarungsdatum. Ablaufdatum, Einzelkenntnis und
+LegalDue/SafetyDue werden nicht umgedeutet. Fuenf vorbereitete SQL-freie
+Regressionsfaelle decken 1/7/366 Tage, spaete Vereinbarung sowie das am
+Ablauftag endende Intervall ab. Der vorhandene SQL-Fall ergaenzt die
+Ablehnungen; der Browserfall prueft die Ablehnung ohne Speicherung und
+die minimale nutzbare Grenze.
+Diese spaeteren C#-Aenderungen und Regressionen sind **nicht vom obigen
+Build oder einem Laufnachweis abgedeckt**. `.local\summary-boundary-01`
+enthaelt erfolgreiche C#-/PowerShell-Syntax- und Anwendungs-/E2E-TypeScript-
+Pruefungen, keine neue C#-Typpruefung. `post-compiler-csharp.diff`, SHA256
+`29fcce54cb41266ce50b42d1c79350afb74c831eaa7b77ac42acb98b7935f9bb`,
+grenzt die zwei geaenderten C#-Dateien exakt ab; Rueckanwendung im Speicher
+reproduziert deren urspruengliche Build-Quellhashes, 95 weitere erfasste
+Eingaben blieben unveraendert. Die gesicherte zweizeilige
+Recovery-Analyserkorrektur und ihre Dokumentation stehen separat in
+`71c9835199ee87c11a2135b833cdfe50ffb85862`.
+
 ## Historischer Preview-Schnitt ee13e91
 
 Die zuvor veroeffentlichte 5187-Vorschau war an den sauberen lokalen
@@ -387,7 +444,7 @@ bleiben getrennt.
 | T17 CAPA | Unabhaengiger Wirksamkeitsnachweis, negatives Ergebnis, Nacharbeit und erneute Pruefung im aktuellen SQL-Lauf bestanden |
 | T18 Audit/Retention | Begrenzter L03-/Diagnostikblock: 17/17 gezielte SQL-Faelle sowie getrennt 1/1 AuditExport und 1/1 isolierter PhysicalRetention-Browserfall; keine Vollsuite. Historische I/O-Ursache und aktuelle Recovery offen; 5187 bleibt Disabled |
 | T19 Simulatorgrenze | Keine echten Melde-/Klinikadapter; weitere Export-/Endpoint-Pruefung offen |
-| T20 Wiederherstellung | Historischer 13er-Windows-Lauf mit echten SQL-/Objekt-/Journal-Cuts bestanden. d0e864dc-Fixture als c906641 integriert: neue 14er-Selektion/11 Abschlusschecks einschliesslich PSUR/BS noch ohne Typpruefung oder Lauf; aktuelle Wiederholung sowie Linux-/Cloud-DR offen |
+| T20 Wiederherstellung | Historischer 13er-Windows-Lauf mit echten SQL-/Objekt-/Journal-Cuts bestanden. d0e864dc-Fixture als c906641 integriert und nach zwei identitaetserhaltenden xUnit-Analyserkorrekturen typgeprueft; neue 14er-Selektion/11 Abschlusschecks einschliesslich PSUR/BS weiterhin ohne Lauf. Aktuelle Wiederholung sowie Linux-/Cloud-DR offen |
 
 Die vom Auftraggeber uebergebenen unabhhaengigen Referenzen liegen unveraendert in `tests\Cohors.Tests\Fixtures\cohors-acceptance-references.json`. Deren ursprüngliches `applicationVerified: false` dokumentiert die Herkunft des Referenzsatzes; nur ausgefuehrte Anwendungstests liefern den zusaetzlichen Nachweis.
 

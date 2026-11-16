@@ -36,6 +36,20 @@ export interface Capa { id: string; version: number; caseId: string; productId: 
 export interface ChangeRequest { id: string; version: number; documentId: string; documentVersion: number; productId: string; proposedChange: string; rationale: string; status: string }
 export interface Trend { id: string; version: number; productId: string; status: string; interpretation: string; result: { events: number; exposure: number; ratePerThousand: number; expectedEvents: number; upperTailProbability: number; signalCandidate: boolean; limitations: string[] }; input: { region: string; start: string; end: string } }
 export interface VersionReference { id: string; version: number; hash: string }
+export interface SummaryAgreement {
+  id: string; version: number; productId: string; reference: string; device: Device; authorityName: string;
+  calendar: { id: string; version: string; timeZone: string }; recipient: string; language: string; format: string;
+  agreementText: string; contentRequirements: string; frequencyDays: number; validFrom: string; validThrough: string;
+  agreedAt: string; prerequisite: string; prerequisiteRationale: string; evidenceSource: VersionReference; evidence: Evidence;
+  status: string; recordedBy: string; recordedAt: string; simulated: boolean; contract: string;
+}
+export interface SummaryContent { incidentOverview: string; investigationFindings: string; benefitRiskAndActions: string; agreementComplianceAndGaps: string }
+export interface PeriodicSummaryReport {
+  id: string; version: number; productId: string; reference: string; agreementSource: VersionReference; agreement: SummaryAgreement;
+  start: string; end: string; cases: { source: VersionReference; case: SafetyCase; similarityRationale: string }[];
+  content: SummaryContent; status: string; scopeHash: string; approvals: Approval[]; frozenJson: string | null;
+  simulatedReceipt: string | null; submittedAt: string | null; simulated: boolean; contract: string;
+}
 export interface ProductGovernance {
   id: string; version: number; productId: string; psurReference: string; firstPeriodStart: string; firstSubmissionDate: string; scheduleAgreement: string; lifecyclePolicy: string;
   manufacturer: { name: string; srn: string; country: string };

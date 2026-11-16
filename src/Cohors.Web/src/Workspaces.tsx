@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Activity, ArrowUpRight, CheckCheck, Download, FileCheck2, FileText, Fingerprint, Link2, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api, downloadApi } from './api'
-import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Device, Evidence, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, Trend, VersionReference } from './types'
+import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Device, Evidence, PeriodicSummaryReport, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, SummaryAgreement, SummaryContent, Trend, VersionReference } from './types'
 import { Badge, date, Empty, ErrorBanner, hash, label, Loading, SectionHead, type Dialog, type Field } from './ui'
 
 function useData<T>(path: string, revision: number) {
@@ -12,6 +12,140 @@ function useData<T>(path: string, revision: number) {
 }
 type WorkspaceProps = { actor: Actor; revision: number; mutate: (path: string, body: unknown) => Promise<void>; openDialog: (d: Dialog) => void }
 const reason: Field = { name: 'reason', label: 'Begründung / fachliche Entscheidung', type: 'textarea', minLength: 20 }
+
+const summaryContentFields: { name: keyof SummaryContent; label: string }[] = [
+  { name: 'incidentOverview', label: 'Fallübersicht und medizinisch-technische Gemeinsamkeiten' },
+  { name: 'investigationFindings', label: 'Untersuchungsstand, tragende Quellen und Grenzen' },
+  { name: 'benefitRiskAndActions', label: 'Nutzen-Risiko-Einordnung und kontrollierte Maßnahmen' },
+  { name: 'agreementComplianceAndGaps', label: 'Vereinbarter Berichtsinhalt: Erfüllung und offengelegte Lücken' },
+]
+
+function summaryPeriodHint(agreement: SummaryAgreement) {
+  const day = 86_400_000
+  const from = Date.parse(agreement.validFrom)
+  const periods = Math.floor((Date.parse(agreement.validThrough) - from) / (agreement.frequencyDays * day))
+  if (!Number.isFinite(periods) || periods < 1) return 'Kein vollständig berichtsfähiger Zeitraum: Gültigkeit und Häufigkeit müssen korrigiert werden.'
+  const lastStart = from + (periods - 1) * agreement.frequencyDays * day
+  const lastEnd = lastStart + (agreement.frequencyDays - 1) * day
+  const showDay = (instant: number) => date(new Date(instant).toISOString().slice(0, 10))
+  return `Letzter berichtsfähiger Zeitraum: ${showDay(lastStart)} bis ${showDay(lastEnd)}; Bericht hierfür frühestens am ${showDay(lastEnd + day)}. Erstellung, Freigaben und Simulation müssen noch innerhalb der Gültigkeit bis einschließlich ${date(agreement.validThrough)} erfolgen. Ein erst am Ablauftag endendes Intervall ist nicht mehr berichtsfähig.`
+}
+
+export function SummaryWorkspace({ actor, cases, products, revision, mutate, openDialog }: WorkspaceProps & { cases: CaseSummary[]; products: Device[] }) {
+  const agreements = useData<SummaryAgreement[]>('/summary-agreements', revision)
+  const reports = useData<PeriodicSummaryReport[]>('/summary-reports', revision)
+  const evidence = useData<Evidence[]>('/evidence', revision)
+  const [agreementId, setAgreementId] = useState('')
+  const [caseIds, setCaseIds] = useState<string[]>([])
+  const [localError, setLocalError] = useState('')
+  const [downloading, setDownloading] = useState('')
+  const canDraft = actor.roles.some(r => ['PmsSpecialist', 'MedicalSafetyReviewer', 'RegulatoryAffairs'].includes(r))
+  const isRa = actor.roles.includes('RegulatoryAffairs')
+  const loadError = agreements.error || reports.error || evidence.error
+  if (loadError) return <ErrorBanner message={loadError} />
+  if (!agreements.data || !reports.data || !evidence.data) return <Loading />
+  const allAgreements = agreements.data
+  const documents = evidence.data.filter(e => e.synthetic && e.approved)
+  const selected = allAgreements.find(a => a.id === agreementId)
+  const candidates = selected ? cases.filter(c => c.productId === selected.productId && c.jurisdiction === selected.calendar.id && c.disposition === 'Reportable') : []
+
+  function recordAgreement(existing?: SummaryAgreement) {
+    const localTime = existing ? new Date(new Date(existing.agreedAt).getTime() - new Date(existing.agreedAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : undefined
+    openDialog({
+      title: existing ? 'Sammelvereinbarung neu dokumentieren' : 'Simulierte Sammelvereinbarung dokumentieren',
+      description: 'Keine echte Behördenvereinbarung. Voraussetzungen, Originalinhalt, Format, Inhalt, Häufigkeit und Gültigkeit ausdrücklich belegen. Mindestens ein vollständiges Intervall plus ein noch gültiger Folgetag für den Bericht ist nötig (bei 7 Tagen also mindestens 8 Tage ab zulässigem Intervallbeginn, nicht vor dem Vereinbarungsdatum). Änderungen machen offene Sammelfreigaben ungültig; LegalDue/SafetyDue bleiben unverändert.',
+      fields: [
+        { name: 'productId', label: 'Produktfamilie', type: 'select', value: existing?.productId, options: (existing ? products.filter(p => p.id === existing.productId) : products).map(p => ({ value: p.id, label: p.name })) },
+        { name: 'reference', label: 'Stabile DEMO-Vereinbarungsreferenz', value: existing?.reference },
+        { name: 'authorityName', label: 'Passendes simuliertes Behördenprofil', type: 'select', value: existing?.authorityName,
+          options: ['HPRA-SIMULATOR', 'BfArM-SIMULATOR', 'ANSM-SIMULATOR', 'Ministero-Salute-SIMULATOR', 'MHRA-NI-SIMULATOR'].map(value => ({ value, label: value })) },
+        { name: 'jurisdiction', label: 'Vereinbarte MDR-Jurisdiktion', type: 'select', value: existing?.calendar.id, options: ['EU-IE', 'EU-DE', 'EU-FR', 'EU-IT', 'NI'].map(value => ({ value, label: value })) },
+        { name: 'language', label: 'Vereinbarte Sprache', type: 'select', value: existing?.language, options: [{ value: 'de', label: 'Deutsch' }, { value: 'en', label: 'Englisch' }] },
+        { name: 'format', label: 'Explizites Pilotformat – kein amtliches Formular', type: 'select', options: [{ value: 'cohors-periodic-summary-1', label: 'cohors-periodic-summary-1 (JSON)' }] },
+        { name: 'agreementText', label: 'Dokumentierter synthetischer Vereinbarungsinhalt', type: 'textarea', minLength: 100, value: existing?.agreementText },
+        { name: 'contentRequirements', label: 'Ausdrücklich vereinbarte Inhaltsanforderungen', type: 'textarea', minLength: 80, value: existing?.contentRequirements },
+        { name: 'frequencyDays', label: 'Vereinbarte Häufigkeit in ganzen Kalendertagen (1–366)', value: existing?.frequencyDays.toString() },
+        { name: 'validFrom', label: 'Gültig ab / Beginn des ersten Intervalls', type: 'date', value: existing?.validFrom },
+        { name: 'validThrough', label: 'Gültig bis einschließlich – muss auch den Berichtstag einschließen', type: 'date', value: existing?.validThrough },
+        { name: 'agreedAt', label: 'Simulierter Vereinbarungszeitpunkt (lokale Eingabezeit)', type: 'datetime-local', value: localTime },
+        { name: 'prerequisite', label: 'Belegte Sammelvoraussetzung', type: 'select', value: existing?.prerequisite ?? '', options: [{ value: '', label: 'Voraussetzung ausdrücklich auswählen' }, { value: 'RootCauseIdentified', label: 'Ursache identifiziert und belegt' }, { value: 'CommonAndWellDocumented', label: 'Häufige, gut dokumentierte Vorfälle' }] },
+        { name: 'prerequisiteRationale', label: 'Medizinisch-technische Voraussetzungenbegründung', type: 'textarea', minLength: 80, value: existing?.prerequisiteRationale },
+        { name: 'document', label: 'Damals gültige, freigegebene synthetische Voraussetzungen-Evidenz', type: 'select', value: existing ? `${existing.evidence.id}@${existing.evidence.version}` : undefined, options: documents.map(e => ({ value: `${e.id}@${e.version}`, label: `${e.productId} · ${e.title} · v${e.version}` })) },
+        { ...reason, minLength: 80 },
+      ],
+      onSubmit: async values => {
+        const document = documents.find(e => `${e.id}@${e.version}` === values.document)
+        if (!document) throw new Error('Eine konkrete aktuelle Voraussetzungen-Evidenz auswählen.')
+        if (existing && values.reference !== existing.reference) throw new Error('Die stabile Referenz bleibt bei einer Vereinbarungsrevision unverändert.')
+        await mutate('/summary-agreements', { ...values, expectedVersion: existing?.version ?? 0, frequencyDays: Number(values.frequencyDays),
+          agreedAt: new Date(values.agreedAt).toISOString(), evidenceId: document.id, evidenceVersion: document.version })
+      },
+    })
+  }
+
+  function draft(existing?: PeriodicSummaryReport) {
+    setLocalError('')
+    const agreement = existing ? allAgreements.find(a => a.id === existing.agreement.id) : selected
+    const chosen = existing ? cases.filter(c => existing.cases.some(s => s.source.id === c.id)) : candidates.filter(c => caseIds.includes(c.id))
+    if (!agreement || agreement.status !== 'Active' || !chosen.length || existing && chosen.length !== existing.cases.length) {
+      setLocalError('Aktive Vereinbarung und alle ausdrücklich ausgewählten aktuellen Fallfassungen erforderlich.'); return
+    }
+    openDialog({
+      title: existing ? 'Sammelentwurf neu binden' : 'Eigenständigen Sammelentwurf erstellen',
+      description: `${agreement.reference}@${agreement.version}: ${agreement.frequencyDays} Kalendertage ab ${date(agreement.validFrom)}, ${agreement.calendar.timeZone}. ${summaryPeriodHint(agreement)} Nur erste Organisationskenntnis bestimmt die Fallauswahl. Jede Änderung verlangt neue Medical-/RA-Freigaben.`,
+      fields: [
+        { name: 'start', label: 'Vollständiges vereinbartes Intervall ab', type: 'date', value: existing?.start },
+        { name: 'end', label: 'Intervall bis einschließlich', type: 'date', value: existing?.end },
+        ...chosen.map<Field>(c => ({ name: `similarity-${c.id}`, label: `${c.reference}@${c.version}: begründete Gemeinsamkeit dieses Falls`,
+          type: 'textarea', minLength: 80, value: existing?.cases.find(s => s.source.id === c.id)?.similarityRationale })),
+        ...summaryContentFields.map<Field>(f => ({ ...f, type: 'textarea', minLength: 80, value: existing?.content[f.name] })),
+        { ...reason, minLength: 80 },
+      ],
+      onSubmit: values => mutate('/summary-reports', {
+        expectedVersion: existing?.version ?? 0, agreementId: agreement.id, agreementVersion: agreement.version,
+        start: values.start, end: values.end, reason: values.reason,
+        cases: chosen.map(c => ({ caseId: c.id, version: c.version, similarityRationale: values[`similarity-${c.id}`] })),
+        content: { incidentOverview: values.incidentOverview, investigationFindings: values.investigationFindings,
+          benefitRiskAndActions: values.benefitRiskAndActions, agreementComplianceAndGaps: values.agreementComplianceAndGaps },
+      }),
+    })
+  }
+
+  return <section className="panel">
+    <SectionHead eyebrow="A-04 · C-12 · K-01" title="Periodische Sammelmeldungen">{isRa && <button type="button" className="button secondary" onClick={() => recordAgreement()}>Sammelvereinbarung dokumentieren</button>}</SectionHead>
+    <p>Eigenständiger synthetischer Meldeweg, kein MIR und kein PSUR. Die technische Quittung verändert weder die erste Kenntnis noch LegalDue, SafetyDue oder den Status einzelner Meldepflichten. Kein amtliches Format und keine echte Übermittlung.</p>
+    {localError && <ErrorBanner message={localError} dismiss={() => setLocalError('')} />}
+    {!allAgreements.length && <Empty title="Keine Sammelvereinbarung dokumentiert">Bloßes Gruppieren von Fällen reicht nicht. Regulatory Affairs muss eine passende synthetische Vereinbarung mit belegten Voraussetzungen erfassen.</Empty>}
+    {allAgreements.map(a => <article className="source-run" key={a.id}>
+      <div className="row-between"><h3>{a.reference} · v{a.version}</h3><Badge tone="amber">Simulierte Vereinbarung · {a.status === 'Active' ? 'Dokumentiert' : 'Widerrufen'}</Badge></div>
+      <p>{a.device.name} · {a.authorityName} · {a.calendar.id} · {a.language} · {a.frequencyDays} Kalendertage. Gültig {date(a.validFrom)}–{date(a.validThrough)}; {a.calendar.timeZone} / {a.calendar.version}.</p>
+      <p>{summaryPeriodHint(a)}</p>
+      <details><summary>Vereinbarung, Voraussetzungen und Quellenfassung</summary><p>{a.format} · {a.recipient}</p><blockquote>{a.agreementText}</blockquote><p>{a.contentRequirements}</p><p>{a.prerequisite} · {a.prerequisiteRationale}</p><p>{a.evidence.title}@{a.evidence.version} · {a.evidence.locator}</p><p className="mono">{a.evidence.hash}</p><blockquote>{a.evidence.content}</blockquote><p>Simuliert vereinbart: {date(a.agreedAt, true)}; tatsächlich erfasst: {date(a.recordedAt, true)}.</p></details>
+      {canDraft && a.status === 'Active' && <label className="field"><span><input type="radio" name="summary-agreement" checked={agreementId === a.id} onChange={() => { setAgreementId(a.id); setCaseIds([]) }} /> Diese Vereinbarung für neue Sammelmeldung wählen</span></label>}
+      {isRa && <div className="row-between"><button type="button" className="button secondary" onClick={() => recordAgreement(a)}>Vereinbarung neu dokumentieren</button>{a.status === 'Active' && <button type="button" className="button secondary" onClick={() => openDialog({ title: 'Simulierte Vereinbarung widerrufen', description: 'Offene Sammelfreigaben können danach nicht versendet werden. Historische Pakete und Einzelpflichten bleiben bestehen.', fields: [{ ...reason, minLength: 80 }], onSubmit: values => mutate(`/summary-agreements/${a.id}/withdraw`, { ...values, expectedVersion: a.version }) })}>Vereinbarung widerrufen</button>}</div>}
+    </article>)}
+    {selected && canDraft && <div className="source-run"><h3>Ausdrückliche Fallauswahl für {selected.reference}</h3><p>Nur bereits menschlich als meldepflichtig eingeordnete Fälle derselben Produktfamilie/Jurisdiktion. Der Server prüft zusätzlich Periode, aktuelle Assurance, Quellen und Unknown-Sperren.</p>
+      {candidates.map(c => <label className="field" key={c.id}><span><input type="checkbox" checked={caseIds.includes(c.id)} onChange={e => setCaseIds(ids => e.target.checked ? [...ids, c.id] : ids.filter(id => id !== c.id))} /> {c.reference}@{c.version} · {c.title} · erste Kenntnis {date(c.firstAwarenessAt, true, selected.calendar.timeZone)}</span></label>)}
+      {!candidates.length && <p>Keine passenden meldepflichtig eingeordneten Fälle vorhanden.</p>}
+      <button type="button" className="button primary" disabled={!caseIds.length} onClick={() => draft()}>Sammelentwurf erstellen</button>
+    </div>}
+    {reports.data.map(report => <article className="source-run" key={report.id} data-testid={`summary-${report.id}`}>
+      <div className="row-between"><h3>{report.reference} · v{report.version}</h3><Badge tone="amber">Sammelmeldung · {label(report.status)}</Badge></div>
+      <p>{date(report.start)}–{date(report.end)} · {report.cases.length} gebundene Vorfälle · {report.agreement.reference}@{report.agreementSource.version} · {report.agreement.calendar.id} / {report.agreement.language}.</p>
+      <p className="mono">Paket {report.scopeHash} · {report.agreement.format}</p>
+      {summaryContentFields.map(f => <details key={f.name}><summary>{f.label}</summary><p>{report.content[f.name]}</p></details>)}
+      {report.cases.map(s => <details key={s.source.id}><summary>{s.case.reference}@{s.source.version} · gebundene Fall-/Assessmentfassung</summary><p>{s.similarityRationale}</p><p>UDI: {s.case.udi ?? 'unbekannt'}; Charge: {s.case.batch ?? 'unbekannt'}; Land: {s.case.country}; Assessment v{s.case.currentAssessment?.version}.</p><p className="mono">{s.source.hash}</p>{s.case.currentAssessment?.content.sections.map(section => <div key={section.key}><h4>{section.title}</h4><p>{section.text}</p></div>)}{s.case.evidence.map(e => <details key={`${e.id}-${e.version}`}><summary>{e.title}@{e.version} · {e.locator}</summary><p className="mono">{e.hash}</p><blockquote>{e.content}</blockquote></details>)}</details>)}
+      {report.approvals.map(a => <p key={a.id}>{a.actorName} · {a.role} · {date(a.at, true)}: {a.rationale}</p>)}
+      {report.simulatedReceipt && <p><b>Nur simulierte technische Quittung:</b> {report.simulatedReceipt}. Keine Einzelmeldepflicht erledigt.</p>}
+      <div className="row-between">
+        {canDraft && report.status !== 'SimulatedAccepted' && <button type="button" className="button secondary" onClick={() => draft(report)}>Sammelentwurf neu binden</button>}
+        {(report.status === 'Draft' && actor.roles.includes('MedicalSafetyReviewer') || report.status === 'MedicalApproved' && isRa) && <button type="button" className="button primary" onClick={() => openDialog({ title: 'Sammelmeldung getrennt freigeben', description: 'Konkrete Fall-, Evidenz-, Vereinbarungs-, Sprach-, Formular- und Empfängerbindung beurteilen. Kein pauschaler Compliance-Pass und keine Risikoakzeptanz.', fields: [{ ...reason, minLength: 80 }], onSubmit: values => mutate(`/summary-reports/${report.id}/approve`, { ...values, expectedVersion: report.version }) })}>Sammelmeldung fachlich freigeben</button>}
+        {report.status === 'Frozen' && isRa && <button type="button" className="button primary" onClick={() => openDialog({ title: 'Sammelmeldung ausschließlich simulieren', description: 'Nur eine lokale technische Quittung. Kein realer Empfänger und keine Erledigung der Einzelmeldepflichten.', fields: [{ ...reason, minLength: 80 }], onSubmit: values => mutate(`/summary-reports/${report.id}/simulate`, { ...values, expectedVersion: report.version }) })}>Sammelmeldung simulieren</button>}
+        {['Frozen', 'SimulatedAccepted'].includes(report.status) && <button type="button" className="button secondary" disabled={!!downloading} onClick={async () => { setLocalError(''); setDownloading(report.id); try { await downloadApi(`/summary-reports/${report.id}/export`, `${report.reference}.json`) } catch (error) { setLocalError(error instanceof Error ? error.message : 'Sammelpaket nicht exportiert.') } finally { setDownloading('') } }}><Download size={16} />Gekennzeichnetes Sammelpaket exportieren</button>}
+      </div>
+    </article>)}
+  </section>
+}
 
 const retentionNames: Record<string, string> = {
   Registered: 'Registriert', Held: 'Hold aktiv', Authorized: 'Löschung autorisiert', Deleting: 'Vorgang begonnen',
