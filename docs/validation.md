@@ -758,9 +758,11 @@ Das Profil verwendet eine eigene SQL-Fixture;
 wegen seiner ausdruecklich angelegten Leitserie ist es vom unveraenderten
 elfteiligen `Preview`-Profil getrennt, nicht dessen Ersatz.
 
-### Tatsaechlicher Stand vom 16.11.2026: Browserabnahme blockiert
+### Historischer Zwischenstand vom 16.11.2026 vor Browser05
 
-**Keine neue Bereitstellung.** App-Quelle
+**Zu diesem Zwischenstand noch keine neue Bereitstellung.** Die folgenden
+Negativbelege bleiben unveraendert; der spaetere Gesamtpass und die
+Bereitstellung sind im naechsten Abschnitt getrennt dokumentiert. App-Quelle
 `4b0442680e3c20836908fbfd8c9c8062eaa53e34` ist mit Build04 gebaut und mit
 **44/44 gezielten Domain-/SQL-Faellen, ohne Skips**, geprueft. Enthalten
 sind die zwoelf Workspace-Faelle, sieben B10-Regel-/drei B10-SQL-Faelle,
@@ -830,12 +832,113 @@ persistente Fehlerdetails beim Testende und die begrenzte Abbau-/Cleanup-
 Strategie erforderlich. Ein separat gebundener Chromium-Gegenversuch
 waere eine Umgebungspruefung, kein Beweis einer Edge-Ursache; das von
 Playwright 1.56.1 erwartete Chromium-1194-Binary fehlt am abgefragten
-Standardpfad. Es wurde kein Browser gestartet oder installiert.
+Standardpfad. Zu diesem Zwischenstand wurde kein Chromium gestartet oder installiert.
 Erst nach erfolgreicher gebundener Browserabnahme darf der frische lesende
 Alt/Neu-Abgleich heutige Faelle, PSUR-/BS-Fassungen und Historien fuer eine
 Promotion pruefen. Die offene B10-Workbench sowie Pflichtfeld-
 Vervollstaendigung, Informationsnachforderungs-/Antwortzuordnung und
 Reviewhistorie/Neubewertung sind damit nicht erledigt.
+
+### Browser05: vollstaendiger Chromium-Gesamtpass und kontrollierte Bereitstellung
+
+Am 16.11.2026 wurde der ausdruecklich zugeteilte Gegenversuch mit
+`COHORS_BROWSER=chromium` durchgefuehrt: Playwright **1.56.1**, zugehoeriges
+Chromium **1194 / 141.0.7390.37**, session-privater Cache. Die tatsaechliche
+Startzeile, der ausfuehrbare Pfad, PE-Version und SHA256 sind gebunden.
+`chrome.exe` hat SHA256
+`153106834fb06976c587c39aaef0e8c0d1b1339a575e8d7b87f187058663a094`.
+Keine globale Browser-/Richtlinienaenderung, kein Playwright-/Lockfile-Upgrade
+und keine nachtraegliche Edge-Abnahme oder bewiesene Edge-Ursache.
+
+Die fehlende Binary wurde zuerst als echter Abhaengigkeitsfehler erfasst.
+Zwei gepinnte CLI-Bereitstellungen endeten unvollstaendig; ihre Belege bleiben
+negativ. Die native Entpackung genau des protokollierten offiziellen ZIPs
+hinterliess alle 249 Dateien, ihr kombinierter Entpack-/Pruefschritt erreichte
+jedoch seine 60-s-Grenze. **Erst der anschliessende, getrennt gebundene rein
+lesende Vergleich aller 249 Dateien** bestaetigte Laenge und SHA256 gegen
+jeden ZIP-Stream, einschliesslich der vollstaendigen `chrome.dll`.
+Es wurde kein Installer-Erfolgsmarker erfunden. Der nachgewiesen fehlende
+`winldd-1007` wurde bytegleich aus seinem bereits bestehenden Cache in den
+privaten Cache kopiert, ohne das Original zu aendern. Das ist eine explizite
+native Abhaengigkeitsbereitstellung, kein behaupteter CLI-Erfolg.
+
+App **4b0442680e3c20836908fbfd8c9c8062eaa53e34 / Build04** und die
+historischen **44/44** Ergebnisse wurden nach erneuter Hashpruefung
+wiederverwendet, **nicht erneut gebaut oder als C#/SQL-Suite ausgefuehrt**.
+Browser-Testquelle bleibt **3a1f0153ccd82d11a4e0bc6780e142b97121e507**.
+Der tatsaechlich ausgefuehrte Workspace war
+**4ceffc7951f9d752430771cab94ae5e9775c91c6** mit ausschliesslich
+`docs/validation.md` als weiterem Unterschied. Diese drei Identitaeten
+sind ausdruecklich getrennt; alle Fallassertionen und Falltimeouts blieben gleich.
+
+| Unveraendert ausgewaehlter, tatsaechlich bestandener Testtitel | Dauer |
+| --- | --- |
+| `D01: authorized cockpit counts, actual process drilldown, unavailable risk groups and read-only navigation` | 44,465 s |
+| `D02: stored PSUR date-only and BS UTC month-boundary calendar, exact source navigation and whole-group authorization` | 51,422 s |
+| `SQL-backed complaint → grounded assessment → distinct approvals → unknown/reconcile → verified audit` | 56,826 s |
+| `T10: Dublin legal day remains Dublin legal day in a Berlin browser` | 4,574 s |
+
+**4 bestanden, 0 Fehler, 0 Skips, 0 Retries** in einem einzigen Lauf:
+vollstaendige JUnit und unabhaengig persistierte Test-Ende-/Suite-Ende-Ereignisse.
+Der korrigierte `finally`-Supervisor hielt die unveraenderten Grenzen
+600 s Ausfuehrung, getrennt 60 s Cleanup und 10 s Stop ein. Beide Phasen
+endeten mit Exit 0, geschlossenen Streams und ohne Grenzueberschreitung.
+Eigene API, aufgezeichnete Browser-/Worker-PIDs, genaue Testdatenbank,
+private Zugangsdaten/Objekte und Browserprofil sind terminal bereinigt.
+Der Nutzerbrowser `cohors-tryout` wurde nicht verwendet.
+
+| Beleg unter `.local\cockpit-calendar-01` | SHA256 |
+| --- | --- |
+| `chromium-runtime-01.json` | `7e82a2c7fac53f9f78dd0c34caaf188887b815c42b355b5f53220a9e6bf2bbf7` |
+| `browser-05-binding.json` | `16999c83bc5b8b0206cf2e6846fda3a938b6bab5f4dee0f63876462db1a80462` |
+| `browser-05\e2e-results.xml` | `1a281f3dbceb6a9488c726d266fc54801cd9030cd13c796d230f4a1d7a71cc2a` |
+| `browser-05\test-events.jsonl` | `ea9c042863e1824d1cea8649772d0501f61b96cbdcd5ab973f8734ae1e6bca44` |
+| `browser-05-bounded-result.json` | `ea6d4f356c5ecb20b08ebc34f9f9a1652408c77451379208fb5a6f71e3c70a34` |
+| `browser-05-bounded-cleanup.json` | `a275208e86c35c2181986e706b9268e604149c027b535bd7a3937e81e57038f2` |
+| `compatibility-01-verified.json` | `632cb4b80d6a9f3bb86c9ac74d64f19b7646001c18883c9a9a3ed5deeb4d4f14` |
+| `compatibility-01-preserved.json` | `30636de84ae294da12c17bf9d6623a78d91f1874c9266799a6ea553f8a5e2af3` |
+| `promotion-preflight.json` | `007ec7b7828ed0e3192a17dcf6ad2e7479833dfc893a039ec4d25d2c03cad9a0` |
+| `promotion-result.json` | `f98001d2e83b755a134acafb4f57e8de6c8264a69425b7c42ff2bc9caaf0834b` |
+
+Danach wurde der echte aktuelle Bestand rein lesend erfasst:
+**249 aktuelle/historische Zeilen**, darunter 17 aktuelle Faelle und zwei
+PSURs, Schema 2, 30.415.374 gespeicherte JSON-Bytes. Alt und Neu verwendeten
+denselben Capture und denselben Vergleichshelfer
+`f04cc44490f5ad5fdc18d4584108706774fbdee5b9277b31ca53aa0d0a4451ff`,
+aber getrennte frische PowerShell-Prozesse (107592/114528).
+Die tatsaechlich geladenen Domain-Locations zeigten auf das ausgewaehlte
+alte d166-Paket bzw. Build04; ihre Hashes waren
+`abf7cc96c4abc4ab40da7029b1b61731d3a11d10b4802e47c5ceefaa37249546`
+und `1b2aad26a77288fa45c65b8d2040f271bd589166f5c9dae61d2e3134d0c41f05`.
+Es gab keinen zusaetzlichen typisierten oder Freigabescopedrift; die beiden
+bereits im alten Paket bestehenden Warnungen blieben erhalten.
+
+Unmittelbar vor der Umschaltung wurde derselbe Bestand erneut auf Aenderungen
+geprueft. Anschliessend bestaetigte das verstaerkte Preserved-Gate jede
+aktuelle Zeile gegen ihre eigene Kind/Id/Version-Historienkopie und jede
+unveraenderte Version gegen den Capture. Neuere korrekt historisierte
+Nutzerversionen bleiben zulaessig; nichts wurde normalisiert oder zurueckgesetzt.
+Die Eigentuemerkontrolle ist unabhaengig auf 10 s plus 10 s eigene Stopgrenze
+begrenzt. Nach einem erhaltenen negativen Preflight verwendet sie nun native
+IPv4-/IPv6-Portzuordnung, Prozessabbild/Startzeit, Token-Owner-SID und exakte
+Befehlszeile, ohne CIM/GetOwner, Elevation oder AccessDenied-Fallback.
+Die native Variante wurde zuerst am eigenen Prozess und eigenen kurzlebigen
+IPv4-/IPv6-Sockets nachgewiesen, danach vor und nach dem echten Start.
+
+**Bereitgestellt unter `http://localhost:5187`:**
+`.local\app-replay-cockpit-4b04426`, eigener PID 100836.
+Alte API und alter Supervisor sind beendet; nur die neue Demo bleibt
+absichtlich aktiv. Health, autorisierte neue Projektionen sowie die
+tatsaechlich ausgelieferten HTML-/JS-/CSS-Bytes wurden bestaetigt
+(17 Faelle, 34 Kalendereintraege zum Beobachtungszeitpunkt).
+Alle Nutzerstaende/Historien, Accounts, Schluessel und Originalobjekte,
+das originale Build04-Paket und die drei Rueckfallpakete sind erhalten.
+Kein Seed, keine Migration, Datenkorrektur, Wiederherstellung oder echte Sendung.
+
+Dieser Nachweis erledigt den KPI-/Kalenderschnitt, nicht die offene
+B10-Workbench, Pflichtfeld-Vervollstaendigung, Nachforderungs-/Antwortzuordnung
+oder Reviewhistorie/Neubewertung. Die fachliche Folgequeue bleibt sequenziell;
+Load, Recovery und Cloud sind hierdurch nicht freigegeben.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 

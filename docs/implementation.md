@@ -292,12 +292,12 @@ moeglicherweise anders serialisierten alten Fallfassung. Originaltexte
 werden ueber die vorhandene Evidenzpruefung gelesen; der Produkt-Auditexport
 nimmt die neuen eingebetteten Quellen und Bindungen mit.
 
-**Quellcheckpoint, keine Abnahme:** Sieben Regelfaelle und drei SQL-Faelle
-sind in `SpecimenInvestigationTests.cs` vorbereitet, nicht ausgefuehrt.
-Build/Typpruefung und SQL-/Browserabnahme warten auf eine neue Laufzuteilung.
-Eine eigene Workbench-Erfassung und Browserfall gehoeren noch nicht zu diesem
-Checkpoint; die priorisierte Cockpit-/Kalenderergaenzung folgt getrennt.
-Die laufende d166658-Demo und ihre Rueckfaelle wurden nicht aktualisiert.
+**Backend-Nachweis, keine B10-Workbench-Abnahme:** Die sieben Regelfaelle und
+drei SQL-Faelle in `SpecimenInvestigationTests.cs` sind in Build04/Tests04
+bestanden und mit dem Cockpit-/Kalenderpaket bereitgestellt; siehe
+[`validation.md`](validation.md#browser05-vollstaendiger-chromium-gesamtpass-und-kontrollierte-bereitstellung).
+Eine eigene Workbench-Erfassung und ein B10-Browserfall bleiben offen.
+Die frueheren unveraenderten Demopakete bleiben als Rueckfaelle erhalten.
 
 ## Cockpit-Grafiken und Fristenkalender
 
