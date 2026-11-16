@@ -74,7 +74,7 @@ public sealed class ReportPrefillRuleTests
             new TerminologyTerm(code, annex, "SYNTHETIC terminology fixture", 1, 1, [code], null, true, true, null, null, annex, 1, code));
         c = c with { Coding = new(1, "synthetic-release", Canonical.HashText("synthetic-reference"),
             terms.Select(term => new AssignedCode(term, term.Code, term.Term)).ToArray(), [citation],
-            "SYNTHETIC human selection of two separate codes; no automatic reduction to one.", "medical", Now) };
+            "SYNTHETIC human selection of two separate codes; no automatic reduction to one.", "medical", Now, null) };
         var originalCoding = Canonical.Hash(c.Coding);
         var report = Report(c) with { Kind = kind };
         var result = ReportPrefill.Create(c, report, Device, null, Calendar, VigilanceNarrative.Fields(c, "de"), "run", Now);
