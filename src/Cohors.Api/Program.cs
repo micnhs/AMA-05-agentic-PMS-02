@@ -90,6 +90,7 @@ builder.Services.AddSingleton<WorkspaceReadService>();
 builder.Services.AddSingleton<OperationsService>();
 builder.Services.AddSingleton<OutboxProcessor>();
 builder.Services.AddSingleton<PublicSourceService>();
+builder.Services.AddSingleton<SignalReviewService>();
 builder.Services.AddSingleton<EvidenceService>();
 builder.Services.AddSingleton<QualityService>();
 builder.Services.AddSingleton<AnalyticsService>();
@@ -330,6 +331,14 @@ api.MapPost("/sources/{source}/sync", (string source, ReadPublicSourceCommand in
 });
 api.MapPost("/sources/{id}/approve", (string id, ApprovePublicSourceCommand input, PublicSourceService service, HttpContext ctx, CancellationToken ct) =>
     service.Approve(id, input, Who(ctx), Key(ctx), ct));
+api.MapGet("/signals", (string? status, SignalReviewService service, HttpContext ctx, CancellationToken ct) =>
+    service.List(status ?? "Rejected", Who(ctx), ct));
+api.MapPost("/signals/{kind}/{id}/reject", (string kind, string id, SignalDecisionCommand input, SignalReviewService service, HttpContext ctx, CancellationToken ct) =>
+    service.Decide(kind, id, "Reject", input, Who(ctx), Key(ctx), ct));
+api.MapPost("/signals/{kind}/{id}/reopen", (string kind, string id, SignalDecisionCommand input, SignalReviewService service, HttpContext ctx, CancellationToken ct) =>
+    service.Decide(kind, id, "Reopen", input, Who(ctx), Key(ctx), ct));
+api.MapPost("/signals/{kind}/{id}/confirm-relevance", (string kind, string id, SignalDecisionCommand input, SignalReviewService service, HttpContext ctx, CancellationToken ct) =>
+    service.Decide(kind, id, "ConfirmRelevance", input, Who(ctx), Key(ctx), ct));
 api.MapGet("/capas", (IStateStore store, HttpContext ctx, CancellationToken ct) => store.List<Capa>("capa", Who(ctx).Products, ct));
 api.MapPost("/capas", (OpenCapaCommand input, QualityService service, HttpContext ctx, CancellationToken ct) => service.OpenCapa(input, Who(ctx), Key(ctx), ct));
 api.MapPost("/capas/{id}/verify", (string id, VerifyCapaCommand input, QualityService service, HttpContext ctx, CancellationToken ct) => service.Verify(id, input, Who(ctx), Key(ctx), ct));

@@ -78,7 +78,8 @@ public sealed record AgentInput(AgentRole Role, AgentMode Mode, SafetyCase? Case
     TrendRun? Trend, Evidence[] Evidence, string Instruction, int Revision, string Language = "de");
 public sealed record AgentOutput(string Model, string PromptVersion, AssessmentContent? Assessment,
     string Narrative, QualityFinding[] Findings, string[] Tools,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] VigilanceFields? Vigilance = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] VigilanceFields? Vigilance = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalTriageProposal? Triage = null);
 public interface IAgentRunner
 {
     Task<AgentOutput> Run(AgentInput input, CancellationToken ct = default);
@@ -114,6 +115,11 @@ public sealed record PortfolioState(SafetyCase[] Cases, Evidence[] Evidence, Exp
 
 public sealed record ReadPublicSourceCommand(string ProductId);
 public sealed record ApprovePublicSourceCommand(int ExpectedVersion, string ExternalId, string Reason);
+public sealed record SignalDecisionCommand(int ExpectedVersion, string SourceId, string Reason);
+public sealed record SignalView(string OwnerKind, string OwnerId, int OwnerVersion, string SourceId,
+    string ProductId, string Title, string SourceReference, string SourceHash, string SourceUri,
+    DateTimeOffset ReceivedAt, DateTimeOffset? AwarenessAt, string? CaseId, string? CaseReference,
+    string Status, string? ReviewReference, SignalDecision[] History, string Content, string Boundary);
 public sealed record RegisterComplaint(string IncidentKey, string SourceId, string Title, string Description,
     string ProductId, string? Udi, string? Batch, string Country, string Jurisdiction,
     Seriousness Seriousness, DateTimeOffset? OccurredAt, DateTimeOffset AwarenessAt,

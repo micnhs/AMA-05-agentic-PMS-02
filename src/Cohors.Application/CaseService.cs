@@ -201,12 +201,15 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
                     OutputHash = Canonical.Hash(output), OutputJson = Canonical.Serialize(output), EvidenceIds = assessment.EvidenceIds };
                 AgentRun Subrun(AgentRole role, AgentOutput result) => final with
                 {
-                    Id = runId + "-" + role, Role = role, OutputHash = Canonical.Hash(result), OutputJson = Canonical.Serialize(result), Tools = result.Tools
+                    Id = runId + "-" + role, Role = role, Model = result.Model, PromptVersion = result.PromptVersion,
+                    OutputHash = Canonical.Hash(result), OutputJson = Canonical.Serialize(result), Tools = result.Tools
                 };
+                var ingestionRun = Subrun(AgentRole.Ingestion, ingestion);
                 return value with { Version = value.Version + 1, Stage = CaseStage.AwaitingMedicalReview,
                     Evidence = evidence, Assessments = [.. value.Assessments, assessment],
+                    SignalReviews = SignalReviewRules.AgentTriage(value, ingestionRun, ingestion.Triage, clock.GetUtcNow()),
                     AgentRuns = [.. value.AgentRuns.Select(r => r.Id == runId ? final : r),
-                        Subrun(AgentRole.Ingestion, ingestion), Subrun(AgentRole.EvidenceAssurance, assurance)] };
+                        ingestionRun, Subrun(AgentRole.EvidenceAssurance, assurance)] };
             }, ct);
         }
         catch (Exception ex) when (ex is DomainException or HttpRequestException or TimeoutException or

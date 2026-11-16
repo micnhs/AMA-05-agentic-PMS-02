@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SummaryAgreement } from '../src/types'
+import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
 
 const home = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const artifacts = process.env.COHORS_UI_ARTIFACT_DIR ?? path.join(home, '.local')
@@ -70,6 +70,266 @@ function requireWorkspaceIsolation(baseURL: string | undefined) {
   if (!baseURL || new URL(baseURL).port === '5187' || !process.env.COHORS_TEST_ACCESS_FILE || !process.env.COHORS_UI_ARTIFACT_DIR)
     throw new Error('Cockpit/calendar acceptance requires the private Test-Ui.ps1 fixture, never the user-active demo.')
 }
+
+const signalReason = 'SYNTHETISCH: Die Quellenrelevanz und fehlende Produktzuordnung werden begruendet menschlich geprueft. Keine Nichtmeldepflichtentscheidung, automatische Freigabe oder Fristaenderung.'
+function signalInput(stamp: string, agent = false) {
+  return { incidentKey: stamp, sourceId: crypto.randomUUID(), productId: 'ortho', title: `Synthetischer Signalreview ${stamp}`,
+    description: 'SYNTHETISCH: Nicht bestaetigter Hinweis zur Produktfunktion. Direkte technische Befunde und eine verifizierte klinische Ursachenabgrenzung fehlen.',
+    udi: null, batch: null, country: 'DE', jurisdiction: 'EU-DE', seriousness: 'OtherSerious', occurredAt: null,
+    awarenessAt: new Date(Date.now() - 86_400_000).toISOString(), synthetic: true, scenario: agent ? 'signal-triage-replay-reject' : 'signal-review-ui' }
+}
+async function blockReviewPolling(context: BrowserContext) {
+  await context.addInitScript(() => {
+    const original = window.setInterval.bind(window)
+    let blocked = 0
+    Reflect.set(window, '__cohorsBlockedIntervals', 0)
+    window.setInterval = (handler, delay, ...args) => {
+      if (delay === 10_000) { Reflect.set(window, '__cohorsBlockedIntervals', ++blocked); return -blocked }
+      return original(handler, delay, ...args)
+    }
+  })
+}
+async function reopenSignalUi(page: Page, signal: SignalView) {
+  await page.getByRole('navigation').getByRole('button', { name: 'Abgelehnte Signale', exact: true }).click()
+  const row = page.getByTestId(`signal-${signal.ownerId}-${signal.sourceId}`)
+  await row.getByRole('button', { name: 'Wiederaufnehmen', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Fachliche Signalbegründung', { exact: true }).fill(signalReason)
+  await submitDialog(dialog, 'Jetzt ins Review')
+  await expect(page.getByRole('heading', { name: 'Review Queue', exact: true })).toBeVisible()
+}
+for (const variant of [
+  { title: 'S01: Medical reopens an agent-rejected signal directly into Review Queue with polling disabled', username: 'medical.demo', limited: 'medical-cardio.demo', agent: true, image: 'medical' },
+  { title: 'S02: RA reopens a reviewer-rejected signal directly into Review Queue with polling disabled', username: 'ra.demo', limited: 'ra-cardio.demo', agent: false, image: 'ra' },
+]) {
+  test(variant.title, async ({ playwright, browser, baseURL }) => {
+    requireWorkspaceIsolation(baseURL)
+    const pms = await playwright.request.newContext({ baseURL })
+    const reviewer = await playwright.request.newContext({ baseURL })
+    const limited = await playwright.request.newContext({ baseURL })
+    let context: BrowserContext | undefined
+    try {
+      const pmsCsrf = await signIn(pms, 'pms.demo')
+      await signIn(reviewer, variant.username)
+      const limitedCsrf = await signIn(limited, variant.limited)
+      let c = await command(pms, pmsCsrf, '/cases', signalInput(`${variant.image}-${Date.now()}`, variant.agent))
+      if (variant.agent) {
+        c = await command(pms, pmsCsrf, `/cases/${c.id}/assessment`, { expectedVersion: c.version, mode: 'Replay', reason: signalReason })
+        await expect.poll(async () => { c = await (await pms.get(`/api/cases/${c.id}`)).json(); return c.currentAssessment?.version }).toBe(1)
+      }
+      context = await browser.newContext({ storageState: await reviewer.storageState() })
+      await blockReviewPolling(context)
+      const page = await context.newPage()
+      const errors: string[] = []
+      const posts: string[] = []
+      let navigations = 0
+      page.on('pageerror', e => errors.push(e.message))
+      page.on('request', request => { if (request.method() === 'POST') posts.push(new URL(request.url()).pathname) })
+      await page.goto(baseURL!)
+      await expect(page.getByRole('heading', { name: 'Sicherheit im Blick.', exact: true })).toBeVisible()
+      page.on('framenavigated', frame => { if (frame === page.mainFrame()) navigations++ })
+      if (!variant.agent) {
+        await page.getByRole('navigation').getByRole('button', { name: 'Signal Inbox', exact: true }).click()
+        const row = page.getByTestId(`signal-${c.id}-${c.sources[0].id}`)
+        await row.getByRole('button', { name: 'Signal ablehnen', exact: true }).click()
+        const dialog = page.getByRole('dialog')
+        await dialog.getByLabel('Fachliche Signalbegründung', { exact: true }).fill(signalReason)
+        await submitDialog(dialog, 'Signal ablehnen')
+        c = await (await pms.get(`/api/cases/${c.id}`)).json()
+      }
+      const rejected: SignalView[] = await (await reviewer.get('/api/signals')).json()
+      const signal = rejected.find(s => s.ownerId === c.id)
+      if (!signal) throw new Error('The actual persisted signal rejection is missing.')
+      expect(signal.history.at(-1)?.origin).toBe(variant.agent ? 'Agent' : 'Reviewer')
+      expect((await limited.get('/api/signals')).ok()).toBe(true)
+      expect((await (await limited.get('/api/signals')).json() as SignalView[]).some(s => s.ownerId === c.id)).toBe(false)
+      for (const [client, csrf] of [[pms, pmsCsrf], [limited, limitedCsrf]] as const) {
+        const denied = await client.post(`/api/signals/case/${c.id}/reopen`, { headers: { 'X-CSRF-Token': csrf, 'Idempotency-Key': crypto.randomUUID() },
+          data: { expectedVersion: signal.ownerVersion, sourceId: signal.sourceId, reason: signalReason } })
+        expect(denied.status()).toBe(403)
+      }
+      await page.getByRole('navigation').getByRole('button', { name: 'Abgelehnte Signale', exact: true }).click()
+      const rejectedRow = page.getByTestId(`signal-${signal.ownerId}-${signal.sourceId}`)
+      await expect(rejectedRow).toContainText(variant.agent ? 'Agenten-Ablehnung' : 'Reviewer-Ablehnung')
+      await expect(rejectedRow).toContainText(signal.history.at(-1)!.reason)
+      if (variant.agent) await expect(rejectedRow).toContainText(signal.history.at(-1)!.agentRunId!)
+      await page.screenshot({ path: path.join(artifacts, `cohors-signal-${variant.image}-rejected.png`) })
+      const count = (await (await reviewer.get('/api/cases')).json() as CaseSummary[]).length
+      const before = await (await reviewer.get(`/api/cases/${c.id}`)).json() as SafetyCase
+      const start = Date.now()
+      await reopenSignalUi(page, signal)
+      const elapsedMs = Date.now() - start
+      await expect(page.getByRole('button', { name: c.title, exact: true })).toBeVisible()
+      await expect(page.getByRole('status').filter({ hasText: 'unmittelbar im menschlichen Review' })).toContainText(c.title)
+      const current = await (await reviewer.get(`/api/cases/${c.id}`)).json() as SafetyCase
+      expect(current.stage).toBe('AwaitingMedicalReview')
+      expect(current.agentRuns).toEqual(before.agentRuns)
+      expect(current.assessments).toEqual(before.assessments)
+      expect(current.approvals).toEqual(before.approvals)
+      expect(current.deadlines).toEqual(before.deadlines)
+      expect(current.firstAwarenessAt).toBe(before.firstAwarenessAt)
+      expect(current.sources).toEqual(before.sources)
+      expect((await (await reviewer.get('/api/cases')).json() as CaseSummary[]).length).toBe(count)
+      expect(current.signalReviews?.[0].history.map(d => d.action)).toEqual(['Reject', 'Reopen'])
+      expect(posts.some(p => /\/cases\/[^/]+\/assessment$/.test(p))).toBe(false)
+      expect(navigations).toBe(0)
+      expect(await page.evaluate(() => Number(Reflect.get(window, '__cohorsBlockedIntervals')))).toBeGreaterThan(0)
+      await page.screenshot({ path: path.join(artifacts, `cohors-signal-${variant.image}-review.png`) })
+      await page.getByRole('button', { name: c.title, exact: true }).click()
+      await expect(page.getByText(variant.agent ? 'Frühere Bewertung durch Wiederaufnahme überholt.' : 'Noch keine Sicherheitsbewertung', { exact: true })).toBeVisible()
+      expect(errors).toEqual([])
+      writeFileSync(path.join(artifacts, `signal-${variant.image}-proof.json`), JSON.stringify({
+        title: variant.title, role: current.signalReviews?.[0].history.at(-1)?.role, signal: signal.sourceId,
+        caseId: c.id, version: current.version, elapsedMs, tenSecondPollingDisabled: true, manualReloads: navigations,
+        noNewAgentRun: true, awarenessAndDeadlinesPreserved: true, assessmentVersion: current.currentAssessment?.version ?? null,
+      }, null, 2))
+    } finally { await context?.close(); await pms.dispose(); await reviewer.dispose(); await limited.dispose() }
+  })
+}
+
+test('S03: unlinked public-source reviews reopen immediately for Medical and RA without inventing cases or awareness', async ({ playwright, browser, baseURL }) => {
+  requireWorkspaceIsolation(baseURL)
+  for (const [username, sourceId] of [['medical.demo', 'synthetic-ui-medical'], ['ra.demo', 'synthetic-ui-regulatory']]) {
+    const reviewer = await playwright.request.newContext({ baseURL })
+    let context: BrowserContext | undefined
+    try {
+      const csrf = await signIn(reviewer, username)
+      const all = await (await reviewer.get('/api/signals?status=All')).json() as SignalView[]
+      const source = all.find(s => s.sourceId === sourceId && s.ownerKind === 'source')
+      if (!source) throw new Error('Explicit isolated synthetic metadata fixture is missing; no live source is substituted.')
+      const rejected = await command<SignalView>(reviewer, csrf, `/signals/source/${source.ownerId}/reject`,
+        { expectedVersion: source.ownerVersion, sourceId, reason: signalReason })
+      const casesBefore = await (await reviewer.get('/api/cases')).json() as CaseSummary[]
+      context = await browser.newContext({ storageState: await reviewer.storageState() })
+      await blockReviewPolling(context)
+      const page = await context.newPage()
+      const errors: string[] = []
+      page.on('pageerror', e => errors.push(e.message))
+      await page.goto(baseURL!)
+      await page.getByRole('navigation').getByRole('button', { name: 'Abgelehnte Signale', exact: true }).click()
+      const unknown = page.getByTestId(`signal-${source.ownerId}-synthetic-ui-unknown-history`)
+      await expect(unknown).toContainText('Ablehnung · Herkunft unbekannt')
+      await expect(unknown).not.toContainText('Agenten-Ablehnung')
+      await reopenSignalUi(page, rejected)
+      const pending = page.getByRole('region', { name: 'Quellenreviews ohne Fallakte', exact: true })
+      await expect(pending.getByTestId(`signal-${source.ownerId}-${sourceId}`)).toContainText(rejected.reviewReference!)
+      await expect(pending.getByTestId(`signal-${source.ownerId}-${sourceId}`)).toContainText('Zum Review wiederaufgenommen')
+      const current = (await (await reviewer.get('/api/signals?status=ReviewRequired')).json() as SignalView[]).find(s => s.sourceId === sourceId)!
+      expect(current.caseId).toBeNull()
+      expect(current.awarenessAt).toBeNull()
+      expect(current.reviewReference).toBe(rejected.reviewReference)
+      expect(current.history.map(d => d.action)).toEqual(['Reject', 'Reopen'])
+      expect((await (await reviewer.get('/api/cases')).json() as CaseSummary[]).map(c => c.id).sort()).toEqual(casesBefore.map(c => c.id).sort())
+      expect(await page.evaluate(() => Number(Reflect.get(window, '__cohorsBlockedIntervals')))).toBeGreaterThan(0)
+      expect(errors).toEqual([])
+      await page.screenshot({ path: path.join(artifacts, `cohors-source-review-${username}.png`) })
+    } finally { await context?.close(); await reviewer.dispose() }
+  }
+})
+
+test('S04: account changes clear signal notices and ignore delayed prior-identity refresh and reopen responses', async ({ playwright, browser, baseURL }) => {
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  let context: BrowserContext | undefined
+  let release: (() => void) | undefined
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    const medicalCsrf = await signIn(medical, 'medical.demo')
+    async function rejectedCase(suffix: string) {
+      const c = await command(pms, pmsCsrf, '/cases', signalInput(`IDENTITY-${suffix}-${Date.now()}`))
+      const signal = await command<SignalView>(medical, medicalCsrf, `/signals/case/${c.id}/reject`,
+        { expectedVersion: c.version, sourceId: c.sources[0].id, reason: signalReason })
+      return { c, signal }
+    }
+    const first = await rejectedCase('NOTICE')
+    context = await browser.newContext({ storageState: await medical.storageState() })
+    await blockReviewPolling(context)
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('pageerror', e => errors.push(e.message))
+    await page.goto(baseURL!)
+    await reopenSignalUi(page, first.signal)
+    await expect(page.getByRole('status').filter({ hasText: first.c.title })).toBeVisible()
+    async function loginUi(username: string) {
+      await expect(page.getByRole('heading', { name: 'Willkommen bei Cohors', exact: true })).toBeVisible()
+      await page.getByLabel('Benutzername', { exact: true }).fill(username)
+      await page.getByLabel('Passwort', { exact: true }).fill(accounts[username])
+      await page.getByRole('button', { name: 'Sicher anmelden', exact: true }).click()
+      await expect(page.getByRole('navigation')).toBeVisible()
+    }
+    async function settleLateResponse() {
+      const response = page.waitForResponse(r => r.headers()['x-cohors-delayed-identity'] === 'original')
+      release!()
+      await (await response).finished()
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    }
+    const logoutTitle = 'Abmelden und mit eigenem getrenntem Konto anmelden'
+    let held = false
+    let markHeld: (() => void) | undefined
+    const pending = new Promise<void>(resolve => { markHeld = resolve })
+    const delayed = new Promise<void>(resolve => { release = resolve })
+    await page.route('**/api/signals?status=ReviewRequired', async route => {
+      if (held) { await route.continue(); return }
+      held = true
+      const response = await route.fetch()
+      markHeld!()
+      await delayed
+      await route.fulfill({ response, headers: { ...response.headers(), 'x-cohors-delayed-identity': 'original' } })
+    })
+    await page.getByRole('navigation').getByRole('button', { name: 'Signal Inbox', exact: true }).click()
+    await page.getByRole('navigation').getByRole('button', { name: 'Review Queue', exact: true }).click()
+    await pending
+    await page.getByTitle(logoutTitle, { exact: true }).click()
+    await loginUi('pms-cardio.demo')
+    await expect(page.getByRole('heading', { name: 'Review Queue', exact: true })).toBeVisible()
+    await expect(page.locator('body')).not.toContainText(first.c.title)
+    await settleLateResponse()
+    await expect(page.locator('body')).not.toContainText(first.c.title)
+    await expect(page.getByRole('region', { name: 'Quellenreviews ohne Fallakte', exact: true })).not.toContainText('SYNTHETISCHER Quellenreview')
+    await page.unroute('**/api/signals?status=ReviewRequired')
+
+    await page.getByTitle(logoutTitle, { exact: true }).click()
+    await loginUi('medical.demo')
+    const second = await rejectedCase('LATE-POST')
+    let postHeld: (() => void) | undefined
+    const pendingPost = new Promise<void>(resolve => { postHeld = resolve })
+    const delayedPost = new Promise<void>(resolve => { release = resolve })
+    await page.route(`**/api/signals/case/${second.c.id}/reopen`, async route => {
+      const response = await route.fetch()
+      postHeld!()
+      await delayedPost
+      await route.fulfill({ response, headers: { ...response.headers(), 'x-cohors-delayed-identity': 'original' } })
+    })
+    await page.getByRole('navigation').getByRole('button', { name: 'Abgelehnte Signale', exact: true }).click()
+    await page.getByTestId(`signal-${second.c.id}-${second.signal.sourceId}`).getByRole('button', { name: 'Wiederaufnehmen', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('Fachliche Signalbegründung', { exact: true }).fill(signalReason)
+    await dialog.getByRole('button', { name: 'Jetzt ins Review', exact: true }).click()
+    await pendingPost
+    // Controlled timing fault: invoke the real logout handler while its modal POST response is held.
+    await page.getByTitle(logoutTitle, { exact: true }).evaluate(button => {
+      if (!(button instanceof HTMLButtonElement)) throw new Error('The actual logout button is required.')
+      button.click()
+    })
+    await loginUi('pms-cardio.demo')
+    await settleLateResponse()
+    await page.getByRole('navigation').getByRole('button', { name: 'Review Queue', exact: true }).click()
+    await expect(page.locator('body')).not.toContainText(second.c.title)
+    await expect(page.locator('body')).not.toContainText(first.c.title)
+    await expect(page.locator('body')).not.toContainText('Wiederaufnahme gespeichert, aber')
+    await expect(page.getByRole('region', { name: 'Quellenreviews ohne Fallakte', exact: true })).not.toContainText('SYNTHETISCHER Quellenreview')
+    expect((await (await medical.get(`/api/cases/${second.c.id}`)).json() as SafetyCase).stage).toBe('AwaitingMedicalReview')
+    expect((await page.request.get(`/api/cases/${second.c.id}`)).status()).toBe(403)
+    expect(errors).toEqual([])
+    await page.screenshot({ path: path.join(artifacts, 'cohors-signal-identity-scope.png') })
+    writeFileSync(path.join(artifacts, 'signal-identity-proof.json'), JSON.stringify({
+      success: true, realUiLogoutAndLogin: true, oldNoticeCleared: true, delayedRefreshIgnored: true,
+      delayedReopenIgnored: true, delayedPostUsedExplicitTimingFault: true, authorizedOriginalWritePreserved: true,
+      newAccountProducts: ['cardio'], noForeignSourceReviews: true,
+    }, null, 2))
+  } finally { release?.(); await context?.close(); await pms.dispose(); await medical.dispose() }
+})
 
 test('D01: authorized cockpit counts, actual process drilldown, unavailable risk groups and read-only navigation', async ({ playwright, browser, baseURL }) => {
   requireWorkspaceIsolation(baseURL)

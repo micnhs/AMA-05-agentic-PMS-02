@@ -12,6 +12,53 @@ Schreibtransaktionen nutzen `READ COMMITTED`, transaktionsgebundene SQL-Applicat
 
 Ein idempotenter Claim ist nicht gleichbedeutend mit einer zweiten Activity-Ausfuehrungsberechtigung. Eine persistierte zufaellige Owner-ID bestimmt den einzigen ausfuehrenden Aufrufer. Einzelne Modellantworten werden vor fachlicher Uebernahme als eigene Auftraege persistiert; Wiederholungen verwenden nur eindeutig abgeschlossene Antworten. Aktive, fehlgeschlagene oder unklare Modellauftraege werden nicht verdeckt erneut gesendet.
 
+## Signalablehnung und unmittelbarer menschlicher Review
+
+Signaltriage liegt als optionale, bei Null nicht serialisierte `SignalReviews`-Historie
+an der bestehenden Fall- oder Quellenakte. Sie ist kein zweiter Intake und keine
+Umdeutung von `ReportState.Rejected`, Meldungsrueckgabe oder Nichtmeldepflicht.
+Jede Entscheidung bindet Originalquell-ID und Hash, Aktenversion, Begruendung,
+Zeitpunkt und entweder die tatsaechliche menschliche Identitaet/Rolle oder die
+unveraenderte Ausgabe eines konkreten abgeschlossenen Ingestion-Laufs. Unbekannte
+historische Herkunft bleibt unbekannt. Die Standardliste zeigt nur aktuelle
+Signalablehnungen; vorherige Entscheidungen bleiben im Aggregat und SQL-Audit.
+
+Medical Safety **oder** RA nehmen mit erwarteter Version eigenstaendig wieder auf.
+Ein vorhandener Fall wird in derselben SQL-/Historien-/Audit-/Outbox-Transaktion
+direkt `AwaitingMedicalReview`. Originalkenntnis, Fristen und Erledigungsstaende
+bleiben unveraendert. Die begruendete Wiederaufnahme wird neue Evidenz: alte
+Bewertung bleibt erhalten, ist aber nicht aktuell; aktive Berichtsentwuerfe werden
+supersediert, alte Signaturen nicht reaktiviert. Es wird keine KI beauftragt.
+Noch offene alte Laeufe werden fachlich `Abandoned`; eine bereits laufende externe
+Antwort kann technisch noch eintreffen, wird aber nicht als aktuelles Ergebnis
+uebernommen. Erneute KI-Arbeit braucht einen neuen expliziten Auftrag.
+
+Oeffentliche Vergleichsmetadaten ohne eigenen Fall bekommen stattdessen einen
+stabilen `SIG-...`-Review-Vorgang **innerhalb derselben Quellenakte**, sichtbar in
+derselben Review Queue. Es entsteht kein erfundener Hersteller-/Patientenfall und
+keine Frist aus Abruf-/Publikationszeit. Eine ausdrueckliche menschliche
+Relevanzbestaetigung beendet diesen Quellenreview, erteilt aber keine Fall- oder
+Meldepaketfreigabe. Die vorhandene medizinische Vergleichsevidenzfreigabe bleibt
+eine getrennte Handlung.
+
+Die UI liest nach erfolgreicher Wiederaufnahme sofort Fallliste und Quellenreviews,
+prueft den persistierten Zielstand und wechselt direkt in die Review Queue.
+Manuelles Neuladen und das Zehnsekunden-Polling sind dafuer keine Voraussetzung.
+Signalhinweise, Quellenreview-Daten und offene Dialoge werden beim Abmelden bzw.
+Identitaetswechsel geloescht. Verspaetete Refresh-/Wiederaufnahmeantworten sind
+an eine Identitaetsepoche gebunden und duerfen keine Daten oder Erfolgshinweise
+des vorherigen Kontos in die neue Sitzung eintragen.
+Rollen und Produktscope werden unabhaengig von sichtbaren Schaltflaechen auf dem
+Server durchgesetzt. Gleichzeitige Wiederaufnahmen erzeugen genau eine Version;
+derselbe Command-Receipt ist idempotent.
+
+Der normale Replay-Ingestion-Lauf behauptet bei Datenluecken keine Irrelevanz.
+Das separat waehlenbare Profil `signal-triage-replay-reject` demonstriert eine
+explizit synthetische Agenten-Ablehnung, **keine verifizierte Inhaltsklassifikation**.
+Live-Ingestion kann nur einen quellengebundenen Vorschlag abgeben; eine
+menschliche Wiederaufnahme darf er nicht wieder verwerfen. Live-Foundry-Abnahme
+und On-demand-Dateiimport sind dadurch nicht behauptet oder aktiviert.
+
 ## Lokale und Azure-Abhaengigkeiten
 
 | Bestandteil | Lokal | Zielarchitektur / separate Abnahme |

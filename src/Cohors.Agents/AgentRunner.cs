@@ -12,7 +12,7 @@ public sealed record FoundryOptions(string? Endpoint, string? Deployment, string
 
 public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
 {
-    public const string PromptVersion = "cohors-agent-contract-2026.3";
+    public const string PromptVersion = "cohors-agent-contract-2026.4";
 
     public async Task<AgentOutput> Run(AgentInput input, CancellationToken ct = default)
     {
@@ -40,6 +40,11 @@ public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
                 as proposed text plus exact existing assessment claimIds. Do not generate other facts or codes.
                 Distinguish proposed investigation from completed action; do not claim human-agreed dates.
                 Each MIR text field must fit its 4000-character limit without concealing uncertainty or truncating evidence.
+                For Ingestion, triage.relevance is Relevant, Uncertain or NotRelevant, with exact sourceIds and a reason
+                of at least 40 characters. NotRelevant is only an explicitly justified source-triage proposal:
+                it never closes a case, decides nonreportability, stops deadlines or replaces human review.
+                Insufficient causal evidence is Uncertain, not NotRelevant. Never infer rejection from a failed run.
+                Replay scenario labels are demonstration controls, never evidence of source irrelevance.
                 """;
             AIAgent agent = new AzureOpenAIClient(uri, new DefaultAzureCredential(),
                     new AzureOpenAIClientOptions { RetryPolicy = new System.ClientModel.Primitives.ClientRetryPolicy(0) })
@@ -69,7 +74,12 @@ public sealed class AgentRunner(FoundryOptions foundry) : IAgentRunner
                 "Versionierter synthetischer Replay-Entwurf; kein Live-Modellaufruf.", [], ["bounded.evidence-snapshot"]),
             AgentRole.Ingestion => new("replay-2026.1", PromptVersion, null,
                 $"Explizite Vorfallreferenz; {c!.Sources.Length} Quellen bleiben einem Vorfall zugeordnet. " +
-                $"UDI {(c.Udi is null ? "unbekannt; menschliche Zuordnung erforderlich" : "aus synthetischem Eingang")}. Keine Aehnlichkeitsbehauptung als Nachweis.", [], ["product.lookup"]),
+                $"UDI {(c.Udi is null ? "unbekannt; menschliche Zuordnung erforderlich" : "aus synthetischem Eingang")}. Keine Aehnlichkeitsbehauptung als Nachweis.",
+                [], ["product.lookup"], Triage: new(input.Mode == AgentMode.Replay && c.Scenario == "signal-triage-replay-reject" ? "NotRelevant" : "Uncertain",
+                    c.Sources.Select(s => s.Id).ToArray(), input.Mode == AgentMode.Replay && c.Scenario == "signal-triage-replay-reject"
+                        ? "Explizit gewaehlter synthetischer Replay-Ablehnungsfall zur Demonstration der Agentenherkunft. " +
+                          "Keine inhaltlich verifizierte Irrelevanz oder rechtliche Meldeentscheidung; Originale und Fristen bleiben im menschlichen Review."
+                        : "Reproduzierbarer Replay-Entwurf: Ohne verifizierte Produkt- und Ursachenabgrenzung wird keine Irrelevanz behauptet. Menschliche Pruefung bleibt erforderlich.")),
             AgentRole.EvidenceAssurance => new("replay-2026.1", PromptVersion, null,
                 "Unabhaengiger Replay-Pruefauftrag: konkrete Fundstellen, Spezifikationsreichweite, offene Kausalitaet und klinische Datenluecken. " +
                 "Deterministische Befunde sind massgeblich. QA bedeutet weder Meldepflichtentscheidung noch Freigabe.", [], ["claim.verify"]),

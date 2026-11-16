@@ -84,7 +84,8 @@ public sealed record SafetyCase(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? ClosedAt = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FollowUpObligation[]? FollowUps = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CaseCoding? Coding = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SpecimenInvestigation[]? Investigations = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SpecimenInvestigation[]? Investigations = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalReview[]? SignalReviews = null)
 {
     public Assessment? CurrentAssessment => Assessments.LastOrDefault();
     public ReportDraft? CurrentReport => Reports.LastOrDefault();
@@ -157,4 +158,5 @@ public sealed record OperationsHeartbeat(string Id, int Version, DateTimeOffset 
 public sealed record PublicSourceItem(string ExternalId, string Title, string Url, DateTimeOffset? PublishedAt,
     string Summary, string ProvenanceHash);
 public sealed record PublicSourceRun(string Id, int Version, string Source, string ProductId, string Status,
-    DateTimeOffset At, PublicSourceItem[] Items, string? Error, string QueryContract, string? ExecutionId = null);
+    DateTimeOffset At, PublicSourceItem[] Items, string? Error, string QueryContract, string? ExecutionId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalReview[]? SignalReviews = null);

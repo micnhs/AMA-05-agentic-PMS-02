@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory)][string]$ApplicationDirectory,
     [Parameter(Mandatory)][string]$ArtifactDirectory,
-    [ValidateSet('Preview','AuditExport','SummaryReport','CaseDocuments','ReportPrefill','CockpitCalendar','PhysicalRetention')][string]$Profile = 'Preview',
+    [ValidateSet('Preview','AuditExport','SummaryReport','CaseDocuments','ReportPrefill','CockpitCalendar','SignalReview','PhysicalRetention')][string]$Profile = 'Preview',
     [int]$Port = 5197
 )
 $ErrorActionPreference = 'Stop'
@@ -70,14 +70,22 @@ try {
     $physical = $Profile -eq 'PhysicalRetention'
     $config.Retention = @{ PhysicalMode = if ($physical) { 'SyntheticLocal' } else { 'Disabled' } }
     $access = [IO.File]::ReadAllText((Join-Path $root '.local\demo-access.txt'))
-    foreach ($product in @('ortho','cardio')) {
+    $accountScopes = @(
+        @{ Username = 'pms-ortho.demo'; Role = 'PmsSpecialist'; Product = 'ortho' },
+        @{ Username = 'pms-cardio.demo'; Role = 'PmsSpecialist'; Product = 'cardio' }
+    )
+    if ($Profile -eq 'SignalReview') {
+        $accountScopes += @{ Username = 'medical-cardio.demo'; Role = 'MedicalSafetyReviewer'; Product = 'cardio' }
+        $accountScopes += @{ Username = 'ra-cardio.demo'; Role = 'RegulatoryAffairs'; Product = 'cardio' }
+    }
+    foreach ($account in $accountScopes) {
         $secret = 'Pilot!' + [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(12))
         $salt = [Security.Cryptography.RandomNumberGenerator]::GetBytes(16)
         $hash = [Security.Cryptography.Rfc2898DeriveBytes]::Pbkdf2($secret, $salt, 210000, [Security.Cryptography.HashAlgorithmName]::SHA256, 32)
-        $username = "pms-$product.demo"
+        $username = $account.Username
         $config.Authentication.Users = @($config.Authentication.Users) + @{
-            Id = [Guid]::NewGuid().ToString(); Username = $username; Name = "Synthetic $product-scoped reviewer"
-            Role = 'PmsSpecialist'; Products = @($product); Salt = [Convert]::ToBase64String($salt); Hash = [Convert]::ToBase64String($hash)
+            Id = [Guid]::NewGuid().ToString(); Username = $username; Name = "Synthetic $($account.Product)-scoped reviewer"
+            Role = $account.Role; Products = @($account.Product); Salt = [Convert]::ToBase64String($salt); Hash = [Convert]::ToBase64String($hash)
         }
         $access += "`n$username : $secret`n"
     }
@@ -112,15 +120,26 @@ try {
         Start-Sleep -Seconds 1
     }
     if (-not $ready) { throw 'The owned browser-test API did not become ready.' }
+    if ($Profile -eq 'SignalReview') {
+        $testAssembly = Join-Path $root 'tests\Cohors.Tests\bin\Debug\net10.0\Cohors.Tests.dll'
+        [void][Reflection.Assembly]::LoadFrom($testAssembly)
+        if ([Cohors.Tests.SignalReviewBrowserFixture].Assembly.Location -cne $testAssembly -or
+            [Cohors.Domain.Canonical].Assembly.Location -cne (Join-Path $application 'Cohors.Domain.dll')) {
+            throw 'The synthetic fixture must use the explicitly bound test and application assemblies in this fresh process.'
+        }
+        $fixture = [Cohors.Tests.SignalReviewBrowserFixture]::Create($sql.ConnectionString, (Join-Path $root 'policies')).GetAwaiter().GetResult()
+        [IO.File]::WriteAllText((Join-Path $artifacts 'synthetic-signal-fixture.json'), [Cohors.Domain.Canonical]::Serialize($fixture))
+        $sourceFiles['tests\Cohors.Tests\bin\Debug\net10.0\Cohors.Tests.dll'] = (Get-FileHash -LiteralPath $testAssembly).Hash.ToLowerInvariant()
+    }
     $env:COHORS_URL = "http://localhost:$Port"
     $env:COHORS_TEST_ACCESS_FILE = $accessPath
     $env:COHORS_UI_ARTIFACT_DIR = $artifacts
-    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } 'CaseDocuments' { 'case-documents' } 'ReportPrefill' { 'report-prefill' } 'CockpitCalendar' { 'cockpit-calendar' } default { 'preview' } }
+    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } 'CaseDocuments' { 'case-documents' } 'ReportPrefill' { 'report-prefill' } 'CockpitCalendar' { 'cockpit-calendar' } 'SignalReview' { 'signal-review' } default { 'preview' } }
     & npm --prefix (Join-Path $root 'src\Cohors.Web') run test:e2e -- "--project=$project" *> (Join-Path $artifacts 'private-browser.log')
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw
     $cases = $junit.SelectNodes('//testcase')
-    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar') { 4 } elseif ($Profile -eq 'CaseDocuments') { 2 } else { 1 }
+    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar' -or $Profile -eq 'SignalReview') { 4 } elseif ($Profile -eq 'CaseDocuments') { 2 } else { 1 }
     if ($cases.Count -ne $expected -or $junit.SelectNodes('//testcase/skipped | //testcase/failure | //testcase/error').Count) {
         throw 'Browser acceptance requires every named scenario of the explicitly selected profile, without failures or skips.'
     }
