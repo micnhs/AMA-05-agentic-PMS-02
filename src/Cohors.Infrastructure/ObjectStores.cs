@@ -77,7 +77,7 @@ public sealed class LocalObjectStore(string directory) : IObjectStore, IRawQuara
         ObjectDeletionReceipt receipt;
         if (File.Exists(journalPath))
         {
-            var bytes = await File.ReadAllBytesAsync(journalPath, ct);
+            var bytes = await Io(RawDeletionIoStep.ReadJournal, () => File.ReadAllBytesAsync(journalPath, ct));
             try { receipt = Canonical.Read<ObjectDeletionReceipt>(new UTF8Encoding(false, true).GetString(bytes)); }
             catch (Exception ex) when (ex is System.Text.Json.JsonException or DecoderFallbackException)
             {
@@ -94,36 +94,75 @@ public sealed class LocalObjectStore(string directory) : IObjectStore, IRawQuara
         }
         else
         {
-            await ReadRaw(value.Object, ct);
+            await Io(RawDeletionIoStep.VerifyRawBeforePreparation, () => ReadRaw(value.Object, ct));
             receipt = new(RetentionRules.DeletionContract, value.Authorization!.Id, value.Object.ObjectKey, hash, at, "Prepared", "Local");
-            Directory.CreateDirectory(Path.GetDirectoryName(journalPath)!);
-            await using var journal = new FileStream(journalPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, true);
-            await journal.WriteAsync(StoredObjectText.Encode(Canonical.Serialize(receipt)), ct);
-            journal.Flush(flushToDisk: true);
+            await Io(RawDeletionIoStep.PrepareJournal, async () =>
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(journalPath)!);
+                await using var journal = new FileStream(journalPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, true);
+                await journal.WriteAsync(StoredObjectText.Encode(Canonical.Serialize(receipt)), ct);
+                journal.Flush(flushToDisk: true);
+            });
         }
         if (File.Exists(path))
         {
-            await ReadRaw(value.Object, ct);
-            File.Delete(path);
+            await Io(RawDeletionIoStep.VerifyRawBeforeDeletion, () => ReadRaw(value.Object, ct));
+            await Io(RawDeletionIoStep.DeleteRaw, () => { File.Delete(path); return Task.CompletedTask; });
         }
         Guard.Against(File.Exists(path) || File.Exists(Path.Combine(directory, hash)), "retention_store_incomplete",
             "Rohobjekt oder parallele Kopie ist noch vorhanden; Loeschung bleibt unbestaetigt.", 409);
         var completed = receipt with { State = "Deleted", At = at };
         var temporary = journalPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        Exception? previous = null;
         try
         {
-            await using (var journal = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, true))
+            await Io(RawDeletionIoStep.WriteCompletedJournal, async () =>
             {
+                await using var journal = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, true);
                 await journal.WriteAsync(StoredObjectText.Encode(Canonical.Serialize(completed)), ct);
                 journal.Flush(flushToDisk: true);
-            }
-            File.Move(temporary, journalPath, true);
+            });
+            await Io(RawDeletionIoStep.ReplaceJournal, () => { File.Move(temporary, journalPath, true); return Task.CompletedTask; });
+        }
+        catch (Exception ex) when (ex is ObjectStoreIoException or DomainException or OperationCanceledException)
+        {
+            previous = ex;
+            throw;
         }
         finally
         {
-            if (File.Exists(temporary)) File.Delete(temporary);
+            try
+            {
+                await Io(RawDeletionIoStep.CleanupCompletedJournal, () =>
+                {
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                    return Task.CompletedTask;
+                });
+            }
+            catch (ObjectStoreIoException cleanup) when (previous is not null)
+            {
+                throw new ObjectStoreIoException(previous, cleanup);
+            }
         }
         return completed;
+    }
+
+    private static async Task<T> Io<T>(RawDeletionIoStep step, Func<Task<T>> operation)
+    {
+        try { return await operation(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ObjectStoreIoException(step, ex);
+        }
+    }
+
+    private static async Task Io(RawDeletionIoStep step, Func<Task> operation)
+    {
+        try { await operation(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new ObjectStoreIoException(step, ex);
+        }
     }
 }
 

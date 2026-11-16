@@ -442,10 +442,18 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
         return Canonical.Read<T>(reader.GetString(1));
     }
 
-    public async Task<object> Manifest(string id, CancellationToken ct = default, string kind = "case")
+    public async Task<AuditManifest> Manifest(string id, CancellationToken ct = default, string kind = "case")
     {
         await using var connection = await Open(ct);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        var result = await Manifest(connection, transaction, id, kind, ct);
+        await transaction.CommitAsync(ct);
+        return result;
+    }
+
+    private static async Task<AuditManifest> Manifest(SqlConnection connection, SqlTransaction transaction,
+        string id, string kind, CancellationToken ct)
+    {
         string currentJson;
         int currentVersion;
         string currentProduct;
@@ -468,11 +476,12 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
                 entry.Hash != Canonical.Hash(entry with { Sequence = 0, Hash = "" }),
                 "audit_tampered", "Auditkette ist nicht konsistent.", 409);
             using var query = Command(connection, transaction,
-                "SELECT Json FROM dbo.AggregateVersions WHERE Kind=@kind AND Id=@id AND Version=@version",
+                "SELECT Json,Hash,At FROM dbo.AggregateVersions WHERE Kind=@kind AND Id=@id AND Version=@version",
                 ("kind", kind), ("id", id), ("version", entry.Version));
-            var json = await query.ExecuteScalarAsync(ct) as string;
-            Guard.Against(json is null || Canonical.HashText(json) != entry.PayloadHash,
-                "history_tampered", "Historische Version passt nicht zum Audit.", 409);
+            await using var reader = await query.ExecuteReaderAsync(ct);
+            Guard.Against(!await reader.ReadAsync(ct) || Canonical.HashText(reader.GetString(0)) != entry.PayloadHash ||
+                reader.GetString(1) != entry.PayloadHash || !reader.GetFieldValue<DateTimeOffset>(2).EqualsExact(entry.At),
+                "history_tampered", "Historische Version, Hash oder Ereigniszeit passt nicht zum Audit.", 409);
             previous = entry.Hash;
         }
         using var current = JsonDocument.Parse(currentJson);
@@ -481,9 +490,165 @@ public sealed class SqlStateStore(string connectionString, TokenCredential? cred
             !current.RootElement.TryGetProperty("id", out var currentId) || currentId.GetString() != id ||
             current.RootElement.TryGetProperty("productId", out var product) && product.GetString() != currentProduct,
             "current_state_tampered", "Fuehrender SQL-Datensatz stimmt nicht mit der letzten geprueften Historienversion ueberein.", 409);
+        return new(id, kind, audit[^1].Version, currentVersion, true, true,
+            previous, audit, "Not performed; deployment gate");
+    }
+
+    public async Task<ProductAuditCapture> CaptureProductAudit(string productId, Actor actor, DateTimeOffset at,
+        CancellationToken ct = default)
+    {
+        ProductAuditRules.RequireReader(actor, productId);
+        await using var connection = await Open(ct);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        var bytes = 0L;
+        var current = await Rows("SELECT Kind,Id,ProductId,Version,Json FROM dbo.Aggregates WHERE Kind<>'operations' ORDER BY Kind,Id");
+        var history = await Rows("SELECT Kind,Id,Version,At,Json,Hash FROM dbo.AggregateVersions WHERE Kind<>'operations' ORDER BY Kind,Id,Version");
+        Guard.Against(history.Length > ProductAuditRules.MaximumVersions, "audit_size",
+            "Der vollstaendige SQL-Auditschnitt ueberschreitet die endliche Pilotgrenze; kein gekuerztes Erfolgspaket.", 409);
+        var byAggregate = history.GroupBy(Key).ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.Ordinal);
+        var byVersion = history.ToDictionary(VersionKey, StringComparer.Ordinal);
+        var byReference = history.GroupBy(r => new VersionReference(Text(r, "Id"), r.GetProperty("Version").GetInt32(), Text(r, "Hash")))
+            .ToDictionary(g => g.Key, g => g.Select(Key).Distinct(StringComparer.Ordinal).ToArray());
+        var currentKeys = current.Select(Key).ToHashSet(StringComparer.Ordinal);
+        Guard.Against(byAggregate.Keys.Any(k => !currentKeys.Contains(k)), "audit_orphan",
+            "Verwaiste historische Fachversion; keine vollstaendige Akte bestaetigt.", 409);
+        var outbox = await Rows("""
+            SELECT Id,AggregateId,AggregateKind,ProductId,Version,Type,Payload,CreatedAt,CompletedAt,Attempts,Error,
+                NextAttemptAt,RecoveryVersion FROM dbo.Outbox WHERE AggregateKind<>'operations' ORDER BY Id
+            """);
+        var eventIndex = outbox.ToDictionary(r => Text(r, "Id"), StringComparer.Ordinal);
+        var candidates = new Dictionary<string, (JsonElement Row, JsonElement[] Versions, string[] Products)>(StringComparer.Ordinal);
+        var queue = new Queue<string>();
+        var included = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in current)
+        {
+            var kind = Text(row, "Kind");
+            var id = Text(row, "Id");
+            var product = Text(row, "ProductId");
+            Guard.Against(!byAggregate.TryGetValue(Key(row), out var versions) || versions.Length != row.GetProperty("Version").GetInt32(),
+                "audit_history", "Fehlende oder zusaetzliche historische Versionen im SQL-Cut.", 409);
+            var products = new HashSet<string>(ProductAuditRules.Products(kind, product, Text(row, "Json")), StringComparer.Ordinal);
+            foreach (var version in versions!)
+            {
+                Guard.Against(Canonical.HashText(Text(version, "Json")) != Text(version, "Hash"),
+                    "history_tampered", "Historischer SQL-Payload stimmt nicht mit seinem Versionshash ueberein.", 409);
+                products.UnionWith(ProductAuditRules.Products(kind, product, Text(version, "Json")));
+                if (kind == "delivery-recovery")
+                    products.UnionWith(EventProducts(Canonical.Read<OutboxRecovery>(Text(version, "Json")).EventId, []));
+            }
+            candidates.Add(Key(row), (row, versions!, products.Order(StringComparer.Ordinal).ToArray()));
+            if (products.Contains(productId) && included.Add(Key(row))) queue.Enqueue(Key(row));
+        }
+        var aggregates = new List<AuditAggregate>();
+        while (queue.TryDequeue(out var aggregateKey))
+        {
+            var (row, versions, products) = candidates[aggregateKey];
+            var kind = Text(row, "Kind");
+            var id = Text(row, "Id");
+            foreach (var member in products) actor.RequireProduct(member);
+            var manifest = await Manifest(connection, transaction, id, kind, ct);
+            var entries = versions.Select(v => new AuditVersion(v.GetProperty("Version").GetInt32(),
+                v.GetProperty("At").GetDateTimeOffset(), Text(v, "Json"), Text(v, "Hash"))).ToArray();
+            Guard.Against(!entries.Select(v => v.Version).SequenceEqual(Enumerable.Range(1, manifest.CurrentVersion)),
+                "audit_history", "Historische Versionsfolge ist nicht vollstaendig.", 409);
+            aggregates.Add(new(kind, id, Text(row, "ProductId"), products, manifest, entries));
+            foreach (var reference in entries.SelectMany(v => ProductAuditRules.Sources(v.Json)).Distinct())
+            {
+                Guard.Against(!byReference.TryGetValue(reference, out var sources) || sources.Length != 1,
+                    "audit_source", "Eine gebundene Quellversion fehlt, ist mehrdeutig oder hat einen anderen SQL-Payload-Hash.", 409);
+                if (included.Add(sources![0])) queue.Enqueue(sources[0]);
+            }
+        }
+        var selected = aggregates.ToDictionary(a => a.Kind + "|" + a.Id, StringComparer.Ordinal);
+        var selectedVersions = aggregates.SelectMany(a => a.Versions.Select(v => (Key: $"{a.Kind}|{a.Id}|{v.Version}", Value: v)))
+            .ToDictionary(v => v.Key, v => v.Value, StringComparer.Ordinal);
+        var events = outbox.Where(e => selected.ContainsKey(Text(e, "AggregateKind") + "|" + Text(e, "AggregateId"))).ToArray();
+        foreach (var item in events)
+        {
+            var key = EventVersionKey(item);
+            var aggregate = selected[Text(item, "AggregateKind") + "|" + Text(item, "AggregateId")];
+            var auditEntry = aggregate.Manifest.Events.SingleOrDefault(e => e.Version == item.GetProperty("Version").GetInt32());
+            Guard.Against(!selectedVersions.TryGetValue(key, out var version) || Text(item, "Payload") != version.Json ||
+                Text(item, "ProductId") != aggregate.ProductId || auditEntry is null || Text(item, "Type") != auditEntry.Action ||
+                !item.GetProperty("CreatedAt").GetDateTimeOffset().EqualsExact(auditEntry.At),
+                "audit_outbox", "Outbox-Payload und eingefrorene SQL-Version stimmen nicht ueberein.", 409);
+        }
+        Guard.Against(events.Length != selectedVersions.Count ||
+            events.Select(EventVersionKey).Distinct(StringComparer.Ordinal).Count() != selectedVersions.Count,
+            "audit_outbox", "Historische Auditversionen und atomare Outbox-Ereignisse sind nicht eins zu eins gebunden.", 409);
+        var eventIds = events.Select(e => Text(e, "Id")).ToHashSet(StringComparer.Ordinal);
+        var inbox = (await Rows("SELECT EventId,Consumer,ProcessedAt FROM dbo.Inbox ORDER BY EventId,Consumer"))
+            .Where(r => eventIds.Contains(Text(r, "EventId"))).ToArray();
+        var receipts = inbox.Select(r => Text(r, "EventId")).ToHashSet(StringComparer.Ordinal);
+        Guard.Against(events.Any(e => (e.GetProperty("CompletedAt").ValueKind != JsonValueKind.Null) != receipts.Contains(Text(e, "Id"))),
+            "audit_receipt", "Zustellabschluss und persistente Inbox-Quittung widersprechen sich.", 409);
+        var versionHashes = selectedVersions.Values.Select(v => v.Hash).ToHashSet(StringComparer.Ordinal);
+        var commands = (await Rows("SELECT IdempotencyKey,RequestHash,ActorId,Result,At FROM dbo.Commands ORDER BY IdempotencyKey"))
+            .Where(r => versionHashes.Contains(Canonical.HashText(Text(r, "Result")))).ToArray();
+        Guard.Against(commands.Length != selectedVersions.Count, "audit_command",
+            "Historische Fachversionen und persistente Command-Receipts sind nicht eins zu eins gebunden.", 409);
+        foreach (var aggregate in aggregates)
+            foreach (var entry in aggregate.Manifest.Events)
+            {
+                var key = Canonical.Hash(new { Id = entry.ActorId, Kind = aggregate.Kind, entry.Action, IdempotencyKey = entry.CorrelationId });
+                var receipt = commands.SingleOrDefault(c => Text(c, "IdempotencyKey") == key);
+                Guard.Against(receipt.ValueKind == JsonValueKind.Undefined || Text(receipt, "ActorId") != entry.ActorId ||
+                    Canonical.HashText(Text(receipt, "Result")) != entry.PayloadHash ||
+                    !receipt.GetProperty("At").GetDateTimeOffset().EqualsExact(entry.At),
+                    "audit_command", "Auditereignis hat keinen passenden persistenten Command-Receipt.", 409);
+            }
+        var cases = aggregates.Where(a => a.Kind == "case")
+            .Select(a => Canonical.Read<SafetyCase>(a.Versions[^1].Json)).ToDictionary(c => c.Id, StringComparer.Ordinal);
+        var deadlines = (await Rows("SELECT Id,CaseId,ProductId,LegalDue,SafetyDue,Status,Version FROM dbo.Deadlines ORDER BY Id"))
+            .Where(d => cases.ContainsKey(Text(d, "CaseId"))).ToArray();
+        Guard.Against(deadlines.Length != cases.Values.Sum(c => c.Deadlines.Length), "audit_deadline",
+            "Persistente Fristenprojektion ist unvollstaendig.", 409);
+        foreach (var row in deadlines)
+        {
+            var source = cases[Text(row, "CaseId")];
+            var deadline = source.Deadlines.SingleOrDefault(d => d.Id == Text(row, "Id"));
+            Guard.Against(deadline is null || Text(row, "ProductId") != source.ProductId ||
+                row.GetProperty("Version").GetInt32() != source.Version || Text(row, "Status") != deadline.Status ||
+                !row.GetProperty("LegalDue").GetDateTimeOffset().EqualsExact(deadline.LegalDue) ||
+                !row.GetProperty("SafetyDue").GetDateTimeOffset().EqualsExact(deadline.SafetyDue),
+                "audit_deadline", "Persistente Frist stimmt nicht mit ihrer fachlichen Fallversion ueberein.", 409);
+        }
         await transaction.CommitAsync(ct);
-        return new { aggregateId = id, kind, auditVersion = audit[^1].Version, currentVersion, currentStateVerified = true, hashChainVerified = true,
-            lastHash = previous, events = audit, externalLedgerDigestVerification = "Not performed; deployment gate" };
+        return new(productId, aggregates.SelectMany(a => a.Products).Append(productId).Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal).ToArray(), at, aggregates.ToArray(), new(events, inbox, commands, deadlines));
+
+        async Task<JsonElement[]> Rows(string select)
+        {
+            // An empty FOR JSON scalar subquery is SQL NULL, not a failed or truncated read.
+            using var query = Command(connection, transaction, $"SELECT COALESCE(({select} FOR JSON PATH,INCLUDE_NULL_VALUES),N'[]')");
+            var json = await query.ExecuteScalarAsync(ct) as string
+                ?? throw new DomainException("audit_sql", "SQL-Auditschnitt konnte nicht vollstaendig gelesen werden.", 409);
+            bytes += System.Text.Encoding.UTF8.GetByteCount(json);
+            Guard.Against(bytes > ProductAuditRules.MaximumBytes, "audit_size",
+                "Der SQL-Auditschnitt ueberschreitet 128 MiB; keine still gekuerzte Teillieferung.", 409);
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.EnumerateArray().Select(r => r.Clone()).ToArray();
+        }
+
+        string[] EventProducts(string id, HashSet<string> visited)
+        {
+            Guard.Against(visited.Count >= 32 || !visited.Add(id) || !eventIndex.TryGetValue(id, out _),
+                "audit_delivery_source", "Technischer Wiederanlauf hat keinen begrenzt nachvollziehbaren fachlichen Ereignisbezug.", 409);
+            var entry = eventIndex[id];
+            Guard.Against(!byVersion.TryGetValue(EventVersionKey(entry), out var source) ||
+                Text(entry, "Payload") != Text(source, "Json") || Canonical.HashText(Text(source, "Json")) != Text(source, "Hash"),
+                "audit_delivery_source", "Wiederanlauf und damalige Ereignisversion sind nicht konsistent gebunden.", 409);
+            var kind = Text(entry, "AggregateKind");
+            var scopes = ProductAuditRules.Products(kind, Text(entry, "ProductId"), Text(entry, "Payload"));
+            return kind == "delivery-recovery"
+                ? scopes.Concat(EventProducts(Canonical.Read<OutboxRecovery>(Text(entry, "Payload")).EventId, visited)).Distinct().ToArray()
+                : scopes;
+        }
+
+        static string Text(JsonElement row, string field) => row.GetProperty(field).GetString()!;
+        static string Key(JsonElement row) => Text(row, "Kind") + "|" + Text(row, "Id");
+        static string VersionKey(JsonElement row) => Key(row) + "|" + row.GetProperty("Version").GetInt32();
+        static string EventVersionKey(JsonElement row) => Text(row, "AggregateKind") + "|" + Text(row, "AggregateId") + "|" + row.GetProperty("Version").GetInt32();
     }
 
     public async Task<AuditEvent[]> Audit(string id, CancellationToken ct = default)

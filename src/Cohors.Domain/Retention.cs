@@ -8,12 +8,20 @@ public sealed record RetentionAuthorization(string Id, string ActorId, string Sc
     string Rationale, bool ExternalCopiesReviewed, string ExternalCopiesReview);
 public sealed record ObjectDeletionReceipt(string Contract, string OperationId, string ObjectKey, string Hash,
     DateTimeOffset At, string State, string Storage);
+public enum RawDeletionIoStep
+{
+    ReadJournal, VerifyRawBeforePreparation, PrepareJournal, VerifyRawBeforeDeletion,
+    DeleteRaw, WriteCompletedJournal, ReplaceJournal, CleanupCompletedJournal, DeletionTransactionBoundary
+}
+public sealed record ObjectIoFailure(RawDeletionIoStep Step, string ExceptionType, string HResult);
 public sealed record RetentionRecord(string Id, int Version, string ProductId, RetentionObjectBinding Object,
     string PolicyVersion, string Reference, DateTimeOffset ReceivedAt, DateTimeOffset RecordedAt,
     bool Synthetic, bool LegalHold, string HoldReason, string Status, RetentionAuthorization? Authorization,
     int Attempts, DateTimeOffset? LastAttemptAt, ObjectDeletionReceipt? Deletion, string? ErrorCode)
 {
     public string Contract { get; init; } = "cohors-retention-record-1";
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ObjectIoFailure[]? ObjectIoFailures { get; init; }
 }
 public sealed record ObjectDependency(string Kind, string Id, int Version, string ProductId, string VersionHash);
 public sealed record RetentionEvaluation(string PolicyVersion, DateOnly? MinimumRetainThroughLocalDate,

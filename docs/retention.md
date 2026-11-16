@@ -17,6 +17,14 @@ Wiederherstellungsfreigaben getrennt. Kein Fristablauf schliesst einen PSUR.
   volle Tage; exakt an der Grenze ist das Mindestintervall beendet. Dies ist
   keine allgemeine Rohdaten-, Personendaten- oder Produktionsregel.
 
+Es gibt kein eigenstaendiges Kontaktregister mit einer erfundenen
+Einheitsloeschfrist. Synthetische Kontaktpflichtfelder, die bereits in
+gebundene MIR-/Berichtsoriginale eingegangen sind, bleiben Bestandteil dieser
+Akte. Technische Telemetrie, Zugangsdaten und Search-/Cache-Projektionen sind
+keine regulatorischen Originalbelege; sie erben nicht pauschal deren
+15-Jahre-Beispiel. Produktive Kontakt-/Telemetriefristen und Privacy-Freigaben
+bleiben gesonderte Organisationsentscheidungen.
+
 Der Quality Manager dokumentiert den synthetischen Lifecycle mit `DEMO-`-
 Herkunftsreferenz, Begruendung, Identitaet und Version. Das ist eine menschliche
 synthetische Erklaerung, kein automatisch verifizierter realer Vertriebsbeleg.
@@ -107,6 +115,62 @@ Aktive Dateien zu entfernen ist auch kein Nachweis sicherer
 Datentraegerueberschreibung, Cloud-Sync-Bereinigung oder produktiver
 Backup-Loeschung.
 
+## Gefilterte physische Fehlerdiagnostik
+
+Im weiterentwickelten Quellstand benennt der lokale Anbieter den betroffenen
+I/O-Schritt: Journal lesen, Rohbytes vor Vorbereitung/Entfernung pruefen,
+Intent-Journal vorbereiten, Rohbytes entfernen, Abschlussjournal schreiben,
+ersetzen oder seine eigene temporaere Datei bereinigen. Die urspruengliche
+Ausnahme bleibt erhalten; ein zusaetzlicher Cleanup-Fehler verdeckt sie nicht.
+`ObjectIoFailures` speichert nur Schritt, tatsaechlichen Ausnahmetyp und
+HResult, keine Rohmeldungen, Pfade, Tokens oder medizinischen Inhalte.
+Nicht im lokalen Anbieter zuordenbare I/O-Ausnahmen bleiben ausdruecklich
+`DeletionTransactionBoundary`, nicht eine geratene physische Ursache.
+
+Die optionale, bei `null` nicht serialisierte Eigenschaft veraendert keine
+alten Payloadbytes. Ein neuer kontrollierter Versuch raeumt nur die aktuelle
+Fehleranzeige; die gescheiterte Originalversion bleibt in SQL/Audit erhalten.
+Die Aufbewahrungsansicht zeigt die gefilterten Angaben an. Eine neue
+isolierte Regression provoziert einen wirklichen Journal-Datei/Verzeichnis-
+Konflikt und prueft Fehlerpersistenz und anschliessenden autorisierten
+Abgleich. Im begrenzten L03-/Diagnostikblock ist dies nun in der gezielten
+**17/17-SQL-Suite und separat im 1/1-PhysicalRetention-Browserfall** ausgefuehrt:
+`PrepareJournal / UnauthorizedAccessException / 0x80070005`.
+**Das erklaert den historischen 0,790-s-Fehler nicht.** Keine Schutzkontrolle wird veraendert
+und es gibt keinen verdeckten Wiederholungsversuch.
+
+## Produktbezogener lesender Auditexport
+
+Der neue, gezielt lokal gepruefte L03-Quellschnitt bietet im Audit Explorer
+ein authentifiziertes ZIP-Paket. Eine zusammenhaengende SQL-Lesetransaktion
+erfasst Originalversionen, Auditketten, Quellenreferenzen, Command-/Outbox-/
+Inbox-Bindungen und die Fallfristprojektion. Alte und nicht fuehrende
+Gruppenmitgliedschaften sowie serialisierte Modelleingaenge zaehlen zum
+Lesescope. Explizite Versionsreferenzen werden bis zu den echten
+Quellaggregaten aufgeloest; blosse Mitgliedschaft nimmt nicht automatisch
+alle anderen Akten eines Gruppenmitglieds auf. Alle tatsaechlich enthaltenen
+Produktfamilien muessen berechtigt sein, auch fuer `Auditor`.
+
+Gebundene Objektbytes werden anhand SHA256 geprueft. Nur die eigene
+typisierte Rohdaten-/Loeschmetadatenbindung fordert keine Rohbytes;
+unabhaengige/shared-hash-Referenzen bleiben zwingend. Fehlende/manipulierte
+Bytes, Versionsluecken, falsche Quellen oder widerspruechliche
+Transaktionsbelege verweigern das vollstaendige Paket. Ein endlicher
+128-MiB-SQL-/Exportumfang und 20.000 SQL-Historienversionen fuehren ebenfalls
+zu expliziter Ablehnung, nie zum Abschneiden. Exporte werden im API-Prozess
+serialisiert.
+
+`manifest.json`, `verification.json`, `checksums.json` und `READ-ME.txt`
+erklaeren die unveraenderten UTF-8-Versionstexte, Objektbytes und
+Ausschluesse. Dies ist keine erneute physische Journalattestierung, kein
+Backup/Restore, Search-Rebuild, externer Ledger-Digest oder neuer
+medizinischer/BS-Freigabeschritt. Die veroeffentlichte **2a29196**-Vorschau
+bleibt davon getrennt mit **Disabled** bestehen.
+Der gesonderte **1/1-AuditExport-Browserfall** belegt den wirklichen
+Auditor-Download, alle Paketdateihashes und die Mitgliedsscope-Ablehnung.
+Er ist kein vollstaendiger siebenfaelliger Preview-Lauf. Quellen, Erstfehler
+und exakte Abnahmegrenzen stehen im [Nachweisstand](validation.md).
+
 ## Recovery-Anschluss und noch offene Abnahme
 
 Die uebergebenen T20-Dateien sind integriert und erkennen die expliziten
@@ -127,20 +191,24 @@ muss den aktuellen Stand kennen; das Offline-Skript kann diese
 Aktualitaet nicht unabhaengig beweisen. Einzelheiten und Aufrufe:
 [Wiederherstellung](recovery.md#t18-explizite-rohdaten--und-loeschklassen).
 
-Ausgefuehrt sind **20/20** gezielte Nicht-Docker-Tests einschliesslich
+Historisch ausgefuehrt sind **20/20** gezielte Nicht-Docker-Tests einschliesslich
 echter lokaler Objekt-/PowerShell-Vertragstests, **5/5** Service-/SQL-Faelle
 nach Korrektur des Autorisierungs-Hashfeldnamens und **13/13** integrierte
-Recovery-Faelle. Das sind getrennte Laeufe, keine zusammengesetzte Vollsuite.
+Recovery-Faelle; der saubere 13/13-Nachweis ist an **ee13e91** gebunden.
+Das sind getrennte Laeufe, keine zusammengesetzte Vollsuite.
 Ein spaeterer kompletter Anwendungslauf blieb **109/110** wegen eines
 bisher ungeklaerten `retention_object_io` im parallelen Raw-Delete-Test.
 Die danach bestandenen 5/5 und 110/110 erklaeren die damalige I/O-Ursache
 nicht; genaue Ursache/HResult/Schritt waren damals nicht erhalten.
-InnerException und gefilterte Testdiagnostik sind inzwischen vorgesehen.
+InnerException und gefilterte Testdiagnostik bestehen inzwischen. Die neue
+persistente Schrittdiagnostik oben ist kein nachtraeglicher Ursachenbeweis.
 
-Die erste Browser-Teilabnahme prueft ausschliesslich das unveraenderte
+Die aktuelle veroeffentlichte **2a29196**-Vorschau mit **6/6** Browserfaellen
+prueft ausschliesslich das unveraenderte
 Standardprofil **Disabled**: gesperrter physischer Clientpfad, versionierter
-Lifecycle und regulatorisches Mindestfristbeispiel. **Der isolierte
-physische Rohdatenloeschpfad ist nicht freigegeben.** Aktuelle
+Lifecycle und regulatorisches Mindestfristbeispiel. **Der separate
+technische PhysicalRetention-Nachweis aktiviert den Rohdatenloeschpfad
+nicht in dieser Vorschau und ist keine produktive Freigabe.** Aktuelle
 Recovery-Wiederholung nach Diagnostikaenderungen und abschliessende
 Linux-/Gesamtabnahme bleiben offen. Die frueheren T20-Baselineergebnisse
 werden nicht als Nachweis der Erweiterung ausgegeben. Siehe

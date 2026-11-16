@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Activity, ArrowUpRight, CheckCheck, Download, FileCheck2, FileText, Fingerprint, Link2, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api, downloadApi } from './api'
-import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Evidence, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, Trend, VersionReference } from './types'
+import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Device, Evidence, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, Trend, VersionReference } from './types'
 import { Badge, date, Empty, ErrorBanner, hash, label, Loading, SectionHead, type Dialog, type Field } from './ui'
 
 function useData<T>(path: string, revision: number) {
@@ -85,6 +85,7 @@ function RetentionDetail({ id, actor, revision, mutate, openDialog }: WorkspaceP
     onSubmit: v => { if (v.confirmReference !== r.reference) throw new Error('Die Bestätigung stimmt nicht mit der ausgewählten Testreferenz überein.'); return mutate(`/retention/${id}/delete`, { expectedVersion: r.version, reason: v.reason }) } })
   return <section className="panel"><SectionHead eyebrow="VERSIONIERTER OBJEKTNACHWEIS" title={r.reference} /><Badge tone={r.errorCode ? 'danger' : 'neutral'}>{retentionNames[r.status] ?? r.status}</Badge>
     {r.errorCode && <ErrorBanner message={`Offener Teilvorgang: ${r.errorCode}. Kein vollständiger Löschabschluss bestätigt.`} />}
+    {r.objectIoFailures?.map((failure, i) => <p className="mono" key={`${failure.step}-${i}`}>I/O-Schritt: {failure.step} · {failure.exceptionType} · HRESULT {failure.hResult}</p>)}
     <p className="mono">{r.object.objectKey}</p><p>{r.object.dataClass} · {r.object.contract} · v{r.version}</p>
     <div className="deadline-dates"><span><small>EINGANG / SIMULIERTER EMPFANG</small><b>{date(r.receivedAt, true, 'UTC')} UTC</b></span><span><small>MINDESTENS AUFBEWAHREN BIS</small><b>{e.minimumRetainThroughLocalDate ? `${date(e.minimumRetainThroughLocalDate)} einschließlich` : r.object.dataClass === 'UnreferencedSyntheticRawQuarantine' ? `${date(e.expiresAt, true, 'UTC')} UTC` : 'Nicht bestimmbar'}</b></span></div>
     <p>Mindestintervall: {e.minimumIntervalElapsed === null ? 'unbekannt' : e.minimumIntervalElapsed ? 'abgelaufen, keine automatische Freigabe' : 'nicht abgelaufen'} · {e.retainedReferences} fortbestehende Bindungen · {r.attempts} Ausführungsversuche</p>
@@ -470,10 +471,33 @@ function PsurReviewPanel({ actor, revision, openDialog, mutate, report, reports 
   </section>
 }
 
-export function AuditWorkspace({ cases, revision }: { cases: CaseSummary[]; revision: number }) {
+export function AuditWorkspace({ cases, products, revision }: { cases: CaseSummary[]; products: Device[]; revision: number }) {
   const [selected, setSelected] = useState('')
+  const [selectedProduct, setSelectedProduct] = useState('')
+  const [exportError, setExportError] = useState('')
+  const [exported, setExported] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const id = selected || cases[0]?.id
-  return <section className="panel"><SectionHead eyebrow="WER. WAS. WARUM. AUF WELCHER EVIDENZ." title="Unveränderliche Ereigniskette"><Fingerprint size={25} /></SectionHead><p className="muted">Domänenänderung, neue Version, Audit und Outbox werden atomar in SQL geschrieben. Ledger und Hashkette ersetzen nicht die noch offene externe Digest-/Wiederherstellungsabnahme.</p><label className="field compact">Fallakte<select value={id} onChange={e => setSelected(e.target.value)}>{cases.map(c => <option key={c.id} value={c.id}>{c.reference} · {c.title}</option>)}</select></label>{id && <AuditEntries id={id} revision={revision} />}</section>
+  const product = products.some(p => p.id === selectedProduct) ? selectedProduct : products[0]?.id ?? ''
+  async function exportProduct() {
+    setExporting(true); setExportError(''); setExported(false)
+    try {
+      await downloadApi(`/products/${encodeURIComponent(product)}/audit`, `COHORS-DEMO-audit-${product}.zip`)
+      setExported(true)
+    } catch (error) { setExportError(error instanceof Error ? error.message : 'Auditpaket nicht erstellt.') }
+    finally { setExporting(false) }
+  }
+  return <>
+    <section className="panel"><SectionHead eyebrow="L03 · VOLLSTÄNDIGE PRODUKTHISTORIE" title="Produktbezogenes Auditpaket"><Download size={25} /></SectionHead>
+      <p>Originalversionen, Auditketten, Freigaben, Quellen und gebundene Objektbytes werden gemeinsam mit den persistenten Fristen- und Zustellbelegen geprüft. Frühere und nicht führende Gruppenmitgliedschaften bleiben erhalten; alle enthaltenen Produktscopes sind erforderlich.</p>
+      <p className="muted">Synthetische Lesekopie, keine neue Freigabe, kein Backup oder echter BS-Zugang. Rohquarantäne enthält nur Aufbewahrungsmetadaten; unabhängige Objektbindungen dürfen nicht fehlen. Search, technische Telemetrie und Zugangsdaten sind ausgeschlossen. Externe Digest- und Wiederherstellungsprüfung bleiben getrennt.</p>
+      <label className="field compact">Audit-Produktfamilie<select value={product} disabled={exporting} onChange={e => { setSelectedProduct(e.target.value); setExported(false); setExportError('') }}>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      <button className="button secondary" disabled={!product || exporting} onClick={exportProduct}><Download size={16} />{exporting ? 'Auditpaket wird geprüft …' : 'Vollständiges Produkt-Auditpaket (ZIP)'}</button>
+      {exportError && <ErrorBanner message={exportError} />}
+      {exported && <p role="status">Geprüfte lokale Lesekopie heruntergeladen. Ausschlüsse und Grenzen stehen in verification.json; keine neue fachliche oder externe Annahme.</p>}
+    </section>
+    <section className="panel"><SectionHead eyebrow="WER. WAS. WARUM. AUF WELCHER EVIDENZ." title="Unveränderliche Ereigniskette"><Fingerprint size={25} /></SectionHead><p className="muted">Domänenänderung, neue Version, Audit und Outbox werden atomar in SQL geschrieben. Ledger und Hashkette ersetzen nicht die noch offene externe Digest-/Wiederherstellungsabnahme.</p><label className="field compact">Fallakte<select value={id} onChange={e => setSelected(e.target.value)}>{cases.map(c => <option key={c.id} value={c.id}>{c.reference} · {c.title}</option>)}</select></label>{id && <AuditEntries id={id} revision={revision} />}</section>
+  </>
 }
 function AuditEntries({ id, revision }: { id: string; revision: number }) {
   const { data, error } = useData<AuditEvent[]>(`/cases/${id}/audit`, revision)

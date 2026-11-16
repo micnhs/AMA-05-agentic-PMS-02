@@ -40,6 +40,24 @@ public interface IRawQuarantineStore
     Task<ObjectDeletionReceipt> DeleteRaw(RetentionRecord value, DateTimeOffset at, CancellationToken ct = default);
 }
 
+public sealed class ObjectStoreIoException : IOException
+{
+    public ObjectIoFailure[] Failures { get; }
+
+    public ObjectStoreIoException(RawDeletionIoStep step, Exception cause)
+        : base($"Controlled raw-object I/O failed at {step}.", cause) => Failures = [Describe(step, cause)];
+
+    public ObjectStoreIoException(Exception previous, ObjectStoreIoException cleanup)
+        : base("Controlled raw-object I/O and temporary-journal cleanup both failed.", new AggregateException(previous, cleanup))
+    {
+        Failures = previous is ObjectStoreIoException original
+            ? [.. original.Failures, .. cleanup.Failures] : cleanup.Failures;
+    }
+
+    public static ObjectIoFailure Describe(RawDeletionIoStep step, Exception cause) =>
+        new(step, cause.GetType().Name, $"0x{cause.HResult:X8}");
+}
+
 public interface IRetentionStateStore
 {
     Task<ObjectDependency[]> ObjectDependencies(string hash, string retentionId, CancellationToken ct = default);

@@ -2,6 +2,31 @@
 
 Integrationsvertrag, kein Nachweis einer Azure-Abnahme. Die anfaengliche gemeinsame Produktions-Agentenruntime/Functions-Container-Annahme wurde nach Abgleich mit dem genehmigten Konzept ausdruecklich zurueckgenommen. Die bestaetigte Option 2 gilt; kein neues Hostingmodell oder Deployment ist damit genehmigt.
 
+## Laufende qualifizierte Vorschau
+
+Der aktuell auf 5187 veroeffentlichte lokale Replay-Schnitt verwendet
+`.local\app-replay-2a29196` aus
+`2a291966e551f5f69ac7ceed2cf1d5aed1c0c13f`, mit `Seed=false`,
+`AutoMigrate=false`, `Retention:PhysicalMode=Disabled`, `LocalOperations=true`
+und `AgentTransport=Local`. Er bleibt waehrend weiterer Quellarbeit
+unveraendert. Die 122/122 Anwendungsfaelle und 6/6 isolierten Browserfaelle
+sind in [Validierung](validation.md) an dieses Paket gebunden; Recovery war
+darin ausdruecklich separat. Die alten ee13e91-Nachweise bleiben historisch.
+
+Der getrennte lokale Linux-Hostlauf T12 Lauf09 gilt weiterhin fuer
+`245b3b0`, nicht fuer 2a29196 oder spaetere Fachquellen. Weder der folgende
+Hostvertrag noch ein erneutes Ausfuehren eines unveraendert auf diese Baseline
+gebundenen Harness ersetzt den ausstehenden aktuellen Quellen-/Hostnachweis.
+Die vorhandene Demo und ihre SQL-Instanz nicht fuer isolierte Abnahmen
+neu initialisieren oder stoppen.
+
+Der spaetere L03-/I/O-Pruefblock verwendet ausschliesslich ein eigenes Paket
+unter `.local\audit-diagnostics-01\application`: 17/17 gezielte SQL-Faelle
+und getrennt 1/1 `AuditExport`/1/1 `PhysicalRetention`. Dies ist kein
+aktueller separater Hostlauf und kein Upgrade der 5187-Vorschau. Die
+quellengebundenen Ergebnisse und der terminale eigene Ressourcenabschluss
+stehen in [Validierung](validation.md).
+
 ## Auslieferung
 
 | Komponente | Artefakt / Entry-Point | Port / Health |

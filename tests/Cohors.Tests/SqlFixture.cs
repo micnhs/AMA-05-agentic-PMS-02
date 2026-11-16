@@ -15,6 +15,7 @@ public sealed class SqlFixture : IAsyncLifetime
     private readonly string database = "Cohors_Test_" + Guid.NewGuid().ToString("N");
     private string master = "";
     private string objectDirectory = "";
+    public string ObjectDirectory => objectDirectory;
     public string ConnectionString { get; private set; } = "";
     public SqlStateStore Store { get; private set; } = null!;
     public IObjectStore Objects { get; private set; } = null!;

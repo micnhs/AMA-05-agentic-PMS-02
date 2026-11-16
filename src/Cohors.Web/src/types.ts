@@ -98,6 +98,7 @@ export interface RetentionRecord {
   id: string; version: number; productId: string; reference: string; policyVersion: string; receivedAt: string; recordedAt: string;
   object: { contract: string; dataClass: string; objectKey: string; hash: string };
   synthetic: boolean; legalHold: boolean; holdReason: string; status: string; attempts: number; lastAttemptAt: string | null; errorCode: string | null;
+  objectIoFailures?: { step: string; exceptionType: string; hResult: string }[] | null;
   authorization: { id: string; actorId: string; scopeHash: string; at: string; rationale: string; externalCopiesReviewed: boolean; externalCopiesReview: string } | null;
   deletion: { contract: string; operationId: string; objectKey: string; hash: string; at: string; state: string; storage: string } | null;
 }

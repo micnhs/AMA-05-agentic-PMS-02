@@ -93,7 +93,7 @@ export default function App() {
         {page === 'psur' && <PsurWorkspace actor={actor} revision={revision} openDialog={setDialog} mutate={mutate} />}
         {page === 'evidence' && <EvidenceWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}
         {page === 'retention' && <RetentionWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}
-        {page === 'audit' && <AuditWorkspace cases={cases} revision={revision} />}
+        {page === 'audit' && <AuditWorkspace cases={cases} products={products} revision={revision} />}
         <footer className="page-footer"><span>Cohors · Synthetic pilot 2026.1</span><span>118 Anforderungen zugeordnet · Fach-/Betriebsfreigabe offen · Keine Azure-Bereitstellung</span></footer>
       </div>
     </main>

@@ -4,9 +4,117 @@
 
 ## Qualifizierter lokaler Preview-Schnitt
 
-Die aktuell veroeffentlichte 5187-Vorschau ist an den sauberen lokalen
+Die aktuell veroeffentlichte **5187-Vorschau** verwendet das unveraenderte Paket
+`.local\app-replay-2a29196` aus dem sauberen Quellcheckpoint
+**`2a291966e551f5f69ac7ceed2cf1d5aed1c0c13f`**. Sie laeuft mit
+**`Retention:PhysicalMode=Disabled`**, `Seed=false`, `AutoMigrate=false`,
+`LocalOperations=true` und `AgentTransport=Local`. Weitere Quellarbeit aendert
+dieses bereits veroeffentlichte Paket nicht. Die folgenden Ergebnisse sind
+kein Nachweis der danach entstehenden Audit-/Retention-Aenderungen.
+
+| Aktueller Nachweis | Ergebnis / Quellenbindung |
+| --- | --- |
+| `.local\test-results\application-2a29196.trx` | **122/122, keine Skips**; SHA256 `3c6ee59e89f003d8087ced1ff028ac6d23479e3bdf5ff67636b4d5a536ef7dfb` |
+| `.local\ui-replay-2a29196\browser-results.json` | **6/6 Preview-Szenarien, keine Skips**; `sourceTreeDirty=false`; SHA256 `9231b8048919830ff2cef9ae96aba7777e09b51cc48ac34908f76d545dccedff` |
+| `.local\ui-replay-2a29196\e2e-results.xml` | SHA256 `788ef5fd843674f014965607aafb223925b5d72ca7391aeb6292b56f5c2aa6d1` |
+| `.local\preview-handoff-2a29196.json` | Quell-, Paket-, Browser- und Bestandsbindung; SHA256 `ee94426a1473afa664af1458c1df554a7c5860705c7b2d1e4aa5850183131653` |
+
+Der Anwendungsfilter `FullyQualifiedName!~Cohors.Tests.RecoveryTests` trennt
+die eigene Docker-Recovery-Suite ausdruecklich ab. Die 122 Faelle sind daher
+**keine neue Recovery-Gesamtabnahme**. Alle **16 Paketdateihashes**, darunter
+fuenf Anwendungsassemblies und die Browserassets, wurden mit dem danach auf
+5187 gestarteten Paket verglichen. Der Browserlauf verwendet eigene SQL-/API-
+Ressourcen auf 5197; diese wurden terminal entfernt.
+
+Die sechs Browserfaelle pruefen den bisherigen PMS-/MIR-/Scope-/Export-Schnitt
+und zusaetzlich den simulierten BS-Rueckfrage-/Antwort-/Massnahmenzyklus samt
+historischer PSUR-Snapshotbindung. Der authentifiziert heruntergeladene
+`cohors-psur-bs-snapshot.pdf` hat 16 Seiten; BS-Marker, Stichtags-/aktuelle
+Statusangaben und der Korrespondenzanhang wurden gelesen, die letzte Seite
+gerendert und auf abgeschnittene Inhalte geprueft. PDF-SHA256:
+`f52630251e5b225bd0f8d7476bbf55f9db6aa2ff913cfd3d2deb88ec114044fc`.
+Dies ist keine unabhaengige erneute Einzelpruefung jedes darin genannten
+Quellenhashs und keine echte BS-Akzeptanz.
+
+Die Aktualisierung der bestehenden Demo bewahrte **66 Fachaggregate, 1821
+vorhandene Historien-/Audit-/Command-/Outbox-/Inbox-Bindungen, 17 persistente
+Fristen und 48 Objekte**. Einstellungen und der vorhandene gruppierte
+63.805-Zeichen-Entwurf blieben unveraendert; neue betriebliche Heartbeats sind
+getrennt erfasst. `.local\preview-2a29196-browser.json` belegt anschliessend
+echte getrennte PMS-/RA-UI-Anmeldungen auf 5187, das Disabled-Profil und den
+erhaltenen Entwurf ohne neue Fachkommandos. Die bereits geteilte Browserseite
+wurde aktualisiert; nach Sitzungsablauf zeigt sie regulaer die Anmeldung.
+
+**Qualifizierte Teiluebergabe, kein Pilotabschluss:** Die physische Loeschung
+bleibt in dieser Vorschau gesperrt. Die historische I/O-Ursache, aktuelle
+T18/T20-Gesamtintegration, aktuelle getrennte Functions-/Agent-Hosts, Last,
+Linux-Gesamtintegration, Azure/Entra/Foundry sowie Organisations- und
+Fachfreigaben bleiben getrennt offen. T12 Lauf09 bleibt an `245b3b0` gebunden.
+
+## Begrenzter L03-/Diagnostikblock neben der Vorschau
+
+Der neue produktbezogene Auditexport und die native I/O-Diagnostik wurden
+**getrennt von der laufenden 2a-Vorschau** gebaut und ausgefuehrt. Alle Belege
+liegen unter `.local\audit-diagnostics-01`. Der getestete Anwendungsstand war
+die explizite Arbeitsfassung auf 2a29196, nicht deren unveraendertes Paket:
+`source-03\source.json` bindet 232 Quelldateihashes und die geaenderten Dateien,
+SHA256 `d7800dc0606ecbb0bcafb2d8a816d65fd9467df469e01539d1b23d18525bd336`.
+Die spaetere Browserquelle `source-04\source.json`,
+SHA256 `3e92785065a1e9139ed36a286acc995a458bfcfa496f8a262483fda29b358883`,
+aendert daran ausschliesslich den Playwright-Profilfilter. Die fuenf
+Anwendungsassemblies des eigenen `application`-Pakets blieben bytegleich.
+
+| Getrennter Lauf | Ergebnis und SHA256 |
+| --- | --- |
+| `l03-diagnostics-02.trx` | **17/17** gezielte `ProductAuditTests`/`RetentionTests`, keine Skips; `e8154d28d7eebba16f53992a9456c57dbf7f07031634bc8ee948a325312774db` |
+| `ui-audit-02\browser-results.json` | **1/1 AuditExport**, Disabled, keine Skips; `126df1ececcc65407929b922b8e5df5047f505ca9ea66e368864998a05bb53a5` |
+| `ui-physical-01\browser-results.json` | **1/1 PhysicalRetention**, isoliertes SyntheticLocal, keine Skips; `3457e073c645da15783c32ef95e6a8ffc2dc79aeb591893a580cf50f2ad24fcd` |
+| `ui-physical-01\cohors-retention-io.json` | Wirklicher kontrollierter Fehler und anschliessender Abgleich; `0e4351e141d327d85b12b25688cb853a505de17409361cfb157bfae9432cefe4` |
+| `terminal-cleanup.json` | Terminaler eigener Ressourcenabschluss und Bestandsvergleich; `0976f26b39f1be9c384c00af0a27b86d10ff17d71d6f2613ca4e11b1201a69aa` |
+
+Der reale Auditor-Download prueft alle ZIP-Dateihashes, Originalversionen,
+Objektbytes, Mehrfamilienscope und die Ablehnung des Einzelfamilienkontos.
+`cohors-product-audit.png` und `cohors-retention-io-failed.png` wurden visuell
+gelesen. Der physische Fall provoziert in seinem eigenen Testverzeichnis
+einen echten Journal-Datei/Verzeichnis-Konflikt:
+`PrepareJournal / UnauthorizedAccessException / 0x80070005`.
+Die Rohbytes bleiben erhalten, der fehlgeschlagene SQL-Zustand und die
+gefilterte Anzeige sind sichtbar; erst ein weiterer ausdruecklicher
+menschlicher Abgleich mit derselben Autorisierung beendet den Vorgang.
+Das erklaert **nicht** die historische I/O-Ursache und aktiviert den Pfad
+nicht auf 5187.
+
+Die negativen Erstbefunde bleiben erhalten: Der erste C#-Build scheiterte an
+`CS8631` in einer neuen xUnit-Arrayassertion; die unveraenderte Einzelprodukt-
+Anforderung wird nun mit einer exakten Einzelwertassertion geprueft.
+`l03-diagnostics-01.trx` blieb **12/16**, SHA256
+`9b6ed2205f582c9a6f97cefcd46daf5e71d9c8ae6db746ba06d2e8991f69980c`.
+Die vier Auditfehler entstanden bei einer legitimen leeren Inbox:
+Eine skalare `FOR JSON`-Unterabfrage lieferte nachweislich SQL NULL.
+Die explizite leere JSON-Menge wurde korrigiert; ein neuer Negativfall
+weist einen behaupteten Outbox-Abschluss ohne erforderliche Inbox weiter
+ab. Der erste Browseraufruf fand wegen `^L03` im vollqualifizierten
+Playwright-Titel **keine Tests** (JUnit
+`15babb5d5331896d526476dc682c9ede02ac8501aff237138786e0da75c1dafc`).
+Nach reiner Profilkorrektur wurden beide begrenzten Profile vorab eindeutig
+aufgelistet. Der spaeter verzoegert beendete Audit-Worker endete regulaer;
+kein Prozess wurde zwangsweise beendet.
+
+Die Abschlusspruefung bestaetigt **0 Testdatenbanken, 0 neue
+Fixtureverzeichnisse, 0 private Browserreste und 0 Listener auf 5197**.
+Drei bereits vorher vorhandene Verzeichnisse blieben ausdruecklich erhalten.
+Kein Dockerressourcenstart. Die alte 5187-API mit PID 72076 blieb GET 200;
+66 Fachaggregate, je 107 Fachhistorien-/Audit-/Outbox-/Inbox-/Command-Zeilen
+(typisierte Operations ausgenommen), 17 Fristen, 48 Objekte, beide
+Konfigurationsdateien und alle 16 Paketdateihashes blieben exakt unveraendert.
+Das ist **keine neue Vollsuite, kein 7/7-Previewlauf, keine Recovery-,
+separate Host-, Last-, Cloud- oder medizinische Abnahme**.
+
+## Historischer Preview-Schnitt ee13e91
+
+Die zuvor veroeffentlichte 5187-Vorschau war an den sauberen lokalen
 Checkpoint `ee13e91fd6909dba61b3e70fe53f644566368067` gebunden.
-Der isolierte Windows-Browserlauf `.local\ui-replay-ee13e91` besteht mit
+Der isolierte Windows-Browserlauf `.local\ui-replay-ee13e91` bestand mit
 **5/5 Preview-Szenarien, ohne Skips**, bei
 **`Retention:PhysicalMode=Disabled`**. Er prueft den durchgaengigen PMS-/MIR-Pfad,
 getrennte menschliche Konten, CSRF, Dublin-Fristen, gruppierte PSUR-Berichte
@@ -42,7 +150,7 @@ getrennter Functions-Hostlauf. Retention-I/O-Ursache, erneute Recovery auf
 abschliessenden Quellen, aktuelles T12, Lastprofil, Linux-Gesamtintegration,
 Cloud und Live-KI bleiben eigenstaendige offene Gates.
 
-## Nachfolgende BS-/Recovery-Integration
+## Historische BS-/Recovery-Integration vor 2a29196
 
 - **13/13 Windows-Recovery, keine Skips**, auf sauberem **ee13e91**:
   `.local\recovery-ee13e91-current\recovery-results.json`,
@@ -113,9 +221,11 @@ Cloud und Live-KI bleiben eigenstaendige offene Gates.
   (`9aaf6f534371956066e02d34200d675df8e2c9608ed3acfb7a9288068e52b84b`):
   medizinische Revision, Freigabeinvalidierung, unveraenderter Snapshot,
   exakte Grenze und abgewiesener Ueberlauf einschliesslich Leerraum in
-  Erzeugung und Bearbeitung. Die zuvor genannten 122/122 und 6/6 liegen
-  vor dieser engen Haertung; die 5187-Vorschau bleibt bis zur
-  gesonderten quellengebundenen Aktualisierung auf ee13e91.
+  Erzeugung und Bearbeitung. Die unmittelbar zuvor genannten Arbeitsbaum-
+  Laeufe mit 122/122 und 6/6 liegen vor dieser engen Haertung. Die oben
+  gesondert dokumentierte saubere 2a29196-Wiederholung enthaelt sie und
+  ersetzt ee13e91 als veroeffentlichtes Preview-Paket, nicht als Recovery-
+  oder PhysicalRetention-Nachweis.
 
 ## Bereits ausgefuehrte Nachweise
 
@@ -275,7 +385,7 @@ bleiben getrennt.
 | T15 Statistik | Unabhaengige normalisierte Raten, ungueltige Nenner und Poisson-Werte bestanden |
 | T16 PSUR | Quellen, historische Kodierung, Serien/Gruppen, globale Identifier-/Periodengrenzen und >60000-Zeichen-Revision SQL-geprueft; UI03 prueft all-member-Exporte, Revision und getrennte Freigaben; fachliche Gesamtfreigabe offen |
 | T17 CAPA | Unabhaengiger Wirksamkeitsnachweis, negatives Ergebnis, Nacharbeit und erneute Pruefung im aktuellen SQL-Lauf bestanden |
-| T18 Audit/Retention | Getrennte 20er-Offline-, 5er-SQL- und 13er-Recovery-Nachweise; frueherer I/O-Fehler ungeklaert trotz gruenem Wiederholungslauf. Preview prueft nur Disabled-Profil, physischer Pfad nicht freigegeben |
+| T18 Audit/Retention | Begrenzter L03-/Diagnostikblock: 17/17 gezielte SQL-Faelle sowie getrennt 1/1 AuditExport und 1/1 isolierter PhysicalRetention-Browserfall; keine Vollsuite. Historische I/O-Ursache und aktuelle Recovery offen; 5187 bleibt Disabled |
 | T19 Simulatorgrenze | Keine echten Melde-/Klinikadapter; weitere Export-/Endpoint-Pruefung offen |
 | T20 Wiederherstellung | Integrierter 13er-Windows-Lauf mit echten SQL-/Objekt-/Journal-Cuts bestanden; erneut auf finalen Quellen sowie Linux-/Cloud-DR offen |
 

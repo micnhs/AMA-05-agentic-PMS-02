@@ -142,7 +142,7 @@ public sealed class RetentionService(IStateStore store, IRetentionStateStore ref
                 "Begonnenen Vorgang mit seiner vorhandenen Autorisierung abgleichen, nicht ersetzen.", 409);
             Guard.Against(RetentionRules.Scope(value, null) != view.Evaluation.ScopeHash, "retention_scope_changed",
                 "Aufbewahrungs-/Objektbindung hat sich geaendert.", 409);
-            return value with { Version = value.Version + 1, Status = "Authorized", ErrorCode = null,
+            return value with { Version = value.Version + 1, Status = "Authorized", ErrorCode = null, ObjectIoFailures = null,
                 Authorization = new(Canonical.Hash(new { id, key, actorId = actor.Id, view.Evaluation.ScopeHash }), actor.Id,
                     view.Evaluation.ScopeHash, clock.GetUtcNow(), input.Reason, true, input.ExternalCopiesReview) };
         }, ct);
@@ -163,7 +163,7 @@ public sealed class RetentionService(IStateStore store, IRetentionStateStore ref
             RequireDeletable(view.Evaluation);
             started = await store.Execute<RetentionRecord>(start, value => value! with {
                 Version = value.Version + 1, Status = "Deleting", Attempts = value.Attempts + 1,
-                LastAttemptAt = clock.GetUtcNow(), ErrorCode = null }, ct);
+                LastAttemptAt = clock.GetUtcNow(), ErrorCode = null, ObjectIoFailures = null }, ct);
         }
         var completion = start with { ExpectedVersion = started.Version, IdempotencyKey = Canonical.Hash(new { key, phase = "raw-delete-complete" }),
             Action = "RawDeletionCompleted", Request = new { input, started.Authorization!.Id, started.Object.Hash } };
@@ -175,7 +175,7 @@ public sealed class RetentionService(IStateStore store, IRetentionStateStore ref
                 RequireDeletable(RetentionRules.Evaluate(value, null, clock.GetUtcNow(), dependencies.Length, LocalPhysicalProfile));
                 var receipt = await raw.DeleteRaw(value, clock.GetUtcNow(), ct);
                 RetentionRules.RequireDeletionReceipt(value, receipt);
-                return value with { Version = value.Version + 1, Status = "Deleted", Deletion = receipt, ErrorCode = null };
+                return value with { Version = value.Version + 1, Status = "Deleted", Deletion = receipt, ErrorCode = null, ObjectIoFailures = null };
             }, ct);
         }
         catch (Exception ex) when (ex is DomainException or IOException or UnauthorizedAccessException or DbException or OperationCanceledException)
@@ -183,11 +183,15 @@ public sealed class RetentionService(IStateStore store, IRetentionStateStore ref
             if (await store.Receipt<RetentionRecord>(completion, CancellationToken.None) is { } committed) return committed;
             var error = ex is DomainException domain ? domain.Code : ex is DbException ? "retention_sql" :
                 ex is OperationCanceledException ? "retention_cancelled" : "retention_object_io";
+            ObjectIoFailure[]? ioFailures = ex is ObjectStoreIoException io ? io.Failures :
+                ex is IOException or UnauthorizedAccessException
+                    ? [ObjectStoreIoException.Describe(RawDeletionIoStep.DeletionTransactionBoundary, ex)] : null;
             var observed = await Get(id, actor, CancellationToken.None);
             if (observed.Version == started.Version && observed.Status == "Deleting")
                 await store.Execute<RetentionRecord>(start with { ExpectedVersion = started.Version, IdempotencyKey = Canonical.Hash(new { key, phase = "raw-delete-failed" }),
-                    Action = "RawDeletionFailed", Request = new { error, started.Authorization!.Id }, At = clock.GetUtcNow() },
-                    value => value! with { Version = value.Version + 1, Status = "DeletionFailed", ErrorCode = error }, CancellationToken.None);
+                    Action = "RawDeletionFailed", Request = new { error, started.Authorization!.Id, ioFailures }, At = clock.GetUtcNow() },
+                    value => value! with { Version = value.Version + 1, Status = "DeletionFailed", ErrorCode = error,
+                        ObjectIoFailures = ioFailures }, CancellationToken.None);
             throw new DomainException("retention_incomplete",
                 $"Kein vollstaendiger Loeschnachweis ({error}). Aktuellen Zustand laden und denselben autorisierten Vorgang kontrolliert abgleichen.", 409, ex);
         }

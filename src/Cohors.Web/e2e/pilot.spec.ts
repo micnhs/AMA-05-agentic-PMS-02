@@ -1,5 +1,7 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Capa, CaseSummary, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase } from '../src/types'
@@ -31,6 +33,37 @@ async function showCase(page: Page, incidentKey: string, title: string) {
 async function submitDialog(dialog: Locator, name = 'Begründet bestätigen') {
   await dialog.getByRole('button', { name, exact: true }).click()
   await expect(dialog).not.toBeVisible()
+}
+
+function readSmallAuditZip(bytes: Buffer) {
+  const end = bytes.length - 22
+  expect(bytes.readUInt32LE(end)).toBe(0x06054b50)
+  expect(bytes.readUInt16LE(end + 20)).toBe(0)
+  const count = bytes.readUInt16LE(end + 10)
+  expect(count).toBeLessThan(0xffff)
+  let position = bytes.readUInt32LE(end + 16)
+  const entries = new Map<string, Buffer>()
+  for (let i = 0; i < count; i++) {
+    expect(bytes.readUInt32LE(position)).toBe(0x02014b50)
+    const method = bytes.readUInt16LE(position + 10)
+    const compressedSize = bytes.readUInt32LE(position + 20)
+    const size = bytes.readUInt32LE(position + 24)
+    const nameLength = bytes.readUInt16LE(position + 28)
+    const name = bytes.subarray(position + 46, position + 46 + nameLength).toString('utf8')
+    const local = bytes.readUInt32LE(position + 42)
+    expect(bytes.readUInt32LE(local)).toBe(0x04034b50)
+    const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28)
+    const compressed = bytes.subarray(start, start + compressedSize)
+    expect([0, 8]).toContain(method)
+    const content = method === 8 ? inflateRawSync(compressed) : compressed
+    expect(content.length).toBe(size)
+    expect(entries.has(name)).toBe(false)
+    entries.set(name, content)
+    position += 46 + nameLength + bytes.readUInt16LE(position + 30) + bytes.readUInt16LE(position + 32)
+  }
+  expect(position).toBe(end)
+  expect(entries.size).toBe(count)
+  return entries
 }
 
 test('SQL-backed complaint → grounded assessment → distinct approvals → unknown/reconcile → verified audit', async ({ playwright, browser, baseURL }) => {
@@ -578,9 +611,82 @@ test('T18: default preview profile blocks physical raw operations and preserves 
   await client.dispose()
 })
 
-test('T18: human lifecycle, hold and scoped raw deletion remain distinct from regulatory evidence',
+test('L03: auditor downloads complete product history and original bytes; member-only scope is denied', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(120_000)
+  const pms = await playwright.request.newContext({ baseURL })
+  const auditor = await playwright.request.newContext({ baseURL })
+  const limited = await playwright.request.newContext({ baseURL })
+  const pmsCsrf = await signIn(pms, 'pms.demo')
+  await signIn(auditor, 'auditor.demo')
+  await signIn(limited, 'pms-cardio.demo')
+  const profiles = await (await pms.get('/api/products/profiles')).json() as ProductGovernance[]
+  const profile = profiles.find(p => p.productId === 'ortho')!
+  const group = await command<PsurGroupDefinition>(pms, pmsCsrf, '/psur-groups', {
+    expectedVersion: 0, reference: `DEMO-PSUR-GROUP-AUDIT-UI-${Date.now()}`, leadProductId: 'ortho',
+    memberProductIds: ['ortho', 'cardio'], firstPeriodStart: profile.firstPeriodStart,
+    rationale: 'Synthetische Mehrfamilien-Testdefinition für den vollständigen historischen Auditscope; keine reale Produktgruppierung.',
+    scheduleBasis: 'Unveränderter synthetischer Zeitplananker; keine neue Einreichung oder Verschiebung bestehender Pflichten.'
+  })
+  const denied = await limited.get('/api/products/cardio/audit')
+  expect(denied.status()).toBe(403)
+  expect(denied.headers()['content-type']).toContain('json')
+  const context = await browser.newContext({ storageState: await auditor.storageState(), viewport: { width: 1512, height: 982 } })
+  try {
+    const page = await context.newPage()
+    await page.goto(baseURL!)
+    await expect(page.getByRole('button', { name: 'Beschwerde aufnehmen', exact: true })).toHaveCount(0)
+    await page.getByRole('navigation').getByRole('button', { name: 'Audit Explorer', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Produktbezogenes Auditpaket', exact: true })).toBeVisible()
+    await page.getByLabel('Audit-Produktfamilie').selectOption('cardio')
+    const waiting = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Vollständiges Produkt-Auditpaket (ZIP)', exact: true }).click()
+    const download = await waiting
+    const file = path.join(artifacts, 'cohors-product-audit.zip')
+    await download.saveAs(file)
+    await expect(page.getByRole('status').filter({ hasText: 'Geprüfte lokale Lesekopie heruntergeladen' })).toBeVisible()
+    const entries = readSmallAuditZip(readFileSync(file))
+    const checksums = JSON.parse(entries.get('checksums.json')!.toString('utf8')) as Record<string, string>
+    expect(Object.keys(checksums)).toHaveLength(entries.size - 1)
+    for (const [name, digest] of Object.entries(checksums))
+      expect(createHash('sha256').update(entries.get(name)!).digest('hex')).toBe(digest)
+    const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8')) as {
+      contract: string; requestedProductId: string; products: string[];
+      aggregates: { id: string; kind: string; products: string[]; versions: { version: number; hash: string; path: string }[] }[];
+      objects: { hash: string; path: string; uses: string[] }[]
+    }
+    expect(manifest.contract).toBe('cohors-product-audit-1')
+    expect(manifest.requestedProductId).toBe('cardio')
+    expect(manifest.products.sort()).toEqual(['cardio', 'ortho'])
+    const definition = manifest.aggregates.find(a => a.id === group.id)!
+    expect(definition.kind).toBe('psurGroup')
+    expect(definition.products.sort()).toEqual(['cardio', 'ortho'])
+    expect(JSON.parse(entries.get(definition.versions[0].path)!.toString('utf8'))).toEqual(group)
+    expect(manifest.objects.length).toBeGreaterThan(0)
+    for (const source of manifest.objects) {
+      expect(createHash('sha256').update(entries.get(source.path)!).digest('hex')).toBe(source.hash)
+      expect(source.uses.length).toBeGreaterThan(0)
+    }
+    for (const aggregate of manifest.aggregates)
+      for (const version of aggregate.versions)
+        expect(createHash('sha256').update(entries.get(version.path)!).digest('hex')).toBe(version.hash)
+    const verification = JSON.parse(entries.get('verification.json')!.toString('utf8'))
+    expect(verification.state).toBe('VerifiedLocalReadOnlyCut')
+    expect(verification.externalLedgerDigestVerification).toContain('Not performed')
+    expect(verification.recovery).toContain('Not performed')
+    await page.screenshot({ path: path.join(artifacts, 'cohors-product-audit.png'), fullPage: true })
+  } finally {
+    await context.close()
+    await pms.dispose(); await auditor.dispose(); await limited.dispose()
+  }
+})
+
+test('T18: human lifecycle, hold, native I/O diagnosis and controlled raw reconciliation remain distinct from regulatory evidence',
   { tag: '@physical-retention' }, async ({ playwright, browser, baseURL }) => {
   test.setTimeout(120_000)
+  if (!process.env.COHORS_UI_ARTIFACT_DIR || !process.env.COHORS_TEST_ACCESS_FILE || new URL(baseURL!).port === '5187')
+    throw new Error('Physical fault fixture requires the explicit isolated Test-Ui runner, never the published preview.')
+  const isolated = path.join(path.resolve(artifacts), 'runtime', '.local')
+  expect(path.resolve(process.env.COHORS_TEST_ACCESS_FILE)).toBe(path.join(isolated, 'demo-access.txt'))
   const client = await playwright.request.newContext({ baseURL })
   await signIn(client, 'quality.demo')
   const context = await browser.newContext({ storageState: await client.storageState() })
@@ -619,12 +725,59 @@ test('T18: human lifecycle, hold and scoped raw deletion remain distinct from re
   await dialog.locator('[name=externalCopiesReview]').fill('Isolierter Browser-Testbereich ohne Exporte, Backup-, Cache- oder Agentenkopien dieses servererzeugten Rohobjekts; keine unbekannten Bindungen festgestellt.')
   await dialog.locator('[name=reason]').fill('Exakte synthetische Rohdatenbindung, abgelaufenes Testintervall, fehlende Referenzen und eigenständige Kopienprüfung menschlich bestätigen.')
   await submitDialog(dialog)
-  await page.getByRole('button', { name: 'Testbytes physisch löschen', exact: true }).click()
+  const authorized = await recordNow()
+  expect(authorized.status).toBe('Authorized')
+  expect(authorized.object.hash).toMatch(/^[a-f0-9]{64}$/)
+  expect(authorized.object.objectKey).toBe(`raw-quarantine/${authorized.object.hash}`)
+  const rawPath = path.join(isolated, 'blobs', 'raw-quarantine', authorized.object.hash)
+  const original = readFileSync(rawPath)
+  expect(createHash('sha256').update(original).digest('hex')).toBe(authorized.object.hash)
+  const collision = path.join(isolated, 'blobs', '.deletion-receipts', `${authorized.object.hash}.json`)
+  mkdirSync(path.dirname(collision), { recursive: true })
+  mkdirSync(collision)
+  let failure: RetentionRecord
+  try {
+    await page.getByRole('button', { name: 'Testbytes physisch löschen', exact: true }).click()
+    dialog = page.getByRole('dialog')
+    await dialog.locator('[name=confirmReference]').fill(reference)
+    await dialog.locator('[name=reason]').fill('Den isolierten physischen Fehlerpfad prüfen; ein fehlgeschlagener Journalschritt darf keine erfolgreiche Entfernung vortäuschen.')
+    const responsePromise = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith(`/retention/${authorized.id}/delete`))
+    await dialog.getByRole('button', { name: 'Begründet bestätigen', exact: true }).click()
+    const response = await responsePromise
+    expect(response.ok()).toBe(false)
+    expect((await response.json()).code).toBe('retention_incomplete')
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Abbrechen', exact: true }).click()
+    await expect.poll(async () => (await recordNow()).status).toBe('DeletionFailed')
+    failure = await recordNow()
+    expect(failure.errorCode).toBe('retention_object_io')
+    expect(failure.deletion).toBeNull()
+    expect(failure.objectIoFailures).toHaveLength(1)
+    const detail = failure.objectIoFailures![0]
+    expect(detail.step).toBe('PrepareJournal')
+    expect(['IOException', 'UnauthorizedAccessException']).toContain(detail.exceptionType)
+    expect(detail.hResult).toMatch(/^0x[0-9A-F]{8}$/)
+    expect(Object.keys(detail).sort()).toEqual(['exceptionType', 'hResult', 'step'])
+    expect(readFileSync(rawPath)).toEqual(original)
+    await expect(page.getByText(`I/O-Schritt: ${detail.step} · ${detail.exceptionType} · HRESULT ${detail.hResult}`, { exact: true })).toBeVisible()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-retention-io-failed.png'), fullPage: true })
+  } finally { rmdirSync(collision) }
+  await page.getByRole('button', { name: 'Teilvorgang abgleichen', exact: true }).click()
   dialog = page.getByRole('dialog')
   await dialog.locator('[name=confirmReference]').fill(reference)
   await dialog.locator('[name=reason]').fill('Nur das explizit benannte synthetische Rohobjekt im isolierten Testprofil entfernen; regulatorische Belege und andere Daten bleiben erhalten.')
   await submitDialog(dialog)
   await expect.poll(async () => (await recordNow()).status).toBe('Deleted')
+  const reconciled = await recordNow()
+  expect(reconciled.attempts).toBe(failure.attempts + 1)
+  expect(reconciled.objectIoFailures).toBeUndefined()
+  expect(reconciled.deletion!.operationId).toBe(authorized.authorization!.id)
+  writeFileSync(path.join(artifacts, 'cohors-retention-io.json'), JSON.stringify({
+    scope: 'Actual isolated directory-collision fault and controlled human reconciliation; not the historical I/O cause',
+    objectHash: authorized.object.hash, authorizationId: authorized.authorization!.id,
+    failedVersion: failure.version, failures: failure.objectIoFailures, completedVersion: reconciled.version,
+    finalReceipt: reconciled.deletion
+  }, null, 2))
   await expect(page.getByText('Abgeschlossener lokaler Löschbeleg', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Lifecycle versionieren', exact: true }).click()
   dialog = page.getByRole('dialog')

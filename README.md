@@ -28,6 +28,27 @@ Getrennte zufaellig erzeugte Kennwoerter liegen nur in `.local\demo-access.txt`.
 
 Ein lokales SDK kann unter `.tools\dotnet` liegen; die Skripte bevorzugen es. Auf diesem Entwicklungsrechner scheiterte der NuGet-Standardendpunkt am TLS-Handshake. `NuGet.Config` verwendet deshalb Microsofts oeffentlichen `dotnet-public`-Feed **mit normaler TLS-Pruefung**, keine unsichere Zertifikatsumgehung.
 
+### Bereits veroeffentlichte Vorschau erhalten
+
+Auf dem Pruefrechner laeuft die qualifizierte 5187-Vorschau aus dem separat
+veroeffentlichten, unveraenderten Paket `.local\app-replay-2a29196`, Quellstand
+`2a291966e551f5f69ac7ceed2cf1d5aed1c0c13f`. Ihre expliziten Startwerte sind
+`Cohors__Seed=false`, `Cohors__AutoMigrate=false`,
+`Cohors__LocalOperations=true`, `Cohors__AgentTransport=Local` und
+`Retention__PhysicalMode=Disabled`. Die lokale Outbox-/Watchdog-Emulation ist
+kein getrennter Functions-Hostnachweis.
+
+Die obige Initialisierungsfolge gilt fuer eine neue lokale Installation,
+**nicht** fuer das Ueberschreiben oder Neuinitialisieren dieser laufenden Demo.
+Die bestehende `.local\settings.json` wurde nicht geaendert und enthaelt noch
+den urspruenglichen Seed-Standard; ein Neustart ohne die expliziten Overrides
+ist deshalb kein gleichwertiger Erhaltungsweg. Neue Pakete und isolierte
+Testdatenbanken getrennt erstellen, das laufende Paket und die Demo-SQL
+waehrend der weiteren Implementierung unangetastet lassen. Die aktuellen
+122/122 Anwendungs- und 6/6 Preview-Ergebnisse sowie die **historisch
+getrennten** ee13e91-Recovery-/Physical-Nachweise stehen in
+[Validierung](docs/validation.md).
+
 ## Vorfuehrung
 
 1. Als PMS Specialist eine synthetische Beschwerde mit eigenstaendiger Vorfallreferenz aufnehmen. UDI darf unbekannt sein. Die eingegebene erste Organisationskenntnis ist nicht der Systemeingang.
@@ -59,12 +80,17 @@ Der erste End-to-End-Schnitt wurde mit echter lokaler SQL-Persistenz und Browser
 
 SQL-Tests verwenden eine **eigene zufaellig benannte Testdatenbank**, niemals die Demo-Datenbank. Sie verweigern nicht lokale SQL-Server. Die Recovery-Kategorie startet zusaetzlich eigene Docker-SQL-Instanzen; `Test-Local.ps1` ist deshalb kein leichter Preview-Check.
 
-Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich zweier unabhaengiger Einzelfamilienkonten. Die laufende Demo auf 5187 wird nicht neu initialisiert oder veraendert. Das explizite `Preview`-Profil umfasst sechs Szenarien mit **`Retention:PhysicalMode=Disabled`**, einschliesslich des getrennten BS-Rueckfrage-/Antwort-/Massnahmenzyklus und seiner historischen PSUR-Snapshotbindung; der getrennte `PhysicalRetention`-Test gehoert nicht zu dieser Teilabnahme und ist damit nicht freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist moeglich:
+Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich zweier unabhaengiger Einzelfamilienkonten. Die laufende Demo auf 5187 wird nicht neu initialisiert oder veraendert. Das explizite `Preview`-Profil umfasst im weiterentwickelten Quellstand sieben Szenarien mit **`Retention:PhysicalMode=Disabled`**, einschliesslich des getrennten BS-Rueckfrage-/Antwort-/Massnahmenzyklus, seiner historischen PSUR-Snapshotbindung und des neu hinzugekommenen Produkt-Auditexports. Der neue Auditfall wurde gesondert im **`AuditExport`-Profil 1/1** geprueft; das ist kein 7/7-Lauf und kein Upgrade der unveraenderten 2a29196-Vorschau mit ihren sechs bestandenen Faellen. **`PhysicalRetention`** wurde getrennt 1/1 mit echter Fehlerdiagnostik und kontrolliertem Abgleich geprueft; dadurch wird weder der physische Pfad auf 5187 aktiviert noch produktiv freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist moeglich:
 
 ```powershell
 .\.tools\dotnet\dotnet.exe publish src\Cohors.Api\Cohors.Api.csproj --configuration Debug --no-build --no-restore --output .local\ui-package
 .\scripts\Test-Ui.ps1 -ApplicationDirectory .local\ui-package -ArtifactDirectory .local\ui-results-01 -Profile Preview
 ```
+
+Fuer ausschliesslich den benannten Produkt-Auditfall denselben Runner mit
+`-Profile AuditExport` und einem **neuen** Artefaktverzeichnis verwenden.
+Das isolierte `PhysicalRetention`-Profil verlangt ebenfalls seinen eigenen
+freigegebenen Lauf; der physische Fehlertest verweigert die 5187-Vorschau.
 
 Fuer jeden Lauf einen neuen Ergebnisordner verwenden. JUnit, Screenshots und Quellen-/Assemblybindung liegen darin. Der Runner beendet nur seinen eigenen API-Prozess, entfernt seine Datenbank und privaten Testkonfigurationen und prueft den Datenbankabschluss. Private Logs und Zugangsdaten duerfen nicht geteilt werden. Die normale Vorschau emuliert Outbox/Watchdog lokal; sie ist kein aktueller Nachweis getrennter Functions-Hosts, Live-KI, Azure, Lastprofil oder vollstaendiger T18/T20-Abnahme.
 

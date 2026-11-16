@@ -94,6 +94,7 @@ builder.Services.AddSingleton<AnalyticsService>();
 builder.Services.AddSingleton<PsurReviewService>();
 builder.Services.AddSingleton<RetentionService>();
 builder.Services.AddSingleton<PsurExportService>();
+builder.Services.AddSingleton<ProductAuditService>();
 builder.Services.AddSingleton<IMirComposer, MirComposer>();
 builder.Services.AddSingleton<RegulatoryService>();
 builder.Services.AddHttpClient<IPublicSourceReader, PublicSources>()
@@ -176,6 +177,11 @@ app.MapPost("/api/auth/logout", async (HttpContext context) => { await context.S
 
 var api = app.MapGroup("/api").RequireAuthorization();
 api.MapGet("/products", (PolicyCatalog policies, HttpContext ctx) => policies.Devices.Where(d => Who(ctx).Products.Contains(d.Id)));
+api.MapGet("/products/{id}/audit", async (string id, ProductAuditService exporter, HttpContext ctx, CancellationToken ct) =>
+{
+    var result = await exporter.Export(id, Who(ctx), ct);
+    return Results.File(result.Bytes, result.ContentType, result.FileName);
+});
 api.MapGet("/status", async (IStateStore store, HttpContext ctx, CancellationToken ct) =>
 {
     _ = Who(ctx);

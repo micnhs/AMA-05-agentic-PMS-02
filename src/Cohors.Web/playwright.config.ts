@@ -10,6 +10,7 @@ export default defineConfig({
     ? path.join(process.env.COHORS_UI_ARTIFACT_DIR, 'playwright-results') : './test-results',
   projects: [
     { name: 'preview', grepInvert: /@physical-retention/ },
+    { name: 'audit-export', grep: /L03:/ },
     { name: 'physical-retention', grep: /@physical-retention/ },
   ],
   reporter: [['list'], ['junit', { outputFile: process.env.COHORS_UI_ARTIFACT_DIR

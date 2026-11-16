@@ -48,6 +48,50 @@ public sealed class RetentionTests(Xunit.Abstractions.ITestOutputHelper output) 
     }
 
     [Fact]
+    public async Task T18_NativeJournalIoFailureRecordsItsActualStepTypeAndHResultBeforeControlledReconciliation()
+    {
+        var service = Service();
+        var value = await Authorize(service, await RawItem(service));
+        Assert.DoesNotContain("objectIoFailures", Canonical.Serialize(value));
+        var original = await Raw.ReadRaw(value.Object);
+        var collision = Path.Combine(fixture.ObjectDirectory, ".deletion-receipts", value.Object.Hash + ".json");
+        Directory.CreateDirectory(collision);
+        RetentionRecord failed;
+        try
+        {
+            var error = await Assert.ThrowsAsync<DomainException>(() =>
+                service.Delete(value.Id, new(value.Version, Reason), SqlFixture.Quality, CaseScenario.Key()));
+            Assert.Equal("retention_incomplete", error.Code);
+            var io = Assert.IsType<ObjectStoreIoException>(error.InnerException);
+            var native = io.InnerException!;
+            Assert.True(native is IOException or UnauthorizedAccessException);
+            var restarted = new Cohors.Infrastructure.SqlStateStore(fixture.ConnectionString);
+            failed = (await restarted.Get<RetentionRecord>("retention", value.Id))!;
+            Assert.Equal("DeletionFailed", failed.Status);
+            Assert.Equal("retention_object_io", failed.ErrorCode);
+            var detail = Assert.Single(failed.ObjectIoFailures!);
+            Assert.Equal(RawDeletionIoStep.PrepareJournal, detail.Step);
+            Assert.Equal(native.GetType().Name, detail.ExceptionType);
+            Assert.Equal($"0x{native.HResult:X8}", detail.HResult);
+            Assert.DoesNotContain(fixture.ObjectDirectory, Canonical.Serialize(detail));
+            Assert.DoesNotContain(native.Message, Canonical.Serialize(detail));
+            Assert.Equal(original, await Raw.ReadRaw(value.Object));
+            Assert.Null(failed.Deletion);
+            output.WriteLine($"Controlled fixture only: {detail.Step}; {detail.ExceptionType}; {detail.HResult}. No inference about the historical failure.");
+        }
+        finally { Directory.Delete(collision); }
+        var reconciled = await Service().Delete(value.Id, new(failed.Version, Reason), SqlFixture.Quality, CaseScenario.Key());
+        Assert.Equal("Deleted", reconciled.Status);
+        Assert.Equal(value.Authorization!.Id, reconciled.Deletion!.OperationId);
+        Assert.Equal(failed.Attempts + 1, reconciled.Attempts);
+        Assert.Null(reconciled.ObjectIoFailures);
+        Assert.Contains(await fixture.Store.History<RetentionRecord>("retention", ["ortho"]),
+            r => r.Id == value.Id && r.Status == "DeletionFailed" && r.ObjectIoFailures?.Single().Step == RawDeletionIoStep.PrepareJournal);
+        await Assert.ThrowsAsync<FileNotFoundException>(() => Raw.ReadRaw(value.Object));
+        await fixture.Store.Manifest(value.Id, kind: "retention");
+    }
+
+    [Fact]
     public async Task T18_RolesScopeHoldAndAuthorizationPrecedeActualRemovalProjectionPurgeAndAtomicAudit()
     {
         var service = Service();
@@ -214,9 +258,13 @@ public sealed class RetentionTests(Xunit.Abstractions.ITestOutputHelper output) 
             try { return await ((IRawQuarantineStore)inner).DeleteRaw(value, at, ct); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                var frame = new System.Diagnostics.StackTrace(ex, true).GetFrames()
+                if (ex is ObjectStoreIoException io)
+                    foreach (var detail in io.Failures)
+                        output.WriteLine($"retention_storage_failure: type={detail.ExceptionType}; hresult={detail.HResult}; operation=DeleteRaw; step={detail.Step}");
+                var cause = ex.GetBaseException();
+                var frame = new System.Diagnostics.StackTrace(cause, true).GetFrames()
                     .FirstOrDefault(f => Path.GetFileName(f.GetFileName()) == "ObjectStores.cs");
-                output.WriteLine($"retention_storage_failure: type={ex.GetType().Name}; hresult=0x{ex.HResult:X8}; operation=DeleteRaw; step=ObjectStores.cs:{frame?.GetFileLineNumber()}");
+                output.WriteLine($"retention_exception_base: type={cause.GetType().Name}; hresult=0x{cause.HResult:X8}; operation=DeleteRaw; source=ObjectStores.cs:{frame?.GetFileLineNumber()}");
                 throw;
             }
         }
