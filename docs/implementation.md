@@ -299,6 +299,64 @@ Eine eigene Workbench-Erfassung und Browserfall gehoeren noch nicht zu diesem
 Checkpoint; die priorisierte Cockpit-/Kalenderergaenzung folgt getrennt.
 Die laufende d166658-Demo und ihre Rueckfaelle wurden nicht aktualisiert.
 
+## Cockpit-Grafiken und Fristenkalender
+
+`GET /api/cockpit` projiziert einen berechtigten Fallzugangszeitraum
+(einschliesslich, maximal 366 Tage) in der ausdruecklichen Anzeigezeitzone.
+`SystemReceivedAt` zaehlt die Anlage einer Fallakte, nicht jeden Eingang,
+kein Ereignisdatum und keine Inzidenz. Tages- bzw. Monatsabschnitte enthalten
+exakte Zahlen und eine bedienbare Wertetabelle. Produktfilter, Grafik- und
+KPI-Drilldowns liefern dieselbe serverseitig eingeschraenkte Auswahl mit
+25 kompakten Fallzeilen pro Seite; Gesamtzahlen werden nicht auf 25 begrenzt.
+
+Prozesszahlen verwenden `CaseService.ProjectProcess` und `CaseProcess.Read`,
+genau wie die Fallleiste. Audit-Reihenfolge einer menschlichen Nachbearbeitung
+und die originale Nichtmeldeentscheidung werden in einem SQL-Read gebunden,
+nicht durch einen Process-/Historienrequest pro Fall. Stage ist kein Ersatz
+fuer den aktuellen Schritt. Medical-/RA-KPI zaehlen den jeweiligen aktuellen
+Pruefschritt, nicht alle spaeter irgendwann erforderlichen Freigaben.
+
+**Risikogruppen sind derzeit nicht strukturiert gespeichert.** Das Cockpit
+weist diesen Datenmangel aus: ohne Assessment bzw. Assessment ohne
+Risikogruppierung. KI-/menschlicher Entwurf, aktuell medizinisch gepruefte
+Fassung und veraltete/offene Analyse bleiben getrennt. Fristenanlass und
+dokumentierter Patientenausgang sind keine Risikogruppen; Wahrscheinlichkeiten
+und Freitext erzeugen keine neue medizinische Klassifikation.
+
+Fallpflichten werden nach Fall und Verpflichtungs-ID genau einmal gezaehlt.
+Ueberfaellig bedeutet ueberschrittene LegalDue bzw. bestaetigten Folgetermin.
+Die 72-Stunden-Anzeige fuer bald faellige Pflichten bezieht sich auf die
+interne SafetyDue, nur solange der Haupttermin nicht ueberfaellig ist.
+Das ist ein Anzeigehorizont, keine neue regulatorische Schwelle.
+
+`GET /api/deadline-calendar` liefert Monatszellen und eine paginierte Agenda,
+unabhaengig vom Fallzugangsfilter. LegalDue, interne SafetyDue, bestaetigte
+Folgepflichten, gespeicherte PSUR-Einreichungstage und BS-Antworttermine sind
+getrennte Marker. Quellfeld, Version, Status, Fristgrundlage und Originalzone
+sind sichtbar. PSUR-Daten ohne Uhrzeit/Zone bleiben `DateOnly`; der
+Tagesvergleich in der benannten Anzeigezone behauptet keine neu berechnete
+gesetzliche Frist. Monatsgrenzen werden fuer Zeitpunkte einschliesslich DST
+in der Anzeigezone gelesen, nicht mit dem Browser- oder UTC-Tag verwechselt.
+
+Aeltere PSUR-Fassungen derselben Serie/Periode bleiben als historische
+Terminquellen sichtbar; nur die neueste Fassung zaehlt als aktuell offen.
+Simulierte Eingangs-/Antwortquittung ist keine BS-Inhaltsakzeptanz.
+Unbekannte Alt-PSUR-Termine werden gesondert als nicht verfuegbar ausgewiesen.
+BS-Datensaetze und PSURs sind nur bei Berechtigung fuer ihre gesamte
+gespeicherte Mitgliedschaft einschliesslich historischer BS-Quellen sichtbar.
+Agenda-Links waehlen den konkreten PSUR bzw. BS-Vorgang und die Ursprungsrunde,
+keinen beliebigen aktuellen Bericht.
+
+Die Leseoberflaechen mutieren keine Fachobjekte. Der Browser laedt dort nicht
+zusaetzlich `/cases` oder einzelne Prozessakten fuer Summen. Cockpit und
+Kalender aktualisieren sequenziell alle 30 Sekunden bzw. explizit; keine
+ueberlappende Pollschleife pro Ansicht. SQL liest fuer den Prozess die
+ausgewaehlten aktuellen Faelle, fuer den Kalender kompakte Falltermine und
+einmal die berechtigten PSUR-/BS-Originale fuer die vollstaendige Scopepruefung.
+Erst danach entstehen die kompakten Antworten. Keine neue Migration oder
+persistierte Summenquelle; insbesondere kein Nachweis fuer 250000 Faelle
+oder 90 gleichzeitige Nutzer.
+
 ## Unveraenderte Originale
 
 `source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`, die freigegebenen Eingangsunterlagen sowie Logo und Animation werden nicht veraendert. Die unveraenderte `source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx` hat SHA256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`.

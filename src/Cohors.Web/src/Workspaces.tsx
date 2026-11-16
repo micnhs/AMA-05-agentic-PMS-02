@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Activity, ArrowUpRight, CheckCheck, Download, FileCheck2, FileText, Fingerprint, Link2, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api, downloadApi } from './api'
-import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Device, Evidence, PeriodicSummaryReport, ProductGovernance, ProductLifecycle, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, SummaryAgreement, SummaryContent, Trend, VersionReference } from './types'
+import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Device, Evidence, PeriodicSummaryReport, ProductGovernance, ProductLifecycle, Psur, PsurFocus, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, SummaryAgreement, SummaryContent, Trend, VersionReference } from './types'
 import { Badge, date, Empty, ErrorBanner, EvidenceCategory, hash, label, Loading, SectionHead, type Dialog, type Field } from './ui'
 import DocumentDialog, { type DocumentRequest } from './DocumentDialog'
 
@@ -328,16 +328,25 @@ export function FeedbackWorkspace({ actor, cases, revision, openDialog, mutate }
   </div>
 }
 
-export function PsurWorkspace({ actor, revision, openDialog, mutate }: WorkspaceProps) {
+export function PsurWorkspace({ actor, revision, openDialog, mutate, initialFocus }: WorkspaceProps & { initialFocus?: PsurFocus }) {
   const { data, error } = useData<Psur[]>('/psurs', revision)
   const profiles = useData<ProductGovernance[]>('/products/profiles', revision)
   const groups = useData<PsurGroupDefinition[]>('/psur-groups', revision)
-  const [selected, setSelected] = useState('')
+  const [selected, setSelected] = useState(initialFocus?.reportId ?? '')
   const [productId, setProductId] = useState(actor.products[0] ?? '')
   const [groupId, setGroupId] = useState('')
   const [memberProductId, setMemberProductId] = useState('')
   const [localError, setLocalError] = useState('')
   const [exporting, setExporting] = useState('')
+  const focusApplied = useRef(false)
+  useEffect(() => {
+    if (!initialFocus || !data || focusApplied.current) return
+    focusApplied.current = true
+    const report = data.find(p => p.id === initialFocus.reportId)
+    if (!report) { setLocalError('Der Kalenderbezug ist nicht mehr lesbar. Keine andere PSUR-Fassung wurde ersatzweise geöffnet.'); return }
+    setProductId(report.productId); setGroupId(report.snapshot.group?.definition.id ?? '')
+    setSelected(report.id)
+  }, [data, initialFocus])
   const productReports = (data ?? []).filter(p => p.productId === productId)
   const availableGroups = [...(groups.data ?? []).filter(g => g.productId === productId),
     ...productReports.flatMap(p => p.snapshot.group ? [p.snapshot.group.definition] : [])]
@@ -346,7 +355,7 @@ export function PsurWorkspace({ actor, revision, openDialog, mutate }: Workspace
   const currentGroup = groups.data?.find(g => g.id === groupId)
   const reports = productReports.filter(p => groupId ? p.snapshot.group?.definition.id === groupId : !p.snapshot.group)
     .sort((a, b) => (b.snapshot.series?.reportVersion ?? 0) - (a.snapshot.series?.reportVersion ?? 0))
-  const psur = reports.find(p => p.id === selected) ?? reports[0]
+  const psur = reports.find(p => p.id === selected) ?? (selected ? undefined : reports[0])
   const latest = reports[0]
   const profile = profiles.data?.find(p => p.productId === productId)
   const legacySeries = productReports.some(p => !p.snapshot.series)
@@ -435,7 +444,8 @@ export function PsurWorkspace({ actor, revision, openDialog, mutate }: Workspace
         <h3>Authentifizierter Leseexport</h3><p className="muted">PDF ist eine abgeleitete Lesekopie; ZIP enthält Original-JSON, Snapshot, Audit, Metadaten und Prüfsummen. Keine neue Signatur, Formatannahme oder Übermittlung.</p>
         <div className="row">{(['pdf', 'json', 'zip'] as const).map(format => <button className="button secondary" key={format} disabled={!!exporting} onClick={() => void download(format)}><Download size={15} />{exporting === format ? 'Export…' : format.toUpperCase()}</button>)}</div>
       </aside></div>
-      <PsurReviewPanel actor={actor} revision={revision} openDialog={openDialog} mutate={mutate} report={psur} reports={data ?? []} />
+      <PsurReviewPanel key={psur.id} actor={actor} revision={revision} openDialog={openDialog} mutate={mutate} report={psur} reports={data ?? []}
+        initialFocus={initialFocus?.reportId === psur.id ? initialFocus : undefined} />
       <PsurRegulatorySnapshot report={psur} />
       <section className="panel"><SectionHead eyebrow="GEMEINSAM GEBUNDEN · EINZELN AUSWERTBAR" title="Eingefrorene Basic-UDI-Mitgliedschaft" />
         {psur.snapshot.group ? <><p>Definition {psur.snapshot.group.definition.reference}@{psur.snapshot.group.definition.version}; festes Leitprodukt {psur.snapshot.leadProductId}.</p><p>{psur.snapshot.group.definition.rationale}</p><p>{psur.snapshot.group.definition.scheduleBasis}</p><PsurReferences values={[psur.snapshot.group.definitionSource]} />
@@ -504,15 +514,15 @@ function PsurRegulatorySnapshot({ report }: { report: Psur }) {
   </section>
 }
 
-function PsurReviewPanel({ actor, revision, openDialog, mutate, report, reports }: WorkspaceProps & { report: Psur; reports: Psur[] }) {
+function PsurReviewPanel({ actor, revision, openDialog, mutate, report, reports, initialFocus }: WorkspaceProps & { report: Psur; reports: Psur[]; initialFocus?: PsurFocus }) {
   const reviews = useData<PsurReview[]>(`/psurs/${report.id}/reviews`, revision)
   const capas = useData<Capa[]>('/capas', revision)
   const changes = useData<ChangeRequest[]>('/changes', revision)
-  const [selected, setSelected] = useState('')
+  const [selected, setSelected] = useState(initialFocus?.reviewId ?? '')
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
   const items = [...(reviews.data ?? [])].sort((a, b) => b.questions[0].recordedAt.localeCompare(a.questions[0].recordedAt))
-  const review = items.find(r => r.id === selected) ?? items[0]
+  const review = items.find(r => r.id === selected) ?? (selected ? undefined : items[0])
   const question = review?.questions.at(-1)
   const assessment = review?.assessments.at(-1)
   const regulatory = actor.roles.includes('RegulatoryAffairs')
@@ -597,8 +607,11 @@ function PsurReviewPanel({ actor, revision, openDialog, mutate, report, reports 
   </SectionHead><p>Nur synthetische Korrespondenz. Neue Serien oder Berichtsperioden schließen keinen offenen Vorgang. Alle betroffenen Produktberechtigungen bleiben erforderlich.</p>
     {(reviews.error || capas.error || changes.error || error) && <ErrorBanner message={reviews.error || capas.error || changes.error || error} />}
     {!reviews.data && !reviews.error && <Loading />}
+    {reviews.data && initialFocus?.reviewId && !items.some(r => r.id === initialFocus.reviewId) &&
+      <ErrorBanner message="Der konkrete BS-Vorgang des Kalendereintrags ist nicht mehr lesbar. Kein Ersatzvorgang ausgewählt." />}
     {reviews.data && !items.length && <Empty title="Keine BS-Rückfrage dokumentiert">Eine simulierte Eingangsquittung behauptet keine inhaltliche BS-Akzeptanz.</Empty>}
     {review && question && <><label className="field">BS-Vorgang dieser Serie<select value={review.id} onChange={e => { setSelected(e.target.value); setError('') }}>{items.map(r => <option key={r.id} value={r.id}>{r.reference} · bis {r.originalReport.end} · {statuses[r.status] ?? r.status}</option>)}</select></label>
+      {review.id === initialFocus?.reviewId && <p className="callout">Kalenderbezug: {review.reference}, Runde {initialFocus?.round}. Alle gespeicherten Fristen dieser Runde stehen unten in der geöffneten Historie; der aktuelle Bearbeitungsstand bleibt getrennt.</p>}
       <Badge tone={review.status === 'QuestionClosed' ? 'neutral' : 'amber'}>{statuses[review.status] ?? review.status}</Badge>
       <p>Bericht Nr. {review.originalReport.reportNumber} · {review.originalReport.start} – {review.originalReport.end} · {review.products.join(', ')} · {review.language} / {review.jurisdiction}</p><PsurReferences values={[review.originalReport.source]} />
       <h3>Aktuelle Rückfrage / Runde {question.round}</h3><p>{question.text}</p><p><b>Vereinbart bis {date(question.dueAt, true, 'UTC')} UTC</b> · {question.scheduleBasis}</p><p>{question.actionRequired ? 'Konkrete Folgemaßnahme verlangt.' : 'Ohne Folgemaßnahme ist eine ausdrückliche Begründung nötig.'}</p>
@@ -617,8 +630,8 @@ function PsurReviewPanel({ actor, revision, openDialog, mutate, report, reports 
         {regulatory && review.status === 'ReplySubmitted' && <button className="button secondary" onClick={assess}>BS-Bewertung dokumentieren</button>}
         <button className="button secondary" disabled={exporting} onClick={() => void download()}><Download size={15} />BS-Vorgang als JSON</button>
       </div>
-      <details><summary>Alle Fristen, eingefrorenen Antworten und Bewertungen</summary>
-        {review.questions.map(q => <div className="history-entry" key={q.round}><b>Frage {q.round} · {date(q.dueAt, true, 'UTC')} UTC</b><p>{q.text}</p><p>{q.scheduleBasis}</p></div>)}
+      <details open={review.id === initialFocus?.reviewId || undefined}><summary>Alle Fristen, eingefrorenen Antworten und Bewertungen</summary>
+        {review.questions.map(q => <div className={`history-entry ${review.id === initialFocus?.reviewId && q.round === initialFocus?.round ? 'calendar-source-focus' : ''}`} key={q.round}><b>Frage {q.round} · {date(q.dueAt, true, 'UTC')} UTC</b><p>{q.text}</p><p>{q.scheduleBasis}</p></div>)}
         {review.submissions.map(s => <div className="history-entry" key={s.round}><Badge tone="blue">SIMULIERTE ANTWORTQUITTUNG</Badge><p>{s.simulatedReceipt} · {date(s.sentAt, true)}</p><p>{s.reply.response}</p><p className="mono">{s.scopeHash}</p><PsurReferences values={[s.reply.report.source, ...s.reply.sources.map(e => e.source), ...s.reply.actions.map(a => a.source)]} /></div>)}
         {review.assessments.map(a => <div className="history-entry" key={a.round}><b>Bewertung {a.round} · {a.outcome === 'NoFurtherQuestion' ? 'Fragenabschluss' : 'Weitere Frage'}</b><p>{a.rationale}</p><p>{a.recordedBy} · {date(a.recordedAt, true)}</p>{a.actionEvidence.map(e => <p key={e.source.id}>{e.title} · {e.status} · v{e.source.version}</p>)}<PsurReferences values={a.actionEvidence.map(e => e.source)} /></div>)}
       </details>

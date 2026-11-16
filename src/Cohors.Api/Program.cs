@@ -33,6 +33,7 @@ builder.Services.AddSingleton(sp => SqlStateStore.Configure(sp.GetRequiredServic
     builder.Configuration["Cohors:SqlAuthentication"], builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing")));
 builder.Services.AddSingleton<IStateStore>(sp => sp.GetRequiredService<SqlStateStore>());
 builder.Services.AddSingleton<IRetentionStateStore>(sp => sp.GetRequiredService<SqlStateStore>());
+builder.Services.AddSingleton<IWorkspaceReadStore>(sp => sp.GetRequiredService<SqlStateStore>());
 var retentionMode = builder.Configuration["Retention:PhysicalMode"] ?? "Disabled";
 if (retentionMode is not ("Disabled" or "SyntheticLocal") ||
     retentionMode == "SyntheticLocal" && ((!builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Testing")) ||
@@ -85,6 +86,7 @@ builder.Services.AddSingleton<IAgentRunner>(sp =>
         new(endpoint, scope, localKey), new DefaultAzureCredential());
 });
 builder.Services.AddSingleton<CaseService>();
+builder.Services.AddSingleton<WorkspaceReadService>();
 builder.Services.AddSingleton<OperationsService>();
 builder.Services.AddSingleton<OutboxProcessor>();
 builder.Services.AddSingleton<PublicSourceService>();
@@ -176,6 +178,12 @@ app.MapPost("/api/auth/login", async (LoginRequest input, HttpContext context) =
 app.MapPost("/api/auth/logout", async (HttpContext context) => { await context.SignOutAsync("CohorsCookie"); return Results.NoContent(); }).RequireAuthorization();
 
 var api = app.MapGroup("/api").RequireAuthorization();
+api.MapGet("/cockpit", (string? productId, DateOnly? from, DateOnly? through, string? timeZone, string? focus,
+    int? offset, WorkspaceReadService service, HttpContext ctx, CancellationToken ct) =>
+    service.Cockpit(Who(ctx), productId, from, through, timeZone, focus, offset ?? 0, ct));
+api.MapGet("/deadline-calendar", (string? productId, DateOnly? month, string? timeZone, string? kind, string? status,
+    DateOnly? day, int? offset, WorkspaceReadService service, HttpContext ctx, CancellationToken ct) =>
+    service.Calendar(Who(ctx), productId, month, timeZone, kind, status, day, offset ?? 0, ct));
 api.MapGet("/products", (PolicyCatalog policies, HttpContext ctx) => policies.Devices.Where(d => Who(ctx).Products.Contains(d.Id)));
 api.MapGet("/products/{id}/audit", async (string id, ProductAuditService exporter, HttpContext ctx, CancellationToken ct) =>
 {

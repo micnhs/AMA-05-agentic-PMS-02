@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarClock, CircleHelp, ClipboardCheck, FileClock, FileText, Inbox, LayoutDashboard, LogOut, Plus, Radio, Search, ShieldCheck, Sparkles, Stethoscope, Waypoints } from 'lucide-react'
+import { Activity, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarClock, CircleHelp, ClipboardCheck, FileClock, FileText, Inbox, LayoutDashboard, LogOut, Plus, Radio, Search, ShieldCheck, Sparkles, Waypoints } from 'lucide-react'
 import { api, loginEntra, logout, session as getSession } from './api'
-import type { CaseSummary, Device, SafetyCase, Session, Status } from './types'
-import { ActionDialog, Badge, CaseTable, date, deadlineItems, Empty, ErrorBanner, isLate, isUrgent, label, Loading, primaryDeadline, roleNames, SectionHead, type Dialog } from './ui'
+import type { CalendarEvent, CaseSummary, Device, PsurFocus, SafetyCase, Session, Status } from './types'
+import { ActionDialog, Badge, CaseTable, date, ErrorBanner, Loading, roleNames, type Dialog } from './ui'
 import Workbench from './Workbench'
 import { AuditWorkspace, EvidenceWorkspace, FeedbackWorkspace, PsurWorkspace, RetentionWorkspace, SourcesWorkspace, SummaryWorkspace } from './Workspaces'
+import { CockpitWorkspace, DeadlineCalendarWorkspace } from './WorkspaceViews'
 
 const navigation = [
   { id: 'cockpit', title: 'PMS Cockpit', icon: LayoutDashboard },
@@ -32,15 +33,24 @@ export default function App() {
   const [revision, setRevision] = useState(0)
   const [animation, setAnimation] = useState(false)
   const [working, setWorking] = useState(false)
+  const [psurFocus, setPsurFocus] = useState<PsurFocus | null>(null)
+  const needsCaseList = ['cases', 'reviews', 'regulatory', 'inbox', 'feedback', 'audit'].includes(page)
   useEffect(() => { getSession().then(setAuth).catch(e => setError(e.message)) }, [])
   const refresh = useCallback(async () => {
     if (!auth?.authenticated) return
-    const [c, p, s] = await Promise.all([api<CaseSummary[]>('/cases'), api<Device[]>('/products'), api<Status>('/status')])
-    setCases(c); setProducts(p); setStatus(s)
-    if (selected) setSelected(await api<SafetyCase>(`/cases/${selected.id}`))
-  }, [auth?.authenticated, selected?.id])
+    const [c, p, s] = await Promise.all([needsCaseList ? api<CaseSummary[]>('/cases') : Promise.resolve(null), api<Device[]>('/products'), api<Status>('/status')])
+    if (c) setCases(c)
+    setProducts(p); setStatus(s)
+    if (page === 'workbench' && selected) setSelected(await api<SafetyCase>(`/cases/${selected.id}`))
+  }, [auth?.authenticated, selected?.id, page, needsCaseList])
   useEffect(() => { if (!auth?.authenticated) return; refresh().catch(e => setError(e.message)); const id = window.setInterval(() => refresh().catch(e => setError(e.message)), 10000); return () => clearInterval(id) }, [auth?.authenticated, refresh])
   async function open(id: string) { try { setSelected(await api<SafetyCase>(`/cases/${id}`)); setPage('workbench') } catch (e) { setError(e instanceof Error ? e.message : 'Fall nicht geladen.') } }
+  function openCalendarEvent(event: CalendarEvent) {
+    if (event.entityKind === 'case') { void open(event.entityId); return }
+    if (!event.psurId) { setError('Der gespeicherte PSUR-Bezug fehlt; keine andere Fassung geöffnet.'); return }
+    setPsurFocus({ reportId: event.psurId, ...(event.entityKind === 'psurReview' ? { reviewId: event.entityId, round: event.round ?? undefined } : {}) })
+    setPage('psur')
+  }
   async function mutate(path: string, body: unknown) {
     setWorking(true); setError('')
     try { await api(path, body); await refresh(); setRevision(r => r + 1) }
@@ -66,21 +76,17 @@ export default function App() {
   if (!status) return <div className="page-content">{error ? <ErrorBanner message={error} /> : <Loading />}</div>
   const actor = auth.actor!
   const filtered = cases.filter(c => `${c.title} ${c.reference} ${c.productId}`.toLowerCase().includes(query.toLowerCase()))
-  const prioritized = [...cases].sort((a, b) => new Date(primaryDeadline(a)?.dueAt ?? 0).getTime() - new Date(primaryDeadline(b)?.dueAt ?? 0).getTime())
   const pageTitle = page === 'workbench' ? 'Case Workbench' : navigation.find(n => n.id === page)?.title ?? 'Cohors'
   return <div className="app-shell">
-    <aside className="sidebar"><a className="brand" href="#cockpit" onClick={e => { e.preventDefault(); setPage('cockpit') }}><img src="/brand/cohors-logo.png" alt="Cohors Original-Logo" /><span><strong>Cohors</strong><small>PRODUCT SAFETY</small></span></a><div className="workspace-name"><span className="workspace-initial">C</span><div>Cohors Medical<small>Synthetischer Hersteller</small></div><Badge>III</Badge></div><span className="nav-label">ARBEITSBEREICH</span><nav>{navigation.map(n => <button key={n.id} className={`nav-item ${page === n.id || page === 'workbench' && n.id === 'cases' ? 'active' : ''}`} onClick={() => { setPage(n.id); setQuery('') }}><n.icon size={19} />{n.title}{n.id === 'reviews' && <span className="nav-count">{cases.filter(c => c.stage === 'AwaitingMedicalReview' || c.reportState === 'MedicalApproved').length}</span>}</button>)}</nav>
+    <aside className="sidebar"><a className="brand" href="#cockpit" onClick={e => { e.preventDefault(); setPage('cockpit') }}><img src="/brand/cohors-logo.png" alt="Cohors Original-Logo" /><span><strong>Cohors</strong><small>PRODUCT SAFETY</small></span></a><div className="workspace-name"><span className="workspace-initial">C</span><div>Cohors Medical<small>Synthetischer Hersteller</small></div><Badge>III</Badge></div><span className="nav-label">ARBEITSBEREICH</span><nav>{navigation.map(n => <button key={n.id} className={`nav-item ${page === n.id || page === 'workbench' && n.id === 'cases' ? 'active' : ''}`} onClick={() => { setPage(n.id); setQuery(''); setPsurFocus(null) }}><n.icon size={19} />{n.title}</button>)}</nav>
       <div className="sidebar-bottom"><div className="pilot-card"><Radio size={18} /><div><b>Kontrollierter Pilot</b><small>Replay / Live getrennt<br />Meldungen nur simuliert</small></div></div><button className="profile" onClick={async () => { try { await logout(auth.mode); setSelected(null); setCases([]); setProducts([]); setStatus(null); setAuth(await getSession()) } catch (e) { setError(e instanceof Error ? e.message : 'Abmeldung nicht bestätigt.') } }} title="Abmelden und mit eigenem getrenntem Konto anmelden"><span className="avatar">{actor.name.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase()}</span><span><b>{actor.name}</b><small>{roleNames[actor.roles[0]] ?? actor.roles[0]}</small></span><LogOut size={16} /></button></div></aside>
     <main className="main"><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <b>{pageTitle}</b></div><div className="topbar-right"><Badge tone="amber">PILOT · SYNTHETISCH</Badge><span className="top-date">{date(new Date().toISOString())}</span><button className="icon-button" onClick={() => setPage('deadlines')} aria-label="Fristen und Warnungen"><Bell size={19} /><i className="notification-dot" /></button></div></header>
       <div className="page-content">{error && <ErrorBanner message={error} dismiss={() => setError('')} />}
         {status?.heartbeatMissing && <ErrorBanner message="Kein gültiger Watchdog-Erfolg in den letzten drei Minuten. Auch ein nie gestarteter Host oder eine Zeitabweichung ist kein Nachweis sicherer Fristen." />}
         {page !== 'workbench' && <div className="page-heading"><div><span className="eyebrow">{page === 'cockpit' ? 'POST-MARKET SURVEILLANCE' : 'VERANTWORTUNG MIT EVIDENZ'}</span><h1>{page === 'cockpit' ? 'Sicherheit im Blick.' : pageTitle}</h1><p>{page === 'cockpit' ? 'Jeder Hinweis zählt. Jede Entscheidung ist nachvollziehbar.' : 'Persistierte Daten, nachvollziehbare Versionen und klare menschliche Verantwortung.'}</p></div>{actor.roles.includes('PmsSpecialist') && <button className="button primary" onClick={newComplaint}><Plus size={17} />Beschwerde aufnehmen</button>}</div>}
         {page === 'cockpit' && <>
-          <div className="metrics"><Metric title="Offene Sicherheitsfälle" value={cases.filter(c => c.stage !== 'Closed').length} note={`${products.length} fiktive Produktfamilien`} icon={<FileText />} /><Metric title="Menschliche Prüfung" value={cases.filter(c => c.stage === 'AwaitingMedicalReview' || c.reportState === 'MedicalApproved').length} note="Medical Safety und RA getrennt" icon={<Stethoscope />} /><Metric title="Zeitkritische Fälle" value={cases.filter(isUrgent).length} note={`${cases.filter(isLate).length} mit überfälligen Fristen`} icon={<CalendarClock />} accent /><Metric title="Simulierte Annahmen" value={cases.filter(c => c.reportState === 'SimulatedAccepted').length} note="Keine realen Übermittlungen" icon={<ShieldCheck />} /></div>
-          <div className="overview-grid"><section className="panel priority-panel"><SectionHead eyebrow="WAS JETZT WICHTIG IST" title="Priorisierte Bearbeitung"><button className="text-button" onClick={() => setPage('reviews')}>Zur Review Queue <ArrowUpRight size={16} /></button></SectionHead>
-            {prioritized.slice(0, 4).map(c => { const d = primaryDeadline(c); return <button className="priority-row" key={c.id} onClick={() => open(c.id)}><span className={`priority-icon ${isLate(c) ? 'danger' : ''}`}><CalendarClock size={20} /></span><div><span className="subline">{c.reference} · {c.jurisdiction}</span><b>{c.title}</b><small>{c.productId === 'ortho' ? 'OrthoLink Modular Hip' : 'CardioFlow Valve'} · {label(c.stage)}</small></div><span className="priority-due">{date(d?.dueAt, false, d?.timeZone)}<small>{d?.timeZone} · {d?.title}{isLate(c) ? ' · überfällig' : ''}</small></span><ArrowUpRight size={18} /></button> })}</section>
-            <section className="panel loop-panel"><span className="eyebrow">DER COHORS-REGELKREIS</span><h2>KI entwirft.<br />Menschen entscheiden.</h2><div className="loop-steps">{[{ icon: Inbox, title: 'Aufnehmen', sub: 'Quellen und Kenntnis sichern' }, { icon: Sparkles, title: 'Analysieren', sub: 'Begründungen mit Fundstellen' }, { icon: ClipboardCheck, title: 'Prüfen & freigeben', sub: 'Medical Safety + Regulatory Affairs' }, { icon: Waypoints, title: 'Lernen & nachverfolgen', sub: 'Meldung, CAPA, Trends und PSUR' }].map((s, i) => <div key={s.title}><span><s.icon size={18} /></span><p><b>{s.title}</b><small>{s.sub}</small></p><small className="step-index">0{i + 1}</small></div>)}</div><button className="text-button" onClick={() => setAnimation(true)}>Original-Logoanimation ansehen <ArrowUpRight size={16} /></button></section></div>
-          <section className="panel"><SectionHead eyebrow="AKTUELLE FALLAKTEN" title="Vom Hinweis zur Entscheidung"><button className="text-button" onClick={() => setPage('cases')}>Alle Fälle <ArrowRight size={16} /></button></SectionHead><CaseTable cases={cases.slice(0, 5)} open={open} /></section>
+          <CockpitWorkspace products={products} revision={revision} open={open} />
+          <section className="panel loop-panel cockpit-loop"><span className="eyebrow">DER COHORS-REGELKREIS</span><h2>KI entwirft. Menschen entscheiden.</h2><div className="loop-steps">{[{ icon: Inbox, title: 'Aufnehmen', sub: 'Quellen und Kenntnis sichern' }, { icon: Sparkles, title: 'Analysieren', sub: 'Begründungen mit Fundstellen' }, { icon: ClipboardCheck, title: 'Prüfen & freigeben', sub: 'Medical Safety + Regulatory Affairs' }, { icon: Waypoints, title: 'Lernen & nachverfolgen', sub: 'Meldung, CAPA, Trends und PSUR' }].map((s, i) => <div key={s.title}><span><s.icon size={18} /></span><p><b>{s.title}</b><small>{s.sub}</small></p><small className="step-index">0{i + 1}</small></div>)}</div><button className="text-button" onClick={() => setAnimation(true)}>Original-Logoanimation ansehen <ArrowUpRight size={16} /></button></section>
           <div className="system-strip"><span><span className="status-dot" />{status?.persistence ?? 'SQL'} · führender Zustand</span><span>Foundry: {status?.foundryConfigured ? 'Endpoint gesetzt · Live-Abnahme offen' : 'nicht konfiguriert'}</span><span>Fristen-Watchdog: {status?.heartbeatMissing ? 'prüfen' : 'aktiv'}</span><span>Behörden: ausschließlich Simulator</span></div>
         </>}
         {['cases', 'reviews', 'regulatory', 'inbox'].includes(page) && <>
@@ -89,9 +95,9 @@ export default function App() {
           {page === 'regulatory' && <SummaryWorkspace cases={cases} products={products} revision={revision} actor={actor} mutate={mutate} openDialog={setDialog} />}
         </>}
         {page === 'workbench' && selected && <Workbench key={selected.id} value={selected} actor={actor} openDialog={setDialog} mutate={mutate} busy={working} back={() => setPage('cases')} />}
-        {page === 'deadlines' && <div className="deadline-grid">{prioritized.map(c => <section className="panel deadline-card" key={c.id}><div className="row-between"><button className="text-button" onClick={() => open(c.id)}>{c.reference}<ArrowUpRight size={15} /></button><Badge tone={isLate(c) ? 'danger' : isUrgent(c) ? 'amber' : 'neutral'}>{isLate(c) ? 'Überfällig' : label(primaryDeadline(c)?.status ?? 'Open')}</Badge></div><h3>{c.title}</h3>{deadlineItems(c).map(d => <div key={d.id}><h4>{d.title} · {label(d.status)}</h4><div className="deadline-dates"><span><small>INTERNE SAFETYDUE</small><b>{date(d.safetyDue, true, d.timeZone)}</b></span><span><small>{d.kind === 'statutory' ? 'GESETZLICHE LEGALDUE' : 'ZUGESAGTER FOLGETERMIN'}</small><b>{date(d.dueAt, true, d.timeZone)}</b></span></div><p className="muted">{d.jurisdiction} · {d.timeZone} · {d.calendarVersion}</p><details><summary>Auslöser und Rechenweg</summary><p>{d.kind === 'statutory' ? 'Erste Kenntnis' : 'Bestätigter simulierter Empfang des Vorberichts'}: {date(d.triggerAt, true, d.timeZone)}</p>{d.calculation.map((s, i) => <p key={i}>{s}</p>)}</details></div>)}</section>)}</div>}
+        {page === 'deadlines' && <DeadlineCalendarWorkspace products={products} revision={revision} open={openCalendarEvent} />}
         {page === 'feedback' && <FeedbackWorkspace actor={actor} cases={cases} revision={revision} openDialog={setDialog} mutate={mutate} />}
-        {page === 'psur' && <PsurWorkspace actor={actor} revision={revision} openDialog={setDialog} mutate={mutate} />}
+        {page === 'psur' && <PsurWorkspace key={psurFocus ? `${psurFocus.reportId}:${psurFocus.reviewId ?? ''}:${psurFocus.round ?? ''}` : 'manual'} actor={actor} revision={revision} openDialog={setDialog} mutate={mutate} initialFocus={psurFocus ?? undefined} />}
         {page === 'evidence' && <EvidenceWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}
         {page === 'retention' && <RetentionWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}
         {page === 'audit' && <AuditWorkspace cases={cases} products={products} revision={revision} />}
@@ -102,4 +108,3 @@ export default function App() {
     {animation && <div className="video-overlay" role="dialog" aria-modal="true" aria-label="Cohors Original-Logoanimation"><div><button className="button secondary" onClick={() => setAnimation(false)}>Überspringen / schließen</button>{window.matchMedia('(prefers-reduced-motion: reduce)').matches ? <img src="/brand/cohors-logo.png" alt="Statisches Cohors Original-Logo statt Animation" /> : <video src="/brand/cohors-animation.mp4" controls autoPlay muted playsInline onEnded={() => setAnimation(false)} />}</div></div>}
   </div>
 }
-function Metric({ title, value, note, icon, accent = false }: { title: string; value: number; note: string; icon: React.ReactNode; accent?: boolean }) { return <section className={`metric ${accent ? 'accent' : ''}`}><div><span>{title}</span><i>{icon}</i></div><strong>{value.toString().padStart(2, '0')}</strong><small>{note}</small></section> }

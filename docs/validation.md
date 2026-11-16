@@ -724,6 +724,38 @@ Der gesonderte Infra-Commit 09e166f wurde konfliktfrei als 3774627 integriert:
 nur 52 Dokumentationszeilen in `azure-infrastructure.md`, Produktionsziele
 statt Istnachweis; keine Runtime-/Deploymentaenderung.
 
+## Cockpit/Kalender: eigener Quellcheckpoint und gezielte Pruefserie
+
+Neue Quellen: berechtigungsgebundene SQL-Leseprojektionen, gemeinsame
+Prozessableitung, Fallzugangsdiagramm, exakte Risiko-/Pruefstand-/Prozesszahlen,
+KPI-Drilldowns und Monatskalender mit Agenda/Quellnavigation. Es werden keine
+fehlenden Risikogruppen oder Termine erfunden und keine Fristen neu berechnet.
+
+Vorbereitet sind acht SQL-freie `WorkspaceReadRuleTests` (einschliesslich
+beider DST-Tageslaengen) und drei `WorkspaceReadSqlTests`. Sie pruefen
+Fallzugang statt Kenntnis/Ereignis, Umfang/Produktberechtigung, unbekannte
+Risikogruppen, menschlichen Override und veraltete Analyse, aktuellen
+Medical-/RA-Stand, Original-Nichtmeldeweg, genau einen Pflichtzaehler trotz
+zweier Marker, echte Monats-/UTC-/DST-Grenzen, reine PSUR-Kalendertage,
+historische Fassungen, BS-Runden sowie paginierte Quellen ohne Snapshottext.
+
+Das neue isolierte Browserprofil `CockpitCalendar` umfasst exakt `D01` und
+`D02`: Zahlen gegen gespeicherte Fallauswahl und gemeinsame Prozesssicht,
+serverseitige Scopeverweigerung, Grafik-/KPI-/Fallnavigation ohne
+zusaetzlichen Vollabruf, echte PSUR-/BS-Quelltermine und UTC-Monatswechsel
+bei abweichender Browserzeitzone, konkrete Serien-/Rundenauswahl, keine
+Fachmutation durch die Oberflaeche. Es verwendet eine eigene SQL-Fixture;
+wegen seiner ausdruecklich angelegten Leitserie ist es vom unveraenderten
+elfteiligen `Preview`-Profil getrennt, nicht dessen Ersatz.
+
+Der gebundene Prueflauf soll zudem die sieben B10-Regel-/drei B10-SQL-Faelle,
+bestehende Prozess-/Signatur-/Nichtmelde-/Follow-up-Regressionen einschliessen.
+**Bis zu protokollierten Ergebnissen ist dies Pruefumfang, keine bestandene
+Abnahme.** Ein frischer lesender Alt/Neu-Abgleich muss vor einer Promotion
+auch heutige PSUR-/BS-Fassungen erhalten. Die offene B10-Workbench und der
+neu nachfolgende Pflichtfeld-Vervollstaendigungsauftrag sind nicht als
+Bestandteil dieser UI-Abnahme erledigt.
+
 ## MIR-Herkunft, nicht Behoerdenabnahme
 
 Der unabhaengige Koordinatornachweis vom 15.11.2026 ist unveraendert unter

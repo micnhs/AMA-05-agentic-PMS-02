@@ -9,7 +9,7 @@ using Microsoft.Data.SqlClient;
 
 namespace Cohors.Infrastructure;
 
-public sealed class SqlStateStore(string connectionString, TokenCredential? credential = null) : IStateStore, IRetentionStateStore
+public sealed partial class SqlStateStore(string connectionString, TokenCredential? credential = null) : IStateStore, IRetentionStateStore
 {
     public const int SchemaVersion = 2;
     private readonly Func<SqlAuthenticationParameters, CancellationToken, Task<SqlAuthenticationToken>>? tokenCallback =

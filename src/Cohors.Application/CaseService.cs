@@ -32,21 +32,33 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
     public async Task<CaseProcessView> Process(string id, Actor actor, CancellationToken ct = default)
     {
         var c = await Get(id, actor, ct);
-        var humanReplacesRun = false;
+        var revised = 0;
+        var requested = 0;
         if (c.CurrentAssessment?.Mode == "Human")
         {
             var audit = (await store.Audit(id, ct)).Where(e => e.Version <= c.Version).ToArray();
-            humanReplacesRun = audit.Where(e => e.Action == "AssessmentRevised").Select(e => e.Version).DefaultIfEmpty(0).Max() >
-                audit.Where(e => e.Action == "AssessmentRequested").Select(e => e.Version).DefaultIfEmpty(0).Max();
+            revised = audit.Where(e => e.Action == "AssessmentRevised").Select(e => e.Version).DefaultIfEmpty(0).Max();
+            requested = audit.Where(e => e.Action == "AssessmentRequested").Select(e => e.Version).DefaultIfEmpty(0).Max();
         }
+        SafetyCase? source = null;
+        if (c.Decisions.LastOrDefault() is { Disposition: Disposition.NonReportable } decision && c.CurrentAssessment is not null)
+            source = (await store.History<SafetyCase>("case", [c.ProductId], ct))
+                .Where(v => v.Id == id && v.Version <= c.Version && v.Decisions.LastOrDefault()?.Id == decision.Id)
+                .MinBy(v => v.Version);
+        return ProjectProcess(new(c, revised, requested, source));
+    }
+
+    public static CaseProcessView ProjectProcess(CaseProcessInput input)
+    {
+        var c = input.Case;
+        var humanReplacesRun = c.CurrentAssessment?.Mode == "Human" && input.LastAssessmentRevision > input.LastAssessmentRequest;
         var decisionCurrent = false;
         var decisionApproved = false;
         if (c.Decisions.LastOrDefault() is { Disposition: Disposition.NonReportable } decision && c.CurrentAssessment is { } assessment)
         {
-            var source = (await store.History<SafetyCase>("case", [c.ProductId], ct))
-                .Where(v => v.Id == id && v.Version <= c.Version && v.Decisions.LastOrDefault()?.Id == decision.Id)
-                .MinBy(v => v.Version);
-            if (source is not null)
+            var source = input.DecisionSource;
+            if (source is not null && source.Id == c.Id && source.ProductId == c.ProductId &&
+                source.Version <= c.Version && source.Decisions.LastOrDefault()?.Id == decision.Id)
             {
                 var obligations = source.Deadlines.Where(d => d.Status == "Open").ToArray();
                 decisionCurrent = source.Jurisdiction == c.Jurisdiction && decision.AssessmentVersion == assessment.Version &&

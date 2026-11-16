@@ -13,6 +13,36 @@ export interface CaseProcessView {
   currentStep: string; nextAction: string; nextRole: string; targetTab: string; blockers: string[];
   steps: { id: string; label: string; state: string; role: string; detail: string }[]; outcome: CaseOutcome;
 }
+export interface WorkspaceCount { key: string; label: string; count: number }
+export interface IntakePoint { from: string; through: string; count: number }
+export interface CockpitCase {
+  id: string; version: number; reference: string; productId: string; title: string; stage: string;
+  seriousness: string; outcome: CaseOutcome; systemReceivedAt: string; currentStep: string; stepLabel: string;
+  reviewState: string; assessmentMode: string | null; riskGroup: string;
+  openObligations: number; upcomingObligations: number; overdueObligations: number;
+}
+export interface CockpitSnapshot {
+  contract: string; asOf: string; from: string; through: string; timeZone: string; productId: string | null;
+  dateBasis: string; totalCases: number;
+  kpis: { openCases: number; pendingMedical: number; pendingRegulatory: number; openObligations: number; upcomingObligations: number; overdueObligations: number };
+  riskGroupsAvailable: boolean; riskBoundary: string; riskGroups: WorkspaceCount[]; reviewStates: WorkspaceCount[];
+  urgencyClasses: WorkspaceCount[]; processSteps: WorkspaceCount[]; intake: IntakePoint[];
+  focus: string; offset: number; pageSize: number; matchingCases: number; cases: CockpitCase[];
+}
+export interface CalendarEvent {
+  id: string; obligationId: string; kind: string; entityKind: 'case' | 'psur' | 'psurReview'; entityId: string;
+  psurId: string | null; round: number | null; productId: string; products: string[]; reference: string; title: string;
+  sourceVersion: number; sourceField: string; originalTimeZone: string | null; dueAt: string | null;
+  dueDate: string | null; displayDate: string; status: string; timing: string; isOpen: boolean;
+  isCurrent: boolean; primary: boolean; details: string[];
+}
+export interface CalendarDay { date: string; events: number; openEvents: number; overdueMarkers: number; kinds: WorkspaceCount[] }
+export interface CalendarSnapshot {
+  contract: string; asOf: string; month: string; timeZone: string; productId: string | null; kind: string; status: string;
+  day: string | null; days: CalendarDay[]; obligations: number; openObligations: number; overduePrimaryObligations: number;
+  missingPsurDates: number; totalEvents: number; matchingEvents: number; offset: number; pageSize: number; events: CalendarEvent[];
+}
+export interface PsurFocus { reportId: string; reviewId?: string; round?: number }
 export interface Citation { evidenceId: string; hash: string; locator: string; quote: string }
 export interface Claim { id: string; text: string; kind: string; citations: Citation[] }
 export interface Section { key: string; title: string; text: string; claimIds: string[] }

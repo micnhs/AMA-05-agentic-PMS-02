@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Capa, CaseSummary, ChangeRequest, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SummaryAgreement } from '../src/types'
+import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SummaryAgreement } from '../src/types'
 
 const home = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const artifacts = process.env.COHORS_UI_ARTIFACT_DIR ?? path.join(home, '.local')
@@ -65,6 +65,177 @@ function readSmallAuditZip(bytes: Buffer) {
   expect(entries.size).toBe(count)
   return entries
 }
+
+function requireWorkspaceIsolation(baseURL: string | undefined) {
+  if (!baseURL || new URL(baseURL).port === '5187' || !process.env.COHORS_TEST_ACCESS_FILE || !process.env.COHORS_UI_ARTIFACT_DIR)
+    throw new Error('Cockpit/calendar acceptance requires the private Test-Ui.ps1 fixture, never the user-active demo.')
+}
+
+test('D01: authorized cockpit counts, actual process drilldown, unavailable risk groups and read-only navigation', async ({ playwright, browser, baseURL }) => {
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const limited = await playwright.request.newContext({ baseURL })
+  let context: BrowserContext | undefined
+  const errors: string[] = []
+  try {
+    const csrf = await signIn(pms, 'pms.demo')
+    await signIn(limited, 'pms-ortho.demo')
+    const stamp = `COCKPIT-${Date.now()}`
+    const input = { incidentKey: stamp, sourceId: crypto.randomUUID(), productId: 'ortho', title: `Synthetische Cockpit-Auswertung ${stamp}`,
+      description: 'SYNTHETISCH: Berichteter Funktionsverlust. Die Patientenfolge ist nicht bestaetigt; Fristenklasse, Wahrscheinlichkeit und KI-Hypothesen sind kein Todesfallnachweis.',
+      udi: null, batch: null, country: 'DE', jurisdiction: 'EU-DE', seriousness: 'DeathOrSeriousDeterioration',
+      occurredAt: null, awarenessAt: new Date(Date.now() - 86_400_000).toISOString(), synthetic: true, scenario: 'cockpit-ui' }
+    let c = await command(pms, csrf, '/cases', input)
+    const unassessed = await command(pms, csrf, '/cases', { ...input, incidentKey: `${stamp}-OPEN`, sourceId: crypto.randomUUID(), title: `Synthetisch unbewertet ${stamp}` })
+    const foreign = await command(pms, csrf, '/cases', { ...input, incidentKey: `${stamp}-FOREIGN`, sourceId: crypto.randomUUID(), productId: 'cardio' })
+    c = await command(pms, csrf, `/cases/${c.id}/assessment`, { expectedVersion: c.version, mode: 'Replay',
+      reason: 'Synthetischen begruendeten Replay-Entwurf fuer echte Prozesszahlen erzeugen; keine automatische Risikogruppe.' })
+    await expect.poll(async () => { c = await (await pms.get(`/api/cases/${c.id}`)).json(); return c.currentAssessment?.version }).toBe(1)
+    const source = JSON.stringify(c)
+    const day = c.systemReceivedAt.slice(0, 10)
+    const query = `?productId=ortho&from=${day}&through=${day}&timeZone=UTC`
+    const snapshot: CockpitSnapshot = await (await limited.get(`/api/cockpit${query}`)).json()
+    const cases: CaseSummary[] = await (await limited.get('/api/cases')).json()
+    const cohort = cases.filter(row => row.productId === 'ortho' && row.systemReceivedAt.slice(0, 10) === day)
+    expect(snapshot.totalCases).toBe(cohort.length)
+    expect(snapshot.kpis.openCases).toBe(cohort.filter(row => row.stage !== 'Closed').length)
+    expect(snapshot.processSteps.reduce((sum, row) => sum + row.count, 0)).toBe(cohort.length)
+    expect(snapshot.intake.reduce((sum, row) => sum + row.count, 0)).toBe(cohort.length)
+    expect(snapshot.riskGroupsAvailable).toBe(false)
+    expect(snapshot.cases.some(row => row.id === foreign.id)).toBe(false)
+    expect((await limited.get(`/api/cockpit?productId=cardio&from=${day}&through=${day}`)).status()).toBe(403)
+    const process: CaseProcessView = await (await limited.get(`/api/cases/${c.id}/process`)).json()
+    expect(snapshot.cases.find(row => row.id === c.id)?.currentStep).toBe(process.currentStep)
+    expect(snapshot.cases.find(row => row.id === c.id)?.outcome.code).toBe('Unknown')
+
+    context = await browser.newContext({ storageState: await limited.storageState(), timezoneId: 'America/Los_Angeles' })
+    const page = await context.newPage()
+    const requests: { path: string; method: string }[] = []
+    page.on('pageerror', e => errors.push(e.message))
+    page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) requests.push({ path: new URL(request.url()).pathname, method: request.method() }) })
+    await page.goto(baseURL!)
+    await expect(page.getByRole('heading', { name: 'Fallzugänge', exact: true })).toBeVisible()
+    await page.getByLabel('Anzeigezeitzone', { exact: true }).selectOption('UTC')
+    await page.getByLabel('Produktfamilie', { exact: true }).selectOption('ortho')
+    await page.getByLabel('Fallzugänge ab', { exact: true }).fill(day)
+    await page.getByLabel('Bis einschließlich', { exact: true }).fill(day)
+    const applied = page.waitForResponse(response => response.url().includes('/api/cockpit?') && response.url().includes(`from=${day}`) && response.url().includes(`through=${day}`))
+    await page.getByRole('button', { name: 'Zeitraum anwenden', exact: true }).click()
+    expect((await applied).ok()).toBe(true)
+    await expect(page.getByTestId('kpi-open').locator('strong')).toHaveText(snapshot.kpis.openCases.toLocaleString('de-DE'))
+    await expect(page.getByText('Fachliche Gruppierung nicht verfügbar', { exact: true })).toBeVisible()
+    await expect(page.getByRole('group', { name: 'Prüfstände', exact: true })).toContainText('KI-Entwurf')
+    await page.screenshot({ path: path.join(artifacts, 'cohors-cockpit-kpis.png') })
+    await page.getByRole('heading', { name: 'Risikogruppen', exact: true }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-cockpit-risk-process.png') })
+    await page.getByRole('group', { name: 'Prozesszahlen', exact: true }).getByRole('button', { name: /^Analyse:/ }).click()
+    await expect(page.getByRole('region', { name: 'Zugehörige Fallakten' })).toContainText(unassessed.title)
+    await expect(page.getByRole('region', { name: 'Zugehörige Fallakten' })).not.toContainText(c.title)
+    await page.getByRole('button', { name: new RegExp(`Alle ${snapshot.totalCases} Fallakten der Auswahl`) }).click()
+    await expect(page.getByRole('region', { name: 'Zugehörige Fallakten' })).toContainText(c.title)
+    expect(requests.some(request => request.path === '/api/cases')).toBe(false)
+    expect(requests.some(request => /\/cases\/[^/]+\/process$/.test(request.path))).toBe(false)
+    await page.getByRole('region', { name: 'Zugehörige Fallakten' }).getByRole('button', { name: c.title, exact: true }).click()
+    await expect(page.getByRole('region', { name: 'Fallprozess', exact: true })).toBeVisible()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-cockpit-case-drilldown.png') })
+    expect(requests.every(request => request.method === 'GET')).toBe(true)
+    expect(JSON.stringify(await (await pms.get(`/api/cases/${c.id}`)).json())).toBe(source)
+    expect(errors).toEqual([])
+  } finally { await context?.close(); await pms.dispose(); await limited.dispose() }
+})
+
+test('D02: stored PSUR date-only and BS UTC month-boundary calendar, exact source navigation and whole-group authorization', async ({ playwright, browser, baseURL }) => {
+  requireWorkspaceIsolation(baseURL)
+  test.setTimeout(210_000)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  const ra = await playwright.request.newContext({ baseURL })
+  const limited = await playwright.request.newContext({ baseURL })
+  let context: BrowserContext | undefined
+  const errors: string[] = []
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    const medicalCsrf = await signIn(medical, 'medical.demo')
+    const raCsrf = await signIn(ra, 'ra.demo')
+    await signIn(limited, 'pms-cardio.demo')
+    const profiles: ProductGovernance[] = await (await pms.get('/api/products/profiles')).json()
+    const profile = profiles.find(p => p.productId === 'cardio')
+    if (!profile) throw new Error('Explicit seeded Cardio profile is required.')
+    const rationale = 'SYNTHETISCH: Gespeicherte Quelltermine und getrennte Basic-UDI-Berechtigungen pruefen; keine klinische Risikoakzeptanz, reale BS-Kommunikation oder Terminverschiebung.'
+    const group = await command<PsurGroupDefinition>(pms, pmsCsrf, '/psur-groups', { expectedVersion: 0,
+      reference: `DEMO-PSUR-GROUP-CALENDAR-${Date.now()}`, leadProductId: 'cardio', memberProductIds: ['cardio', 'ortho'],
+      firstPeriodStart: profile.firstPeriodStart, rationale, scheduleBasis: 'Expliziter synthetischer Kalendernachweis aus dem bestehenden Leitprodukt-Jahresplan.' })
+    const [year, month, day] = group.firstPeriodStart.split('-').map(Number)
+    let report = await command<Psur>(pms, pmsCsrf, '/psurs', { productId: 'cardio', leadProductId: 'cardio',
+      start: group.firstPeriodStart, end: new Date(Date.UTC(year + 1, month - 1, day - 1)).toISOString().slice(0, 10),
+      region: 'Worldwide', groupId: group.id, groupVersion: group.version, mode: 'Replay' })
+    report = await command<Psur>(medical, medicalCsrf, `/psurs/${report.id}/approve`, { expectedVersion: report.version, reason: rationale })
+    report = await command<Psur>(ra, raCsrf, `/psurs/${report.id}/approve`, { expectedVersion: report.version, reason: rationale })
+    report = await command<Psur>(ra, raCsrf, `/psurs/${report.id}/simulate`, { expectedVersion: report.version, reason: rationale })
+    const series = report.snapshot.series!
+    const [dueYear, dueMonth] = series.submissionDate.split('-').map(Number)
+    const lastDay = new Date(Date.UTC(dueYear, dueMonth, 0)).toISOString().slice(0, 10)
+    const nextMonth = new Date(Date.UTC(dueYear, dueMonth, 1)).toISOString().slice(0, 10)
+    const review = await command<PsurReview>(ra, raCsrf, '/psur-reviews', { psurId: report.id, psurVersion: report.version,
+      reference: `DEMO-BS-CALENDAR-${Date.now()}`, question: rationale, dueAt: `${lastDay}T23:30:00Z`,
+      actionRequired: false, scheduleBasis: 'Dieser isolierte synthetische Test vereinbart ausdruecklich 23:30 UTC am Monatsende; keine allgemeine Rechtsfrist.',
+      language: 'de', reason: rationale })
+    const reportBytes = JSON.stringify(report)
+    const reviewBytes = JSON.stringify(review)
+    const full: CalendarSnapshot = await (await pms.get(`/api/deadline-calendar?month=${nextMonth}&timeZone=Europe%2FBerlin&kind=NotifiedBodyReply`)).json()
+    expect(full.events.find(e => e.entityId === review.id)?.displayDate).toBe(nextMonth)
+    expect(full.events.find(e => e.entityId === review.id)?.originalTimeZone).toBe('UTC')
+    const restricted: CalendarSnapshot = await (await limited.get(`/api/deadline-calendar?month=${nextMonth}&timeZone=Europe%2FBerlin&kind=NotifiedBodyReply`)).json()
+    expect(restricted.events.some(e => e.entityId === review.id)).toBe(false)
+    expect(restricted.totalEvents).toBe(0)
+    expect(restricted.openObligations).toBe(0)
+
+    context = await browser.newContext({ storageState: await pms.storageState(), timezoneId: 'America/Los_Angeles' })
+    const page = await context.newPage()
+    const mutations: string[] = []
+    page.on('pageerror', e => errors.push(e.message))
+    page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/') && request.method() !== 'GET') mutations.push(request.url()) })
+    await page.goto(baseURL!)
+    await page.getByRole('navigation').getByRole('button', { name: 'Fristen', exact: true }).click()
+    await page.getByLabel('Kalendermonat', { exact: true }).fill(series.submissionDate.slice(0, 7))
+    await page.getByLabel('Fristtyp', { exact: true }).selectOption('PsurSubmission')
+    let event = page.getByTestId('calendar-event').filter({ hasText: series.reference })
+    await expect(event).toContainText('ohne Uhrzeit')
+    await expect(event).toContainText('keine Zeitzone gespeichert')
+    await page.getByLabel('Anzeigezeitzone', { exact: true }).selectOption('UTC')
+    await expect(event.locator('time')).toHaveAttribute('datetime', series.submissionDate)
+    await page.screenshot({ path: path.join(artifacts, 'cohors-calendar-month.png') })
+    await event.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-calendar-psur-agenda.png') })
+    await event.getByRole('button').click()
+    await expect(page.getByLabel('Unveränderlicher Snapshot / aktuelle Bearbeitungsfassung')).toHaveValue(report.id)
+    await expect(page.getByLabel('PSUR-Serie / versionierte Gruppierung')).toHaveValue(group.id)
+    await page.screenshot({ path: path.join(artifacts, 'cohors-calendar-psur-source.png') })
+
+    await page.getByRole('navigation').getByRole('button', { name: 'Fristen', exact: true }).click()
+    await page.getByLabel('Kalendermonat', { exact: true }).fill(nextMonth.slice(0, 7))
+    await page.getByLabel('Fristtyp', { exact: true }).selectOption('NotifiedBodyReply')
+    event = page.getByTestId('calendar-event').filter({ hasText: review.reference })
+    await expect(event.locator('time')).toContainText('00:30')
+    await expect(event).toContainText('Originalzeitzone: UTC')
+    await page.getByRole('button', { name: new RegExp(`^${nextMonth}:`) }).click()
+    await expect(page.getByRole('region', { name: 'Fristenagenda' })).toContainText(review.reference)
+    await page.screenshot({ path: path.join(artifacts, 'cohors-calendar-bs-boundary.png') })
+    await page.getByLabel('Anzeigezeitzone', { exact: true }).selectOption('UTC')
+    await expect(page.getByText('Keine gespeicherten Termine im gewählten Filter', { exact: true })).toBeVisible()
+    await page.getByLabel('Kalendermonat', { exact: true }).fill(lastDay.slice(0, 7))
+    await expect(event.locator('time')).toContainText('23:30')
+    await event.getByRole('button').click()
+    await expect(page.getByLabel('BS-Vorgang dieser Serie')).toHaveValue(review.id)
+    await expect(page.locator('.calendar-source-focus')).toContainText('Frage 1')
+    await page.locator('.calendar-source-focus').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(artifacts, 'cohors-calendar-bs-source.png') })
+    expect(mutations).toEqual([])
+    expect(JSON.stringify(await (await pms.get(`/api/psurs/${report.id}`)).json())).toBe(reportBytes)
+    expect(JSON.stringify(await (await pms.get(`/api/psur-reviews/${review.id}`)).json())).toBe(reviewBytes)
+    expect(errors).toEqual([])
+  } finally { await context?.close(); await pms.dispose(); await medical.dispose(); await ra.dispose(); await limited.dispose() }
+})
 
 test('V01: agent-prefilled report, grounded fields, missing-data return and separate Medical/RA review', async ({ playwright, browser, baseURL }) => {
   test.setTimeout(210_000)
