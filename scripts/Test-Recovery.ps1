@@ -41,10 +41,14 @@ try {
     [xml]$trx = Get-Content -LiteralPath $trxPath -Raw
     $counters = $trx.SelectSingleNode("//*[local-name()='ResultSummary']/*[local-name()='Counters']")
     $verified = Get-Content -LiteralPath (Join-Path $run 'fixture\verified.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 30 -DateKind String
-    if ([int]$counters.total -ne 13 -or $verified.completedChecks.Count -ne 10 -or
+    if ([int]$counters.total -ne 14 -or $verified.completedChecks.Count -ne 11 -or
         -not $verified.sourceDatabaseRemoved -or -not $verified.sourceObjectsRemoved -or
         -not $verified.ownedContainersAndVolumesRemoved -or -not $verified.retention.deletedRawAbsent -or
         -not $verified.retention.exactDeletionJournalRestored -or -not $verified.retention.staleBackupRejected -or
+        -not $verified.psur.sourceAndTargetContentVerified -or $verified.psur.reports.Count -ne 3 -or
+        $verified.psur.cutoffReview.status -cne 'ReplySubmitted' -or $verified.psur.currentReview.status -cne 'QuestionClosed' -or
+        $verified.psur.pendingReview.status -cne 'MedicalApproved' -or $verified.psur.pendingReview.approvals -ne 1 -or
+        $verified.psur.pendingReview.submissions -ne 0 -or
         $verified.applicationAssemblies.Count -ne 5) {
         throw 'Incomplete recovery execution or cleanup; no public success evidence was created.'
     }
@@ -66,7 +70,7 @@ try {
     New-Item -ItemType Directory -Path $artifacts | Out-Null
     [IO.File]::WriteAllText((Join-Path $artifacts 'recovery-results.json'),
         (ConvertTo-Json -InputObject $result -Depth 30), [Text.UTF8Encoding]::new($false))
-    Write-Output 'T18/T20 local recovery: 13/13 passed, none skipped. Only allowlisted results were published; raw logs and backups remain private.'
+    Write-Output 'T18/T20 local recovery including PSUR/BS: 14/14 passed, none skipped. Only allowlisted results were published; raw logs and backups remain private.'
 } finally {
     foreach ($name in $variables) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
 }

@@ -126,6 +126,155 @@ public sealed class RecoveryTests(RecoveryFixture fixture)
     }
 
     [Fact]
+    public async Task T20_RestoresGroupedPsurSeriesAndBsCutoffHistoryWithoutRebindingOrCompletingPendingReplies()
+    {
+        await using var target = await fixture.NewTarget();
+        await fixture.Restore(target);
+        await fixture.RequireSourceUnavailable();
+        var sql = new SqlStateStore(target.Connection);
+        var objects = new LocalObjectStore(target.ObjectRoot);
+        var clock = new TestClock(DateTimeOffset.Parse("2028-12-16T15:00:00Z"));
+        var analytics = new AnalyticsService(sql, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+        var reviews = new PsurReviewService(sql, analytics, clock);
+        Assert.Equal(fixture.SourceTables, await RecoveryFixture.Tables(target.Connection));
+        Assert.Equal(fixture.SourcePsurHistory, await RecoveryFixture.PsurHistory(sql));
+
+        var expectedReports = new[] { fixture.InitialPsur, fixture.OtherSeriesPsur, fixture.NextPsur };
+        Assert.Equal(expectedReports.Select(p => p.Id).Order(StringComparer.Ordinal),
+            (await analytics.ListPsurs(SqlFixture.Pms)).Select(p => p.Id).Order(StringComparer.Ordinal));
+        Assert.Equal(Canonical.Serialize(fixture.CurrentPsurGroup),
+            Canonical.Serialize((await analytics.ListGroups(SqlFixture.Pms)).Single(g => g.Id == fixture.CurrentPsurGroup.Id)));
+        foreach (var expected in expectedReports)
+        {
+            var actual = await analytics.GetVerifiedPsur(expected.Id, SqlFixture.Ra);
+            Assert.Equal(Canonical.Serialize(expected), Canonical.Serialize(actual));
+            Assert.Equal(expected.SnapshotHash, Canonical.Hash(actual.Snapshot));
+            Assert.Equal(expected.ScopeHash, PortfolioRules.PsurScope(actual));
+            Assert.Equal(Encoding.UTF8.GetBytes(expected.Draft), Encoding.UTF8.GetBytes(actual.Draft));
+            RequireSeparateApprovals(actual.Approvals, actual.ScopeHash);
+            var group = Assert.IsType<PsurGrouping>(actual.Snapshot.Group);
+            Assert.Equal(new[] { "cardio", "ortho" }, group.Members.Select(m => m.Product.ProductId).Order(StringComparer.Ordinal));
+            foreach (var member in group.Members)
+            {
+                var original = expected.Snapshot.Group!.Members.Single(m => m.Product.ProductId == member.Product.ProductId);
+                Assert.Equal(Canonical.Serialize(original), Canonical.Serialize(member));
+                Assert.Equal(member.Product.ProductId, member.Snapshot.ProductId);
+                Assert.Empty(member.Snapshot.RegulatoryHistory!.Reviews);
+                foreach (var document in member.Snapshot.Documents)
+                {
+                    Assert.Equal(member.Product.ProductId, document.ProductId);
+                    Assert.Equal(fixture.SourceBytes[document.ObjectKey],
+                        await File.ReadAllBytesAsync(Path.Combine(target.ObjectRoot, document.ObjectKey)));
+                    Assert.Equal(document.Content, await objects.Read(document.ObjectKey));
+                }
+            }
+            await sql.Manifest(actual.Id, kind: "psur");
+            Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+                analytics.GetVerifiedPsur(actual.Id, SqlFixture.Ra with { Products = [actual.ProductId] }))).Status);
+        }
+        Assert.Empty(await analytics.ListPsurs(SqlFixture.Pms with { Products = ["ortho"] }));
+        Assert.Empty(await analytics.ListGroups(SqlFixture.Pms with { Products = ["cardio"] }));
+
+        var initial = await analytics.GetVerifiedPsur(fixture.InitialPsur.Id, SqlFixture.Pms);
+        var other = await analytics.GetVerifiedPsur(fixture.OtherSeriesPsur.Id, SqlFixture.Pms);
+        var next = await analytics.GetVerifiedPsur(fixture.NextPsur.Id, SqlFixture.Pms);
+        var initialSeries = Assert.IsType<PsurSeries>(initial.Snapshot.Series);
+        var nextSeries = Assert.IsType<PsurSeries>(next.Snapshot.Series);
+        var nextGroup = Assert.IsType<PsurGrouping>(next.Snapshot.Group);
+        Assert.Equal(initialSeries.Reference, nextSeries.Reference);
+        Assert.NotEqual(initialSeries.Reference, other.Snapshot.Series!.Reference);
+        Assert.Equal(new VersionReference(initial.Id, initial.Version, Canonical.Hash(initial)), nextSeries.PreviousReport!.Source);
+        Assert.Equal(initialSeries.ReportVersion + 1, nextSeries.ReportVersion);
+        Assert.Equal(initial.Snapshot.End.AddDays(1), next.Snapshot.Start);
+        Assert.Equal(initial.Snapshot.Group!.DefinitionSource.Version + 1, nextGroup.DefinitionSource.Version);
+        Assert.Equal(Canonical.Serialize(fixture.OriginalEvidence), Canonical.Serialize(
+            PsurGroupRules.Documents(initial.Snapshot).Single(e => e.Id == fixture.OriginalEvidence.Id)));
+        Assert.Equal(Canonical.Serialize(fixture.CurrentEvidence), Canonical.Serialize(
+            PsurGroupRules.Documents(next.Snapshot).Single(e => e.Id == fixture.CurrentEvidence.Id)));
+        foreach (var product in new[] { "ortho", "cardio" })
+        {
+            var member = nextGroup.Members.Single(m => m.Product.ProductId == product);
+            var exposure = member.Snapshot.Periods.Single(p => p.Label == "N").Regions.Single(r => r.Region == "Worldwide");
+            var source = fixture.NextPsur.Snapshot.Group!.Members.Single(m => m.Product.ProductId == product)
+                .Snapshot.Exposure.Single(e => e.Start == next.Snapshot.Start && e.Region == "Worldwide");
+            Assert.Equal(source.Count, exposure.Exposure);
+            Assert.Equal(source.Id, exposure.ExposureId);
+            Assert.Equal(source.Version, exposure.ExposureVersion);
+        }
+
+        var closed = await reviews.Get(fixture.ClosedPsurReview.Id, SqlFixture.Pms);
+        var pending = await reviews.Get(fixture.PendingPsurReview.Id, SqlFixture.Pms);
+        Assert.Equal(Canonical.Serialize(fixture.ClosedPsurReview), Canonical.Serialize(closed));
+        Assert.Equal(Canonical.Serialize(fixture.PendingPsurReview), Canonical.Serialize(pending));
+        Assert.Equal("QuestionClosed", closed.Status);
+        Assert.Equal(2, closed.Questions.Length);
+        Assert.Equal(2, closed.Submissions.Length);
+        Assert.Equal(new[] { "FurtherResponseRequired", "NoFurtherQuestion" }, closed.Assessments.Select(a => a.Outcome));
+        foreach (var submission in closed.Submissions)
+        {
+            RequireSeparateApprovals(submission.Approvals, submission.ScopeHash);
+            Assert.Equal(Canonical.Serialize(PsurReviewRules.Bind(initial)), Canonical.Serialize(submission.Reply.Report));
+            foreach (var source in submission.Reply.Sources)
+                Assert.Contains(PsurGroupRules.Snapshots(initial.Snapshot).SelectMany(s => s.Directory!.Entries), e => e == source);
+        }
+        Assert.Equal(new VersionReference(fixture.VerifiedPsurCapa.Id, fixture.VerifiedPsurCapa.Version,
+            Canonical.Hash(fixture.VerifiedPsurCapa)), Assert.Single(closed.Assessments[^1].ActionEvidence).Source);
+        Assert.Equal("MedicalApproved", pending.Status);
+        Assert.Equal(Roles.Medical, Assert.Single(pending.Approvals).Role);
+        Assert.Equal(pending.ScopeHash, PsurReviewRules.Scope(pending));
+        Assert.Empty(pending.Submissions);
+        Assert.Empty(pending.Assessments);
+        var expectedReviewIds = new[] { closed.Id, pending.Id }.Order(StringComparer.Ordinal);
+        Assert.Equal(expectedReviewIds, (await reviews.List(next.Id, SqlFixture.Ra)).Select(r => r.Id).Order(StringComparer.Ordinal));
+        Assert.Empty(await reviews.List(other.Id, SqlFixture.Ra));
+        Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+            reviews.Get(closed.Id, SqlFixture.Pms with { Products = ["ortho"] }))).Status);
+        Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+            reviews.List(next.Id, SqlFixture.Pms with { Products = ["ortho"] }))).Status);
+
+        var earlier = Assert.Single(other.Snapshot.Group!.RegulatoryHistory!.Reviews);
+        Assert.Equal("PostCutoffAddendum", earlier.Selection);
+        Assert.Null(earlier.AtCutoff);
+        Assert.Null(earlier.CutoffSource);
+        Assert.Equal(Canonical.Serialize(fixture.PsurReviewAtCutoff), Canonical.Serialize(earlier.CurrentAtFreeze));
+        var nextHistory = Assert.IsType<PsurRegulatoryHistory>(nextGroup.RegulatoryHistory);
+        var historical = nextHistory.Reviews.Single(r => r.CurrentSource.Id == closed.Id);
+        Assert.Equal("OpenInPeriod", historical.Selection);
+        Assert.Equal("ReplySubmitted", historical.StatusAtCutoff);
+        Assert.Equal(new VersionReference(fixture.PsurReviewAtCutoff.Id, fixture.PsurReviewAtCutoff.Version,
+            Canonical.Hash(fixture.PsurReviewAtCutoff)), historical.CutoffSource);
+        Assert.Equal(Canonical.Serialize(fixture.PsurReviewAtCutoff), Canonical.Serialize(historical.AtCutoff));
+        Assert.Equal(Canonical.Serialize(closed), Canonical.Serialize(historical.CurrentAtFreeze));
+        var postCutoff = nextHistory.Reviews.Single(r => r.CurrentSource.Id == pending.Id);
+        Assert.Equal("PostCutoffAddendum", postCutoff.Selection);
+        Assert.Equal("NotRecordedAtCutoff", postCutoff.StatusAtCutoff);
+        Assert.Null(postCutoff.AtCutoff);
+        Assert.Equal(Canonical.Serialize(pending), Canonical.Serialize(postCutoff.CurrentAtFreeze));
+        var action = nextGroup.Members.Single(m => m.Product.ProductId == "cardio").Snapshot.Actions!.Capas
+            .Single(c => c.CurrentSource.Id == fixture.VerifiedPsurCapa.Id);
+        Assert.Equal("Open", action.StatusAtCutoff);
+        Assert.Equal(Canonical.Serialize(fixture.PsurCapaAtCutoff), Canonical.Serialize(action.AtCutoff));
+        Assert.Equal(Canonical.Serialize(fixture.VerifiedPsurCapa), Canonical.Serialize(action.CurrentAtFreeze));
+        foreach (var review in new[] { closed, pending }) await sql.Manifest(review.Id, kind: "psurReview");
+        foreach (var group in await analytics.ListGroups(SqlFixture.Pms)) await sql.Manifest(group.Id, kind: "psurGroup");
+        await sql.Manifest(fixture.VerifiedPsurCapa.Id, kind: "capa");
+        Assert.Equal(Canonical.Serialize(fixture.PsurReviewAtCutoff), Canonical.Serialize(
+            await reviews.Simulate(closed.Id, fixture.PsurReplyCommand, SqlFixture.Ra, fixture.PsurReplyKey)));
+        Assert.Equal(fixture.SourceTables, await RecoveryFixture.Tables(target.Connection));
+        fixture.PsurRecoveryVerified = true;
+        fixture.Passed("PSUR/BS: exact grouped series, approvals, historical/current sources and cutoff/addendum snapshots; pending reply preserved; replay made no writes");
+    }
+
+    private static void RequireSeparateApprovals(Approval[] approvals, string scope)
+    {
+        Assert.Equal(2, approvals.Length);
+        var medical = Assert.Single(approvals.Where(a => a.Role == Roles.Medical));
+        var regulatory = Assert.Single(approvals.Where(a => a.Role == Roles.Regulatory));
+        Assert.NotEqual(medical.ActorId, regulatory.ActorId);
+        Assert.All(approvals, a => Assert.Equal(scope, a.ScopeHash));
+    }
+
+    [Fact]
     public async Task T20_RawRestoreRequiresCurrentCatalogueAndRejectsARealPreDeletionBackup()
     {
         await using (var missing = await fixture.NewTarget())
@@ -559,6 +708,19 @@ public sealed class RecoveryFixture : IAsyncLifetime
     public DateTimeOffset CaptureTime { get; } = DateTimeOffset.Parse("2026-11-16T15:00:00Z");
     public Dictionary<string, byte[]> SourceBytes { get; } = new(StringComparer.Ordinal);
     public SortedDictionary<string, string> SourceTables { get; private set; } = new(StringComparer.Ordinal);
+    public Psur InitialPsur { get; private set; } = null!;
+    public Psur OtherSeriesPsur { get; private set; } = null!;
+    public Psur NextPsur { get; private set; } = null!;
+    public PsurGroupDefinition CurrentPsurGroup { get; private set; } = null!;
+    public PsurReview PsurReviewAtCutoff { get; private set; } = null!;
+    public PsurReview ClosedPsurReview { get; private set; } = null!;
+    public PsurReview PendingPsurReview { get; private set; } = null!;
+    public Capa PsurCapaAtCutoff { get; private set; } = null!;
+    public Capa VerifiedPsurCapa { get; private set; } = null!;
+    public VersionCommand PsurReplyCommand { get; private set; } = null!;
+    public string PsurReplyKey { get; private set; } = "";
+    public SortedDictionary<string, string> SourcePsurHistory { get; private set; } = new(StringComparer.Ordinal);
+    public bool PsurRecoveryVerified { get; set; }
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
@@ -658,6 +820,7 @@ public sealed class RecoveryFixture : IAsyncLifetime
                 Assert.Contains(SourceCase.Deadlines, d => d.Jurisdiction == "NI" && d.Status == "Open");
                 await source.Store.Manifest(SourceCase.Id);
                 await source.Store.Manifest(CurrentEvidence.Id, kind: "evidence");
+                await PreparePsurRecovery(source);
                 const string retentionReason = "Menschlich kontrollierter isolierter T18/T20-Rohdaten-Test ohne Patienten oder produktive Loeschung.";
                 var retention = new RetentionService(source.Store, source.Store, source.Objects, source.Policies,
                     new(true), new TestClock(CaptureTime));
@@ -712,6 +875,119 @@ public sealed class RecoveryFixture : IAsyncLifetime
         }
         finally { Environment.SetEnvironmentVariable("COHORS_TEST_CONNECTION", previousConnection); }
     }
+
+    private async Task PreparePsurRecovery(SqlFixture source)
+    {
+        const string reason = "SYNTHETISCH: Die getrennten Produktquellen, unveraenderten Berichtsfassungen und vereinbarten BS-Antworten werden ausschliesslich fuer den isolierten Recovery-Test nachvollziehbar geprueft; keine klinische Risikoakzeptanz.";
+        const string response = "SYNTHETISCHE ANTWORT: Die beiden Basic-UDI-Familien und ihre belegten Nenner bleiben getrennt. Diese begruendete Praezisierung bindet die konkret ausgewaehlten historischen Dokumentfassungen, ohne eingefrorene Berichtsbytes oder fruehere Pflichten zu aendern.";
+        var clock = new TestClock(CaptureTime);
+        var analytics = new AnalyticsService(source.Store, new AgentRunner(new(null, null, null, null)), source.Policies, clock);
+        var reviews = new PsurReviewService(source.Store, analytics, clock);
+        var quality = new QualityService(source.Store, source.Objects, clock);
+        RecordPsurGroupCommand Definition(string lead) => new(0,
+            "DEMO-PSUR-GROUP-RECOVERY-" + lead.ToUpperInvariant() + "-" + owner.ToUpperInvariant(), lead,
+            ["ortho", "cardio"], new(2025, 11, 15), reason,
+            "Synthetischer Leitprodukt-Jahresplan mit expliziter Einreichungsvereinbarung; andere Serienpflichten bleiben getrennt bestehen.");
+        FreezePsurCommand Initial(PsurGroupDefinition group) => new(group.ProductId, group.ProductId,
+            group.FirstPeriodStart, group.FirstPeriodStart.AddYears(1).AddDays(-1), "Worldwide",
+            Mode: AgentMode.Replay, GroupId: group.Id, GroupVersion: group.Version);
+        async Task<Psur> ApproveReport(Psur report)
+        {
+            report = await analytics.Approve(report.Id, new(report.Version, reason), SqlFixture.Medical, CaseScenario.Key());
+            report = await analytics.Approve(report.Id, new(report.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+            return await analytics.Simulate(report.Id, new(report.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+        }
+        OpenPsurReviewCommand Question(string suffix, bool action) => new(InitialPsur.Id, InitialPsur.Version,
+            "DEMO-BS-RECOVERY-" + suffix + "-" + owner,
+            "Die synthetische BS verlangt eine quellgebundene Praezisierung der getrennten Produktdaten und der angegebenen Massnahmen.",
+            clock.Now.AddDays(4), action, "Ausdruecklich fuer diese synthetische Rueckfrage vereinbarter UTC-Termin, keine allgemeine Rechtsfrist.",
+            "de", reason);
+        DraftPsurReplyCommand Draft(PsurReview review, params PsurReviewSelection[] actions) => new(review.Version,
+            InitialPsur.Id, InitialPsur.Version, response,
+            PsurGroupRules.Snapshots(InitialPsur.Snapshot).Select(s => s.Directory!.Entries.First(e =>
+                e.Kind == "evidence" && e.Selection == "CurrentAtFreeze"))
+                .Select(e => new PsurReviewSelection(e.Kind, e.Source.Id, e.Source.Version)).ToArray(), actions,
+            "Keine neue Massnahme fuer diese Klarstellung erfinden; bereits verknuepfte Massnahmen frueherer Runden bleiben gesondert nachweispflichtig.", reason);
+        async Task<PsurReview> ApproveReply(PsurReview review)
+        {
+            review = await reviews.Approve(review.Id, new(review.Version, reason), SqlFixture.Medical, CaseScenario.Key());
+            return await reviews.Approve(review.Id, new(review.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+        }
+
+        var definition = Definition("ortho");
+        CurrentPsurGroup = await analytics.RecordGroup(definition, SqlFixture.Pms, CaseScenario.Key());
+        InitialPsur = await ApproveReport(await analytics.Freeze(Initial(CurrentPsurGroup), SqlFixture.Pms, CaseScenario.Key()));
+        clock.Now = DateTimeOffset.Parse("2027-11-13T15:00:00Z");
+        var cardioCase = await source.Service(clock).Register(new CaseScenario(source).Input with {
+            ProductId = "cardio", OccurredAt = clock.Now.AddDays(-2), AwarenessAt = clock.Now.AddDays(-1)
+        }, SqlFixture.Pms, CaseScenario.Key());
+        PsurCapaAtCutoff = await quality.OpenCapa(new(cardioCase.Id, "cardio",
+            "Synthetische BS-Dokumentationspruefung fuer Recovery",
+            "Drei synthetische Soll/Ist-Dokumentationsproben einzeln gegen die vorgegebenen Kriterien pruefen.", reason,
+            SqlFixture.Pms.Id, "Alle drei Vergleiche erfuellen das vorher dokumentierte Kriterium ohne die beanstandete Abweichung.",
+            clock.Now.AddDays(10)), SqlFixture.Pms, CaseScenario.Key());
+        var review = await reviews.Open(Question("CUTOFF", true), SqlFixture.Ra, CaseScenario.Key());
+        review = await reviews.Draft(review.Id, Draft(review, new PsurReviewSelection("capa", PsurCapaAtCutoff.Id, PsurCapaAtCutoff.Version)),
+            SqlFixture.Pms, CaseScenario.Key());
+        review = await ApproveReply(review);
+        review = await reviews.Simulate(review.Id, new(review.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+        review = await reviews.Assess(review.Id, new(review.Version, "FurtherResponseRequired", reason,
+            "Die synthetische BS verlangt eine weitere Dokumentation der begruendeten Quellenausschluesse; die fruehere CAPA bleibt bestehen.",
+            clock.Now.AddDays(6), NextScheduleBasis: "Gesonderter vereinbarter UTC-Termin ausschliesslich fuer die zweite synthetische Rueckfragerunde."),
+            SqlFixture.Ra, CaseScenario.Key());
+        review = await reviews.Draft(review.Id, Draft(review), SqlFixture.Pms, CaseScenario.Key());
+        review = await ApproveReply(review);
+        PsurReplyCommand = new(review.Version, reason);
+        PsurReplyKey = CaseScenario.Key();
+        PsurReviewAtCutoff = await reviews.Simulate(review.Id, PsurReplyCommand, SqlFixture.Ra, PsurReplyKey);
+
+        var otherGroup = await analytics.RecordGroup(Definition("cardio"), SqlFixture.Pms, CaseScenario.Key());
+        OtherSeriesPsur = await ApproveReport(await analytics.Freeze(Initial(otherGroup), SqlFixture.Pms, CaseScenario.Key()));
+        Assert.Equal(Canonical.Serialize(PsurReviewAtCutoff),
+            Canonical.Serialize(Assert.Single(OtherSeriesPsur.Snapshot.Group!.RegulatoryHistory!.Reviews).CurrentAtFreeze));
+
+        clock.Now = DateTimeOffset.Parse("2027-11-16T15:00:00Z");
+        VerifiedPsurCapa = await quality.Verify(PsurCapaAtCutoff.Id, new(PsurCapaAtCutoff.Version,
+            "SYNTHETISCHER PRUEFBELEG: Drei getrennt dokumentierte Soll/Ist-Vergleiche erfuellen das vorab festgelegte Kriterium.",
+            true, reason), SqlFixture.Quality, CaseScenario.Key());
+        ClosedPsurReview = await reviews.Assess(PsurReviewAtCutoff.Id, new(PsurReviewAtCutoff.Version, "NoFurtherQuestion", reason),
+            SqlFixture.Ra, CaseScenario.Key());
+        PendingPsurReview = await reviews.Open(Question("POST-CUTOFF", false), SqlFixture.Ra, CaseScenario.Key());
+        PendingPsurReview = await reviews.Draft(PendingPsurReview.Id, Draft(PendingPsurReview), SqlFixture.Pms, CaseScenario.Key());
+        PendingPsurReview = await reviews.Approve(PendingPsurReview.Id, new(PendingPsurReview.Version, reason),
+            SqlFixture.Medical, CaseScenario.Key());
+        CurrentPsurGroup = await analytics.RecordGroup(definition with { ExpectedVersion = CurrentPsurGroup.Version,
+            Rationale = reason + " Neue kontrollierte Gruppierungsbegruendung bei identischen getrennten Mitgliedern; die alte Version bleibt erhalten." },
+            SqlFixture.Pms, CaseScenario.Key());
+        var start = InitialPsur.Snapshot.End.AddDays(1);
+        var end = InitialPsur.Snapshot.End.AddYears(1);
+        foreach (var product in new[] { "ortho", "cardio" })
+        {
+            var exposure = new Exposure("recovery-next-exposure-" + owner + "-" + product, 1, product, "Worldwide", start, end,
+                "Implants", product == "ortho" ? 1200 : 2300, "Explicit synthetic annual population for " + product,
+                "DEMO-RECOVERY-NEXT-PERIOD-EXPOSURE", true);
+            await source.Store.Execute<Exposure>(new(exposure.Id, "exposure", product, 0, CaseScenario.Key(),
+                "SyntheticExposureRecorded", reason, SqlFixture.Quality, exposure, clock.Now), _ => exposure);
+        }
+        NextPsur = await ApproveReport(await analytics.Freeze(new("ortho", "ortho", start, end, "Worldwide",
+            Mode: AgentMode.Replay, PreviousReportId: InitialPsur.Id, PreviousReportVersion: InitialPsur.Version,
+            SubmissionDate: new(2028, 1, 10), ScheduleAgreement: "DEMO-RECOVERY-EXPLICIT-NEXT-PERIOD-AGREEMENT",
+            RevisionReason: reason, GroupId: CurrentPsurGroup.Id, GroupVersion: CurrentPsurGroup.Version),
+            SqlFixture.Pms, CaseScenario.Key()));
+        Assert.Equal("ReplySubmitted", NextPsur.Snapshot.Group!.RegulatoryHistory!.Reviews
+            .Single(r => r.CurrentSource.Id == ClosedPsurReview.Id).StatusAtCutoff);
+        Assert.Equal("MedicalApproved", PendingPsurReview.Status);
+        SourcePsurHistory = await PsurHistory(source.Store);
+        Assert.Equal(Canonical.Serialize(SourceCase), Canonical.Serialize(await source.Store.Get<SafetyCase>("case", SourceCase.Id)));
+    }
+
+    public static async Task<SortedDictionary<string, string>> PsurHistory(IStateStore store) => new(StringComparer.Ordinal)
+    {
+        ["psur"] = Canonical.Serialize(await store.History<Psur>("psur", ["ortho", "cardio"])),
+        ["psurGroup"] = Canonical.Serialize(await store.History<PsurGroupDefinition>("psurGroup", ["ortho", "cardio"])),
+        ["psurReview"] = Canonical.Serialize(await store.History<PsurReview>("psurReview", ["ortho", "cardio"])),
+        ["capa"] = Canonical.Serialize(await store.History<Capa>("capa", ["ortho", "cardio"]))
+    };
 
     public async Task<RecoveryTarget> NewTarget()
     {
@@ -801,7 +1077,7 @@ public sealed class RecoveryFixture : IAsyncLifetime
                 await RemoveOwnedContainer(container);
             foreach (var path in privateConfigs) File.Delete(path);
             await WriteOwnershipInventory(cleanupVerified: true);
-            if (checks.Count == 10)
+            if (checks.Count == 11 && PsurRecoveryVerified)
             {
                 foreach (var item in applicationAssemblies)
                     Assert.Equal(item.Value, FileHash(Path.Combine(applicationDirectory, item.Key)));
@@ -815,6 +1091,23 @@ public sealed class RecoveryFixture : IAsyncLifetime
                     retention = new { activeRawHash = ActiveRaw.Object.Hash, deletedRawHash = DeletedRaw.Object.Hash,
                         deletedRawAbsent = true, exactDeletionJournalRestored = true, preDeletionManifestSha256 = PreDeletionManifestHash,
                         staleBackupRejected = true, independentReferencesNotWaived = true, automaticFreshnessProof = false },
+                    psur = new {
+                        sourceAndTargetContentVerified = PsurRecoveryVerified,
+                        reports = new[] { InitialPsur, OtherSeriesPsur, NextPsur }.Select(p => new {
+                            p.Id, p.Version, hash = Canonical.Hash(p), p.SnapshotHash, p.ScopeHash,
+                            p.Snapshot.Series!.Reference, p.Snapshot.Series!.ReportVersion,
+                            group = p.Snapshot.Group!.DefinitionSource,
+                            products = PsurGroupRules.Products(p.Snapshot)
+                        }).ToArray(),
+                        historyHashes = SourcePsurHistory.ToDictionary(h => h.Key, h => Canonical.HashText(h.Value)),
+                        cutoffReview = new { PsurReviewAtCutoff.Id, PsurReviewAtCutoff.Version,
+                            hash = Canonical.Hash(PsurReviewAtCutoff), PsurReviewAtCutoff.Status },
+                        currentReview = new { ClosedPsurReview.Id, ClosedPsurReview.Version,
+                            hash = Canonical.Hash(ClosedPsurReview), ClosedPsurReview.Status },
+                        pendingReview = new { PendingPsurReview.Id, PendingPsurReview.Version,
+                            hash = Canonical.Hash(PendingPsurReview), PendingPsurReview.Status,
+                            approvals = PendingPsurReview.Approvals.Length, submissions = PendingPsurReview.Submissions.Length }
+                    },
                     historicalEvidenceHash = OriginalEvidence.Hash, currentEvidenceHash = CurrentEvidence.Hash,
                     frozenPackageSha256 = Canonical.HashText(SourceCase.CurrentReport!.FrozenJson!),
                     transmissionStatus = SourceCase.CurrentReport.State.ToString(), correlationId = UnknownCorrelation,
