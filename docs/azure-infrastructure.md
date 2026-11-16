@@ -43,6 +43,58 @@ Das ist kein Erfuellungsnachweis. Fuer dieses Paket sind L-01
 (Need-to-know/Verschluesselung/Privacy/EU) massgeblich. Fachliche Einzelabnahmen
 und Originaldateiuebernahme bleiben bei Cohors-Pilot.
 
+## Bestaetigte Produktionsannahmen (nur Zielbild)
+
+**Entscheidungsstand 2026-11-16:** Der Nutzer hat die vom koordinierenden Project
+empfohlenen Produktionsziele ausdruecklich uebernommen. Quelle ist diese
+Nutzerbestaetigung mit den vom Project dazu weitergegebenen Empfehlungswerten;
+die Zahlen sind keine woertliche Nutzerauesserung. Dieser Abschnitt dokumentiert
+Zielannahmen, **keine implementierte Produktionsarchitektur, Istnachweise,
+gesetzlich vorgeschriebenen Minutenwerte oder zugesagte Produktions-SLA**.
+Er ersetzt weder BIA (Business Impact Analysis) und End-to-end-DR-Uebungen noch
+formale PRRC-/RA-, QM-, Datenschutz- oder Betriebsfreigaben.
+
+| Bereich | Uebernommenes Produktionsziel |
+| --- | --- |
+| PMS-Kern | Intake, Fristen, Fall-/Evidenzzugriff, Review und Meldungspakete: SLO **99,95 %**, 24/7, rollierende 30 Tage. |
+| Wiederherstellung des Kerns | RTO **<= 5 Minuten** bei Komponenten-/AZ-Ausfall; **<= 60 Minuten** bei vollstaendigem Regionalausfall fuer den funktionsfaehigen Kern. |
+| Unabhaengiger Notbetrieb | Fristenregister, Aufnahme und manueller Meldeweg **<= 15 Minuten** verfuegbar; kein Ersatznachweis fuer vollstaendige Wiederherstellung. |
+| Kritischer fachlicher Zustand | **Fachliches RPO 0** fuer bereits bestaetigte Eingaenge, Awareness-Zeitpunkte, Freigaben, Auditdaten, Evidenz und freigegebene Meldungen/Quittungen einschliesslich freigegebener PSURs. |
+| Wiederholbare Zwischenstaende | **RPO <= 5 Minuten** ausschliesslich fuer wiederholbare, noch nicht freigegebene Arbeitszwischenstaende. |
+| KI-Analyse und PSUR-Erzeugung | RTO **<= 4 Stunden**, SLO **99,9 %**; menschliche Bearbeitung und Erstmeldung duerfen nicht darauf warten. Freigegebene PSURs bleiben im kritischen RPO-0-Scope. |
+| Fristenalarme | **99,9 % innerhalb <= 2 Minuten** ab gespeicherter Warn-/Faelligkeitsgrenze; jedes Ueberschreiten von **5 Minuten** als Stoerung behandeln. |
+| Missing-Watchdog | Fehlenden Herzschlag **unabhaengig innerhalb <= 3 Minuten** erkennen/alarmieren; getrennt von fachlichen Fristenalarmen. |
+| Nicht-KI-Bedienoperationen | **p95 < 2 Sekunden**, **p99 < 5 Sekunden** unter einem definierten Produktionsprofil einschliesslich Importspitzen. |
+| Menschliche Alarmreaktion | Kritische Alarme **<= 15 Minuten** menschlich bestaetigen, mit Vertretung und 24x7-Eskalation; technische Zustellung ist keine menschliche Bestaetigung. |
+
+99,95 % entsprechen rund **21,6 Minuten Ausfallbudget je 30 Tage**. Ein
+60-minuetiger Ausfall verletzt dieses SLO auch dann, wenn das regionale RTO
+eingehalten wird. RTO umfasst Erkennung, Entscheidung, Umschaltung, Identitaet
+und den Daten-/Objekt-/Workflowabgleich bis zum funktionsfaehigen Dienst,
+nicht nur SQL-Failover.
+
+Asynchrone SQL-Geo-Replikation belegt **kein RPO 0**. Kritische Ereignisse und
+Evidenz muessen vor dem endgueltigen Erfolgs-ACK regionenuebergreifend dauerhaft
+gesichert und vollstaendig abgleichbar sein. Ein konsistenter, ausfallgepruefter
+Bestaetigungs-/Abgleichvertrag ist noch zu entwerfen und nachzuweisen; parallele
+ungesicherte Dualwrites sind keine Loesung oder Erfuellungsbehauptung. Die
+bestehenden EU-Verarbeitungs-/Datenschutzgates gelten auch fuer diese Kopien.
+Separate geschuetzte Backup-/Restore-Szenarien fuer logische Korruption und
+Ransomware bleiben erforderlich. Regulatorische Uhren laufen unveraendert;
+KI-Ausfaelle oder DR rechtfertigen keine Fristverlaengerung.
+
+**Kapazitaet und unveraenderte Pilotgrenzen:** Das genehmigte Konzept nennt
+250.000 Eingangssignale/Jahr und 90 PMS-Teammitglieder. Rohsignale sind nicht
+automatisch bestaetigte Faelle; Bestandsvolumen, Spitzen und Gleichzeitigkeit
+sind separat zu dimensionieren. Der bestehende Pilotlastvertrag mit
+1.000 Rohinformationen, 10 Testnutzern und 1.800 Messwerten wird nicht ersetzt.
+Die 118 Originalmatrix-IDs und deren Abnahmestatus bleiben unveraendert.
+Insbesondere werden der lokale T12-Nachweis, das Pilot-Watchdog-Profil und
+die Fuenf-Minuten-In-App-Eskalation nicht zu Produktions-SLO-Nachweisen
+umetikettiert. End-to-end-Messungen unter Produktionslast und im Fehlerfall
+bleiben offen; die Zielwerte aendern hier keine IaC, Runtime, Settings,
+Aktivierungsdefaults oder bestehenden Sicherheits-/Cloudfreigaben.
+
 ## Voraussetzungen vor irgendeinem Azure-Lauf
 
 Es wurden keine Subscription, vorhandenen Ressourcen, EU-Region/SKU-Kombinationen,
