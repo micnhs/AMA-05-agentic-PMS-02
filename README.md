@@ -31,8 +31,10 @@ Ein lokales SDK kann unter `.tools\dotnet` liegen; die Skripte bevorzugen es. Au
 ### Bereits veroeffentlichte Vorschau erhalten
 
 Auf dem Pruefrechner laeuft die qualifizierte 5187-Vorschau aus dem separat
-veroeffentlichten, unveraenderten Paket `.local\app-replay-2a29196`, Quellstand
-`2a291966e551f5f69ac7ceed2cf1d5aed1c0c13f`. Ihre expliziten Startwerte sind
+veroeffentlichten, unveraenderten Paket `.local\app-replay-ui-27672ae`, Quellstand
+`27672ae62dbdecc6c3870252d7270114f6468c3f`. Prozessleiste, Dokumentdialoge,
+getrennte Kritikalitaets-/Ausgangsangaben und Dokumentenkategorien sind darin
+aktiv. Das alte 2a-Paket bleibt unveraendert als Rueckfall. Ihre expliziten Startwerte sind
 `Cohors__Seed=false`, `Cohors__AutoMigrate=false`,
 `Cohors__LocalOperations=true`, `Cohors__AgentTransport=Local` und
 `Retention__PhysicalMode=Disabled`. Die lokale Outbox-/Watchdog-Emulation ist
@@ -45,8 +47,8 @@ den urspruenglichen Seed-Standard; ein Neustart ohne die expliziten Overrides
 ist deshalb kein gleichwertiger Erhaltungsweg. Neue Pakete und isolierte
 Testdatenbanken getrennt erstellen, das laufende Paket und die Demo-SQL
 waehrend der weiteren Implementierung unangetastet lassen. Die aktuellen
-122/122 Anwendungs- und 6/6 Preview-Ergebnisse sowie die **historisch
-getrennten** ee13e91-Recovery-/Physical-Nachweise stehen in
+21/21 gezielten Domain-/SQL- und 2/2 `CaseDocuments`-Ergebnisse sowie die
+**historisch getrennten** 2a-122/6- und ee13e91-Recovery-/Physical-Nachweise stehen in
 [Validierung](docs/validation.md).
 
 ## Vorfuehrung
@@ -80,7 +82,7 @@ Der erste End-to-End-Schnitt wurde mit echter lokaler SQL-Persistenz und Browser
 
 SQL-Tests verwenden eine **eigene zufaellig benannte Testdatenbank**, niemals die Demo-Datenbank. Sie verweigern nicht lokale SQL-Server. Die Recovery-Kategorie startet zusaetzlich eigene Docker-SQL-Instanzen; `Test-Local.ps1` ist deshalb kein leichter Preview-Check.
 
-Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich zweier unabhaengiger Einzelfamilienkonten. Die laufende Demo auf 5187 wird nicht neu initialisiert oder veraendert. Das explizite `Preview`-Profil erwartet im weiterentwickelten Quellstand acht Szenarien mit **`Retention:PhysicalMode=Disabled`**, einschliesslich des getrennten BS-Rueckfrage-/Antwort-/Massnahmenzyklus, seiner historischen PSUR-Snapshotbindung, des Produkt-Auditexports und der neu vorbereiteten periodischen Sammelmeldung. Der Auditfall wurde gesondert im **`AuditExport`-Profil 1/1** geprueft; der Sammelberichtfall wurde noch nicht ausgefuehrt. Das ist kein 8/8-Lauf und kein Upgrade der unveraenderten 2a29196-Vorschau mit ihren sechs bestandenen Faellen. **`PhysicalRetention`** wurde getrennt 1/1 mit echter Fehlerdiagnostik und kontrolliertem Abgleich geprueft; dadurch wird weder der physische Pfad auf 5187 aktiviert noch produktiv freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist nach gesonderter Lauf-Freigabe moeglich:
+Der Browserteil veroeffentlicht den zuvor gebauten Debug-Stand und nutzt `Test-Ui.ps1`: eigene Testdatenbank, eigener API-Prozess auf Port 5197, getrennte Konten einschliesslich zweier unabhaengiger Einzelfamilienkonten. Die laufende Demo auf 5187 wird dabei nicht neu initialisiert oder veraendert. Das gesamte `Preview`-Profil erwartet inzwischen zehn Szenarien mit **`Retention:PhysicalMode=Disabled`**. Tatsachlich ausgefuehrt wurden die quellengebundenen Teilprofile **`AuditExport` 1/1**, **`SummaryReport` 1/1** und jetzt **`CaseDocuments` 2/2**, nicht eine neue 10/10-Gesamtsuite. Der neue UI-Stand wurde erst nach seinem engen Nachweis getrennt auf 5187 uebernommen. **`PhysicalRetention`** wurde frueher getrennt 1/1 mit echter Fehlerdiagnostik und kontrolliertem Abgleich geprueft; dadurch wird weder der physische Pfad auf 5187 aktiviert noch produktiv freigegeben. Ein eigener Preview-Lauf nach `Build-Local.ps1` ist nach gesonderter Lauf-Freigabe moeglich:
 
 ```powershell
 .\.tools\dotnet\dotnet.exe publish src\Cohors.Api\Cohors.Api.csproj --configuration Debug --no-build --no-restore --output .local\ui-package

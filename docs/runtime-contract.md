@@ -5,13 +5,16 @@ Integrationsvertrag, kein Nachweis einer Azure-Abnahme. Die anfaengliche gemeins
 ## Laufende qualifizierte Vorschau
 
 Der aktuell auf 5187 veroeffentlichte lokale Replay-Schnitt verwendet
-`.local\app-replay-2a29196` aus
-`2a291966e551f5f69ac7ceed2cf1d5aed1c0c13f`, mit `Seed=false`,
+`.local\app-replay-ui-27672ae` aus
+`27672ae62dbdecc6c3870252d7270114f6468c3f`, mit `Seed=false`,
 `AutoMigrate=false`, `Retention:PhysicalMode=Disabled`, `LocalOperations=true`
 und `AgentTransport=Local`. Er bleibt waehrend weiterer Quellarbeit
-unveraendert. Die 122/122 Anwendungsfaelle und 6/6 isolierten Browserfaelle
-sind in [Validierung](validation.md) an dieses Paket gebunden; Recovery war
-darin ausdruecklich separat. Die alten ee13e91-Nachweise bleiben historisch.
+unveraendert. Der neue Build, 21/21 gezielte Domain-/SQL-Faelle, 2/2 isolierte
+`CaseDocuments`-Faelle und die rein lesende echte 5187-Browseransicht sind in
+[Validierung](validation.md) an dieses Paket gebunden. Schema 2 benoetigte
+keine Migration; Demo-SQL, bestehende Objekte, Konten, Schluessel und
+Konfiguration wurden weder neu initialisiert noch zurueckgesetzt. Die
+122/6-Nachweise und das Rueckfallpaket 2a bleiben ebenso wie ee13e91 historisch.
 
 Der getrennte lokale Linux-Hostlauf T12 Lauf09 gilt weiterhin fuer
 `245b3b0`, nicht fuer 2a29196 oder spaetere Fachquellen. Weder der folgende
@@ -23,13 +26,15 @@ neu initialisieren oder stoppen.
 Der spaetere L03-/I/O-Pruefblock verwendet ausschliesslich ein eigenes Paket
 unter `.local\audit-diagnostics-01\application`: 17/17 gezielte SQL-Faelle
 und getrennt 1/1 `AuditExport`/1/1 `PhysicalRetention`. Dies ist kein
-aktueller separater Hostlauf und kein Upgrade der 5187-Vorschau. Die
+aktueller separater Hostlauf; dieser damalige Block aktualisierte 5187 nicht. Die
 quellengebundenen Ergebnisse und der terminale eigene Ressourcenabschluss
 stehen in [Validierung](validation.md).
 
 ## Periodische Sammelmeldung im weiterentwickelten Quellstand
 
-**A-04/C-12/K-01, noch ohne SQL-/Browsernachweis:** Der Regulatory Desk
+**A-04/C-12/K-01, enger Nachweis auf fe6f014:** Fuenf Regelfaelle und vier
+SQL-Workflowfaelle bestanden gemeinsam 9/9; `SummaryReport` bestand 1/1.
+Dies ist keine neue Gesamtsuite auf dem spaeteren UI-Paket. Der Regulatory Desk
 ergaenzt eine eigenstaendige synthetische Sammelvereinbarung und
 `cohors-periodic-summary-1`, nicht MIR oder PSUR. Eine RA muss passenden
 MDR-Behoerdenkontext, Sprache, Format, Inhalt, Geltungszeitraum, feste
@@ -63,8 +68,8 @@ menschlichen Rollen-/Command-/Versions-/Audit-/Outbox-Vertraege. Der einzige
 Empfaenger ist `cohors:summary-simulator:<Jurisdiktion>`, ohne Netzwerkaufruf.
 Die Quittung ist keine behoerdliche Annahme und erledigt **keine
 Einzelmeldepflicht**; Fallakte, Awareness, LegalDue und SafetyDue bleiben
-unveraendert. Der Compilercheck dieses Quellstands ist keine fachliche
-Freigabe, kein neuer Hostnachweis und kein Upgrade der laufenden Vorschau.
+unveraendert. Weder Compiler- noch begrenzte SQL-/Browserpruefung sind eine
+fachliche Freigabe oder ein neuer separater Hostnachweis.
 
 ## Auslieferung
 

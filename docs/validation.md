@@ -5,14 +5,24 @@
 ## Qualifizierter lokaler Preview-Schnitt
 
 Die aktuell veroeffentlichte **5187-Vorschau** verwendet das unveraenderte Paket
-`.local\app-replay-2a29196` aus dem sauberen Quellcheckpoint
-**`2a291966e551f5f69ac7ceed2cf1d5aed1c0c13f`**. Sie laeuft mit
+`.local\app-replay-ui-27672ae` aus dem sauberen Quellcheckpoint
+**`27672ae62dbdecc6c3870252d7270114f6468c3f`**. Sie laeuft mit
 **`Retention:PhysicalMode=Disabled`**, `Seed=false`, `AutoMigrate=false`,
 `LocalOperations=true` und `AgentTransport=Local`. Weitere Quellarbeit aendert
-dieses bereits veroeffentlichte Paket nicht. Die folgenden Ergebnisse sind
-kein Nachweis der danach entstehenden Audit-/Retention-Aenderungen.
+dieses bereits veroeffentlichte Paket nicht. Der UI-Schnitt ist mit neuem
+Build, **21/21 gezielten Domain-/SQL-Faellen und 2/2 CaseDocuments-Faellen**
+geprueft, nicht mit einer neuen Vollsuite. Die unten aufgefuehrten UI-Belege
+binden auch die tatsaechlich laufende API, ihre HTTP-Assets und eine eigene
+rein lesende Edge-Ansicht der erhaltenen Demo.
 
-| Aktueller Nachweis | Ergebnis / Quellenbindung |
+### Historischer 2a-Schnitt und unveraenderter Rueckfall
+
+Das fruehere Paket `.local\app-replay-2a29196` aus
+`2a291966e551f5f69ac7ceed2cf1d5aed1c0c13f` bleibt unveraendert erhalten.
+Die folgenden 122/6-Ergebnisse gelten nur fuer diesen damaligen Stand,
+nicht fuer spaetere Audit-/Retention-/UI-Quellen.
+
+| Historischer Nachweis | Ergebnis / Quellenbindung |
 | --- | --- |
 | `.local\test-results\application-2a29196.trx` | **122/122, keine Skips**; SHA256 `3c6ee59e89f003d8087ced1ff028ac6d23479e3bdf5ff67636b4d5a536ef7dfb` |
 | `.local\ui-replay-2a29196\browser-results.json` | **6/6 Preview-Szenarien, keine Skips**; `sourceTreeDirty=false`; SHA256 `9231b8048919830ff2cef9ae96aba7777e09b51cc48ac34908f76d545dccedff` |
@@ -507,7 +517,7 @@ bleiben getrennt.
 
 Die vom Auftraggeber uebergebenen unabhhaengigen Referenzen liegen unveraendert in `tests\Cohors.Tests\Fixtures\cohors-acceptance-references.json`. Deren ursprüngliches `applicationVerified: false` dokumentiert die Herkunft des Referenzsatzes; nur ausgefuehrte Anwendungstests liefern den zusaetzlichen Nachweis.
 
-## Prozessleiste und Dokumentdialoge: neuer, noch nicht veroeffentlichter UI-Schnitt
+## Prozessleiste, Dokumentdialoge und Kritikalitaet: geprueft und auf 5187 aktiv
 
 Die fallversionsgebundene Leseprojektion unterscheidet erneute/fehlgeschlagene
 Analyse, Assurance, aktuelle Paketfreigaben, Unknown, Nichtmeldeweg und
@@ -524,19 +534,63 @@ Die gemeinsame Fristenklasse Tod/schwere Verschlechterung, Freitext und
 KI-Verdacht erzeugen keinen Todesfallnachweis. Quellen, Bibliothek und Dialog
 zeigen dieselben verstaendlichen Kategorien aus dem gespeicherten `Evidence.kind`.
 
-Vorbereitet: siebzehn SQL-freie Prozess-/Ausgangsfaelle, vier gezielte SQL-Faelle und zwei
-`CaseDocuments`-Browserfaelle fuer Prozessnavigation, Fehlerstatus, Claimbezug,
-historische Revision, schmale/lange Ansicht, Fokus, reale Scope-Verweigerung und
-verspaetete Antwort. Diese Anzahl ist vor Ausfuehrung kein Laufnachweis.
+Auf **27672ae62** bestanden siebzehn SQL-freie Prozess-/Ausgangsfaelle und
+vier gezielte SQL-Faelle gemeinsam **21/21**, ohne Skips. Zwei
+`CaseDocuments`-Browserfaelle bestanden **2/2** fuer Prozessnavigation,
+Fehlerstatus, Claimbezug, historische Revision, schmale/lange Ansicht, Fokus,
+reale Scope-Verweigerung und verspaetete Antwort.
 Der bisherige unveraenderte private fe6-Paketstand dient nur als Vorheransicht;
-die veroeffentlichte 2a-Vorschau auf 5187 und ihre Nutzereingaben bleiben getrennt.
-B10-Arbeit ist geparkt; Meldungsvorbefuellung wird danach separat integriert.
+er wurde nicht als neuer UI-Erfolg ausgegeben. B10-Arbeit ist geparkt;
+Meldungsvorbefuellung wird danach separat integriert.
 Strukturierte Outcome-Quellen werden nebeneinander mit ihrem jeweiligen
 Pruefstand gezeigt: fehlendes F02 verdeckt kein medizinisch freigegebenes
 MIR-Death, und historische/veraltete F02-Angaben ersetzen nicht den Pruefstand
 eines neueren MIR. Mehrere F-Folgen gelten nicht automatisch als Widerspruch.
 Auch ein neuer Entwurf ohne MIR laesst die explizite Angabe einer frueheren
 MIR-Fassung sichtbar, jedoch als historisch und nicht aktuell freigegeben.
+
+Alle folgenden Dateien liegen unter `.local\case-documents-01`:
+
+| Beleg | Tatsaechliches Ergebnis / SHA256 |
+| --- | --- |
+| `build-02-result.json` | TypeScript/Vite, C# und Publish Exit 0; C# 0 Warnungen/Fehler; `c964f66462b3f1fa6bb47dd85ecf3ffb33100109eedaef8fdc4a757d2bc8584f` |
+| `sql-02.trx` | 21/21; `736de64ab3a50a448c291080cbbbe099710ae2a89c37ac3baad66931fd9a70b8` |
+| `after-03\browser-results.json` | 2/2, sauberer gleicher Quellstand; `5b2afdf323ca7396bca954d757c7ea173913969df4a882dc4660a7bc51c229c4` |
+| `after-03\e2e-results.xml` | `c25796a1da02c548cb4c162daf8765ef8045e90a4a3d2ee1b3bdf22d8097512a` |
+| `promotion-result.json` | Laufendes neues Paket, Prozessendpunkt, HTTP-Assets und Erhaltungspruefung; `e8adfd3dc580d628303751ebecba23b5f82c63e28ae64c41a8eb7bedda7d5eb2` |
+| `preview-live-browser.json` | Eigener echter Edge-Kontext, vier Screenshots, keine Fachkommandos; `ab48a55d9d46094ec976049dbbe1340226120300ae08cde6c2ab9390337899f0` |
+| `test-resources-terminal.json` | 0 Testdatenbanken/aufgezeichnete Testprozesse/5197-Listener, private Test-Runtimes und CLI-Home entfernt; `db7fab4515116a87e7b6fb7159a7b9420c985c49f8d82aa7d0e93bf42fa31fe3` |
+
+Die Promotion verwendete genau ein neues finales Paketverzeichnis und keine
+Migration, Seeds oder Bestandsruecksetzung. Schema 2, Einstellungen, Konten,
+vorhandene Schluessel und Objektbytes blieben erhalten. Drei schon vorher
+vorhandene Fixtureverzeichnisse und die geparkte B10-Quelle blieben unberuehrt.
+Nur der neue gewollt weiterlaufende Vorschauprozess samt privatem Start-CLI-Home
+bleibt aktiv. Der Nutzerbrowser wurde weder navigiert noch neu geladen.
+Spaetere Nutzereingaben sind kein Grund fuer eine Datenruecksetzung.
+
+Erstbefunde bleiben getrennt erhalten: `before-01` scheiterte erwartungsgemaess
+0/2 an den im alten Paket fehlenden UI-Funktionen. Beim ersten neuen Build waren
+alle nativen Exits 0; allein der Nachpruefer behandelte die erzeugte
+`tsconfig.tsbuildinfo` falsch als veraenderte Fachquelle. Seine Korrektur und der
+spaetere neue Build sind getrennt gebunden. `after-01` bestand 1/2: das volle
+Zitat kam berechtigt sowohl im Claim als auch im Zitatblock vor; der Selektor
+wurde auf Zitatblock plus exakte Fundstelle praezisiert, nicht der Inhalt gekuerzt.
+
+Zwei Umschaltversuche blieben ebenfalls negativ erhalten: die unmittelbare
+Portfreipruefung brach vor einem neuen API-Start ab; spaeter forderte ein
+PowerShell-Nachpruefer wegen einer verschachtelten REST-Collection versehentlich
+17 IDs als einen Fall an (404). Beide Male wurde nur das unveraenderte alte
+Paket wieder gestartet, niemals SQL oder Nutzeraktionen zurueckgerollt.
+Begrenztes, eigentuemergebundenes Listener-Warten und eine vorab per GET
+gepruefte einzelne Fall-ID korrigieren diese Betriebspruefer. Auch die
+unpassenden Rollen-Selektoren der separaten Live-Screenshotpruefung bleiben
+erhalten; die sichtbare Tabellenueberschrift wird nun als exakter `th`-Text
+geprueft. Das benoetigte keine Aenderung der geprueften Anwendung.
+
+Dies ist keine neue 122er-/10er-Gesamtsuite, kein Lauf der 14 Recoveryfaelle,
+kein getrennter Host-/Last-/Cloudnachweis und keine medizinische oder
+regulatorische Betriebsfreigabe.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 
