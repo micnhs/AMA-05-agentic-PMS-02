@@ -287,7 +287,7 @@ public sealed class ReportPrefillTests(SqlFixture fixture)
         Assert.False(report.Preparation.Target.NationalSubmissionReady);
         Assert.Equal("MHRA-GB-SIMULATOR", report.Recipient);
         Assert.Contains("7.2.1GB", report.Preparation.Target.FormFamily);
-        Assert.NotEmpty(report.Preparation.Fields.Where(f => f.Origin == "AgentDraft"));
+        Assert.Contains(report.Preparation.Fields, f => f.Origin == "AgentDraft");
         Assert.Empty(s.Case.Approvals);
         Assert.Empty(s.Case.Submissions);
     }
