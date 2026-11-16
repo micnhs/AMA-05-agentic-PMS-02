@@ -24,7 +24,7 @@ public sealed class SignalReviewTests(SqlFixture db)
         await s.Approve();
         var before = s.Case;
         var signals = Service(s);
-        var rejected = Assert.Single((await signals.List("Rejected", Reviewer(role))).Where(v => v.OwnerId == before.Id));
+        var rejected = Assert.Single(await signals.List("Rejected", Reviewer(role)), v => v.OwnerId == before.Id);
         var rejection = Assert.Single(rejected.History);
         Assert.Equal("Agent", rejection.Origin);
         Assert.Equal("Replay", rejection.AgentMode);
@@ -252,7 +252,7 @@ public sealed class SignalReviewTests(SqlFixture db)
         Assert.DoesNotContain("\"signalReviews\"", sourceJson);
         Assert.Equal(Canonical.HashText(caseJson), Canonical.Hash(Canonical.Read<SafetyCase>(caseJson)));
         Assert.Equal(Canonical.HashText(sourceJson), Canonical.Hash(Canonical.Read<PublicSourceRun>(sourceJson)));
-        Assert.Empty((await Service(s).List("Rejected", SqlFixture.Medical)).Where(v => v.OwnerId == s.Case.Id || v.OwnerId == run.Id));
+        Assert.DoesNotContain(await Service(s).List("Rejected", SqlFixture.Medical), v => v.OwnerId == s.Case.Id || v.OwnerId == run.Id);
     }
 
     [Fact]
@@ -278,8 +278,11 @@ public sealed class SignalReviewTests(SqlFixture db)
             signals.Decide("case", s.Case.Id, "Reject", Command(s.Case.Version - 1, s.Case.Sources[0].Id), SqlFixture.Ra, CaseScenario.Key()))).Code);
         Assert.Equal(Canonical.Hash(s.Case), Canonical.Hash(await s.Service.Get(s.Case.Id, SqlFixture.Medical)));
         Assert.Equal(audit, Canonical.Hash(await db.Store.Audit(s.Case.Id)));
-        Assert.Single((await db.Store.History<SafetyCase>("case", ["ortho"])).Where(c => c.Id == s.Case.Id));
-        Assert.Single((await db.Store.PendingEvents(1000)).Where(e => e.AggregateId == s.Case.Id));
+        Assert.Single(await db.Store.History<SafetyCase>("case", ["ortho"]), c => c.Id == s.Case.Id);
+        await using var connection = await db.Store.Open();
+        using var query = new SqlCommand("SELECT COUNT(*) FROM dbo.Outbox WHERE AggregateKind='case' AND AggregateId=@id", connection);
+        query.Parameters.AddWithValue("@id", s.Case.Id);
+        Assert.Equal(1, Convert.ToInt32(await query.ExecuteScalarAsync()));
     }
 
     [Fact]
@@ -292,7 +295,7 @@ public sealed class SignalReviewTests(SqlFixture db)
             CaseScenario.Key(), "SyntheticUnknownHistoryFixture", Reason, SqlFixture.Quality, new { run.Id }, s.Clock.Now),
             current => current! with { Version = current.Version + 1,
                 SignalReviews = [new(item.ExternalId, item.ProvenanceHash, "SIG-UNKNOWN-HISTORY", "Rejected", [])] });
-        var signal = Assert.Single((await Service(s).List("Rejected", SqlFixture.Medical)).Where(v => v.OwnerId == run.Id));
+        var signal = Assert.Single(await Service(s).List("Rejected", SqlFixture.Medical), v => v.OwnerId == run.Id);
         Assert.Empty(signal.History);
         Assert.Equal("Rejected", signal.Status);
         var reopened = await Service(s).Decide("source", run.Id, "Reopen", Command(legacy.Version, item.ExternalId), SqlFixture.Ra, CaseScenario.Key());
