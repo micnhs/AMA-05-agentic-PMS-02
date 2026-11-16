@@ -26,8 +26,9 @@ export function moveCivilDay(day: string, days: number) {
   return value.toISOString().slice(0, 10)
 }
 function moveMonth(month: string, months: number) {
-  const [year, part] = month.split('-').map(Number)
-  return new Date(Date.UTC(year, part - 1 + months, 1)).toISOString().slice(0, 10)
+  const value = new Date(`${month.slice(0, 7)}-01T00:00:00Z`)
+  value.setUTCMonth(value.getUTCMonth() + months)
+  return value.toISOString().slice(0, 10)
 }
 export function calendarWeeks(month: string): (string | null)[][] {
   const start = `${month.slice(0, 7)}-01`

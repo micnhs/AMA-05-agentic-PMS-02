@@ -120,7 +120,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw
     $cases = $junit.SelectNodes('//testcase')
-    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -in @('CaseDocuments','CockpitCalendar')) { 2 } else { 1 }
+    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar') { 4 } elseif ($Profile -eq 'CaseDocuments') { 2 } else { 1 }
     if ($cases.Count -ne $expected -or $junit.SelectNodes('//testcase/skipped | //testcase/failure | //testcase/error').Count) {
         throw 'Browser acceptance requires every named scenario of the explicitly selected profile, without failures or skips.'
     }

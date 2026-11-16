@@ -739,12 +739,18 @@ Medical-/RA-Stand, Original-Nichtmeldeweg, genau einen Pflichtzaehler trotz
 zweier Marker, echte Monats-/UTC-/DST-Grenzen, reine PSUR-Kalendertage,
 historische Fassungen, BS-Runden sowie paginierte Quellen ohne Snapshottext.
 
-Das neue isolierte Browserprofil `CockpitCalendar` umfasst exakt `D01` und
-`D02`: Zahlen gegen gespeicherte Fallauswahl und gemeinsame Prozesssicht,
+Das neue isolierte Browserprofil `CockpitCalendar` umfasst exakt vier Faelle:
+`D01`, `D02` und die beiden eng betroffenen bestehenden Regressionsfaelle
+SQL-backed complaint und `T10`. Die neuen Faelle pruefen Zahlen gegen
+gespeicherte Fallauswahl und gemeinsame Prozesssicht,
 serverseitige Scopeverweigerung, Grafik-/KPI-/Fallnavigation ohne
 zusaetzlichen Vollabruf, echte PSUR-/BS-Quelltermine und UTC-Monatswechsel
 bei abweichender Browserzeitzone, konkrete Serien-/Rundenauswahl, keine
-Fachmutation durch die Oberflaeche. Es verwendet eine eigene SQL-Fixture;
+Fachmutation durch die Oberflaeche und exakt 31 Zellen im Januar 0001 ohne
+die implizite 1900-Korrektur von `Date.UTC`. Die Regressionen pruefen den
+realen Freigabe-/Quittungsweg mit offener Folgepflicht und den Dublin-Tag
+als Original neben seiner ausdruecklichen Berliner Kalenderanzeige.
+Das Profil verwendet eine eigene SQL-Fixture;
 wegen seiner ausdruecklich angelegten Leitserie ist es vom unveraenderten
 elfteiligen `Preview`-Profil getrennt, nicht dessen Ersatz.
 

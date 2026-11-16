@@ -14,7 +14,7 @@ export default defineConfig({
     { name: 'summary-report', grep: /C12:/ },
     { name: 'case-documents', grep: /UI0[12]:/ },
     { name: 'report-prefill', grep: /V01:/ },
-    { name: 'cockpit-calendar', grep: /D0[12]:/ },
+    { name: 'cockpit-calendar', grep: /^D0[12]:|^T10:|^SQL-backed complaint/ },
     { name: 'physical-retention', grep: /@physical-retention/ },
   ],
   reporter: [['list'], ['junit', { outputFile: process.env.COHORS_UI_ARTIFACT_DIR
