@@ -110,7 +110,7 @@ Konfigurationsdateien und alle 16 Paketdateihashes blieben exakt unveraendert.
 Das ist **keine neue Vollsuite, kein 7/7-Previewlauf, keine Recovery-,
 separate Host-, Last-, Cloud- oder medizinische Abnahme**.
 
-## Compilerblock fuer Recovery-Fixture und Sammelbericht
+## Historischer Compilerblock fuer Recovery-Fixture und Sammelbericht
 
 Der freigegebene reine Compilerblock baute ausschliesslich
 `tests\Cohors.Tests\Cohors.Tests.csproj` mit privatem SDK 10.0.404/CLI-Home,
@@ -139,7 +139,8 @@ Abhaengigkeitswiederherstellung oder globale SDK-/Profilaenderung.
 **Null Laufzeittests:** 14 Recoveryfaelle/11 Fixturechecks bleiben erwartet.
 Der Sammelbericht-Schnitt fuer **A-04/C-12/K-01** enthaelt Vereinbarung,
 eigenstaendiges Paket, getrennte Freigaben, Simulator, Export und UI sowie
-vier vorbereitete SQL-Faelle/einen Browserfall; deren Ausfuehrung fehlt.
+vier vorbereitete SQL-Faelle/einen Browserfall; deren Ausfuehrung fehlte in
+diesem Compilerblock.
 Anwendungs- und E2E-TypeScript wurden separat nur statisch geprueft.
 Das weiterentwickelte Preview-Profil erwartet jetzt acht Faelle, **kein
 8/8-Nachweis**. Der FSCA-basierte Zulassungszweig ist noch nicht implementiert.
@@ -156,8 +157,8 @@ Regressionsfaelle decken 1/7/366 Tage, spaete Vereinbarung sowie das am
 Ablauftag endende Intervall ab. Der vorhandene SQL-Fall ergaenzt die
 Ablehnungen; der Browserfall prueft die Ablehnung ohne Speicherung und
 die minimale nutzbare Grenze.
-Diese spaeteren C#-Aenderungen und Regressionen sind **nicht vom obigen
-Build oder einem Laufnachweis abgedeckt**. `.local\summary-boundary-01`
+Diese spaeteren C#-Aenderungen und Regressionen waren **zu diesem Zeitpunkt
+nicht vom obigen Build oder einem Laufnachweis abgedeckt**. `.local\summary-boundary-01`
 enthaelt erfolgreiche C#-/PowerShell-Syntax- und Anwendungs-/E2E-TypeScript-
 Pruefungen, keine neue C#-Typpruefung. `post-compiler-csharp.diff`, SHA256
 `29fcce54cb41266ce50b42d1c79350afb74c831eaa7b77ac42acb98b7935f9bb`,
@@ -166,6 +167,64 @@ reproduziert deren urspruengliche Build-Quellhashes, 95 weitere erfasste
 Eingaben blieben unveraendert. Die gesicherte zweizeilige
 Recovery-Analyserkorrektur und ihre Dokumentation stehen separat in
 `71c9835199ee87c11a2135b833cdfe50ffb85862`.
+
+## Begrenzter Sammelbericht-Nachweis einschliesslich Datumsgrenze
+
+Der anschliessend freigegebene Block pruefte
+**`fe6f01415ed8fc988d189cb62570deb177346c7d` plus genau zwei
+Browser-Profilanpassungen** in `scripts\Test-Ui.ps1` und
+`src\Cohors.Web\playwright.config.ts`. `-Profile SummaryReport` waehlt
+das Projekt `summary-report` mit genau dem C12-Browserfall. Unfertige
+B-10/E-02-Quellen waren gesichert ausserhalb der Build-Eingaben geparkt;
+alle erfassten Quelldateien blieben bis zum Ressourcenabschluss unveraendert.
+
+| Beleg unter `.local\summary-acceptance-01` | Tatsaechliches Ergebnis / SHA256 |
+| --- | --- |
+| `source-01.json` | Vollstaendige Quellhashbindung; `f26f32ae62a82142702dad7be89a4d5486dc5c6c1a7ec5b1411565a36e5aa558` |
+| `dotnet-build-01.log` | Neuer Testprojekt-Build: **Exit 0, 0 Warnungen, 0 Fehler**, 77,31 s; `d5210002cd2df8f1b752acb2ddf3ae508740c4071c82d6839051f36127cdbf5a` |
+| `summary-01.trx` | **9/9, keine Skips**: fuenf `SummaryAgreementRuleTests` und vier `SummaryReportingTests`; `77d6de4f3868a8f62647516de77198c96eb362afa93975d03c63c202afbf4d61` |
+| `browser-01\e2e-results.xml` | **1/1 SummaryReport, keine Skips**; `0f23991826cad0a32b2200b829317483bdd41914b82fbb6b7590999404e212ef` |
+| `browser-01\browser-results.json` | Isolierter eigener SQL-/API-Pruefhost auf 5197, `PhysicalMode=Disabled`; `863032fe5135b5a39cd5bf4a882f94ad5c2c35c523caa7c5f7e00432e9cc4528` |
+| `browser-01\cohors-periodic-summary.json` | Tatsaechlich authentifiziert heruntergeladenes Simulatorpaket; `b0edb2a1141b877319d3b52462b80106b6d1f66356c7ada63b2c7e99cf195961` |
+| `browser-01\cohors-periodic-summary.png` | Gepruefter echter Browserscreenshot; `3dc730a3b964db4d4a2e988cb3459abeabb01158092b8df761c77d1ee7d835cd` |
+
+Die Regelfaelle decken 1/7/366 Tage, spaete Vereinbarung und das am
+Ablauftag endende Intervall ab. SQL und Browser pruefen die abgewiesene
+unbrauchbare Vereinbarung; der Browser fuehrt die minimale nutzbare
+Geltung mit gueltigem Folgetag durch, einschliesslich zwei verschiedener
+Medical-/RA-Identitaeten, Rollen-/Produktscope-Abweisung, Simulation,
+FrozenJson-Hash und unveraenderter Einzelakte/offener Fristen.
+
+Vite wurde vor dem C#-Build erfolgreich ausgefuehrt; seine
+Chunkgroessenwarnung bleibt sichtbar. Privates SDK 10.0.404 und CLI-Home,
+beide First-use-Flags `false`, keine Wiederherstellung oder globalen
+Aenderungen. Die sechs Testassemblyhashes stehen in `build-01.json`;
+die fuenf API-Assemblies im eigenen Pruefpaket stimmen damit ueberein.
+`publish-verified-01.json` bindet alle 16 Paketdateien, einschliesslich
+sechs komprimierter Webdateien, deren dekomprimierte Bytes mit den
+aktuellen Vite-Ausgaben verglichen wurden.
+
+Zwei **nachgelagerte Pruefskriptfehler**, keine fehlgeschlagenen Fachtests,
+sind erhalten: der erste Paketvergleich erwartete faelschlich eine
+Vite-Quelldatei `index.html.br`; die erste Ressourcenpruefung hatte
+`Invoke-RecoverySql` nur im untergeordneten Skriptscope geladen. Die
+engen korrigierten Verifikationen sind getrennt dokumentiert; kein
+erneuter Build, SQL-Testlauf, Browserlauf oder Publish war erforderlich.
+
+`terminal-cleanup.json` bindet den eigenen terminalen Abschluss: keine
+Testdatenbanken, keine neuen Fixtureverzeichnisse, kein 5197-Listener,
+keine erfassten eigenen Restprozesse; private Zugangsdaten, Objekte,
+Browser-Runtime und CLI-Home entfernt. Die drei vorher bestehenden
+Fixtureverzeichnisse blieben erhalten. Vorher-/Nachhervergleich:
+**66 Demoaggregate samt fachlichen SQL-Historien/Transportdaten,
+48 Objekte, 16 veroeffentlichte Paketdateien und Konfiguration unveraendert**;
+5187 bleibt bei PID 72076 bereit (HTTP 200). Nur betriebliche
+Operations-Zeilen sind wie zuvor vom Gleichheitsvergleich ausgenommen.
+
+Dies schliesst den geprueften Sammelbericht-Baustein, **nicht** den
+FSCA-basierten Zulassungszweig oder den Gesamtpiloten. Kein 8/8-Preview,
+keine Promotion von 5187, keine Recovery-, separate Host-, Last- oder
+Cloud-Abnahme. **14 Recoveryfaelle/11 Fixturechecks bleiben unausgefuehrt.**
 
 ## Historischer Preview-Schnitt ee13e91
 

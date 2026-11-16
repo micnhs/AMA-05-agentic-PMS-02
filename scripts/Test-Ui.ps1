@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory)][string]$ApplicationDirectory,
     [Parameter(Mandatory)][string]$ArtifactDirectory,
-    [ValidateSet('Preview','AuditExport','PhysicalRetention')][string]$Profile = 'Preview',
+    [ValidateSet('Preview','AuditExport','SummaryReport','PhysicalRetention')][string]$Profile = 'Preview',
     [int]$Port = 5197
 )
 $ErrorActionPreference = 'Stop'
@@ -109,7 +109,7 @@ try {
     $env:COHORS_URL = "http://localhost:$Port"
     $env:COHORS_TEST_ACCESS_FILE = $accessPath
     $env:COHORS_UI_ARTIFACT_DIR = $artifacts
-    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } default { 'preview' } }
+    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } default { 'preview' } }
     & npm --prefix (Join-Path $root 'src\Cohors.Web') run test:e2e -- "--project=$project" *> (Join-Path $artifacts 'private-browser.log')
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw

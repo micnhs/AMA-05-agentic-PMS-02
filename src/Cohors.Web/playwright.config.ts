@@ -11,6 +11,7 @@ export default defineConfig({
   projects: [
     { name: 'preview', grepInvert: /@physical-retention/ },
     { name: 'audit-export', grep: /L03:/ },
+    { name: 'summary-report', grep: /C12:/ },
     { name: 'physical-retention', grep: /@physical-retention/ },
   ],
   reporter: [['list'], ['junit', { outputFile: process.env.COHORS_UI_ARTIFACT_DIR
