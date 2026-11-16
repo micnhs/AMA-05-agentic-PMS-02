@@ -4,11 +4,24 @@
 
 ## Qualifizierter lokaler Preview-Schnitt
 
-Die aktuell veroeffentlichte **5187-Vorschau** verwendet das unveraenderte Paket
+Die aktuell veroeffentlichte **5187-Vorschau** verwendet
+`.local\app-replay-signals-603ea28` aus
+**`603ea28a093c4e455ade5d4813ff7470425c8175` / Signal-Review Build03**.
+Die Ablehnungssicht, direkte Wiederaufnahme und Kontowechselgrenzen sind mit
+**25/25 gezielten Domain-/SQL-Faellen und 4/4 Chromium-Faellen** geprueft.
+Der eigene Abschnitt unten trennt diese neue Abnahme von den historischen
+Ergebnissen. Aktive Grenzen bleiben `Retention:PhysicalMode=Disabled`,
+`Seed=false`, `AutoMigrate=false`, `LocalOperations=true` und
+`AgentTransport=Local`. Der unmittelbare unveraenderte Rueckfall ist
+`.local\app-replay-cockpit-4b04426`; aeltere Pakete bleiben ebenfalls erhalten.
+
+### Historischer Vorbefuellungsschnitt d166
+
+Die fruehere **5187-Vorschau** verwendete das unveraenderte Paket
 `.local\app-replay-prefill-d166658` aus dem sauberen Quellcheckpoint
-**`d16665832fd1066be60c7f15db41b2c3d1233cc7`**. Sie laeuft mit
+**`d16665832fd1066be60c7f15db41b2c3d1233cc7`**. Sie wurde mit
 **`Retention:PhysicalMode=Disabled`**, `Seed=false`, `AutoMigrate=false`,
-`LocalOperations=true` und `AgentTransport=Local`. Weitere Quellarbeit aendert
+`LocalOperations=true` und `AgentTransport=Local` betrieben. Weitere Quellarbeit aendert
 dieses bereits veroeffentlichte Paket nicht. Der Vorbefuellungsschnitt ist mit
 neuem Build, **46/46 gezielten Domain-/SQL-Faellen und 1/1 ReportPrefill-Fall**
 geprueft, nicht mit einer neuen Vollsuite. Der unmittelbare Rueckfall bleibt
@@ -939,6 +952,142 @@ Dieser Nachweis erledigt den KPI-/Kalenderschnitt, nicht die offene
 B10-Workbench, Pflichtfeld-Vervollstaendigung, Nachforderungs-/Antwortzuordnung
 oder Reviewhistorie/Neubewertung. Die fachliche Folgequeue bleibt sequenziell;
 Load, Recovery und Cloud sind hierdurch nicht freigegeben.
+
+## Abgelehnte Signale und direkte Wiederaufnahme: geprueft und bereitgestellt
+
+Am 16.11.2026 wurde der priorisierte Schnitt einschliesslich der gemeldeten
+Kontowechselgrenze unter `http://localhost:5187/` bereitgestellt:
+**App-/Browserquelle `603ea28a093c4e455ade5d4813ff7470425c8175`, Build03,
+Paket `.local\app-replay-signals-603ea28`**. Die erfolgreiche zweite
+Promotion bestaetigt den eigenen API-PID **119156** zum damaligen
+Beobachtungszeitpunkt. Ein PID ist keine dauerhafte Eigentumszusage;
+spaetere Eingriffe benoetigen erneut die begrenzte native Identitaetspruefung.
+
+Die Navigation **Abgelehnte Signale** zeigt aktuelle Ablehnungen mit
+Originalquellbezug, Grund, Zeitpunkt und tatsaechlichem Agentenlauf bzw.
+Reviewer. Undokumentierte historische Herkunft bleibt ausdruecklich
+unbekannt. Medical Safety Reviewer **oder** Regulatory Affairs kann mit
+Begruendung **Wiederaufnehmen / Jetzt ins Review** ausfuehren.
+Der bestehende Fall wird versionsgebunden wiederverwendet; ein bislang
+fallloser oeffentlicher Metadatensatz erhaelt einen stabilen Quellenreview
+in derselben Review Queue, keinen erfundenen Herstellerfall oder
+Awareness-Zeitpunkt. Aenderung, Historie, Audit, Command-Receipt und Outbox
+liegen in der vorhandenen einzelnen SQL-Aggregattransaktion.
+
+Die Aktion erzeugt keinen neuen KI-Auftrag, keine Freigabe und keine
+reaktivierte Signatur. Originale, Ablehnungsverlauf und bestehende Fristen
+bleiben erhalten; fehlende oder durch Wiederaufnahme ueberholte Bewertung
+bleibt sichtbar. Signalablehnung ist weder Meldungsrueckgabe noch
+Nichtmeldepflichtentscheidung oder Versandablehnung.
+
+Der erste Build auf `4a59b16` bestand Web-/TypeScript-Pruefung, scheiterte
+aber an fuenf xUnit-Analyzerbefunden der neuen Tests. Diese wurden ohne
+Abschwaechung der Erwartungen korrigiert; der Outbox-Nachweis verwendet
+jetzt den exakten SQL-Fallbezug statt der global auf 100 Zeilen begrenzten
+Pending-Seite. Build02 stoppte vor erneuter Kompilierung an einer zu engen
+Zeitstempelpruefung der unveraenderten Original-Markenassets.
+Build03 bindet alle unveraenderten App-/Web-/Build-Eingaenge und die
+tatsaechlichen Web01-Ausgaben; Logo und Animation sind zusaetzlich gegen
+ihre urspruenglichen getrackten Bytes gebunden. **Web01 wurde nicht erneut
+ausgefuehrt**. C#-Build und privates Publish liefen erfolgreich; alle
+**116 Paketdateien**, sechs Testassemblies und die komprimierten Webassets
+sind nachgewiesen. Beide negativen Buildbelege bleiben erhalten.
+
+**25/25 native Domain-/SQL-Faelle, keine Skips:** 21 neue Signalfaelle
+einschliesslich beider Rollen, fremder Produktscopes, nicht berechtigter
+Rollen/nichtmenschlicher Identitaeten, Agentenherkunft, unbekannter Historie,
+Idempotenz/Konkurrenz, direkter Review-Persistenz, alter Signaturen und
+ausstehender KI plus die vier bestehenden Sicherheitsregressionen
+T06, T07/T08, T11 und T13. Die genaue eigene Testdatenbank und ihre
+Objekte sind terminal entfernt; vor und nach dem Block waren keine
+Testdatenbanken uebrig.
+
+**4/4 native Chromium-Faelle in einem einzigen Lauf, keine Skips/Retries:**
+
+| Fall | Tatsaechlich gepruefter UI-/Persistenzvertrag |
+| --- | --- |
+| S01 | Medical nimmt eine explizite Replay-Agentenablehnung unmittelbar in die Review Queue auf; gespeicherte Historie/Fristen bleiben erhalten, alte Bewertung ist sichtbar ueberholt. |
+| S02 | RA lehnt als Reviewer ab und nimmt den unbewerteten bestehenden Fall eigenstaendig unmittelbar wieder auf; keine neue Fallakte, keine versteckte Analyse. |
+| S03 | Medical und RA nehmen jeweils falllose Quellenmetadaten in denselben Review-Arbeitsbereich auf; stabile Referenz, keine erfundene Awareness, keine duplizierten Faelle. |
+| S04 | Echter UI-Logout/-Login zum Cardio-Konto entfernt Ortho-Hinweis und Quellenreviews; verspaetete alte GET-/Reopen-Antworten tragen keine fremden Daten oder Hinweise erneut ein. |
+
+In S01 und S02 war das 10-Sekunden-Polling im Browser gezielt ausgeschaltet:
+**853 ms fuer Medical, 584 ms fuer RA** bis zur nachgewiesenen Review-
+Sichtbarkeit, **0 manuelle Reloads und kein neuer Agentenlauf**.
+Das sind einzelne technische Demobeobachtungen, kein Last- oder
+Performanceversprechen. S04 verwendet fuer die Antwort nach dem Logout
+zusaetzlich einen ausdruecklichen Timing-Fault am echten Logout-Handler;
+es wird kein normaler Pointer-Klick durch einen beschaeftigten Dialog behauptet.
+Der bereits berechtigte alte Schreibvorgang bleibt gespeichert, nur seine
+verspaetete UI-Antwort wird nach Identitaetswechsel verworfen.
+
+Der Browser war das zur installierten Playwright-Version **1.56.1**
+gehoerende private **Chromium1194 / 141.0.7390.37** mit explizitem
+`COHORS_BROWSER=chromium`; Binary, DLL, Version, Lockfile und Helfer
+sind getrennt gebunden. Ausfuehrung und unabhaengiges `finally`-Cleanup
+blieben bei **600 s / 60 s / 10 s Stopgrenze**, beide endeten mit Exit0
+und geschlossenen Streams. Eigene API, aufgezeichnete Browser-/Worker-PIDs,
+Datenbank, private Settings/Zugaenge/Objekte und Profil sind entfernt.
+Keine zusaetzliche Edge-Aussage, globale Browseraenderung oder Benutzung
+von `cohors-tryout`.
+
+Der neue rein lesende Bestands-Capture umfasste **249 aktuelle/historische
+Zeilen**, darunter **17 aktuelle Faelle und zwei PSURs**, Schema2.
+Alt4b und NeuBuild03 wurden mit demselben Vergleichshelfer-Hash
+`f04cc44490f5ad5fdc18d4584108706774fbdee5b9277b31ca53aa0d0a4451ff`
+in frischen getrennten Prozessen **119508 / 119344** verglichen.
+Die tatsaechlich geladenen Domain-Locations zeigten auf die jeweils
+ausdruecklich ausgewaehlten Pakete; deren SHA256 waren
+`1b2aad26a77288fa45c65b8d2040f271bd589166f5c9dae61d2e3134d0c41f05`
+und `e936d1e37494058ffab6dc1b0303062b0d3befc45c74342330a2e9b18da1dd6f`.
+Kein neuer typisierter/Freigabescopedrift, zwei bekannte Altanomalien
+unveraendert. Vor der Umschaltung wurde erneut auf Datenaenderungen
+geprueft. Das anschliessende Preserved-Gate bestaetigt alle urspruenglichen
+Versionen, jede aktuelle Zeile gegen ihre eigene Historienkopie und jede
+unveraenderte Version gegen den urspruenglichen rawHash; neuere korrekt
+historisierte Nutzerversionen bleiben zulaessig.
+
+Die **erste Promotion blieb ein negativer Beleg**: Die API war gestartet,
+aber das nachgelagerte Helfer-Gate umhuellte leere `Invoke-RestMethod`-
+Arrays nochmals und bewertete sie dadurch als ein falsches Element.
+Der unveraenderte4b-Paketfallback wurde gestartet; keine Daten oder
+Nutzeraktionen wurden zurueckgesetzt. Nur der getrennte Promotionshelfer
+wurde korrigiert, mit vier positiven und sechs negativen reinen
+Payload-Pruefungen. Die zweite Promotion verwendete exakt dasselbe
+gepruefte Paket und dieselben SQL-/Browserbelege, keine neue Fachsuite.
+Ihre tatsaechlichen neuen HTTP-Antworten sind gueltige leere Arrays
+(`[]`, jeweils SHA256 `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`):
+Bestehende Nutzerstaende wurden nicht kuenstlich zu Ablehnungen umgedeutet.
+
+| Beleg unter `.local\signal-review-01` | SHA256 |
+| --- | --- |
+| `build-03-result.json` | `523e59e4a57698c86e020a020a07d4d9251414df27f8f8f9fd1325e8f14b54f1` |
+| `tests-03.trx` | `fa2aa5d85d75b89147d4afd3cef3eb561221b93ab6e10e6a9e330ba5de32dd6c` |
+| `browser-01-binding.json` | `055af64b9b175edef5bfa3315200c7dc413522b855f2955baf59d486ad2a4af2` |
+| `browser-01\e2e-results.xml` | `e85c09330362f9cedc3e42a904f429800c66ec2e259092fa420882cce5da285d` |
+| `browser-01\test-events.jsonl` | `b85f2e561018c857dc7894371c638a722f54bd3bd8d6c3af862491964786ca9c` |
+| `browser-01-bounded-result.json` | `4d6c2a2363016a9f2c3af6eb3d0e4e3be94be4e7156e473aad683d9f19509fce` |
+| `browser-01-bounded-cleanup.json` | `5185638daec247a84fd04c3e716d9152fe9589f9d07946a1f7d320604bd95884` |
+| `compatibility-01-verified.json` | `b0a2479135042b745d5643d4d4bfd309bbc8d925c0dca19897e8e3d14bf17ef7` |
+| `compatibility-01-preserved.json` | `11ba33a8ca81d39800939263d0b957caaf1061162af3be89dfc4a41d75bb3101` |
+| `promotion-result.json` (negativ) | `47aed52c7bd356394edf44203c7885ecd57be986a556c611b4f50f285a3eb261` |
+| `promotion-02-preflight.json` | `c519fe11320e6017a1130c18ca13bbc8056573463986474ff4d0893f18b4598b` |
+| `promotion-02-result.json` | `23af885145c823bec59c77dd430885cfa65780ac9be3a292f70ccafbc1143f61` |
+
+Die tatsaechlich ausgelieferten HTML-/JS-/CSS-Bytes, Health, autorisierten
+Signalprojektionen sowie effektiven Replay-/Local-/Retention-Grenzen sind
+bestaetigt. Alle Nutzerstaende, Accounts, Schluessel, Originalobjekte,
+Build03 und die vier Rueckfallpakete sind erhalten. Kein Seed, keine
+Migration, Datenkorrektur, echte Uebermittlung oder Live-Foundry-Aufruf.
+
+Der explizite Intake-Schalter **Explizites Replay-Profil** demonstriert
+Agentenablehnung mit einer klar synthetischen Begruendung; das ist keine
+verifizierte inhaltliche Irrelevanz. Die falllosen Browserquellen waren
+ausdruecklich synthetische Metadaten einer privaten Fixture, kein echter
+Dateiimport oder Publikationsabruf. On-demand-Dokumentimport,
+Pflichtfeld-Vervollstaendigung, Nachforderungszuordnung und umfassendere
+Reviewhistorie bleiben getrennte Folgeauftraege. Load/Recovery/Cloud und
+eine neue Vollsuite wurden durch diesen Schnitt nicht freigegeben.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 
