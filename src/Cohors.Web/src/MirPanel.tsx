@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { FileText, Link2, PencilLine } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { FileText, Link2, PencilLine, Sparkles } from 'lucide-react'
 import { downloadApi } from './api'
 import type { MirFacts, MirSimilarIncidents, Report, SafetyCase } from './types'
 import { Badge, date, ErrorBanner, hash, type Dialog, type Field } from './ui'
@@ -52,13 +52,27 @@ const facts: { name: FactKey; label: string; type?: Field['type']; final?: boole
 const originNames: Record<string, string> = { LeadingData: 'Führende Falldaten', ProductProfile: 'Produkt-/Herstellerprofil', TargetProfile: 'Zielprofil',
   System: 'Systemmetadatum', AgentDraft: 'Agentenvorschlag · unbestätigt', AssessmentDraft: 'Assessment-Auszug · neuer Review nötig',
   HumanCoding: 'Menschliche Kodierung · neuer Review nötig', PriorMedicalReport: 'Bisherige medizinische Angabe · neuer Review nötig',
-  HumanEntry: 'Menschlich ergänzt · noch keine Paketfreigabe', Missing: 'Fehlend / offen' }
+  HumanEntry: 'Menschlich ergänzt · noch keine Paketfreigabe', Missing: 'Fehlend / offen',
+  ControlledContactEvidence: 'Freigegebene Kontaktquelle · Vorschlag, neuer Review nötig',
+  ExistingReportEntry: 'Vorhandene Angabe · unbestätigt im neuen Paket' }
 const systemNames: Record<string, string> = { $reference: 'Hersteller-Fallreferenz', $description: 'Originaler Ereignistext',
   $country: 'Dokumentiertes Ereignisland',
   $firstAwareness: 'Erste Organisationskenntnis', $reportabilityAwareness: 'Kenntnis gemäß gebundener Meldepflicht',
   $reportDate: 'Entwurfsdatum', $authority: 'Fachlich zuständige Behörde', $simulator: 'Technischer Pilotempfänger',
   $device: 'Produkt / Modell', $basicUdi: 'Basic-UDI', $batch: 'Dokumentierte Charge',
-  submitterIsManufacturerContact: 'Melder ist der belegte Herstellerkontakt', similarIncidents: 'Ähnliche Ereignisse / Perioden / Nenner' }
+  submitterIsManufacturerContact: 'Melder ist der belegte Herstellerkontakt', similarIncidents: 'Ähnliche Ereignisse / Perioden / Nenner',
+  $contact: 'Hersteller-/Melderkontakt', $target: 'Zielprofil und nationale Pflichtangaben', $schema: 'Formularstruktur / Werteprüfung',
+  $reportHistory: 'Abgeglichener Vorbericht', evidenceIds: 'Konkrete freigegebene Fallbelege', rationale: 'Medizinisch-technische Begründung' }
+const issueReasons: Record<string, string> = { MissingSource: 'Fehlende oder nicht verwendbare Quelle', ConflictingSources: 'Widersprüchliche Angaben',
+  HumanDecision: 'Menschliche Entscheidung erforderlich', Unsupported: 'Derzeit nicht unterstützte Konstellation' }
+function fieldLabel(name: string) { return facts.find(f => f.name === name)?.label ?? systemNames[name] ?? 'Weitere Meldeangabe' }
+function friendlyLegacyError(text: string) {
+  for (const [name, title] of [...facts.map(f => [f.name, f.label]), ...Object.entries(systemNames)]
+    .sort(([a], [b]) => b.length - a.length)) {
+    text = text.replaceAll(name[0].toUpperCase() + name.slice(1), title)
+  }
+  return text
+}
 
 function isSimilarIncidents(value: unknown): value is MirSimilarIncidents {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -84,26 +98,34 @@ function SimilarReview({ value }: { value: MirSimilarIncidents }) {
   </div>
 }
 
-export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate, showClaim }: {
+export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate, showClaim, navigate }: {
   c: SafetyCase; report: Report; canEdit: boolean; busy: boolean;
-  openDialog: (dialog: Dialog) => void; mutate: (path: string, body: unknown) => Promise<void>; showClaim: (id: string) => void
+  openDialog: (dialog: Dialog) => void; mutate: (path: string, body: unknown) => Promise<void>; showClaim: (id: string) => void;
+  navigate: (tab: string) => void
 }) {
   const [error, setError] = useState('')
+  const technical = useRef<HTMLDetailsElement>(null)
   const mir = report.mir
   const preparation = report.preparation
+  const editable = canEdit && report.jurisdiction !== 'GB' && ['Draft', 'MedicalApproved', 'Frozen'].includes(report.state)
+  const issues = mir?.checks?.completionIssues ?? preparation?.problems ?? []
+  const legacyGaps = mir?.checks?.completionIssues == null ? (mir?.checks?.contentErrors ?? mir?.errors ?? []).filter(e => !e.startsWith('XSD ')) : []
   const visibleFacts = facts.filter(f => (f.final === undefined || f.final === (report.kind === 'Final')) && (!f.afterInitial || report.kind !== 'Initial'))
   const visibleFields = preparation?.fields.filter(f => report.jurisdiction === 'GB'
     ? f.field.startsWith('$') || ['preliminaryAnalysis', 'furtherInvestigation'].includes(f.field)
     : f.field.startsWith('$') || f.field === 'udiDi' && f.value !== null ||
     visibleFacts.some(fact => fact.name === f.field) || f.field === 'submitterIsManufacturerContact' ||
     f.field === 'similarIncidents' && report.kind === 'Final') ?? []
-  function edit() {
+  function edit(requested?: string) {
     const final = report.kind === 'Final'
+    const focus = requested === '$contact' ? 'contactFirstName' : requested
+    const editableFacts = facts.filter(f => visibleFacts.includes(f) || f.name === focus)
+      .sort((a, b) => a.name === focus ? -1 : b.name === focus ? 1 : 0)
     openDialog({
       title: 'Fehlende Angaben / Korrekturen belegen',
       description: 'Vorhandene Werte sind vorausgefüllt. Nur belegte synthetische Angaben ergänzen; nichts zur Beseitigung eines Fehlers erfinden. Leere Angaben dürfen als offene Lücken gespeichert werden, sperren aber nötigenfalls die Freigabe. Ein bewusst eingegebener Folgetermin ist eine menschliche Zusage, kein Agententermin. Änderungen brauchen neue Medical- und RA-Freigaben.',
       fields: [
-        ...visibleFacts.map(f => ({
+        ...editableFacts.map(f => ({
           ...f, required: false, value: mir?.facts[f.name] ?? '',
           options: f.options ? [{ value: '', label: 'Belegten Wert auswählen' }, ...f.options.map(value => ({ value, label: value }))] : undefined,
         })),
@@ -115,21 +137,48 @@ export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate,
         { name: 'evidenceIds', label: 'Konkrete Evidenz-IDs, eine pro Zeile (unten verfügbare Fundstellen prüfen)', type: 'textarea',
           value: mir?.facts.evidenceIds.join('\n') ?? '' },
         { name: 'rationale', label: 'Medizinisch-technische Begründung der Angaben und Testkodierungen', type: 'textarea', value: mir?.facts.rationale, minLength: 40 },
-        { name: 'reason', label: 'Änderungsbegründung / prüfbare Herkunft', type: 'textarea', minLength: 30 },
+        ...((preparation?.problems?.length ?? 0) > 0 ? [{
+          name: 'resolveSourceProblems', label: 'Automatisch erkannte Quellenprobleme ausdrücklich menschlich geklärt?',
+          type: 'select' as const, value: 'false', options: [
+            { value: 'false', label: 'Nein · Quellenprobleme bleiben offen und sperren die Freigabe' },
+            { value: 'true', label: 'Ja · die konkrete Klärung und ausgewählten Belege begründe ich ausdrücklich' },
+          ],
+        }] : []),
+        { name: 'reason', label: 'Änderungsbegründung / prüfbare Herkunft', type: 'textarea', minLength: (preparation?.problems?.length ?? 0) > 0 ? 40 : 30 },
       ],
       submitLabel: 'Versioniert speichern und gegen Original-XSD prüfen',
       onSubmit: values => {
-        const body: MirFacts = { evidenceIds: values.evidenceIds.split(/\r?\n/).map(x => x.trim()).filter(Boolean), rationale: values.rationale }
-        for (const f of visibleFacts) body[f.name] = values[f.name] || null
+        const body: MirFacts = { ...mir?.facts, evidenceIds: values.evidenceIds.split(/\r?\n/).map(x => x.trim()).filter(Boolean), rationale: values.rationale }
+        for (const f of editableFacts) body[f.name] = values[f.name] || null
         body.submitterIsManufacturerContact = values.submitterIsManufacturerContact ? values.submitterIsManufacturerContact === 'true' : null
         if (values.similarIncidents?.trim()) {
           const parsed: unknown = JSON.parse(values.similarIncidents)
           if (!isSimilarIncidents(parsed)) throw new Error('Ähnlichkeitsreview: vollständiges strukturiertes Objekt mit expliziten Perioden, Zahlen oder null und Datenlückenbegründung erforderlich.')
           body.similarIncidents = parsed
-        }
-        return mutate(`/cases/${c.id}/mir`, { expectedVersion: c.version, facts: body, reason: values.reason })
+        } else if (final) body.similarIncidents = null
+        return mutate(`/cases/${c.id}/mir`, { expectedVersion: c.version, facts: body, reason: values.reason,
+          resolveSourceProblems: values.resolveSourceProblems === 'true' })
       },
     })
+  }
+  function complete() {
+    openDialog({
+      title: 'Pflichtfelder erneut durch Agenten vervollständigen',
+      description: 'Derselbe Autorenweg prüft den bestehenden Bericht gegen aktuell gebundene Daten und ausdrücklich freigegebene Kontaktquellen. Bekannte Eingaben und eine bereits menschlich zugesagte Frist bleiben erhalten. Widersprüche werden nicht überschrieben; fehlende Fakten bleiben offen. Es entsteht eine neue unbestätigte Fassung. Frühere Signaturen bleiben nur historische Belege, keine aktuelle Freigabe. Kein Versand.',
+      fields: [{ name: 'reason', label: 'Begründung des erneuten Vervollständigungsversuchs', type: 'textarea', minLength: 30,
+        value: 'Belegte Pflichtangaben erneut automatisch prüfen; bekannte menschliche Eingaben erhalten und verbleibende Lücken offen ausweisen.' }],
+      submitLabel: 'Erneut vervollständigen',
+      onSubmit: values => mutate(`/cases/${c.id}/report`, { expectedVersion: c.version, kind: report.kind,
+        jurisdiction: report.jurisdiction, language: report.language, preliminary: report.preliminary,
+        openQuestions: report.openQuestions, reason: values.reason, completeCurrent: true }),
+    })
+  }
+  function showTechnical() {
+    if (technical.current) {
+      technical.current.open = true
+      technical.current.scrollIntoView({ block: 'center' })
+      technical.current.querySelector('summary')?.focus()
+    }
   }
   async function download(path: string, filename: string) {
     setError('')
@@ -150,8 +199,28 @@ export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate,
     </div>
     <p className="muted">XSD-Konformität, fachlicher Human Review und nationale Versandbereitschaft sind getrennt. Medical Safety prüft weiterhin zuerst; RA prüft das konkrete Paket oder gibt es zur Korrektur an PMS zurück. Original-PDF und Schutz bleiben unverändert.</p>
     {error && <ErrorBanner message={error} />}
-    {(mir?.checks?.contentErrors ?? mir?.errors ?? []).length > 0 && <div className="callout" data-testid="report-gaps"><b>Vor Freigabe zu klären</b><ul>{(mir?.checks?.contentErrors ?? mir?.errors ?? []).map((e, i) => <li key={i}>{e}</li>)}</ul></div>}
-    {!!mir?.errors.some(e => e.startsWith('XSD ')) && <details><summary>Zusätzliche Original-XSD-Befunde</summary>{mir.errors.filter(e => e.startsWith('XSD ')).map((e, i) => <p key={i}>{e}</p>)}</details>}
+    {editable && <button disabled={busy} className="button secondary" onClick={complete}><Sparkles size={16} />Pflichtfelder erneut durch Agenten vervollständigen</button>}
+    {(issues.length > 0 || legacyGaps.length > 0) && <section className="callout" data-testid="report-gaps" aria-label="Nicht automatisch befüllbare Angaben">
+      <h3>Nicht automatisch befüllbar – Angaben oder Belege erforderlich</h3>
+      <p>Erforderliche Lücken und ungeklärte Widersprüche sperren die Freigabe. Automatische Übernahme ist ein nachvollziehbarer Vorschlag, keine medizinische Bestätigung.</p>
+      {issues.map((issue, i) => <article key={`${issue.field}-${i}`} data-issue-field={issue.field}>
+        <h4>{fieldLabel(issue.field)}</h4><p><b>Grund:</b> {issueReasons[issue.reason] ?? 'Gesonderte Prüfung erforderlich'}</p>
+        <p>{issue.explanation}</p><p><b>Benötigt:</b> {issue.requiredInformation}</p>
+        <div className="row">
+          {issue.field === '$schema' ? <button className="button secondary" onClick={showTechnical}>Originalbefunde prüfen</button> :
+            issue.field === 'evidenceIds' ? <button className="button secondary" onClick={() => navigate('analysis')}>Fallbelege prüfen / verknüpfen</button> :
+            issue.field === '$reportHistory' ? <button className="button secondary" onClick={() => navigate('history')}>Vorberichte und Empfang prüfen</button> :
+            editable && issue.field !== '$target' && <button disabled={busy} className="button secondary" onClick={() => edit(issue.field)}>
+              {issue.reason === 'HumanDecision' ? 'Menschlich festlegen und begründen' : 'Angabe belegen / Widerspruch klären'}</button>}
+          {canEdit && issue.reason === 'MissingSource' && <button disabled={busy} className="button secondary" onClick={() => navigate('information')}>Informationsnachforderung öffnen</button>}
+        </div>
+        {issue.sources.length > 0 && <details><summary>Gebundene Quellen des Befunds</summary>{issue.sources.map((s, j) => <p className="mono" key={j}>{s}</p>)}</details>}
+      </article>)}
+      {legacyGaps.length > 0 && <><p>Historischer Prüfstand: die Ursache wurde noch nicht strukturiert getrennt ermittelt. Ein erneuter Vervollständigungsversuch erzeugt einen eigenen aktuellen Prüfstand, ohne die Historie zu ändern.</p>
+        <ul>{legacyGaps.map((e, i) => <li key={i}>{friendlyLegacyError(e)}</li>)}</ul>
+        {editable && <button disabled={busy} className="button secondary" onClick={() => edit()}>Vorhandene Angaben belegen</button>}</>}
+    </section>}
+    {!!mir?.errors.length && <details ref={technical}><summary>Technische Originalbefunde der Pflicht- und XSD-Prüfung</summary>{mir.errors.map((e, i) => <p key={i}>{e}</p>)}</details>}
     {visibleFields.length > 0 && <div className="prepared-fields" aria-label="Vorausgefüllte Felder und Herkunft">{visibleFields.map(field => <article key={field.field} data-field={field.field}>
       <div className="row-between"><h4>{facts.find(f => f.name === field.field)?.label ?? systemNames[field.field] ?? field.field}</h4>
         <Badge tone={field.origin === 'AgentDraft' || field.origin === 'Missing' ? 'amber' : 'neutral'}>{originNames[field.origin] ?? field.origin}</Badge></div>
@@ -166,7 +235,7 @@ export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate,
     {!!report.followUpObligationIds?.length && <p className="mono">Dieser Bericht erledigt ausschließlich: {report.followUpObligationIds.join(', ')}</p>}
     <details><summary>Verfügbare eingefrorene Fallbelege für die Eingabe</summary>{c.evidence.map(e => <p key={`${e.id}-${e.version}`}><b>{e.title} · v{e.version}</b><br /><code>{e.id}</code><br /><small>{hash(e.hash)} · {e.locator}</small></p>)}</details>
     <div className="row">
-      {canEdit && report.jurisdiction !== 'GB' && ['Draft', 'MedicalApproved', 'Frozen'].includes(report.state) && <button disabled={busy} className="button secondary" onClick={edit}><PencilLine size={16} />MIR-Pflichtdaten bearbeiten</button>}
+      {editable && <button disabled={busy} className="button secondary" onClick={() => edit()}><PencilLine size={16} />MIR-Pflichtdaten bearbeiten</button>}
       {report.jurisdiction !== 'GB' && <button disabled={!mir?.valid} className="button secondary" onClick={() => void download(`/cases/${c.id}/mir/xml`, `${c.reference}-${report.kind}-SIMULIERT.xml`)}><FileText size={16} />Geprüftes XML herunterladen</button>}
     </div>
   </section>

@@ -129,7 +129,8 @@ public sealed record AssessmentCommand(int ExpectedVersion, AgentMode Mode, stri
 public sealed record ReviseAssessmentCommand(int ExpectedVersion, AssessmentContent Content, string Reason);
 public sealed record ManualAssessmentCommand(int ExpectedVersion, string Facts, string Analysis, string Conclusion, string Reason);
 public sealed record PrepareReportCommand(int ExpectedVersion, string Kind, string Jurisdiction,
-    string Language, bool Preliminary, string OpenQuestions, string Reason);
+    string Language, bool Preliminary, string OpenQuestions, string Reason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool CompleteCurrent = false);
 public sealed record ApprovalCommand(int ExpectedVersion, string Reason, string? FindingDisposition);
 public sealed record DispositionCommand(int ExpectedVersion, Disposition Disposition, string Reason,
     ExpectedSideEffectException? ExpectedSideEffect = null);
@@ -179,7 +180,8 @@ public sealed record DraftPsurReplyCommand(int ExpectedVersion, string PsurId, i
 public sealed record AssessPsurReplyCommand(int ExpectedVersion, string Outcome, string Reason,
     string? NextQuestion = null, DateTimeOffset? NextDueAt = null, bool NextActionRequired = false,
     string? NextScheduleBasis = null);
-public sealed record MirCommand(int ExpectedVersion, MirFacts Facts, string Reason);
+public sealed record MirCommand(int ExpectedVersion, MirFacts Facts, string Reason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ResolveSourceProblems = false);
 public sealed record RecordSummaryAgreementCommand(int ExpectedVersion, string ProductId, string Reference,
     string AuthorityName, string Jurisdiction, string Language, string Format, string AgreementText,
     string ContentRequirements, int FrequencyDays, DateOnly ValidFrom, DateOnly ValidThrough,

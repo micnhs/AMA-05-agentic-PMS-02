@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Cohors.Domain;
 
 public sealed record ReportTarget(string Version, string Jurisdiction, string Authority, string Simulator,
@@ -6,7 +8,14 @@ public sealed record PreparedReportField(string Field, string? Value, string Ori
     string Rationale, string[] ClaimIds, Citation[] Citations);
 public sealed record ReportPreparation(string Contract, string ProductId, VersionReference CaseSource, Device Device,
     ProductGovernance? Governance, ReportTarget Target, string Mode, string AuthoringRunId,
-    PreparedReportField[] Fields);
+    PreparedReportField[] Fields,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReportFieldIssue[]? Problems = null);
+public sealed record ReportFieldIssue(string Field, string Reason, string Explanation, string RequiredInformation,
+    string[] Sources);
+public sealed record ReportingContactFacts(string ContactId, string? FirstName, string? LastName, string? Street,
+    string? City, string? Postcode, string? Phone, string? Email, bool? IsSubmitter);
+public sealed record ReportingContactEvidence(string Contract, string ProductId, string ManufacturerSrn,
+    string[] Jurisdictions, string Role, ReportingContactFacts Contact);
 public sealed record ReportReturn(string ActorId, string Role, DateTimeOffset At, string Reason,
     string PreviousScopeHash);
 public sealed record VigilanceText(string Text, string[] ClaimIds);
@@ -43,7 +52,8 @@ public static class ReportTargets
     public static void RequireBound(ReportDraft report)
     {
         if (report.Preparation is not { } preparation) return;
-        Guard.Against(preparation.Contract != "cohors-report-prefill-1" ||
+        Guard.Against(preparation.Contract is not ("cohors-report-prefill-1" or "cohors-report-prefill-2") ||
+            preparation.Contract == "cohors-report-prefill-2" && preparation.Problems is null ||
             Canonical.Hash(preparation.Target) != Canonical.Hash(For(report.Jurisdiction)) ||
             preparation.Target.Simulator != report.Recipient ||
             preparation.Device.Id != preparation.ProductId || preparation.CaseSource.Version < 1 ||

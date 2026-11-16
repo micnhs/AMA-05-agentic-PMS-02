@@ -72,7 +72,8 @@ public sealed record MirSimilarPeriod(DateOnly Start, DateOnly End, int? Country
 public sealed record MirSimilarIncidents(string Variant, string Details, string DenominatorBasis,
     string? OtherDenominator, string Method, string Geography, MirSimilarPeriod[] Periods);
 public sealed record MirChecks(bool SchemaValid, string[] ContentErrors, string ContentBoundary,
-    bool NationalSubmissionReady, string[] ExternalRequirements);
+    bool NationalSubmissionReady, string[] ExternalRequirements,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReportFieldIssue[]? CompletionIssues = null);
 public sealed record MirArtifact(string Kind, string SchemaFile, string SchemaHash, string MappingVersion,
     string Xml, string XmlHash, bool Valid, string[] Errors, string[] Limitations, MirFacts Facts,
     DateTimeOffset CreatedAt, bool Simulated,

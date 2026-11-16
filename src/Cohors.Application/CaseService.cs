@@ -258,12 +258,26 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
     {
         actor.RequireHuman(Roles.Pms, Roles.Medical, Roles.Regulatory);
         var c = await Get(id, actor, ct);
-        var context = Context(c, input.ExpectedVersion, key, "ReportDrafted", input.Reason, actor, input);
+        var context = Context(c, input.ExpectedVersion, key, input.CompleteCurrent ? "ReportFieldsCompleted" : "ReportDrafted", input.Reason, actor, input);
         var receipt = await store.Receipt<SafetyCase>(context, ct);
         if (receipt is not null) return receipt;
         Guard.Against(c.Stage == CaseStage.Closed, "case_closed", "Abgeschlossenen Fall zuerst begruendet wiederaufnehmen.");
         Guard.Against(c.Version != input.ExpectedVersion, "version_conflict", "Fall wurde geaendert; vor einem Modellaufruf neu laden.", 409);
         var assessment = c.CurrentAssessment ?? throw new DomainException("assessment_required", "Zuerst einen KI- oder menschlichen Entwurf erstellen.");
+        ReportDraft? completing = null;
+        if (input.CompleteCurrent)
+        {
+            completing = c.CurrentReport ?? throw new DomainException("report_required", "Berichtsentwurf zum Vervollstaendigen fehlt.");
+            Guard.Against(completing.State is not (ReportState.Draft or ReportState.MedicalApproved or ReportState.Frozen),
+                "report_state", "Versandte oder abgeloeste Fassungen nicht veraendern; einen eigenen neuen Bericht vorbereiten.");
+            Guard.Against(completing.Kind != input.Kind || completing.Jurisdiction != input.Jurisdiction ||
+                completing.Language != input.Language || completing.Preliminary != input.Preliminary ||
+                completing.OpenQuestions != input.OpenQuestions, "completion_scope",
+                "Erneute Vervollstaendigung behaelt Meldeart, Ziel, Sprache und Untersuchungsauftrag unveraendert bei.", 409);
+            Guard.Against(completing.AssessmentVersion != assessment.Version || completing.EvidenceHash != assessment.EvidenceHash ||
+                completing.ScopeHash != ReportRules.Scope(assessment, completing), "completion_stale",
+                "Der bestehende Bericht ist nicht mehr aktuell gebunden. Einen neuen Bericht zum aktuellen Assessment vorbereiten.", 409);
+        }
         ReportRules.RequireNoUnknown(c, input.Jurisdiction);
         Guard.Against(assessment.EvidenceHash != Canonical.Hash(c.Evidence), "assessment_stale",
             "Neue Evidenz erfordert eine erneute Bewertung vor dem Berichtsentwurf.", 409);
@@ -311,7 +325,7 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
         report = report with { FollowUpObligationIds = input.Kind == "Initial" ? [] :
             (c.FollowUps ?? []).Where(f => f.Jurisdiction == input.Jurisdiction && f.Status == "Open").Select(f => f.Id).ToArray() };
         var prefill = ReportPrefill.Create(c, report, policies.Device(c.ProductId), governance, policies.Calendar(input.Jurisdiction),
-            authored.Vigilance ?? throw new DomainException("vigilance_fields", "Autorenlauf lieferte keine pruefbaren strukturierten Meldungstexte."), run.Id, now);
+            authored.Vigilance ?? throw new DomainException("vigilance_fields", "Autorenlauf lieferte keine pruefbaren strukturierten Meldungstexte."), run.Id, now, completing);
         report = report with { Preparation = prefill.Preparation };
         if (prefill.Preparation.Target.MirSupported)
         {

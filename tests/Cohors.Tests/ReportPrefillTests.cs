@@ -1,7 +1,9 @@
+using System.Text.Json.Nodes;
 using System.Xml.Linq;
 using Cohors.Application;
 using Cohors.Domain;
 using Cohors.Infrastructure;
+using ReportContactFixture = Cohors.Tests.ReportPrefillTests.ReportContactFixture;
 
 namespace Cohors.Tests;
 
@@ -58,6 +60,174 @@ public sealed class ReportPrefillRuleTests
         var result = ReportPrefill.Create(c, Report(c), Device, null, Calendar, VigilanceNarrative.Fields(c, "de"), "run", Now);
         Assert.Equal(expected, result.Facts.EventClassification);
         if (expected is not null) Assert.Equal("HumanCoding", Assert.Single(result.Preparation.Fields, f => f.Field == "eventClassification").Origin);
+    }
+
+    [Theory]
+    [InlineData("Initial", "A", true)]
+    [InlineData("Initial", "B", false)]
+    [InlineData("Final", "B", true)]
+    public void MultipleCurrentCodesAreAnExplicitMappingLimitOnlyForTheActualRequiredField(string kind, string annex, bool required)
+    {
+        var c = Case();
+        var citation = c.CurrentAssessment!.Content.Claims[0].Citations[0];
+        var terms = new[] { annex + "01", annex + "02" }.Select(code =>
+            new TerminologyTerm(code, annex, "SYNTHETIC terminology fixture", 1, 1, [code], null, true, true, null, null, annex, 1, code));
+        c = c with { Coding = new(1, "synthetic-release", Canonical.HashText("synthetic-reference"),
+            terms.Select(term => new AssignedCode(term, term.Code, term.Term)).ToArray(), [citation],
+            "SYNTHETIC human selection of two separate codes; no automatic reduction to one.", "medical", Now) };
+        var originalCoding = Canonical.Hash(c.Coding);
+        var report = Report(c) with { Kind = kind };
+        var result = ReportPrefill.Create(c, report, Device, null, Calendar, VigilanceNarrative.Fields(c, "de"), "run", Now);
+        Assert.Null(annex == "A" ? result.Facts.DeviceProblemCode : result.Facts.InvestigationTypeCode);
+        var field = annex == "A" ? "deviceProblemCode" : "investigationTypeCode";
+        var mir = new MirComposer().Build(c, report with { Preparation = result.Preparation }, Device, Calendar, result.Facts, Now);
+        if (required) Assert.Contains(mir.Checks!.CompletionIssues!, p => p.Field == field && p.Reason == "Unsupported");
+        else Assert.DoesNotContain(mir.Checks!.CompletionIssues!, p => p.Field == field);
+        Assert.DoesNotContain(mir.Checks!.CompletionIssues!, p => p.Field == field && p.Reason == "MissingSource");
+        Assert.Equal(originalCoding, Canonical.Hash(c.Coding));
+    }
+
+    [Fact]
+    public void ApprovedContactIsCopiedAsOneVersionedIdentityWhileDatesAndUnknownClinicalFactsRemainOpen()
+    {
+        var profile = Governance();
+        var source = ReportContactFixture.Source(profile, Now);
+        var c = CaseWith(source);
+        var report = Report(c);
+        var result = ReportPrefill.Create(c, report, Device, profile, Calendar, VigilanceNarrative.Fields(c, "de"), "run", Now);
+        Assert.Equal("Synthetic", result.Facts.ContactFirstName);
+        Assert.Equal("synthetic@example.invalid", result.Facts.ContactEmail);
+        Assert.True(result.Facts.SubmitterIsManufacturerContact);
+        Assert.Null(result.Facts.NextReportDate);
+        Assert.Null(result.Facts.EventClassification);
+        Assert.Null(result.Facts.RootCauseConfirmed);
+        Assert.Null(result.Facts.InitialCorrectiveAction);
+        var field = Assert.Single(result.Preparation.Fields, f => f.Field == "contactFirstName");
+        Assert.Equal("ControlledContactEvidence", field.Origin);
+        Assert.Contains($"{source.Id}@{source.Version}", field.Source);
+        Assert.Contains(source.Hash, field.Source);
+        Assert.All(field.Citations, citation => Assert.True(EvidenceRules.CitationMatches(citation, c.Evidence)));
+        var mir = new MirComposer().Build(c, report with { Preparation = result.Preparation }, Device, Calendar, result.Facts, Now);
+        Assert.False(mir.Valid);
+        Assert.Contains(mir.Checks!.CompletionIssues!, i => i.Field == "nextReportDate" && i.Reason == "HumanDecision");
+        Assert.DoesNotContain(mir.Checks.CompletionIssues!, i => i.Field.StartsWith("contact", StringComparison.Ordinal));
+        Assert.Empty(c.Approvals);
+        Assert.Empty(c.Submissions);
+    }
+
+    [Theory]
+    [InlineData("unapproved", "MissingSource")]
+    [InlineData("expired", "MissingSource")]
+    [InlineData("other-manufacturer", "Unsupported")]
+    [InlineData("other-target", "Unsupported")]
+    [InlineData("prrc", "Unsupported")]
+    [InlineData("malformed", "Unsupported")]
+    [InlineData("duplicate-property", "Unsupported")]
+    public void IneligibleContactNeverSuppliesInventedOrMisassignedValues(string variant, string reason)
+    {
+        var profile = Governance();
+        var source = ReportContactFixture.Source(profile, Now);
+        var document = Canonical.Read<ReportingContactEvidence>(source.Content);
+        var content = variant switch
+        {
+            "other-manufacturer" => Canonical.Serialize(document with { ManufacturerSrn = "DEMO-OTHER" }),
+            "other-target" => Canonical.Serialize(document with { Jurisdictions = ["EU-FR"] }),
+            "prrc" => Canonical.Serialize(document with { Role = "PRRC" }),
+            "malformed" => "SYNTHETIC unreadable contact source, never parsed as a name.",
+            "duplicate-property" => source.Content.Insert(1, "\"productId\":\"ortho\","),
+            _ => source.Content
+        };
+        source = source with { Content = content, Hash = Canonical.HashText(content), ObjectKey = Canonical.HashText(content),
+            Approved = variant != "unapproved", ValidTo = variant == "expired" ? Now.AddDays(-1) : null };
+        var c = CaseWith(source);
+        var result = ReportPrefill.Create(c, Report(c), Device, profile, Calendar, VigilanceNarrative.Fields(c, "de"), "run", Now);
+        Assert.Null(result.Facts.ContactFirstName);
+        Assert.Null(result.Facts.ContactEmail);
+        Assert.Null(result.Facts.SubmitterIsManufacturerContact);
+        Assert.Contains(result.Preparation.Problems!, p => p.Field == "$contact" && p.Reason == reason && p.Sources.Any(s => s.Contains(source.Hash)));
+    }
+
+    [Fact]
+    public void ConflictingContactDocumentsBlockCompletionWithoutMixingPeople()
+    {
+        var profile = Governance();
+        var c = CaseWith(ReportContactFixture.Source(profile, Now), ReportContactFixture.Source(profile, Now, "second-contact", "Alternative"));
+        var result = ReportPrefill.Create(c, Report(c), Device, profile, Calendar, VigilanceNarrative.Fields(c, "de"), "run", Now);
+        Assert.Null(result.Facts.ContactFirstName);
+        Assert.Null(result.Facts.ContactLastName);
+        Assert.Null(result.Facts.ContactEmail);
+        var conflict = Assert.Single(result.Preparation.Problems!, p => p.Field == "$contact" && p.Reason == "ConflictingSources");
+        Assert.Equal(2, conflict.Sources.Length);
+        var human = Facts() with { ManufacturerName = profile.Manufacturer.Name, ManufacturerSrn = profile.Manufacturer.Srn,
+            ManufacturerCountry = profile.Manufacturer.Country, EvidenceIds = c.Evidence.Select(e => e.Id).ToArray() };
+        var unacknowledged = ReportPrefill.Review(result.Preparation, human, SqlFixture.Medical,
+            "SYNTHETIC manual entry without an explicit resolution of the known competing contact sources.", c.Evidence);
+        var report = Report(c) with { Preparation = unacknowledged };
+        var mir = new MirComposer().Build(c, report, Device, Calendar, human, Now);
+        Assert.False(mir.Valid);
+        Assert.True(mir.Checks!.SchemaValid);
+        Assert.Contains(mir.Checks.CompletionIssues!, i => i.Field == "$contact" && i.Reason == "ConflictingSources");
+        var resolved = ReportPrefill.Review(unacknowledged, human, SqlFixture.Medical,
+            "SYNTHETIC explicit source resolution: the chosen contact is supported by the selected original case evidence; new package review remains necessary.",
+            c.Evidence, resolveSourceProblems: true);
+        Assert.Empty(resolved.Problems!);
+        Assert.Equal("HumanEntry", Assert.Single(resolved.Fields, f => f.Field == "contactFirstName").Origin);
+        Assert.True(new MirComposer().Build(c, report with { Preparation = resolved }, Device, Calendar, human, Now).Valid);
+    }
+
+    [Fact]
+    public void FreshDraftPreservesUnapprovedHumanInputsButOnlySameIntentCompletionKeepsTheHumanPromise()
+    {
+        var c = Case();
+        var initial = Report(c);
+        var generated = ReportPrefill.Create(c, initial, Device, null, Calendar, VigilanceNarrative.Fields(c, "de"), "run", Now);
+        var human = Facts();
+        var prior = initial with { Preparation = ReportPrefill.Review(generated.Preparation, human, SqlFixture.Medical,
+            "SYNTHETIC source-backed human correction, not an approval of the report.", c.Evidence) };
+        prior = prior with { Mir = new MirComposer().Build(c, prior, Device, Calendar, human, Now) };
+        prior = prior with { ScopeHash = ReportRules.Scope(c.CurrentAssessment!, prior) };
+        c = c with { Reports = [prior] };
+        var frozenInput = Canonical.Serialize(c);
+        var next = Report(c) with { Version = 2 };
+        var fresh = ReportPrefill.Create(c, next, Device, null, Calendar, VigilanceNarrative.Fields(c, "de"), "new-report", Now);
+        Assert.Equal(human.ContactFirstName, fresh.Facts.ContactFirstName);
+        Assert.Equal(human.PreliminaryAnalysis, fresh.Facts.PreliminaryAnalysis);
+        Assert.Null(fresh.Facts.NextReportDate);
+        var completion = ReportPrefill.Create(c, next, Device, null, Calendar, VigilanceNarrative.Fields(c, "de"), "same-report", Now, prior);
+        Assert.Equal(Canonical.Serialize(human), Canonical.Serialize(completion.Facts));
+        Assert.Equal("HumanEntry", Assert.Single(completion.Preparation.Fields, f => f.Field == "nextReportDate").Origin);
+        Assert.Equal(frozenInput, Canonical.Serialize(c));
+        Assert.Empty(c.Approvals);
+    }
+
+    [Fact]
+    public void NewNullableCompletionMetadataDoesNotChangeHistoricalBoundReportBytes()
+    {
+        var c = Case();
+        var report = Report(c);
+        var preparation = ReportPrefill.Create(c, report, Device, null, Calendar, VigilanceNarrative.Fields(c, "de"), "run", Now).Preparation;
+        var artifact = new MirComposer().Build(c, report, Device, Calendar, Facts(), Now);
+        report = report with { Preparation = preparation with { Contract = "cohors-report-prefill-1", Problems = null },
+            Mir = artifact with { MappingVersion = "cohors-mir-map-2026.3", Checks = artifact.Checks! with { CompletionIssues = null } } };
+        var historical = JsonNode.Parse(Canonical.Serialize(report))!.AsObject();
+        historical["preparation"]!.AsObject().Remove("problems");
+        historical["mir"]!["checks"]!.AsObject().Remove("completionIssues");
+        var bytes = Canonical.Serialize(historical);
+        Assert.Equal(bytes, Canonical.Serialize(Canonical.Read<ReportDraft>(bytes)));
+    }
+
+    private static ProductGovernance Governance() => new("ortho", 1, "ortho", new("SYNTHETIC manufacturer", "DEMO-SRN", "IE", null),
+        new(Device.BasicUdi, "DEMO-PROFILE-UDI", "III", true, false, true, "SYNTHETIC scope rationale", "DEMO-CERT",
+            new(2025, 1, 1), "SYNTHETIC NB", "0000", "Not the manufacturer reporting contact"),
+        new("PRRC primary, not reporting contact", "PRRC deputy", "DEMO-RESPONSIBILITY", "DEMO-ESCALATION", "Synthetic only"),
+        "pms", "DEMO-PSUR", new(2025, 1, 1), "", new(2026, 1, 2), [], "SYNTHETIC lifecycle", true);
+
+    private static SafetyCase CaseWith(params Evidence[] contacts)
+    {
+        var c = Case();
+        var evidence = c.Evidence.Concat(contacts).ToArray();
+        return c with { Evidence = evidence, Assessments = [c.CurrentAssessment! with { EvidenceHash = Canonical.Hash(evidence),
+            EvidenceIds = evidence.Select(e => e.Id).ToArray() }] };
     }
 
     [Theory]
@@ -275,6 +445,81 @@ public sealed class ReportPrefillRuleTests
 public sealed class ReportPrefillTests(SqlFixture fixture)
 {
     [Fact]
+    public async Task MedicalCompletionPreservesInputsHistoricalSignaturesAndDeadlinesWithVersionAndIntentGuards()
+    {
+        var s = new CaseScenario(fixture);
+        await s.Create(); await s.Assess(); await s.Prepare(); await s.Approve();
+        var before = s.Case;
+        var prior = before.CurrentReport!;
+        var command = new PrepareReportCommand(before.Version, prior.Kind, prior.Jurisdiction, prior.Language,
+            prior.Preliminary, prior.OpenQuestions, "Medical requests completion from the existing sources without retyping known values or granting approval.", CompleteCurrent: true);
+        Assert.Equal("completion_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            s.Service.Prepare(before.Id, command with { Language = "en" }, SqlFixture.Medical, CaseScenario.Key()))).Code);
+        var key = CaseScenario.Key();
+        s.Case = await s.Service.Prepare(before.Id, command, SqlFixture.Medical, key);
+        var next = s.Case.CurrentReport!;
+        Assert.Equal(prior.Version + 1, next.Version);
+        Assert.Equal(ReportState.Draft, next.State);
+        Assert.Null(next.FrozenJson);
+        Assert.True(next.Mir!.Valid, string.Join("\n", next.Mir.Errors));
+        Assert.Equal(Canonical.Serialize(prior.Mir!.Facts), Canonical.Serialize(next.Mir.Facts));
+        Assert.Equal(Canonical.Serialize(before.Approvals), Canonical.Serialize(s.Case.Approvals));
+        Assert.DoesNotContain(s.Case.Approvals, a => a.ScopeHash == next.ScopeHash);
+        Assert.Equal(prior.FrozenJson, s.Case.Reports.Single(r => r.Version == prior.Version).FrozenJson);
+        Assert.Equal(Canonical.Serialize(before.Deadlines), Canonical.Serialize(s.Case.Deadlines));
+        Assert.Equal(Canonical.Serialize(before.Awareness), Canonical.Serialize(s.Case.Awareness));
+        Assert.Equal(Canonical.Serialize(before.FollowUps), Canonical.Serialize(s.Case.FollowUps));
+        Assert.Empty(s.Case.Submissions);
+        Assert.Equal(Canonical.Hash(s.Case), Canonical.Hash(await s.Service.Prepare(before.Id, command, SqlFixture.Medical, key)));
+        Assert.Equal("version_conflict", (await Assert.ThrowsAsync<DomainException>(() =>
+            s.Service.Prepare(before.Id, command, SqlFixture.Medical, CaseScenario.Key()))).Code);
+        Assert.Equal("medical_required", (await Assert.ThrowsAsync<DomainException>(() => s.Service.Approve(s.Case.Id,
+            new(s.Case.Version, "RA cannot reuse the historical Medical signature for this new draft.", null),
+            SqlFixture.Ra, CaseScenario.Key(), false))).Code);
+        var historical = (await fixture.Store.History<SafetyCase>("case", [before.ProductId]))
+            .Single(c => c.Id == before.Id && c.Version == before.Version);
+        Assert.Equal(Canonical.Serialize(before), Canonical.Serialize(historical));
+        Assert.Contains(await fixture.Store.Audit(before.Id), a => a.Action == "ReportFieldsCompleted");
+        await fixture.Store.Manifest(before.Id);
+    }
+
+    [Fact]
+    public async Task SqlBoundContactIsAutomaticallyUsedAndLaterConflictingEvidenceRemainsUnconfirmed()
+    {
+        var s = new CaseScenario(fixture);
+        await s.Create();
+        var profile = (await fixture.Store.Get<ProductGovernance>("productGovernance", s.Case.ProductId))!;
+        async Task Bind(Evidence evidence)
+        {
+            Assert.Equal(evidence.Hash, await fixture.Objects.Put(evidence.Content));
+            s.Case = await fixture.Store.Execute<SafetyCase>(new(s.Case.Id, "case", s.Case.ProductId, s.Case.Version,
+                CaseScenario.Key(), "SyntheticContactBound", "Bind an explicit synthetic source only to this isolated test case.",
+                SqlFixture.Pms, new { evidence.Id, evidence.Hash }, s.Clock.Now),
+                current => current! with { Version = current.Version + 1, Evidence = [.. current.Evidence, evidence] });
+            await s.Assess();
+            s.Case = await s.Service.Prepare(s.Case.Id, new(s.Case.Version, "Initial", s.Case.Jurisdiction, "de", true,
+                "Clinical investigation remains open.", "Complete known mandatory facts only from the actual bound evidence."), SqlFixture.Medical, CaseScenario.Key());
+        }
+        await Bind(ReportContactFixture.Source(profile, s.Clock.Now, s.Case.Id + "-contact"));
+        var first = s.Case.CurrentReport!;
+        Assert.Equal("Synthetic", first.Mir!.Facts.ContactFirstName);
+        Assert.Equal("ControlledContactEvidence", Assert.Single(first.Preparation!.Fields, f => f.Field == "contactFirstName").Origin);
+        Assert.Null(first.Mir.Facts.NextReportDate);
+        var deadlines = Canonical.Serialize(s.Case.Deadlines);
+        await Bind(ReportContactFixture.Source(profile, s.Clock.Now, s.Case.Id + "-other-contact", "Alternative"));
+        var current = s.Case.CurrentReport!;
+        Assert.Null(current.Mir!.Facts.ContactFirstName);
+        Assert.Null(current.Mir.Facts.ContactEmail);
+        Assert.Contains(current.Mir.Checks!.CompletionIssues!, i => i.Field == "$contact" && i.Reason == "ConflictingSources");
+        Assert.False(current.Mir.Valid);
+        Assert.Equal("Synthetic", s.Case.Reports.Single(r => r.Version == first.Version).Mir!.Facts.ContactFirstName);
+        Assert.Empty(s.Case.Approvals);
+        Assert.Empty(s.Case.Submissions);
+        Assert.Equal(deadlines, Canonical.Serialize(s.Case.Deadlines));
+        await fixture.Store.Manifest(s.Case.Id);
+    }
+
+    [Fact]
     public async Task GbAuthoringIsExplicitlyNarrativeOnlyAndNeverExportsAnEuSchemaAsGb()
     {
         var s = new CaseScenario(fixture);
@@ -290,6 +535,21 @@ public sealed class ReportPrefillTests(SqlFixture fixture)
         Assert.Contains(report.Preparation.Fields, f => f.Origin == "AgentDraft");
         Assert.Empty(s.Case.Approvals);
         Assert.Empty(s.Case.Submissions);
+    }
+
+    internal static class ReportContactFixture
+    {
+        public static Evidence Source(ProductGovernance profile, DateTimeOffset now, string id = "manufacturer-contact", string firstName = "Synthetic")
+        {
+            var document = new ReportingContactEvidence("cohors-reporting-contact-1", profile.ProductId, profile.Manufacturer.Srn,
+                ["EU-IE"], "ManufacturerReportingContact",
+                new("DEMO-REPORTING-CONTACT", firstName, "Testcontact", "Demo street", "Demo city", "DEMO", "000000", "synthetic@example.invalid", true));
+            var content = Canonical.Serialize(document);
+            var hash = Canonical.HashText(content);
+            return new(id, 1, profile.ProductId, "SYNTHETIC approved reporting contact", "ManufacturerContact", content, hash,
+                "cohors:synthetic-contact", "Explicit structured synthetic contact", "synthetic", "Product",
+                now.AddDays(-2), null, now, true, true, hash);
+        }
     }
 
     [Fact]

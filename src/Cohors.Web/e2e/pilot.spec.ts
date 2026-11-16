@@ -516,7 +516,7 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     const incidentKey = `PREFILL-${Date.now()}`
     const input = { incidentKey, sourceId: crypto.randomUUID(), title: 'Synthetischer Prüffall: agentengestützter Meldungsentwurf',
       description: 'SYNTHETISCH: Funktionsverlust und Revisionsbedarf wurden berichtet. Die genaue gesundheitliche Folge und Kausalität sind noch nicht bestätigt; keine Schlussfolgerung allein aus der Dringlichkeitsklasse.',
-      productId: 'ortho', udi: null, batch: 'DEMO-PREFILL', country: 'IE', jurisdiction: 'EU-IE',
+      productId: 'ortho', udi: 'DEMO-PREFILL-UDI', batch: 'DEMO-PREFILL', country: 'IE', jurisdiction: 'EU-IE',
       seriousness: 'DeathOrSeriousDeterioration', occurredAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
       awarenessAt: new Date(Date.now() - 86_400_000).toISOString(), scenario: 'report-prefill-ui', synthetic: true }
     let c = await command(pms, pmsCsrf, '/cases', input)
@@ -544,7 +544,15 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     await expect(pmsPage.getByRole('heading', { name: 'Prüfansicht des vorausgefüllten Meldungsentwurfs' })).toBeVisible()
     await expect(pmsPage.locator('.report-target')).toContainText('Health Products Regulatory Authority (HPRA)')
     await expect(pmsPage.locator('.report-target')).toContainText('HPRA-SIMULATOR')
-    await expect(pmsPage.getByTestId('report-gaps')).toContainText('ContactFirstName')
+    await expect(pmsPage.getByTestId('report-gaps')).toContainText('Nicht automatisch befüllbar – Angaben oder Belege erforderlich')
+    await expect(pmsPage.getByTestId('report-gaps')).toContainText('Belegter Hersteller-/Melderkontakt · Vorname')
+    await expect(pmsPage.getByTestId('report-gaps')).not.toContainText('ContactFirstName')
+    await expect(pmsPage.locator('[data-issue-field="contactFirstName"]')).toContainText('Fehlende oder nicht verwendbare Quelle')
+    await expect(pmsPage.locator('[data-issue-field="nextReportDate"]')).toContainText('Menschliche Entscheidung erforderlich')
+    await pmsPage.locator('[data-issue-field="contactFirstName"]').getByRole('button', { name: 'Angabe belegen / Widerspruch klären' }).click()
+    dialog = pmsPage.getByRole('dialog')
+    await expect(dialog.locator('[name=contactFirstName]')).toHaveValue('')
+    await pmsPage.keyboard.press('Escape')
     c = await (await pms.get(`/api/cases/${c.id}`)).json()
     const draft = c.currentReport!
     expect(draft.preparation?.mode).toBe('Replay')
@@ -610,6 +618,7 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     expect(c.currentReport?.preparation?.fields.find(f => f.field === 'nextReportDate')?.origin).toBe('HumanEntry')
     expect(c.currentReport?.mir?.followUpSchedule?.reportDate).toBe(nextDate)
     expect(c.currentReport?.mir?.facts.initialCorrectiveAction).toBeNull()
+    expect(c.currentReport?.mir?.facts.udiDi).toBe(input.udi)
     await pmsPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-corrected.png') })
 
     const medicalPage = await pageFor(medical)
@@ -643,11 +652,40 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     await expect(target).toBeInViewport()
     expect(await raPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await raPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-ra-narrow.png') })
+    const frozen = c.currentReport!
+    const originalApprovals = JSON.stringify(c.approvals)
+    const originalFacts = JSON.stringify(frozen.mir!.facts)
+    const previousCaseVersion = c.version
+    await medicalPage.reload()
+    await showCase(medicalPage, incidentKey, input.title)
+    await medicalPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await medicalPage.getByRole('button', { name: 'Pflichtfelder erneut durch Agenten vervollständigen', exact: true }).click()
+    dialog = medicalPage.getByRole('dialog')
+    await expect(dialog.locator('[name=contactFirstName]')).toHaveCount(0)
+    await expect(dialog.locator('[name=nextReportDate]')).toHaveCount(0)
+    await submitDialog(dialog, 'Erneut vervollständigen')
+    c = await (await medical.get(`/api/cases/${c.id}`)).json()
+    expect(c.currentReport?.version).toBe(frozen.version + 1)
+    expect(c.currentReport?.state).toBe('Draft')
+    expect(c.currentReport?.scopeHash).not.toBe(frozen.scopeHash)
+    expect(c.currentReport?.preparation?.caseSource.version).toBe(previousCaseVersion)
+    expect(c.currentReport?.mir?.valid).toBe(true)
+    expect(JSON.stringify(c.currentReport?.mir?.facts)).toBe(originalFacts)
+    expect(JSON.stringify(c.approvals)).toBe(originalApprovals)
+    expect(c.approvals.filter(a => a.scopeHash === c.currentReport?.scopeHash)).toHaveLength(0)
+    expect(c.currentReport?.preparation?.fields.find(f => f.field === 'nextReportDate')?.origin).toBe('HumanEntry')
+    expect(c.currentReport?.preparation?.fields.find(f => f.field === 'contactFirstName')?.origin).toBe('HumanEntry')
+    expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+    expect(c.submissions).toHaveLength(0)
+    await expect(medicalPage.getByRole('button', { name: 'Medizinisch freigeben', exact: true })).toBeEnabled()
+    await medicalPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-medical-completion.png') })
     expect(pageErrors).toEqual([])
     writeFileSync(path.join(artifacts, 'prefill-workflow.json'), JSON.stringify({ caseId: c.id, version: c.version,
       reportVersion: c.currentReport?.version, scopeHash: c.currentReport?.scopeHash, xmlHash: c.currentReport?.mir?.xmlHash,
       target: c.currentReport?.preparation?.target, roles: approvals.map(a => a.role), differentIdentities: true,
-      initialGapsPreserved: true, agentTextPreserved: true, deadlinePreserved: true, automaticSubmissions: 0, pageErrors }, null, 2))
+      initialGapsPreserved: true, agentTextPreserved: true, deadlinePreserved: true, hiddenUdiPreserved: true,
+      medicalCompletionWithoutRetyping: true, historicalApprovalsPreserved: true, currentApprovals: 0,
+      automaticSubmissions: 0, pageErrors }, null, 2))
   } finally {
     for (const context of contexts) await context.close()
     await Promise.all([pms.dispose(), medical.dispose(), ra.dispose()])
