@@ -387,7 +387,7 @@ bleiben getrennt.
 | T17 CAPA | Unabhaengiger Wirksamkeitsnachweis, negatives Ergebnis, Nacharbeit und erneute Pruefung im aktuellen SQL-Lauf bestanden |
 | T18 Audit/Retention | Begrenzter L03-/Diagnostikblock: 17/17 gezielte SQL-Faelle sowie getrennt 1/1 AuditExport und 1/1 isolierter PhysicalRetention-Browserfall; keine Vollsuite. Historische I/O-Ursache und aktuelle Recovery offen; 5187 bleibt Disabled |
 | T19 Simulatorgrenze | Keine echten Melde-/Klinikadapter; weitere Export-/Endpoint-Pruefung offen |
-| T20 Wiederherstellung | Integrierter 13er-Windows-Lauf mit echten SQL-/Objekt-/Journal-Cuts bestanden; erneut auf finalen Quellen sowie Linux-/Cloud-DR offen |
+| T20 Wiederherstellung | Historischer 13er-Windows-Lauf mit echten SQL-/Objekt-/Journal-Cuts bestanden. d0e864dc-Fixture als c906641 integriert: neue 14er-Selektion/11 Abschlusschecks einschliesslich PSUR/BS noch ohne Typpruefung oder Lauf; aktuelle Wiederholung sowie Linux-/Cloud-DR offen |
 
 Die vom Auftraggeber uebergebenen unabhhaengigen Referenzen liegen unveraendert in `tests\Cohors.Tests\Fixtures\cohors-acceptance-references.json`. Deren ursprüngliches `applicationVerified: false` dokumentiert die Herkunft des Referenzsatzes; nur ausgefuehrte Anwendungstests liefern den zusaetzlichen Nachweis.
 

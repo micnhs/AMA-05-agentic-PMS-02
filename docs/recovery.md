@@ -9,16 +9,37 @@ uebernommenen [Byte-Integritaetsfixes](object-integrity.md)
 unten beschriebenen T18-Datenklassen-/Loeschkatalogvertrag. HTTP/UI und der
 getrennte Functions-Host-/Neustartnachweis bleiben separate Pruefungen.
 
+## Zurueckgegebene PSUR-/BS-Fixture: noch kein Laufnachweis
+
+`d0e864dc0f7ccdbfd3758499bc4a9b4d88f59684` wurde nach Abschluss des begrenzten
+L03-/Diagnostikblocks als **`c90664121339d81ca56a4d225203e768c2ebe146`**
+integriert. Die zwei Git-Blobs in `scripts\Test-Recovery.ps1` und
+`tests\Cohors.Tests\RecoveryTests.cs` entsprechen exakt der Uebergabe.
+**Backup-/Restore-Produktionscode blieb unveraendert.**
+
+Die neue Fixture ergaenzt drei PSURs in zwei getrennten Mehrproduktserien,
+Gruppenfassungen v1/v2, getrennte Freigaben, zwei BS-Antwortrunden/CAPA,
+Stichtags- und Nachtragszustaende sowie einen weiterhin nur medizinisch
+freigegebenen Antwortentwurf. Nach Restore muessen Quellen, Historien, Hashes
+und Mitgliedsscope unveraendert sein; der historische Receipt-Replay darf
+keine neuen Schreibvorgaenge erzeugen. Die anfangs ausgewaehlte Originalevidenz
+liegt zeitlich vor `CurrentEvidence.ValidFrom`.
+
+Die Vorbereitung und Integration sind **kein Typecheck, Build, SQL- oder
+Restorelauf**. Die echte Typpruefung sowie **14 Faelle / 11
+Fixture-Abschlusspruefungen** stehen fuer den naechsten freigegebenen
+Pruefblock aus. Historische 13/13 werden nicht als 14/14 umgedeutet.
+
 ## Isolierter Gesamtablauf
 
 Voraussetzungen: Docker Desktop mit Linux-Engine, das gepinnte .NET-SDK und
 **PowerShell 7.6 auf .NET 10**. `RecoveryTests` gehoert zu `Category=Sql` und
 startet selbst Docker; dies gilt auch bei einem allgemeinen SQL-Testfilter.
-Der lokale Runner verlangt `Category=Recovery` vollstaendig: zehn echte
+Der lokale Runner verlangt `Category=Recovery` vollstaendig: elf echte
 SQL-/Docker-Faelle und drei getrennte Pfad-/Retention-Vertragstests ohne SQL.
-Diese **13er-Gesamtselektion wurde lokal bestanden**; sie ist nicht der
-unten dokumentierte historische 9er-Lauf. Ihr konkreter Quellenstand und
-die noch offene abschliessende Wiederholung sind unten getrennt benannt. Der fruehere
+Diese **14er-Gesamtselektion wurde noch nicht ausgefuehrt**. Die vorherige
+13er-Selektion und der urspruengliche 9er-Lauf bleiben unten getrennt als
+historische Nachweise benannt. Der fruehere
 Linux-Runner mit PowerShell 7.5 belegt keine Kompatibilitaet dieses neuen Pfads.
 
 ```powershell
@@ -193,7 +214,7 @@ Nicht-Docker-Tests, ohne Skips: neun Store-Integritaet, vier Retention-Regeln,
 vier lokale Retention-Objekttests sowie drei Recovery-Pfad-/Vertragstests.
 Der echte PowerShell-Helper musste dabei an die kanonische Journalserialisierung
 angebunden werden; die fehlgeschlagenen Vorlaeufe waren kein Erfolg.
-Aktueller TRX: `.local\test-results\retention-recovery-integration-offline.trx`.
+Historischer TRX: `.local\test-results\retention-recovery-integration-offline.trx`.
 Danach bestand die vollstaendige integrierte Kategorie mit **13/13**,
 ohne Skips: `.local\t18-t20-integrated-current\recovery-results.json`.
 Vier Implementierungsdateien und fuenf tatsaechlich ausgefuehrte
@@ -210,6 +231,12 @@ erklaert diese Ursache nicht. Aktuelle Recovery-Wiederholung,
 Linux-Gesamtintegration und Cloud-DR bleiben offen. Die qualifizierte
 Replay-UI-Teilabnahme mit deaktivierter physischer Loeschung ersetzt diese
 Gates nicht; siehe [Nachweisstand](validation.md).
+
+Die spaetere saubere ee13e91-Wiederholung mit **13/13** ist unter
+`.local\recovery-ee13e91-current\recovery-results.json` gebunden
+(SHA256 `118cb0525cae037def6e4094041e86d7127197e52135ce00e50ba2fec3c9ae14`).
+Auch sie liegt vor dem aktuellen Audit-/Diagnostikstand und der neuen
+PSUR-/BS-Fixture; sie bleibt ausschliesslich historisch.
 
 ## Historischer Owner-Nachweis am 15.11.2026, vor T18-Integration
 
