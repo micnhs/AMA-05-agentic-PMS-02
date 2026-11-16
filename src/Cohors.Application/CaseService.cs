@@ -2,7 +2,7 @@ using Cohors.Domain;
 
 namespace Cohors.Application;
 
-public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyCatalog policies,
+public sealed partial class CaseService(IStateStore store, IObjectStore objects, PolicyCatalog policies,
     IAgentRunner agents, IKnowledgeSearch knowledge, TimeProvider clock, IMirComposer mirComposer)
 {
     private readonly AgentExecutionService execution = new(store, agents, clock);
@@ -695,6 +695,7 @@ public sealed class CaseService(IStateStore store, IObjectStore objects, PolicyC
                 (current.FollowUps ?? []).Any(f => f.Status == "Open") ||
                 current.Submissions.Any(s => s.Status == "TransmissionUnknown") ||
                 current.InformationRequests.Any(r => r.Status != "SimulatedAnswered") ||
+                (current.Investigations ?? []).Any(i => i.Status is not ("SimulatedExamined" or "Cancelled")) ||
                 current.AgentRuns.Any(r => r.Status is "Queued" or "Running") || assessment.EvidenceHash != Canonical.Hash(current.Evidence),
                 "case_unresolved", "Offene Verpflichtungen, Nachforderungen, unklare Laeufe oder veraltete Evidenz verhindern den Abschluss.");
             var final = current.CurrentReport;

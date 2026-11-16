@@ -134,6 +134,12 @@ public sealed record LinkEvidenceCommand(int ExpectedVersion, string EvidenceId,
 public sealed record EvidenceDocument(Evidence Evidence, string Content, bool HashVerified);
 public sealed record ReviseEvidenceCommand(int ExpectedVersion, string ChangeId, string Title, string Content,
     DateTimeOffset ValidFrom, string Reason);
+public sealed record RecordSpecimenPlanCommand(int ExpectedVersion, string Reference, string SpecimenReference,
+    DateTimeOffset ReceivedAt, string OriginDescription, string ConditionBefore, string CustodyReference,
+    string PreservationMeasures, string TraceabilityAssessment, string Method, bool? MayCompromiseCauseEvaluation,
+    string ImpactRationale, string AuthorityNoticeText, string Language, string Reason);
+public sealed record SimulateSpecimenCommand(int ExpectedVersion, string Findings, string RemainingState,
+    string ConsequencesAndGaps, string Reason);
 public sealed record RequestInformationCommand(int ExpectedVersion, string Question, string MinimalData,
     string Relevance, string RecipientRole, string ManufacturerBasis, string DisclosureBasis, DateTimeOffset DueAt);
 public sealed record RespondInformationCommand(int ExpectedVersion, string RequestId, string Response, string Reason);

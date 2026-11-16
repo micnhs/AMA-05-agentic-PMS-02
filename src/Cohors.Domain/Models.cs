@@ -83,7 +83,8 @@ public sealed record SafetyCase(
     InformationRequest[] InformationRequests, AgentRun[] AgentRuns, string[] Alerts,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DateTimeOffset? ClosedAt = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FollowUpObligation[]? FollowUps = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CaseCoding? Coding = null)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] CaseCoding? Coding = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SpecimenInvestigation[]? Investigations = null)
 {
     public Assessment? CurrentAssessment => Assessments.LastOrDefault();
     public ReportDraft? CurrentReport => Reports.LastOrDefault();

@@ -255,6 +255,50 @@ Oeffentliche FDA-/PubMed-Adapter lesen nur fest definierte, begrenzte Metadatena
 
 Deutsch und Englisch sind die expliziten Pilot-Berichtssprachen. Englische Replay-Berichte markieren unveraenderte fremdsprachige Assessment-Auszüge als Originalzitate; sie behaupten keine zertifizierte Uebersetzung. Weitere NCA-Sprachen und regulaertaugliche Uebersetzungen sind ein fachliches Gate.
 
+## B-10/E-02: abgegrenzte Untersuchungsquellen, noch ohne Laufnachweis
+
+Der optionale Fallbaustein `Investigations` ergaenzt den bestehenden
+CaseService, keine eigene Fachplattform. PMS/Medical dokumentieren eine
+synthetische Asservatenreferenz, Eingang, Herkunft/Uebergabe und Luecken,
+Ausgangszustand, Verwahrung, Beweissicherung, Land-/Chargen-/UDI-Zuordnung,
+Fragestellung und moegliche Beeintraechtigung der Ursachenbewertung.
+Unbekannte UDI/Charge bleibt unbekannt. Der eigene Sicherungsbeleg und alle
+vorhandenen Quellen sind versioniert und objektgehasht gebunden.
+
+Medical und eine getrennte RA-Identitaet pruefen das interne Paket.
+Bei moeglich beeintraechtigender Untersuchung muss RA danach einen eigenen
+vorherigen **simulierten Unterrichtungsschritt** dokumentieren; erst dann
+darf PMS/Medical einen synthetischen Befund mit Restzustand, Gegenhypothesen
+und Grenzen erfassen. Es gibt keine reale Materialpruefung, Behoerdenzustimmung
+oder pauschale Genehmigungspflicht fuer nichtbeeintraechtigende Verfahren.
+Fachliche Behoerde stammt aus dem vorhandenen Zielkatalog; der separate
+`cohors:specimen-simulator:*` ist kein MIR-Empfang und erledigt keine Frist.
+
+Quell-/Methodenaenderungen brauchen eine neue Planrevision mit neuen
+internen Freigaben und erforderlichenfalls neuer Vorabunterrichtung.
+Alte Revisionen, Quittungen, eingefrorene Pakete und Objektbytes bleiben in
+Fallhistorie und Audit erhalten. Ein abgeschlossener Befund oder begruendeter
+Verzicht wird nicht ueberschrieben. Neue Befunde invalidieren die bestehenden
+offenen Berichtsfassungen, sind aber keine bestaetigte Ursache, Risikoakzeptanz
+oder automatische Fallfreigabe. Offene Untersuchungsauftraege verhindern
+Fallabschluss; Awareness, LegalDue und SafetyDue werden nicht geaendert.
+
+Die API-Gruppe `/api/cases/{id}/investigations` bietet Erfassung/Revision,
+`approve`, `inform`, `simulate`, `cancel` und einen lesenden `export`
+mit optionaler konkreter `caseVersion`. Mutationen verwenden die bestehende
+atomare Fall-/Audit-/Outbox-Transaktion, erwartete Version und Idempotenz.
+Quellreferenzen binden den gespeicherten Audit-Payload-Hash statt einer
+moeglicherweise anders serialisierten alten Fallfassung. Originaltexte
+werden ueber die vorhandene Evidenzpruefung gelesen; der Produkt-Auditexport
+nimmt die neuen eingebetteten Quellen und Bindungen mit.
+
+**Quellcheckpoint, keine Abnahme:** Sieben Regelfaelle und drei SQL-Faelle
+sind in `SpecimenInvestigationTests.cs` vorbereitet, nicht ausgefuehrt.
+Build/Typpruefung und SQL-/Browserabnahme warten auf eine neue Laufzuteilung.
+Eine eigene Workbench-Erfassung und Browserfall gehoeren noch nicht zu diesem
+Checkpoint; die priorisierte Cockpit-/Kalenderergaenzung folgt getrennt.
+Die laufende d166658-Demo und ihre Rueckfaelle wurden nicht aktualisiert.
+
 ## Unveraenderte Originale
 
 `source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`, die freigegebenen Eingangsunterlagen sowie Logo und Animation werden nicht veraendert. Die unveraenderte `source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx` hat SHA256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`.

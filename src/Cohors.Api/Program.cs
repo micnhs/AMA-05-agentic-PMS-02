@@ -219,6 +219,23 @@ api.MapPost("/cases/{id}/evidence", (string id, LinkEvidenceCommand input, CaseS
 api.MapPost("/cases/{id}/information", (string id, RequestInformationCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.AddInformationRequest(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/information/{requestId}/approve", (string id, string requestId, ApprovalCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.ApproveInformation(id, requestId, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/information/respond", (string id, RespondInformationCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.RespondInformation(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/cases/{id}/investigations", (string id, RecordSpecimenPlanCommand input, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.RecordSpecimenPlan(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/cases/{id}/investigations/{investigationId}/approve", (string id, string investigationId, VersionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.ApproveSpecimen(id, investigationId, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/cases/{id}/investigations/{investigationId}/inform", (string id, string investigationId, VersionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.InformSpecimenAuthority(id, investigationId, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/cases/{id}/investigations/{investigationId}/simulate", (string id, string investigationId, SimulateSpecimenCommand input, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.SimulateSpecimen(id, investigationId, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/cases/{id}/investigations/{investigationId}/cancel", (string id, string investigationId, VersionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.CancelSpecimen(id, investigationId, input, Who(ctx), Key(ctx), ct));
+api.MapGet("/cases/{id}/investigations/{investigationId}/export", async (string id, string investigationId, int? caseVersion,
+    CaseService service, HttpContext ctx, CancellationToken ct) =>
+{
+    var export = await service.ExportSpecimen(id, investigationId, Who(ctx), caseVersion, ct);
+    return Results.File(System.Text.Encoding.UTF8.GetBytes(Canonical.Serialize(export)), "application/json",
+        $"COHORS-DEMO-SPECIMEN-{investigationId}-case-v{export.SnapshotSource.Version}.json");
+});
 api.MapGet("/cases/{id}/audit", async (string id, CaseService service, IStateStore store, HttpContext ctx, CancellationToken ct) =>
 {
     await service.Get(id, Who(ctx), ct);

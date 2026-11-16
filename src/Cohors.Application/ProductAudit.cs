@@ -72,8 +72,19 @@ public static class ProductAuditRules
         if (kind == "summaryAgreement") SummaryReportingRules.RequireAgreement(Canonical.Read<SummaryAgreement>(json));
         if (kind == "summaryReport") SummaryReportingRules.RequireIntegrity(Canonical.Read<PeriodicSummaryReport>(json));
         if (kind == "case")
-            Guard.Against(!Canonical.Read<SafetyCase>(json).Synthetic, "audit_synthetic",
+        {
+            var c = Canonical.Read<SafetyCase>(json);
+            Guard.Against(!c.Synthetic, "audit_synthetic",
                 "Dieses Pilotpaket unterstuetzt nur synthetische Fallakten.", 409);
+            foreach (var investigation in c.Investigations ?? [])
+            {
+                SpecimenInvestigationRules.RequireIntegrity(investigation);
+                Guard.Against(investigation.CaseSource.Id != c.Id || investigation.Device.Id != c.ProductId ||
+                    investigation.CaseSource.Version >= c.Version ||
+                    investigation.PriorNotice?.CaseVersion > c.Version || investigation.Outcome?.CaseVersion > c.Version,
+                    "audit_specimen_binding", "Untersuchungs-/Vorabbeleg passt nicht zur gespeicherten Fallfassung.", 409);
+            }
+        }
         return products.Order(StringComparer.Ordinal).ToArray();
 
         void Add(JsonElement value)

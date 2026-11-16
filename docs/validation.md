@@ -694,7 +694,35 @@ dieser Pilot weist kein solches nationales Versandpaket nach. GB-SIM-1
 ersetzt nicht GB 7.2.1GB, NI-MORE-Import ist nicht nachgewiesen, nationale
 Kanal-/Sprachdetails bleiben teilweise offen. Es gab keine Live-KI,
 echte Meldung, Recovery-/Last-/Native-Parser-/separate-Host-/Azure-Abnahme
-oder neue medizinische/regulatorische Betriebsfreigabe. B10 bleibt geparkt.
+oder neue medizinische/regulatorische Betriebsfreigabe. B10 war in diesem Pruefstand geparkt.
+
+## B-10/E-02: gesicherter Folge-Quellcheckpoint, nicht ausgefuehrt
+
+Die geparkten Untersuchungsquellen wurden auf dem ausgelieferten Prefill-
+Quellstand getrennt weitergefuehrt: Asservatenherkunft/-zustand, interne
+Medical-/RA-Prueffreigabe, eigenstaendige vorherige simulierte
+Behoerdenunterrichtung bei moeglicher Beeintraechtigung, synthetischer Befund,
+Verzicht und historische Originalexporte. Die Unterrichtung ist ausdruecklich
+keine Behoerdenzustimmung; eine nichtbeeintraechtigende Methode bekommt keine
+pauschale Behoerdengenehmigungspflicht.
+
+Vorbereitet sind sieben SQL-freie `SpecimenInvestigationRuleTests` und drei
+`SpecimenInvestigationTests` mit SQL-Fixture. Sie adressieren Reihenfolge,
+getrennte Identitaeten, Scope-/Originalbelegmanipulation, geaenderte
+Fallgrundlage, keinen Scheinabschluss, Versions-/Idempotenzbindung,
+unveraenderte Fristen, Variantenhistorie, den gespeicherten Audit-Quellhash
+einer aelteren JSON-Form sowie falsche Objektbytes und Scope-Verweigerung.
+Das sind **Testquellen, keine zehn bestandenen Faelle**. Es gab in diesem
+Folgeblock keinen SDK-/Build-/SQL-/Docker-/Browser-/Lastlauf und keine
+Promotion. Ein eigener B10-Workbench-/Browserfall bleibt nach der neuen
+Cockpit-Priorisierung offen.
+
+Die laufende d166658-Demo, 27672ae/2a-Rueckfaelle, Konten, Daten, Schluessel
+und Nutzerbrowser bleiben unveraendert. Die beiden historischen
+Scope-/Frozen-Abweichungen wurden nicht normalisiert oder neu signiert.
+Der gesonderte Infra-Commit 09e166f wurde konfliktfrei als 3774627 integriert:
+nur 52 Dokumentationszeilen in `azure-infrastructure.md`, Produktionsziele
+statt Istnachweis; keine Runtime-/Deploymentaenderung.
 
 ## MIR-Herkunft, nicht Behoerdenabnahme
 

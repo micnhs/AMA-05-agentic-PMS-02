@@ -65,8 +65,9 @@ public static class CaseProcess
         var followUps = (c.FollowUps ?? []).Count(f => f.Status == "Open");
         var deadlines = c.Deadlines.Count(d => d.Status == "Open");
         var requests = c.InformationRequests.Count(r => r.Status != "SimulatedAnswered");
+        var investigations = (c.Investigations ?? []).Count(i => i.Status is not ("SimulatedExamined" or "Cancelled"));
         var closed = c.Stage == CaseStage.Closed && c.ClosedAt is not null && deadlines == 0 && followUps == 0 &&
-            requests == 0 && unknown.Length == 0;
+            requests == 0 && investigations == 0 && unknown.Length == 0;
         CaseProcessStep[] steps =
         [
             new CaseProcessStep("intake", "Hinweis & Frist", c.Sources.Length > 0 ? "completed" : "blocked", Roles.Pms,
@@ -98,7 +99,7 @@ public static class CaseProcess
                 previousAccepted ? "Frueheres Paket simuliert empfangen; aktuelle Fassung und Ziel separat pruefen." : "Keine bestaetigte simulierte Zustellung."),
             new("followup", "Nachverfolgung", closed ? "completed" : previousAccepted ? "current" : "pending",
                 Roles.Pms, closed ? "Fall menschlich geschlossen; Produktbeobachtung bleibt separat." :
-                $"{deadlines} offene Einzelpflicht(en), {followUps} Folgepflicht(en), {requests} Nachforderung(en). Kein automatischer Fallabschluss.")
+                $"{deadlines} offene Einzelpflicht(en), {followUps} Folgepflicht(en), {requests} Nachforderung(en), {investigations} Untersuchungsauftrag/-auftraege. Kein automatischer Fallabschluss.")
         ];
         var nonReportable = analysisCurrent && qualityCurrent && !critical && !major && context?.NonReportableDecisionCurrent == true;
         if (nonReportable)
