@@ -458,7 +458,7 @@ als Fehler; er meldet sie nicht als bestandene Sicherheitspruefung.
 python -m pip install -r infra\requirements-validation.txt
 docker pull bridgecrew/checkov@sha256:122602cf32cc72286155d39f1f234b7b594818f7b8d7fdf490701620e521368b
 pwsh -NoProfile -File infra\scripts\Validate-Infrastructure.ps1 `
-  -OutputDirectory (Join-Path $env:TEMP 'cohors-iac-validation')
+  -OutputDirectory (Join-Path $env:TEMP ("cohors-iac-validation-{0}" -f [Guid]::NewGuid().ToString('N')))
 ```
 
 Der Validator baut/lintet Bicep, kompiliert Parameter, prueft lokale Sicherheits-
@@ -472,14 +472,57 @@ Checkov 3.4.5 verwendet pycep-parser 0.5.1: Der direkte Bicep-Scan scheitert an
 `string[]` und `toObject`; ein unveraenderter ARM-v2-Scan sah sogar null Ressourcen.
 Beides wurde verworfen. `checkov_templates.py` exportiert deshalb **alle**
 eingebetteten kompilierten Templates, auch bedingte/standardmaessig inaktive
-Zweige, und ersetzt ausschliesslich symbolische Ressourcen-Dictionaries durch
-Ressourcenlisten. Eigenschaften, Ausdruecke, Bedingungen und Copy-Loops bleiben
-erhalten. Ein Manifest bindet den Quell-SHA256 und dokumentiert die Abdeckung.
+Zweige, als Ressourcenlisten. Zwei eng begrenzte, quellengebundene Scan-Projektionen
+ergaenzen diese Darstellung; andere Eigenschaften, Bedingungen und Copy-Loops
+bleiben unveraendert:
+
+- **CKV_AZURE_23:** Eine eigenstaendige Server-`auditingSettings`-Ressource wird
+  zusaetzlich exakt unter dem nachweislich zugehoerigen SQL-Server sichtbar gemacht.
+  Originalressource und alle Policywerte bleiben erhalten, auch `Disabled`,
+  fehlender `state` und kurze Retention. Die Beziehung muss im selben Template
+  anhand identischer Namensausdruecke plus `/default` eindeutig sein. Mehrdeutige
+  Zuordnung, bestehende Ressourcen, abweichender Scope, Copy-Loops und nicht den
+  Server abdeckende Policybedingungen werden verweigert. **Keine** erfundene
+  Server-Policy-Vererbung in Datenbanken und keine weitere Policy-Korrektur.
+- **CKV_AZURE_43:** Nur geschlossene Stringausdruecke aus Literalen, Variablen,
+  expliziten inneren Modul-Parameterbindungen und einfachem `format('{0}...', ...)`
+  werden exakt aufgeloest. Ein ausgelassener innerer Modulparameter darf seinen
+  eigenen belegten Default nutzen; Root-Defaults/`allowedValues` ersetzen keine
+  konkreten Deploymentinputs. Ungueltige resultierende Namen bleiben ungueltig.
+  Ungebundene/case-mehrdeutige Parameter, Runtime-/Scope-Funktionen, andere Syntax,
+  Zyklen sowie erneut als Ausdruck oder von Checkov als `UNKNOWN` interpretierbare
+  Ergebnisse lassen den Export scheitern.
+  Es gibt keine Ersatznamen oder generellen Expression-Fallbacks.
+
+Eine inverse Pruefung entfernt nur diese aufgezeichneten Projektionen und muss
+danach den **gesamten** unveraenderten Ressourcenbaum als Listen rekonstruieren.
+Sie verweigert verlorene Ressourcen oder sonstige Aenderungen, nicht nur einen
+veraenderten Ressourcenzaehler. Das Manifest bindet die einmal gelesenen
+Quellbytes, jede Originalressource, alle Scan-Dateien und die Projektionsherkunft
+per SHA256. Eine bytegleiche `.original.json` liegt neben, nicht im Scanordner.
+Fehlgeschlagene Aequivalenzpruefungen publizieren keine Teil-Scanartefakte.
 Die erzeugten `SCAN-ONLY-*.json` sind keine Deploy-Artefakte; Deploy nutzt
 ausschliesslich das unveraenderte Bicep-Kompilat. Aufgrund verschachtelter
 Modulpruefung sind Checkov-Zaehler **Befundvorkommen**, nicht Azure-Instanzzahlen.
 Funktionen, bei denen Checkov fehlgeschlagene ARM-Pruefungen still ausfiltern
-koennte, werden vor dem Scan abgewiesen.
+koennte, werden weiterhin vor dem Scan abgewiesen. Fuer spaetere Vollscans immer
+ein neues Ausgabeverzeichnis verwenden; bisherige Rohbefunde nicht ueberschreiben.
+
+**Konkreter verbleibender CKV_AZURE_43-Blocker:** Der Blueprint bildet Storage-Namen
+ueber `compactName` und
+`take(uniqueString(subscription().subscriptionId, resourceGroup().id, namePrefix), 8)`.
+Es gibt hier weder einen gebundenen Root-Parameterstand noch konkrete, freigegebene
+Subscription-/Resource-Group-Eingaben und keinen verifizierten ARM-Runtime-Evaluator.
+Dieser Namenspfad wird deshalb jetzt vor dem Scan ausdruecklich blockiert, nicht
+durch ein erfundenes Azure-Ziel oder einen gueltig aussehenden Namen ersetzt.
+Die Korrektur beweist **keinen** erfolgreichen Vollscan des realen Blueprints.
+Der begrenzte Folgepatch wird nur mit synthetischen Konverter-Unittests geprueft;
+die bisherigen Rohbefunde und die uebrigen 15 Controls bleiben offen/unveraendert.
+
+Nur diesen synthetischen Offline-Nachweis wiederholen:
+```powershell
+python -m unittest discover -s infra\tests -p test_checkov_templates.py -v
+```
 
 Es gibt keine `skip-check`-Liste, Suppressions oder automatische Freigabe anhand
 der folgenden Einordnung. Nullscans, Parserfehler, Skips und verbleibende Befunde
@@ -494,8 +537,9 @@ Anwendungsquellen nicht behauptet werden.
 
 ### Einzelklassifikation der 17 beobachteten Controls
 
-Diese Klassifikation erklaert die Befunde, hebt sie aber **nicht** technisch auf
-und ist keine Produktionsausnahme. Echte offene Controls benoetigen einen
+Diese Klassifikation bezieht sich auf die bisherigen Rohbefunde. Der oben
+begrenzte Scan-only-Pfad ist keine Freigabe und keine Produktionsausnahme.
+Echte offene Controls benoetigen einen
 Nachweis oder einen gesonderten formalen Risikoentscheid; Werkzeugfehler
 benoetigen einen kontrolliert korrigierten Pruefpfad statt unsicherer Azure-Werte.
 
@@ -510,13 +554,13 @@ benoetigen einen kontrolliert korrigierten Pruefpfad statt unsicherer Azure-Wert
 | CKV_AZURE_213 | **Nachgewiesene Flex-Fehlzuordnung.** App-Service-Health-Check ist laut Learn fuer Flex nicht verfuegbar. Eigene HTTP-Health-Routen und der unabhaengige Missing-Success-Alert werden separat abgenommen. |
 | CKV_AZURE_225 | **Genehmigte Pilotgrenze.** FC1-Zonenredundanz ist nicht bestaetigt/aktiviert. Region, Mindestzahl Always-ready-Instanzen, Kosten und Failover sind offene Zielbetriebsgates. |
 | CKV_AZURE_229 | **Genehmigte Pilotgrenze.** SQL-Zonenredundanz bleibt ein explizit zu pruefender Parameter, standardmaessig false. Kein HA-SLA wird aus privatem SQL oder PITR abgeleitet. |
-| CKV_AZURE_23 | **Nachgewiesene Beziehungsaufloesung des Werkzeugs; Betriebsnachweis offen.** Die Regel sucht eingebettete `resources`; Bicep erzeugt eigenstaendige `servers/auditingSettings`. Die Server-Policy ist im Original enthalten. Vererbung, master-Sink, Payloadklassifikation und tatsaechliche Ingestion sind dadurch noch nicht bewiesen. |
+| CKV_AZURE_23 | **Quellengebundene Server-Zuordnung im Scan-only-Konverter; Vollscan/Betriebsnachweis offen.** Die Regel sucht eingebettete `resources`; die exakt zugeordnete eigenstaendige `servers/auditingSettings` wird dort zusaetzlich sichtbar. Datenbank-Befunde werden nicht durch unterstellte Vererbung entfernt. Vererbung, master-Sink, Payloadklassifikation und tatsaechliche Ingestion bleiben unbewiesen. |
 | CKV_AZURE_24 | **Retention-Ziel/Pruefmodell und formale Bewertung offen.** Die Regel sucht eine verschachtelte SQL-Audit-Blob-Retention >=90 Tage; hier ist Azure Monitor mit 30 Tagen Pilot-Telemetrie vorgesehen. Das ist weder eine 90-Tage-CIS-Freigabe noch die fachliche L-01-Aufbewahrung. Die geeignete Security-/Audit-Retention ist gesondert festzulegen. |
 | CKV_AZURE_25 | **Offener Schutzcontrol.** Die optionale Threat-Detection-Policy wird standardmaessig nicht bereitgestellt. Ein vorhandener/ererbter Schutz ist unbekannt, nicht ausgeschaltet. Istzustand und formale Bewertung/Aktivierung bleiben Pflicht. |
 | CKV_AZURE_26 | **Offener SecOps-Nachweis.** Gezielte Empfaenger und die spezialisierten Aktivierungsgates sind vorbereitet; keine reale Zustellung, Reaktion oder Empfaengerfreigabe ist erfolgt. |
 | CKV_AZURE_27 | **Explizite Need-to-know-Vorgabe.** Kein automatischer Versand an alle Account-Admins; kontrollierte SecOps-Empfaenger statt Aufweitung nur fuer den Scanner. Dies belegt noch keinen funktionierenden Alarmprozess. |
 | CKV_AZURE_36 | **Absichtlich engere Netzgrenze.** Storage verwendet `bypass=None`, private Endpunkte und MI statt pauschalem Trusted-Services-Bypass. Benotigte Pfade muessen positiv getestet werden; die Firewall wird nicht fuer die Regel geoeffnet. |
-| CKV_AZURE_43 | **Werkzeug/unerledigte Namensausdruecke.** Checkov prueft unaufgeloeste ARM-Parameter/Format-Ausdruecke als Kontonamen. Der Blueprint verwendet begrenzte alphanumerische Praefixe/Suffixe; globale Namensverfuegbarkeit bleibt ein Provider-Gate, kein lokaler Nachweis. |
+| CKV_AZURE_43 | **Geschlossene Ausdruecke korrigierbar; Scope-abhaengiger Blueprintname bleibt blockiert.** Der Konverter kann nur exakt aus der Quelle gebundene Namen erzeugen. Root-Defaults und unbekannte `subscription()`/`resourceGroup()`-/`uniqueString()`-Ergebnisse werden nicht erfunden. Globale Namensverfuegbarkeit bleibt ein Provider-Gate. |
 | CKV_AZURE_78 | **Nachgewiesene Flex-Fehlzuordnung.** `ftpsState` ist in Flex nicht unterstuetzt. SCM-/FTP-Basic-Publishing ist explizit false; ein nicht unterstuetztes Legacy-Feld wird nicht hinzugefuegt. |
 
 Quellen: [Flex-Monitoring](https://learn.microsoft.com/azure/azure-functions/configure-monitoring#monitor-function-apps-using-health-check),
@@ -528,6 +572,14 @@ Quellen: [Flex-Monitoring](https://learn.microsoft.com/azure/azure-functions/con
 Die beschriebenen Regelbedingungen wurden in den lokalen Checkov-3.4.5-Klassen
 `StorageAccountsUseReplication`, `SQLServerAuditingEnabled`,
 `SQLServerAuditingRetention90Days` und `ACREnableImageQuarantine` gelesen.
+Der begrenzte Folgepatch ist zudem an die unveraenderten Checkov-3.4.5-Quellen
+[SQLServerAuditingEnabled](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/SQLServerAuditingEnabled.py)
+und [StorageAccountName](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/StorageAccountName.py)
+gebunden; er ersetzt oder unterdrueckt keine dieser Regeln.
+Der unterstuetzte Ausdrucksteil folgt den dokumentierten
+[ARM-Ausdrucks-/Escape- und Casing-Regeln](https://learn.microsoft.com/azure/azure-resource-manager/templates/template-expressions);
+abweichende Gross-/Kleinschreibung von Bezeichnern wird konservativ verweigert,
+nicht als fehlender Parameter mit Default ausgelegt.
 
 ## CI und die noch ausstehenden Integrationspruefungen
 

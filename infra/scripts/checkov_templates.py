@@ -1,14 +1,262 @@
 """Export every compiled ARM template for Checkov's legacy resource-list reader.
 
-These scan-only files are not deployment artifacts. Resource expressions,
-conditions, copy loops and security properties are not evaluated or replaced.
+These scan-only files are not deployment artifacts. Only source-proven SQL audit
+relationships and closed Storage name expressions are projected. Security values,
+conditions and copy loops are never evaluated or replaced.
 """
 
 import argparse
 import copy
 import hashlib
 import json
+import re
 from pathlib import Path
+
+
+SQL_SERVER = "microsoft.sql/servers"
+SQL_AUDIT = SQL_SERVER + "/auditingsettings"
+STORAGE = "microsoft.storage/storageaccounts"
+# Checkov 3.4.5 StorageAccountName returns UNKNOWN for these substrings.
+IGNORED_STORAGE_NAMES = ("local.", "module.", "var.", "random_string.", "random_id.",
+                         "random_integer.", "random_pet.", "azurecaf_name", "each.", "substring")
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=True,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def name_expression(value):
+    """Parse only string literals, parameters(), variables() and plain format()."""
+    if not isinstance(value, str):
+        raise ValueError("A resource name must be a string.")
+    if not value.startswith("[") or not value.endswith("]"):
+        return ("literal", value)
+    if value.startswith("[["):
+        return ("literal", value[1:])
+    text = value[1:-1]
+    token = re.compile(r"\s*(?:'((?:[^']|'')*)'|([a-zA-Z][a-zA-Z0-9]*)|([(),]))")
+    position = 0
+
+    def read():
+        nonlocal position
+        match = token.match(text, position)
+        if match is None:
+            raise ValueError("Unsupported ARM naming expression.")
+        position = match.end()
+        if match[1] is not None:
+            return ("literal", match[1].replace("''", "'"))
+        return ("word", match[2].lower()) if match[2] else ("punctuation", match[3])
+
+    def parse(depth=0):
+        nonlocal position
+        if depth > 32:
+            raise ValueError("ARM naming expression is too deep.")
+        kind, item = read()
+        if kind == "literal":
+            return (kind, item)
+        if kind != "word" or item not in ("parameters", "variables", "format"):
+            raise ValueError(f"Unsupported ARM naming function: {item}")
+        if read() != ("punctuation", "("):
+            raise ValueError("Malformed ARM naming function.")
+        arguments = [parse(depth + 1)]
+        while True:
+            separator = read()
+            if separator == ("punctuation", ")"):
+                break
+            if separator != ("punctuation", ","):
+                raise ValueError("Malformed ARM naming arguments.")
+            arguments.append(parse(depth + 1))
+        if (arguments[0][0] != "literal" or
+                (item == "format" and len(arguments) < 2) or
+                (item != "format" and len(arguments) != 1)):
+            raise ValueError("Unsupported ARM naming arguments.")
+        return (item, tuple(arguments))
+
+    result = parse()
+    if text[position:].strip():
+        raise ValueError("Unsupported trailing ARM naming expression.")
+    return result
+
+
+def exact_keys(mapping, key):
+    # ARM lookup is case-insensitive: a case alias is not an omitted parameter.
+    if not isinstance(mapping, dict) or any(not isinstance(name, str) for name in mapping):
+        raise ValueError("Unsupported ARM name definitions or bindings.")
+    if any(name != key and name.casefold() == key.casefold() for name in mapping):
+        raise ValueError("Ambiguous or case-variant ARM name binding; no default fallback.")
+    return mapping
+
+
+class NameContext:
+    def __init__(self, template, parent=None, bindings=None, inner=True):
+        if bindings is not None and not isinstance(bindings, dict):
+            raise ValueError("Unsupported ARM name parameter bindings.")
+        self.template, self.parent = template, parent
+        self.bindings, self.inner = {} if bindings is None else bindings, inner
+
+    def value(self, value, seen=()):
+        return self.evaluate(name_expression(value), seen)
+
+    def evaluate(self, node, seen):
+        kind, arguments = node
+        if kind == "literal":
+            return arguments
+        if kind == "format":
+            pattern, *values = [self.evaluate(arg, seen) for arg in arguments]
+            parts = re.split(r"(\{(?:0|[1-9][0-9]*)\})", pattern)
+            for index, part in enumerate(parts):
+                match = re.fullmatch(r"\{(0|[1-9][0-9]*)\}", part)
+                if match:
+                    slot = int(match[1])
+                    if slot >= len(values):
+                        raise ValueError("ARM naming format references a missing argument.")
+                    parts[index] = values[slot]
+                elif "{" in part or "}" in part:
+                    raise ValueError("Unsupported ARM naming format; no format-specifier fallback.")
+            return "".join(parts)
+        if not self.inner:
+            raise ValueError("Unsupported nested name scope; explicit inner scope is required.")
+        key = arguments[0][1]
+        marker = (id(self), kind, key)
+        if marker in seen or len(seen) >= 32:
+            raise ValueError("Cyclic or too-deep ARM name binding.")
+        seen = (*seen, marker)
+        definitions = exact_keys(self.template.get(kind, {}), key)
+        if kind == "variables":
+            if key not in definitions:
+                raise ValueError(f"Missing ARM name variable: {key}")
+            return self.value(definitions[key], seen)
+        definition = definitions.get(key)
+        if not isinstance(definition, dict) or definition.get("type") != "string":
+            raise ValueError(f"Unsupported or missing string name parameter: {key}")
+        if self.parent is not None:
+            bindings = exact_keys(self.bindings, key)
+            if key in bindings:
+                binding = bindings[key]
+                if not isinstance(binding, dict) or set(binding) != {"value"}:
+                    raise ValueError(f"Unsupported ARM name parameter binding: {key}")
+                return self.parent.value(binding["value"], seen)
+            if "defaultValue" in definition:
+                return self.value(definition["defaultValue"], seen)
+        raise ValueError(f"Unbound ARM name parameter: {key}; defaults alone do not bind root deployment inputs.")
+
+
+def audit_parent(name):
+    node = name_expression(name)
+    if node[0] == "literal":
+        parts = node[1].split("/")
+        if len(parts) == 2 and parts[1] == "default":
+            return ("literal", parts[0])
+    elif node[0] == "format":
+        arguments = node[1]
+        if len(arguments) == 3 and arguments[0] == ("literal", "{0}/{1}") and arguments[2] == ("literal", "default"):
+            return arguments[1]
+        if len(arguments) == 2 and arguments[0] == ("literal", "{0}/default"):
+            return arguments[1]
+    raise ValueError("Unsupported SQL auditingSettings parent-name expression.")
+
+
+def project_sql_audit(entries, path, changes):
+    servers = [(symbol, resource) for symbol, resource in entries if resource["type"].lower() == SQL_SERVER]
+    projected = set()
+    for symbol, audit in entries:
+        if audit["type"].lower() != SQL_AUDIT:
+            continue
+        owner_name = audit_parent(audit.get("name"))
+        owners = [(key, server) for key, server in servers if name_expression(server.get("name")) == owner_name]
+        if len(owners) != 1:
+            raise ValueError("SQL auditingSettings must match exactly one server in the same template.")
+        owner, server = owners[0]
+        if owner in projected or any(key in resource for resource in (server, audit) for key in ("copy", "scope")):
+            raise ValueError("Ambiguous SQL audit copy/scope or multiple policies; no relationship fallback.")
+        if server.get("existing", False) or audit.get("existing", False):
+            raise ValueError("Existing SQL resources do not prove a managed auditing policy.")
+        audit_condition = audit.get("condition", True)
+        if audit_condition is not True and digest(audit_condition) != digest(server.get("condition", True)):
+            raise ValueError("SQL audit condition does not cover the server condition.")
+        children = server.get("resources", [])
+        if not isinstance(children, list) or any(
+            not isinstance(child, dict) or not isinstance(child.get("type"), str) or
+            child["type"].lower().endswith("auditingsettings")
+            for child in children
+        ):
+            raise ValueError("Conflicting or unsupported embedded SQL auditingSettings.")
+        # Keep the standalone resource; this exact duplicate exposes its relationship.
+        server["resources"] = [*children, copy.deepcopy(audit)]
+        projected.add(owner)
+        changes.append({"check": "CKV_AZURE_23", "templatePath": list(path),
+                        "resource": str(symbol), "parent": str(owner), "resourceSha256": digest(audit)})
+
+
+def scan_copy(document):
+    result = copy.deepcopy(document)
+    changes = []
+
+    def visit(template, path=(), parent=None, bindings=None, inner=True):
+        context = NameContext(template, parent, bindings, inner)
+        resources = template["resources"]
+        entries = list(resources.items() if isinstance(resources, dict) else enumerate(resources))
+        project_sql_audit(entries, path, changes)
+        for symbol, resource in entries:
+            kind = resource["type"].lower()
+            if kind == STORAGE:
+                original_name = resource.get("name")
+                name = context.value(original_name)
+                if name.startswith("[") and name.endswith("]"):
+                    raise ValueError("Resolved Storage name would be reinterpreted as an ARM expression.")
+                if any(marker in name for marker in IGNORED_STORAGE_NAMES):
+                    raise ValueError("Checkov may ignore this Storage name instead of checking it.")
+                if name != original_name:
+                    changes.append({"check": "CKV_AZURE_43", "templatePath": list(path),
+                                    "resource": str(symbol), "resourceSha256": digest(resource),
+                                    "originalName": original_name, "scanName": name})
+                    resource["name"] = name
+            elif kind == "microsoft.resources/deployments":
+                properties = resource["properties"]
+                visit(properties["template"], path + (str(symbol),), context, properties.get("parameters"),
+                      properties.get("expressionEvaluationOptions", {}).get("scope") == "inner")
+        template["resources"] = [resource for _, resource in entries]
+
+    visit(result)
+    verify_projection(document, result, changes)
+    return result, changes
+
+
+def verify_projection(document, projected, changes):
+    """Undo only the recorded projections, then compare the entire resource graph."""
+    restored = copy.deepcopy(projected)
+    source_templates, scan_templates = list(templates(document)), list(templates(restored))
+    if len(source_templates) != len(scan_templates):
+        raise ValueError("Scan normalization changed template coverage.")
+    by_path = {}
+    for (path, original), (_, scan) in zip(source_templates, scan_templates):
+        resources = original["resources"]
+        entries = list(resources.items() if isinstance(resources, dict) else enumerate(resources))
+        if not isinstance(scan["resources"], list) or len(entries) != len(scan["resources"]):
+            raise ValueError("Scan normalization changed resource coverage.")
+        by_path[path] = {str(symbol): (source, target)
+                         for (symbol, source), target in zip(entries, scan["resources"])}
+    for change in reversed(changes):
+        resources = by_path[tuple(change["templatePath"])]
+        original, scan = resources[change["resource"]]
+        if digest(original) != change["resourceSha256"]:
+            raise ValueError("Normalization is not bound to its original resource.")
+        if change["check"] == "CKV_AZURE_43":
+            if scan["name"] != change["scanName"] or original["name"] != change["originalName"]:
+                raise ValueError("Storage name projection binding changed.")
+            scan["name"] = original["name"]
+        elif change["check"] == "CKV_AZURE_23":
+            parent, scan_parent = resources[change["parent"]]
+            if digest(scan_parent["resources"][-1]) != change["resourceSha256"]:
+                raise ValueError("SQL auditingSettings projection changed the policy.")
+            scan_parent["resources"].pop()
+            if "resources" not in parent:
+                del scan_parent["resources"]
+        else:
+            raise ValueError("Unsupported scan normalization.")
+    if digest(restored) != digest(resource_list(document)):
+        raise ValueError("Scan normalization changed unapproved properties or resource coverage.")
 
 
 def templates(document, path=()):
@@ -39,9 +287,11 @@ def resource_list(document):
 
 def export(source, destination):
     manifest_path = destination.with_suffix(".manifest.json")
-    if destination.exists() or manifest_path.exists():
+    original_path = destination.with_suffix(".original.json")
+    if destination.exists() or manifest_path.exists() or original_path.exists():
         raise ValueError("Use a new, empty scan-input directory; stale templates must not be scanned.")
-    source_text = source.read_text(encoding="utf-8")
+    source_bytes = source.read_bytes()
+    source_text = source_bytes.decode("utf-8")
     # Checkov 3.4.5 discards failed ARM checks containing these unresolved functions.
     for expression in ("toLower(", "trim(", "join(", "split(", "substring("):
         if expression in source_text:
@@ -50,26 +300,37 @@ def export(source, destination):
     inventory = list(templates(document))
     if not inventory:
         raise ValueError("No templates found.")
-    destination.mkdir(parents=True)
+    normalized, changes = scan_copy(document)
+    projected = list(templates(normalized))
+    if len(inventory) != len(projected):
+        raise ValueError("Scan normalization changed template coverage.")
     manifest = []
-    for index, (path, template) in enumerate(inventory):
+    files = []
+    for index, ((path, template), (_, scan_template)) in enumerate(zip(inventory, projected)):
         filename = f"SCAN-ONLY-{index:03}.json"
         resources = template["resources"]
         entries = resources.items() if isinstance(resources, dict) else enumerate(resources)
+        contents = (json.dumps(scan_template, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
         manifest.append({
             "file": filename,
             "templatePath": list(path),
+            "scanSha256": hashlib.sha256(contents).hexdigest(),
             "resources": [
-                {"symbol": str(symbol), "type": resource["type"], "existing": resource.get("existing", False)}
+                {"symbol": str(symbol), "type": resource["type"], "existing": resource.get("existing", False),
+                 "sourceSha256": digest(resource)}
                 for symbol, resource in entries
             ],
         })
-        (destination / filename).write_text(
-            json.dumps(resource_list(template), indent=2, ensure_ascii=True) + "\n",
-            encoding="utf-8",
-        )
+        files.append((filename, contents))
+    # Do not publish partial scan input after a failed name/relationship proof.
+    destination.mkdir(parents=True)
+    for filename, contents in files:
+        (destination / filename).write_bytes(contents)
+    original_path.write_bytes(source_bytes)
     manifest_path.write_text(json.dumps({
-        "sourceSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        "sourceSha256": hashlib.sha256(source_bytes).hexdigest(),
+        "originalFile": original_path.name,
+        "normalizations": changes,
         "templates": manifest,
     }, indent=2) + "\n", encoding="utf-8")
     print(f"Exported all {len(manifest)} compiled templates; manifest: {manifest_path}")
