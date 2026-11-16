@@ -629,7 +629,7 @@ test('R01: named recipient, independent simulated dispatch and original-bound re
     await dialog.getByLabel('Korrelation laut Original (leer, wenn nicht vorhanden)', { exact: true }).fill('')
     await dialog.getByRole('combobox', { name: 'Pilotgrenze bestaetigen', exact: true }).selectOption('true')
     const original = 'SYNTHETISCHER ORIGINALBEFUND:\nFunktionsverlust beschrieben; Ursache und klinische Befundqualitaet bleiben ungeklaert.'
-    await dialog.getByLabel('Synthetischer Originalbefund', { exact: true }).fill(original)
+    await dialog.getByRole('textbox', { name: 'Synthetischer Originalbefund', exact: true }).fill(original)
     await dialog.getByLabel('Fachliche Begruendung', { exact: true }).fill(reason)
     await submitDialog(dialog, 'Originalruecklauf speichern')
     await read()
