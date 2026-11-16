@@ -1,16 +1,18 @@
 import copy
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from local_runtime import Harness, RuntimeFailure, filtered_json, memory_bytes, require_local_context, timer_counts, verify_resume
 
 
+@patch.dict(os.environ, {"GITHUB_ACTIONS": "false"})
 class LocalRuntimeTests(unittest.TestCase):
     def test_resume_needs_redelivery_and_exactly_one_unchanged_effect(self):
         invocations = [{"status": "Completed", "mode": "Replay", "model": "replay-2026.1",
@@ -58,6 +60,13 @@ class LocalRuntimeTests(unittest.TestCase):
                 Harness(root / "work", root / "work" / "evidence")
             with self.assertRaisesRegex(RuntimeFailure, "new workspace"):
                 Harness(root, root / "evidence")
+
+    def test_harness_constructor_refuses_github_actions(self):
+        with tempfile.TemporaryDirectory(prefix="cohors-t12-actions-guard-") as directory:
+            root = Path(directory)
+            with patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+                with self.assertRaisesRegex(RuntimeFailure, "not GitHub Actions"):
+                    Harness(root / "work", root / "evidence")
 
     def test_capacity_units_are_not_silent_zeroes(self):
         self.assertEqual(memory_bytes("1.5GiB"), 1.5 * 1024**3)
