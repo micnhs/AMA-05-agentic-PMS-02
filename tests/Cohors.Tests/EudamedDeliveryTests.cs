@@ -354,11 +354,14 @@ public sealed partial class EudamedConfigurationTests
             content, selections, Reason), SqlFixture.Pms, CaseScenario.Key());
         Assert.Empty(reply.Approvals);
         var draft = await service.DossierView(reply.Id, SqlFixture.Ra);
-        Assert.Equal("eudamed_approval", (await Assert.ThrowsAsync<DomainException>(() =>
+        Assert.Equal("open_findings", (await Assert.ThrowsAsync<DomainException>(() =>
             service.QueueDossier(reply.Id, new(reply.Version, draft.Ledger.Version, "Accept", Reason),
                 SqlFixture.Ra, CaseScenario.Key()))).Code);
         reply = await service.ApproveDossier(reply.Id, new(reply.Version, Reason, Reason),
             SqlFixture.Medical, CaseScenario.Key());
+        Assert.Equal("eudamed_approval", (await Assert.ThrowsAsync<DomainException>(() =>
+            service.QueueDossier(reply.Id, new(reply.Version, draft.Ledger.Version, "Accept", Reason),
+                SqlFixture.Ra, CaseScenario.Key()))).Code);
         Assert.Equal("four_eyes", (await Assert.ThrowsAsync<DomainException>(() =>
             service.ApproveDossier(reply.Id, new(reply.Version, Reason, null),
                 SqlFixture.Medical with { Roles = [Roles.Medical, Roles.Regulatory] }, CaseScenario.Key()))).Code);

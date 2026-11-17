@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
 import type { ActorApplication, IntegrationWorkspace } from '../src/EudamedWorkspace'
+import type { DossierView, EudamedDossier } from '../src/EudamedDossiers'
 
 const home = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const artifacts = process.env.COHORS_UI_ARTIFACT_DIR ?? path.join(home, '.local')
@@ -77,6 +78,89 @@ async function integration(client: APIRequestContext, product = 'ortho'): Promis
   const response = await client.get(`/api/eudamed/${product}/workspace`)
   expect(response.status()).toBe(200)
   return response.json()
+}
+
+const dossierRationale = 'SYNTHETISCH: Der gemeldete Funktionsverlust mit Revisionsbedarf begruendet die technische Ursachenabgrenzung anhand der versionierten Fall- und Risikodokumente. Klinische Befunde, mechanisches Versagen und alternative Ursachen bleiben getrennt zu untersuchen. Die Testkodierung ist keine reale Kausalitaetsfeststellung; offene Befunde werden ausdruecklich nachverfolgt. Keine autonome Risikoakzeptanz oder reale Sicherheitsanweisung.'
+async function activateDossierSimulator(pms: APIRequestContext, pmsCsrf: string, ra: APIRequestContext, raCsrf: string) {
+  const application = await command<ActorApplication>(pms, pmsCsrf, '/eudamed/actors', {
+    expectedVersion: 0, productId: 'ortho', reason: eudamedReason,
+    details: { organization: `DEMO Dossier manufacturer ${Date.now()}`, role: 'MF', country: 'IE',
+      address: 'SYNTHETISCH: Teststrasse 0, Testort',
+      contact: { firstName: 'Demo', familyName: 'Dossier', email: 'dossier@example.invalid', telephone: '000000' }, synthetic: true },
+  })
+  await command<ActorApplication>(ra, raCsrf, `/eudamed/actors/${application.id}/submit`,
+    { expectedVersion: application.version, scenario: 'Approve', reason: eudamedReason })
+  await expect.poll(async () => (await integration(ra)).actors.find(a => a.id === application.id)?.status).toBe('SimulatedApproved')
+  let workspace = await integration(ra)
+  const approved = workspace.actors.find(a => a.id === application.id)!
+  const governance = (await (await ra.get('/api/products/profiles')).json() as ProductGovernance[]).find(p => p.productId === 'ortho')!
+  const references = await command<IntegrationWorkspace['references'][number]>(ra, raCsrf, '/eudamed/references', {
+    expectedVersion: workspace.references.find(r => r.productId === 'ortho')?.version ?? 0, productId: 'ortho',
+    actorId: approved.id, actorVersion: approved.version, governanceVersion: governance.version, certificateRevision: '1',
+    validFrom: new Date().toISOString().slice(0, 10), validThrough: new Date(Date.now() + 180 * 86_400_000).toISOString().slice(0, 10),
+    certificateText: `SYNTHETISCH: ${governance.device.certificateId}; ${governance.device.basicUdi}. ${eudamedReason}`,
+    evaluatingNotifiedBody: `DEMO-NB-${governance.device.notifiedBodyNumber}`, udiIssuingAgency: 'GS1', reason: eudamedReason,
+  })
+  await command(ra, raCsrf, '/eudamed/configuration', { expectedVersion: workspace.draft?.version ?? 0, productId: 'ortho',
+    profile: { mode: 'Simulator', environment: 'Simulation', actorId: approved.id, actorVersion: approved.version,
+      referencesId: references.id, referencesVersion: references.version, recipient: 'DEMO-CA-IE',
+      businessContract: workspace.contract.business, gatewayContract: workspace.contract.gateway, domibus: null }, reason: eudamedReason })
+  workspace = await integration(ra)
+  await command(ra, raCsrf, '/eudamed/ortho/activate', { expectedVersion: workspace.activeChannel?.version ?? 0,
+    draftVersion: workspace.draft!.version, confirmImpact: true, reason: eudamedReason })
+  const activated = await integration(ra)
+  expect(activated.activeReadiness.canDispatch).toBe(true)
+  expect(activated.activeChannel!.profile.mode).toBe('Simulator')
+  expect(activated.referenceCatalog.endpoints).toEqual([])
+  return activated.activeChannel!
+}
+async function dossierCase(client: APIRequestContext, csrf: string, suffix: string) {
+  return command(client, csrf, '/cases', { incidentKey: `EU-${suffix}-${Date.now()}`, sourceId: crypto.randomUUID(),
+    title: `Synthetischer EUDAMED-Prueffall ${suffix}`, description: dossierRationale, productId: 'ortho',
+    udi: null, batch: 'DEMO-EUDAMED-LOT', country: 'IE', jurisdiction: 'EU-IE', seriousness: 'OtherSerious',
+    occurredAt: new Date(Date.now() - 3 * 86_400_000).toISOString(), awarenessAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    scenario: 'eudamed-dossier-ui', synthetic: true })
+}
+async function dossierView(client: APIRequestContext, id: string): Promise<DossierView> {
+  const response = await client.get(`/api/eudamed/dossiers/${id}`)
+  expect(response.status()).toBe(200)
+  return response.json()
+}
+async function openDossierUi(page: Page, baseURL: string, id?: string) {
+  await page.goto(baseURL)
+  await page.getByRole('navigation').getByRole('button', { name: 'EUDAMED Integration', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Integrations-Produktscope', exact: true }).selectOption('ortho')
+  await expect(page.getByRole('heading', { name: 'EUDAMED-Dossiers', exact: true })).toBeVisible()
+  if (id) {
+    await page.locator(`[data-dossier-id="${id}"]`).getByRole('button').click()
+    await expect(page.getByRole('region', { name: 'Dossier-Workbench', exact: true })).toBeVisible()
+  }
+}
+async function approveDossierUi(page: Page, baseURL: string, id: string, medical: boolean) {
+  await openDossierUi(page, baseURL, id)
+  await page.getByRole('region', { name: 'Dossier-Workbench' }).getByRole('button',
+    { name: medical ? 'Medical-Dossierfreigabe' : 'RA-Dossierfreigabe', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.locator('[name=reason]').fill(dossierRationale)
+  if (medical) await dialog.locator('[name=findingDisposition]').fill(dossierRationale)
+  await submitDialog(dialog, 'Genau dieses Paket freigeben')
+}
+async function queueDossierUi(page: Page, scenario: string) {
+  await page.getByRole('region', { name: 'Dossier-Workbench' }).getByRole('button', { name: 'Paket dem Simulator uebergeben', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.locator('[name=scenario]').selectOption(scenario)
+  await dialog.locator('[name=reason]').fill(dossierRationale)
+  await submitDialog(dialog, 'Originalgebunden einplanen')
+}
+async function receiveDossierUi(page: Page, event: EudamedDossier['plannedResponses'][number]) {
+  const row = page.locator(`[data-attempt-id="${event.attemptId}"] .eudamed-round`)
+    .filter({ hasText: `${event.kind} · Sequenz ${event.sequence} ·` })
+  const action = row.getByRole('button', { name: 'Simulatorereignis einlesen', exact: true })
+  await expect(action).toBeEnabled()
+  await action.click()
+  const dialog = page.getByRole('dialog')
+  await dialog.locator('[name=reason]').fill(dossierRationale)
+  await submitDialog(dialog, 'Originalereignis einlesen')
 }
 
 test('E01: persisted actor corrections and rejection, simulator activation and blocked Domibus draft', async ({ playwright, browser, baseURL }) => {
@@ -285,6 +369,298 @@ test('E02: integration role and product checks survive an account switch with a 
       delayedOldWorkspaceIgnored: true, noForeignProductOption: true, medicalReadOnly: true,
     }, null, 2))
   } finally { release?.(); await context?.close(); await ra.dispose(); await limited.dispose(); await medical.dispose() }
+})
+
+test('E03: source-bound MIR dossier, separate approvals, business receipt and newly approved correspondence reply', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(210_000)
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  const ra = await playwright.request.newContext({ baseURL })
+  const contexts: BrowserContext[] = []
+  const errors: string[] = []
+  const externalRequests: string[] = []
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    const medicalCsrf = await signIn(medical, 'medical.demo')
+    const raCsrf = await signIn(ra, 'ra.demo')
+    const channel = await activateDossierSimulator(pms, pmsCsrf, ra, raCsrf)
+    let c = await dossierCase(pms, pmsCsrf, 'E03')
+    c = await command(pms, pmsCsrf, `/cases/${c.id}/assessment`, { expectedVersion: c.version, mode: 'Replay', reason: dossierRationale })
+    await expect.poll(async () => { c = await (await pms.get(`/api/cases/${c.id}`)).json(); return c.currentAssessment?.version }).toBe(1)
+    c = await command(pms, pmsCsrf, `/cases/${c.id}/report`, { expectedVersion: c.version, kind: 'Initial',
+      jurisdiction: 'EU-IE', language: 'de', preliminary: true, openQuestions: dossierRationale, reason: dossierRationale })
+    c = await command(medical, medicalCsrf, `/cases/${c.id}/mir`, { expectedVersion: c.version, reason: dossierRationale, facts: {
+      ...c.currentReport!.mir!.facts, eventDateFrom: c.occurredAt!.slice(0, 10), eventDateTo: c.occurredAt!.slice(0, 10),
+      eventDateRationale: dossierRationale, nextReportDate: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10),
+      eventClassification: 'All other reportable incidents', contactFirstName: 'Synthetic', contactLastName: 'Dossier',
+      contactStreet: 'Demo street', contactCity: 'Demo city', contactPostcode: 'DEMO', contactPhone: '000000',
+      contactEmail: 'synthetic@example.invalid', submitterIsManufacturerContact: true, deviceLocation: 'Unknown',
+      deviceProblemCode: 'A0401', investigationTypeCode: 'B01', investigationFindingCode: 'C01', investigationConclusionCode: 'D01', componentCode: 'G01',
+      preliminaryAnalysis: dossierRationale, initialCorrectiveAction: dossierRationale, furtherInvestigation: dossierRationale,
+      evidenceIds: c.evidence.map(e => e.id), rationale: `${dossierRationale} Explizite Testwerte aus den gepinnten Katalogen, keine reale Kodierentscheidung.`,
+    } })
+    c = await command(medical, medicalCsrf, `/cases/${c.id}/approve/medical`, { expectedVersion: c.version, reason: dossierRationale, findingDisposition: dossierRationale })
+    c = await command(ra, raCsrf, `/cases/${c.id}/approve/regulatory`, { expectedVersion: c.version, reason: dossierRationale })
+    const before = JSON.stringify(c)
+    async function pageFor(client: APIRequestContext) {
+      const context = await browser.newContext({ storageState: await client.storageState(), timezoneId: 'UTC' })
+      contexts.push(context)
+      const page = await context.newPage()
+      page.on('pageerror', failure => errors.push(failure.message))
+      page.on('request', request => { if (new URL(request.url()).origin !== new URL(baseURL!).origin) externalRequests.push(request.url()) })
+      return page
+    }
+    const author = await pageFor(pms)
+    const clinician = await pageFor(medical)
+    const regulator = await pageFor(ra)
+    await openDossierUi(author, baseURL!)
+    await author.getByLabel('Dossiertyp', { exact: true }).selectOption('MIR')
+    await author.getByLabel('Primaere versionierte Dossierquelle', { exact: true }).selectOption(c.id)
+    await author.getByRole('button', { name: 'Neues Dossier entwerfen', exact: true }).click()
+    let dialog = author.getByRole('dialog')
+    const title = `SYNTHETISCH: MIR E03 ${Date.now()}`
+    await dialog.locator('[name=title]').fill(title)
+    for (const field of ['clinicalRationale', 'regulatoryRationale', 'reason']) await dialog.locator(`[name=${field}]`).fill(dossierRationale)
+    await dialog.locator('[name=intendedAction]').selectOption('Submit')
+    await submitDialog(dialog, 'Dossierfassung speichern')
+    const created = (await integration(pms)).dossiers.find(d => d.title === title)!
+    expect(created).toBeTruthy()
+    let view = await dossierView(ra, created.id)
+    expect(view.dossier.package.validation.errors).toEqual([])
+    expect(view.dossier.package.binding.dispatchGeneration).toBe(channel.dispatchGeneration)
+    expect(view.dossier.approvals).toEqual([])
+    await expect(author.getByRole('button', { name: 'Medical-Dossierfreigabe', exact: true })).toHaveCount(0)
+    const forbidden = await pms.post(`/api/eudamed/dossiers/${created.id}/approve`, { headers: {
+      'X-CSRF-Token': pmsCsrf, 'Idempotency-Key': crypto.randomUUID() }, data: {
+      expectedVersion: view.dossier.version, reason: dossierRationale, findingDisposition: dossierRationale, role: 'MedicalSafetyReviewer' } })
+    expect(forbidden.status()).toBe(403)
+    await approveDossierUi(clinician, baseURL!, created.id, true)
+    expect((await dossierView(ra, created.id)).dossier.reviewStatus).toBe('MedicalApproved')
+    await approveDossierUi(regulator, baseURL!, created.id, false)
+    view = await dossierView(ra, created.id)
+    const frozen = view.dossier
+    expect(frozen.reviewStatus).toBe('Frozen')
+    expect(new Set(frozen.approvals.map(a => a.actorId)).size).toBe(2)
+    expect(frozen.approvals.every(a => a.scopeHash === frozen.scopeHash)).toBe(true)
+    const originalUrl = `/api/eudamed/dossiers/${created.id}/originals/${frozen.frozenPackageHash}?version=${frozen.version}`
+    const originalResponse = await ra.get(originalUrl)
+    expect(originalResponse.status()).toBe(200)
+    const originalBytes = await originalResponse.body()
+    expect(createHash('sha256').update(originalBytes).digest('hex')).toBe(frozen.scopeHash)
+    await queueDossierUi(regulator, 'InformationRequest')
+    await expect.poll(async () => (await dossierView(ra, created.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
+    view = await dossierView(ra, created.id)
+    expect(view.ledger.entries[0].businessStatus).toBe('Pending')
+    expect(JSON.stringify(await (await pms.get(`/api/cases/${c.id}`)).json())).toBe(before)
+    const events = [...view.dossier.plannedResponses].sort((a, b) => a.sequence - b.sequence)
+    expect(events.map(e => e.kind)).toEqual(['BusinessResponse', 'InformationRequest'])
+    await receiveDossierUi(regulator, events[0])
+    await expect.poll(async () => (await (await pms.get(`/api/cases/${c.id}`)).json() as SafetyCase).submissions.length).toBe(1)
+    const acceptedNative: SafetyCase = await (await pms.get(`/api/cases/${c.id}`)).json()
+    expect(acceptedNative.approvals).toEqual(c.approvals)
+    expect(acceptedNative.deadlines.map(d => ({ ...d, status: 'Open' }))).toEqual(c.deadlines)
+    await receiveDossierUi(regulator, events[1])
+    view = await dossierView(ra, created.id)
+    expect(view.dossier.correspondence).toHaveLength(1)
+    const question = view.dossier.correspondence[0]
+    expect(question.status).toBe('Open')
+    const correspondenceResponse = await ra.get(`/api/eudamed/dossiers/${created.id}/originals/${question.originalHash}?version=${view.dossier.version}`)
+    expect(correspondenceResponse.status()).toBe(200)
+    const correspondenceBytes = await correspondenceResponse.body()
+    expect(createHash('sha256').update(correspondenceBytes).digest('hex')).toBe(question.originalHash)
+    await openDossierUi(author, baseURL!, created.id)
+    await author.locator(`[data-correspondence-id="${question.id}"]`).getByRole('button', { name: 'Getrennte Antwort entwerfen', exact: true }).click()
+    dialog = author.getByRole('dialog')
+    const replyTitle = `SYNTHETISCH: Originalantwort E03 ${Date.now()}`
+    await dialog.locator('[name=title]').fill(replyTitle)
+    for (const field of ['clinicalRationale', 'regulatoryRationale', 'reason']) await dialog.locator(`[name=${field}]`).fill(dossierRationale)
+    await submitDialog(dialog, 'Dossierfassung speichern')
+    const reply = (await integration(ra)).dossiers.find(d => d.title === replyTitle)!
+    expect(reply.id).not.toBe(created.id)
+    expect(reply.approvals).toEqual([])
+    await approveDossierUi(clinician, baseURL!, reply.id, true)
+    await approveDossierUi(regulator, baseURL!, reply.id, false)
+    const approvedReply = (await dossierView(ra, reply.id)).dossier
+    expect(approvedReply.package.content.intendedAction).toBe('Reply')
+    expect(approvedReply.package.content.replyToCorrespondenceId).toBe(question.id)
+    expect(approvedReply.approvals.every(a => !frozen.approvals.some(old => old.id === a.id))).toBe(true)
+    await queueDossierUi(regulator, 'Accept')
+    await expect.poll(async () => (await dossierView(ra, reply.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
+    expect((await dossierView(ra, created.id)).dossier.correspondence[0].status).toBe('Open')
+    expect(await (await pms.get(`/api/cases/${c.id}`)).json()).toEqual(acceptedNative)
+    await receiveDossierUi(regulator, (await dossierView(ra, reply.id)).dossier.plannedResponses[0])
+    await expect.poll(async () => (await dossierView(ra, created.id)).dossier.correspondence[0].status).toBe('Replied')
+    const completed = (await dossierView(ra, created.id)).dossier
+    expect(completed.correspondence[0].replyDossierId).toBe(reply.id)
+    expect(completed.package).toEqual(frozen.package)
+    expect(completed.approvals).toEqual(frozen.approvals)
+    expect(await (await ra.get(originalUrl)).body()).toEqual(originalBytes)
+    expect(await (await pms.get(`/api/cases/${c.id}`)).json()).toEqual(acceptedNative)
+    await regulator.getByRole('button', { name: 'Kanal deaktivieren', exact: true }).click()
+    dialog = regulator.getByRole('dialog')
+    await dialog.locator('[name=reason]').fill(eudamedReason)
+    await submitDialog(dialog, 'Kanal begruendet deaktivieren')
+    expect((await integration(ra)).activeChannel!.enabled).toBe(false)
+    expect((await dossierView(ra, created.id)).dossier.package.binding).toEqual(frozen.package.binding)
+    await openDossierUi(regulator, baseURL!, created.id)
+    await expect(regulator.getByRole('region', { name: 'Dossier-Workbench' })).toContainText('Dieses Originalprofil ist nicht mehr')
+    await expect(regulator.locator(`[data-correspondence-id="${question.id}"]`)).toContainText('Simuliert beantwortet')
+    expect(errors).toEqual([])
+    expect(externalRequests).toEqual([])
+    await regulator.screenshot({ path: path.join(artifacts, 'cohors-eudamed-mir-reply.png') })
+    writeFileSync(path.join(artifacts, 'eudamed-dossier-reply-proof.json'), JSON.stringify({
+      success: true, dossierId: created.id, replyDossierId: reply.id, packageHash: frozen.scopeHash,
+      channelBinding: frozen.package.binding, originalHash: question.originalHash,
+      nativeSubmissions: acceptedNative.submissions.length, nativeUnchangedByReply: true, originalDeadlinesAndApprovalsPreserved: true,
+      technicalAckDidNotCompleteObligations: true, onlyAddressedCorrespondenceClosed: true, newReplyApprovals: approvedReply.approvals.map(a => a.id),
+      oldChannelNotRetargeted: true, browserExternalRequests: externalRequests, realAuthorityAcceptance: false,
+    }, null, 2))
+  } finally { for (const context of contexts) await context.close(); await pms.dispose(); await medical.dispose(); await ra.dispose() }
+})
+
+test('E04: byte-exact dossier PDF and audit originals, historical scope and cancelled download after identity switch', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(210_000)
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  const ra = await playwright.request.newContext({ baseURL })
+  const limited = await playwright.request.newContext({ baseURL })
+  const contexts: BrowserContext[] = []
+  let release: (() => void) | undefined
+  const errors: string[] = []
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    await signIn(medical, 'medical.demo')
+    const raCsrf = await signIn(ra, 'ra.demo')
+    await signIn(limited, 'ra-cardio.demo')
+    await activateDossierSimulator(pms, pmsCsrf, ra, raCsrf)
+    const c = await dossierCase(pms, pmsCsrf, 'E04')
+    const pmsActor = (await (await pms.get('/api/auth/session')).json()).actor
+    const due = new Date(Date.now() + 7 * 86_400_000).toISOString()
+    const capa = await command<Capa>(pms, pmsCsrf, '/capas', { caseId: c.id, productId: 'ortho',
+      title: 'SYNTHETISCH: Quellengebundene Feldmassnahme E04', action: dossierRationale, rationale: dossierRationale,
+      ownerId: pmsActor.id, effectivenessCriterion: dossierRationale, dueAt: due })
+    async function pageFor(client: APIRequestContext) {
+      const context = await browser.newContext({ storageState: await client.storageState(), timezoneId: 'UTC' })
+      contexts.push(context)
+      const page = await context.newPage()
+      page.on('pageerror', failure => errors.push(failure.message))
+      return page
+    }
+    const author = await pageFor(pms)
+    const clinician = await pageFor(medical)
+    const regulator = await pageFor(ra)
+    await openDossierUi(author, baseURL!)
+    await author.getByLabel('Dossiertyp', { exact: true }).selectOption('FSCA')
+    await author.getByLabel('Primaere versionierte Dossierquelle', { exact: true }).selectOption(capa.id)
+    await author.getByRole('button', { name: 'Neues Dossier entwerfen', exact: true }).click()
+    const dialog = author.getByRole('dialog')
+    const title = `SYNTHETISCH: FSCA E04 ${Date.now()}`
+    for (const [field, value] of Object.entries({ title, clinicalRationale: dossierRationale, regulatoryRationale: dossierRationale,
+      batches: 'DEMO-EUDAMED-LOT', measureType: 'Synthetische Feldkorrektur', manufacturerAction: dossierRationale,
+      userAction: dossierRationale, responsiblePerson: 'Synthetic Quality role', effectivenessCriterion: dossierRationale,
+      dueAt: due.slice(0, 16), decisionDate: new Date().toISOString().slice(0, 10), healthHazard: dossierRationale,
+      hazardProbability: dossierRationale, rootCauseRationale: dossierRationale, manufacturerActionTypes: 'CUSTOMER_INFORMATION_ONLY',
+      userActionTypes: 'IDENTIFY_DEVICE', patientFollowUp: dossierRationale, reason: dossierRationale })) {
+      await dialog.locator(`[name=${field}]`).fill(value)
+    }
+    await dialog.locator('[name=rootCauseStatus]').selectOption('NO_INV_ONGOING')
+    await submitDialog(dialog, 'Dossierfassung speichern')
+    const created = (await integration(ra)).dossiers.find(d => d.title === title)!
+    expect(created).toBeTruthy()
+    await approveDossierUi(clinician, baseURL!, created.id, true)
+    await approveDossierUi(regulator, baseURL!, created.id, false)
+    const frozen = (await dossierView(ra, created.id)).dossier
+    expect(frozen.package.attachments).toHaveLength(1)
+    const pdf = frozen.package.attachments[0]
+    expect(pdf.mediaType).toBe('application/pdf')
+    const originalUrl = `/api/eudamed/dossiers/${created.id}/originals/${pdf.hash}?version=${frozen.version}`
+    const originalResponse = await ra.get(originalUrl)
+    expect(originalResponse.status()).toBe(200)
+    const bytes = await originalResponse.body()
+    expect(bytes.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(pdf.hash)
+    const downloads: string[] = []
+    regulator.on('download', download => downloads.push(download.suggestedFilename()))
+    const downloaded = regulator.waitForEvent('download')
+    await regulator.getByRole('button', { name: new RegExp(`^PDF-Original: ${pdf.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} `) }).click()
+    const file = await (await downloaded).path()
+    expect(file).toBeTruthy()
+    expect(readFileSync(file!)).toEqual(bytes)
+    await queueDossierUi(regulator, 'Accept')
+    await expect.poll(async () => (await dossierView(ra, created.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
+    await receiveDossierUi(regulator, (await dossierView(ra, created.id)).dossier.plannedResponses[0])
+    expect((await dossierView(ra, created.id)).ledger.entries[0].businessStatus).toBe('BusinessAccepted')
+    expect(await (await pms.get(`/api/cases/${c.id}`)).json()).toEqual(c)
+    expect((await (await pms.get('/api/capas')).json() as Capa[]).find(item => item.id === capa.id)).toEqual(capa)
+    const archive = await ra.get('/api/products/ortho/audit')
+    expect(archive.status()).toBe(200)
+    const entries = readSmallAuditZip(await archive.body())
+    const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8')) as {
+      aggregates: { id: string; kind: string }[]; objects: { hash: string; path: string; uses: string[] }[]
+    }
+    expect(manifest.aggregates.some(item => item.id === created.id && item.kind === 'eudamedDossier')).toBe(true)
+    const original = manifest.objects.find(item => item.hash === pdf.hash)!
+    expect(original.path).toMatch(/\.pdf$/)
+    expect(entries.get(original.path)).toEqual(bytes)
+    expect(manifest.objects.some(item => item.hash === frozen.frozenPackageHash)).toBe(true)
+    expect(manifest.aggregates.some(item => item.kind === 'eudamedInbox')).toBe(true)
+    const panel = regulator.getByRole('region', { name: 'Dossier-Workbench', exact: true })
+    await panel.getByRole('button', { name: 'Dossierhistorie lesen', exact: true }).click()
+    await panel.getByRole('button', { name: new RegExp(`^v${frozen.version} / Paket r${frozen.revision} /`) }).click()
+    await expect(panel).toContainText('HISTORISCH / NUR LESEN')
+    await expect(panel.getByRole('button', { name: 'Neue Dossierfassung', exact: true })).toHaveCount(0)
+    await expect(panel).toContainText(frozen.scopeHash)
+    await regulator.screenshot({ path: path.join(artifacts, 'cohors-eudamed-fsca-original.png') })
+    expect((await limited.get(originalUrl)).status()).toBe(403)
+    expect((await limited.get(`/api/eudamed/audit/eudamedDossier/${created.id}`)).status()).toBe(403)
+    const routePattern = new RegExp(`/api/eudamed/dossiers/${created.id}/originals/${pdf.hash}\\?version=${frozen.version}$`)
+    let markHeld: (() => void) | undefined
+    let markReleased: (() => void) | undefined
+    const held = new Promise<void>(resolve => { markHeld = resolve })
+    const released = new Promise<void>(resolve => { markReleased = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    await regulator.route(routePattern, async route => {
+      const response = await route.fetch()
+      expect(response.status()).toBe(200)
+      expect(await response.body()).toEqual(bytes)
+      markHeld!()
+      await gate
+      await route.fulfill({ response, headers: { ...response.headers(), 'x-cohors-original-delay': 'historical-pdf' } })
+      markReleased!()
+    })
+    const beforeDelayed = downloads.length
+    const aborted = regulator.waitForEvent('requestfailed', { predicate: request =>
+      routePattern.test(request.url()) && request.failure()?.errorText === 'net::ERR_ABORTED' })
+    await panel.getByRole('button', { name: /^PDF-Original:/ }).click()
+    await held
+    await regulator.getByTitle('Abmelden und mit eigenem getrenntem Konto anmelden', { exact: true }).click()
+    await expect(regulator.getByRole('heading', { name: 'Willkommen bei Cohors', exact: true })).toBeVisible()
+    await aborted
+    await regulator.getByLabel('Benutzername', { exact: true }).fill('ra-cardio.demo')
+    await regulator.getByLabel('Passwort', { exact: true }).fill(accounts['ra-cardio.demo'])
+    await regulator.getByRole('button', { name: 'Sicher anmelden', exact: true }).click()
+    await expect(regulator.getByRole('navigation')).toBeVisible()
+    await regulator.getByRole('navigation').getByRole('button', { name: 'EUDAMED Integration', exact: true }).click()
+    await expect(regulator.getByRole('combobox', { name: 'Integrations-Produktscope', exact: true })).toHaveValue('cardio')
+    const noLateDownload = expect(regulator.waitForEvent('download', { timeout: 1000 })).rejects.toThrow(/Timeout 1000ms exceeded/)
+    release!()
+    await released
+    await noLateDownload
+    await regulator.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    expect(downloads).toHaveLength(beforeDelayed)
+    await expect(regulator.locator('body')).not.toContainText(title)
+    await expect(regulator.getByRole('combobox', { name: 'Integrations-Produktscope', exact: true }).locator('option[value="ortho"]')).toHaveCount(0)
+    expect(errors).toEqual([])
+    await regulator.screenshot({ path: path.join(artifacts, 'cohors-eudamed-original-identity-scope.png') })
+    writeFileSync(path.join(artifacts, 'eudamed-original-download-proof.json'), JSON.stringify({
+      success: true, dossierId: created.id, frozenVersion: frozen.version, pdfSha256: pdf.hash, pdfBytes: bytes.length,
+      browserDownloadByteIdentical: true, archiveByteIdentical: true, historicalOriginalPreserved: true,
+      actualDelayedAuthorizedOriginal: true, originalRequestAbortedAtLogout: true, realUiLogoutAndLogin: true,
+      newAccountProducts: ['cardio'], lateDownloadEvents: downloads.slice(beforeDelayed), sourceAccessDeniedServerSide: true,
+    }, null, 2))
+  } finally { release?.(); for (const context of contexts) await context.close(); await pms.dispose(); await medical.dispose(); await ra.dispose(); await limited.dispose() }
 })
 
 const signalReason = 'SYNTHETISCH: Die Quellenrelevanz und fehlende Produktzuordnung werden begruendet menschlich geprueft. Keine Nichtmeldepflichtentscheidung, automatische Freigabe oder Fristaenderung.'
