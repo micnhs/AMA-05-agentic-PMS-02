@@ -269,6 +269,8 @@ api.MapGet("/cases", async (IStateStore store, HttpContext ctx, CancellationToke
         reportState = c.CurrentReport?.ReviewReturn is not null ? "ReturnedForCorrection" : c.CurrentReport?.State.ToString(), outcome = CaseOutcomes.Read(c), c.Synthetic }));
 api.MapPost("/cases", (RegisterComplaint input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Register(input, Who(ctx), Key(ctx), ct));
 api.MapGet("/cases/{id}", (string id, CaseService service, HttpContext ctx, CancellationToken ct) => service.Get(id, Who(ctx), ct));
+api.MapGet("/cases/{id}/submission-preview", (string id, int version, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.PreviewSubmission(id, version, Who(ctx), ct));
 api.MapGet("/cases/{id}/process", (string id, CaseService service, HttpContext ctx, CancellationToken ct) =>
     service.Process(id, Who(ctx), ct));
 api.MapPost("/cases/{id}/assessment", (string id, AssessmentCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.RequestAssessment(id, input, Who(ctx), Key(ctx), ct));
@@ -418,6 +420,7 @@ api.MapPost("/psur-groups", (RecordPsurGroupCommand input, AnalyticsService serv
     service.RecordGroup(input, Who(ctx), Key(ctx), ct));
 api.MapGet("/psurs", (AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.ListPsurs(Who(ctx), ct));
 api.MapGet("/psurs/{id}", (string id, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.GetPsur(id, Who(ctx), ct));
+api.MapGet("/psurs/{id}/months", (string id, int version, string productId, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.PsurMonths(id, version, productId, Who(ctx), ct));
 api.MapGet("/psurs/{id}/export/{format}", async (string id, int version, string format, PsurExportService exporter, HttpContext ctx, CancellationToken ct) =>
 {
     var result = await exporter.Export(id, version, format, Who(ctx), ct);

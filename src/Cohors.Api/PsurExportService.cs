@@ -11,7 +11,7 @@ using PdfSharp.Fonts;
 namespace Cohors.Api;
 
 public sealed record PsurExportData(string Format, DateTimeOffset ExportedAt, Psur Report,
-    QualityFinding[] CurrentFindings, string SnapshotCheckState, object Audit, string Boundary);
+    QualityFinding[] CurrentFindings, string SnapshotCheckState, object Audit, string Boundary, PsurMonthlyView[] MonthlyCounts);
 public sealed record PsurExportFile(byte[] Bytes, string ContentType, string FileName);
 
 public sealed class PsurExportService(SqlStateStore store, TimeProvider clock) : IEudamedDocumentRenderer
@@ -40,11 +40,12 @@ public sealed class PsurExportService(SqlStateStore store, TimeProvider clock) :
         Guard.Against((await store.Get<Psur>("psur", id, ct))?.Version != version, "version_conflict",
             "Bericht wurde waehrend der Exportpruefung geaendert; Fassung neu laden.", 409);
         var findings = PortfolioRules.CheckPsur(report.Snapshot, report.Draft);
-        return new("cohors-psur-export-1", clock.GetUtcNow(), report, findings,
+        return new("cohors-psur-export-2", clock.GetUtcNow(), report, findings,
             findings.Any(f => f.Severity is "Critical" or "Major") ? "Blocked" : "NoBlockingSnapshotFinding", audit,
             "SYNTHETISCHE DEMO. Lokaler Leseexport, keine Behoerden-/BS-Uebermittlung oder EUDAMED-Webformularabnahme. " +
             "Freigaben binden den angegebenen Quell-Scope; PDF/ZIP sind gekennzeichnete abgeleitete Lesekopien, keine zusaetzliche Signatur oder Formatannahme. " +
-            "Aktuelle Nachweisbefunde stehen neben dem unveraenderten Originalbericht; fehlende Altformatdaten werden nicht ergaenzt.");
+            "Aktuelle Nachweisbefunde und abgeleitete Monatszahlen stehen neben dem unveraenderten Originalbericht; fehlende Altformatdaten werden nicht ergaenzt.",
+            PsurMonthlyCounts.All(report));
     }
 
     public async Task<PsurExportFile> Export(string id, int version, string format, Actor actor, CancellationToken ct = default)
@@ -65,7 +66,7 @@ public sealed class PsurExportService(SqlStateStore store, TimeProvider clock) :
             ["snapshot.json"] = Encoding.UTF8.GetBytes(Canonical.Serialize(data.Report.Snapshot)),
             ["audit.json"] = Encoding.UTF8.GetBytes(Canonical.Serialize(data.Audit)),
             ["metadata.json"] = Encoding.UTF8.GetBytes(Canonical.Serialize(new {
-                data.Format, data.ExportedAt, data.Boundary, data.CurrentFindings, data.SnapshotCheckState,
+                data.Format, data.ExportedAt, data.Boundary, data.CurrentFindings, data.SnapshotCheckState, data.MonthlyCounts,
                 data.Report.Id, data.Report.Version, data.Report.SnapshotHash, data.Report.ScopeHash,
                 data.Report.Status, data.Report.Approvals, data.Report.NotifiedBodyReceipt,
                 data.Report.Snapshot.Series, data.Report.Snapshot.DateBasis,
@@ -202,6 +203,27 @@ public sealed class PsurExportService(SqlStateStore store, TimeProvider clock) :
             if (line.StartsWith("## ", StringComparison.Ordinal)) section.AddParagraph(line[3..].TrimEnd('\r'), StyleNames.Heading2);
             else if (line.StartsWith("# ", StringComparison.Ordinal)) section.AddParagraph(line[2..].TrimEnd('\r'), StyleNames.Heading1);
             else section.AddParagraph(line.TrimEnd('\r'));
+        }
+        section.AddParagraph("Abgeleitete Monatsfallzahlen aus dem gebundenen Snapshot", StyleNames.Heading1);
+        foreach (var monthly in data.MonthlyCounts)
+        {
+            section.AddParagraph($"{monthly.ProductId} / Basic-UDI {monthly.BasicUdi ?? "historisch nicht gebunden"} / {monthly.Region}", StyleNames.Heading2);
+            section.AddParagraph($"Periode {monthly.Start:yyyy-MM-dd} bis {monthly.End:yyyy-MM-dd}; Kenntnisstichtag exklusiv {monthly.KnowledgeCutoffExclusiveUtc:O}; Freeze {monthly.FrozenAt:O}.");
+            section.AddParagraph($"Mitglieds-Snapshot SHA-256 {monthly.MemberSnapshotHash ?? "nicht ableitbar"}; Projektion {monthly.Contract}.");
+            section.AddParagraph(monthly.Boundary);
+            if (monthly.Status != "Available")
+                section.AddParagraph("Monatssicht nicht aus dieser historischen Quelle ableitbar: " + string.Join(" ", monthly.Issues));
+            foreach (var month in monthly.Months)
+                section.AddParagraph($"{month.Month} / {month.From:yyyy-MM-dd} bis {month.Through:yyyy-MM-dd}: {month.Cases.Length} eindeutige Faelle; " +
+                    $"davon {month.OpenAtCutoff.Length} am Stichtag nachweislich offen, {month.UnknownStatusAtCutoff.Length} mit unbekanntem Stichtagsstatus. " +
+                    $"Quellversionen: {string.Join(", ", month.Cases.Select(c => $"{c.Id}@{c.Version} / SHA-256 {c.Hash}"))}.");
+            foreach (var excluded in monthly.Exclusions)
+                section.AddParagraph($"{excluded.Kind}: {excluded.Cases.Length}. {excluded.Reason} " +
+                    string.Join(", ", excluded.Cases.Select(c => $"{c.Id}@{c.Version} / SHA-256 {c.Hash}")));
+            foreach (var source in monthly.Sources)
+                section.AddParagraph($"{source.Reference.Id}@{source.Reference.Version}: Ereignis {source.OccurredAt?.ToString("O") ?? "unbekannt"}; " +
+                    $"erste Kenntnis {source.FirstAwarenessAt:O}; Systemeingang {source.SystemReceivedAt:O}; Stichtagsstatus {source.StatusAtCutoff} " +
+                    $"/ v{source.CutoffVersion?.Version.ToString() ?? "unbekannt"}. Alle Zeitpunkte aus dem eingefrorenen Quellenmanifest.");
         }
         if (PsurRegulatoryRules.For(report.Snapshot) is { } regulatory)
         {

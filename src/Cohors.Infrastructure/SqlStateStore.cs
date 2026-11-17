@@ -88,6 +88,22 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         return items.ToArray();
     }
 
+    public async Task<T?> GetVersion<T>(string kind, string id, int version, CancellationToken ct = default)
+    {
+        Guard.Against(version < 1, "version_required", "Eine ausdrueckliche positive Quellversion ist erforderlich.");
+        await using var connection = await Open(ct);
+        using var query = Command(connection, null,
+            "SELECT Hash,Json FROM dbo.AggregateVersions WHERE Kind=@kind AND Id=@id AND Version=@version",
+            ("kind", kind), ("id", id), ("version", version));
+        await using var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
+        if (!await reader.ReadAsync(ct)) return default;
+        var hash = reader.GetString(0);
+        var json = await ReadText(reader, 1, ct);
+        Guard.Against(Canonical.HashText(json) != hash, "source_version_integrity",
+            "Die genaue historische SQL-Version stimmt nicht mit ihrem gespeicherten Hash ueberein.", 409);
+        return Canonical.Read<T>(json);
+    }
+
     public async Task<T[]> History<T>(string kind, string[] products, CancellationToken ct = default)
     {
         if (products.Length == 0) return [];

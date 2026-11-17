@@ -60,6 +60,10 @@ public sealed class PsurGroupTests : IAsyncLifetime
                 e => Assert.Contains(e.Source.Id, ids));
             Assert.Contains($"[metric:{member.Product.ProductId}:N:Worldwide:events={ids.Length}]", p.Draft);
             Assert.Contains(member.Product.BasicUdi, p.Draft);
+            var monthly = await service.PsurMonths(p.Id, p.Version, member.Product.ProductId, SqlFixture.Pms);
+            Assert.Equal(member.Product.BasicUdi, monthly.BasicUdi);
+            Assert.Equal(ids.Order(StringComparer.Ordinal),
+                monthly.Months.SelectMany(m => m.Cases).Select(c => c.Id).Order(StringComparer.Ordinal));
         }
         Assert.DoesNotContain("[metric:N:Worldwide:", p.Draft);
         p = await service.Approve(p.Id, new(p.Version, Reason), SqlFixture.Medical, CaseScenario.Key());
@@ -92,6 +96,8 @@ public sealed class PsurGroupTests : IAsyncLifetime
         Assert.Empty(await service.ListPsurs(limited));
         Assert.Empty(await service.ListGroups(limited));
         Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() => service.GetPsur(p.Id, limited))).Status);
+        Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+            service.PsurMonths(p.Id, p.Version, "ortho", limited))).Status);
         Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() => service.Freeze(input, limited, key))).Status);
         Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() => service.Freeze(input, limited, CaseScenario.Key()))).Status);
         Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() => service.Revise(p.Id,

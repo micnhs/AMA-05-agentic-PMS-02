@@ -445,6 +445,88 @@ public sealed class ReportPrefillRuleTests
 public sealed class ReportPrefillTests(SqlFixture fixture)
 {
     [Fact]
+    public async Task FinalDispatchPreviewReadsExactFrozenSourcesWithoutWritesAndKeepsUnknownReconciliationRequired()
+    {
+        var s = new CaseScenario(fixture);
+        await s.Create(); await s.Assess(); await s.Prepare(); await s.Approve();
+        var c = s.Case;
+        var report = c.CurrentReport!;
+        var source = report.Preparation!.CaseSource;
+        var prepared = Assert.IsType<SafetyCase>(await fixture.Store.GetVersion<SafetyCase>("case", source.Id, source.Version));
+        var audit = Canonical.Serialize(await fixture.Store.Audit(c.Id));
+        var preview = await s.Service.PreviewSubmission(c.Id, c.Version, SqlFixture.Ra);
+        Assert.Equal(Canonical.Serialize(Canonical.Read<ReportDraft>(report.FrozenJson!)), Canonical.Serialize(preview.Report));
+        Assert.Equal(Canonical.HashText(report.FrozenJson!), preview.FrozenJsonHash);
+        Assert.Equal(report.EvidenceHash, Canonical.Hash(preview.Evidence));
+        Assert.Equal(Canonical.Serialize(prepared.Sources), Canonical.Serialize(preview.Originals));
+        Assert.Equal(report.AttachmentHashes, preview.Report.AttachmentHashes);
+        Assert.Equal(2, preview.Approvals.Select(a => a.ActorId).Distinct().Count());
+        Assert.False(preview.Report.Preparation!.Target.NationalSubmissionReady);
+        Assert.Equal("dispatch_source", Assert.Throws<DomainException>(() =>
+            SubmissionPreviews.Read(c, prepared with { Title = "A different historical payload" }, SqlFixture.Ra)).Code);
+        Assert.Null(await fixture.Store.GetVersion<SafetyCase>("case", source.Id, c.Version + 1));
+        Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+            s.Service.PreviewSubmission(c.Id, c.Version, SqlFixture.Medical))).Status);
+        Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+            s.Service.PreviewSubmission(c.Id, c.Version, SqlFixture.Ra with { Products = ["cardio"] }))).Status);
+        Assert.Equal(Canonical.Hash(c), Canonical.Hash(await s.Service.Get(c.Id, SqlFixture.Ra)));
+        Assert.Equal(audit, Canonical.Serialize(await fixture.Store.Audit(c.Id)));
+        var key = CaseScenario.Key();
+        var command = new SubmissionCommand(preview.CaseVersion, "Unknown",
+            "Ausschliesslich simulierte Uebermittlung nach expliziter Pruefung der unveraenderten Versanduebersicht.");
+        s.Case = await s.Service.Submit(c.Id, command, SqlFixture.Ra, key);
+        Assert.Equal(Canonical.Hash(s.Case), Canonical.Hash(await s.Service.Submit(c.Id, command, SqlFixture.Ra, key)));
+        Assert.Equal("reconciliation_required", (await Assert.ThrowsAsync<DomainException>(() =>
+            s.Service.PreviewSubmission(c.Id, s.Case.Version, SqlFixture.Ra))).Code);
+        Assert.Equal("reconciliation_required", (await Assert.ThrowsAsync<DomainException>(() =>
+            s.Service.Submit(c.Id, command with { ExpectedVersion = s.Case.Version, Scenario = "Accept" }, SqlFixture.Ra, CaseScenario.Key()))).Code);
+        Assert.Single((await s.Service.Get(c.Id, SqlFixture.Ra)).Submissions);
+    }
+
+    [Fact]
+    public async Task FinalDispatchConfirmationCannotSurviveRevisionTargetOrProfileChanges()
+    {
+        var s = new CaseScenario(fixture);
+        await s.Create(); await s.Assess(); await s.Prepare(); await s.Approve();
+        var preview = await s.Service.PreviewSubmission(s.Case.Id, s.Case.Version, SqlFixture.Ra);
+        var prepared = (await fixture.Store.GetVersion<SafetyCase>("case",
+            preview.Report.Preparation!.CaseSource.Id, preview.Report.Preparation.CaseSource.Version))!;
+        var changedTarget = s.Case with { Reports = [.. s.Case.Reports.SkipLast(1),
+            s.Case.CurrentReport! with { Recipient = "DIFFERENT-SIMULATOR" }] };
+        Assert.Throws<DomainException>(() => SubmissionPreviews.Read(changedTarget, prepared, SqlFixture.Ra));
+        s.Case = await s.Service.ReturnReport(s.Case.Id, new(s.Case.Version,
+            "Die vorherige freigegebene Fassung zur kontrollierten Nachbearbeitung zurueckgeben."), SqlFixture.Ra, CaseScenario.Key());
+        Assert.Equal("version_conflict", (await Assert.ThrowsAsync<DomainException>(() =>
+            s.Service.PreviewSubmission(s.Case.Id, preview.CaseVersion, SqlFixture.Ra))).Code);
+        Assert.Equal("version_conflict", (await Assert.ThrowsAsync<DomainException>(() =>
+            s.Service.Submit(s.Case.Id, new(preview.CaseVersion, "Accept",
+                "Alte Bestaetigung darf die neue Fassung nicht senden."), SqlFixture.Ra, CaseScenario.Key()))).Code);
+        await s.Prepare(); await s.Approve();
+        preview = await s.Service.PreviewSubmission(s.Case.Id, s.Case.Version, SqlFixture.Ra);
+        var original = (await fixture.Store.Get<ProductGovernance>("productGovernance", s.Case.ProductId))!;
+        var changed = original with { Version = original.Version + 1, LifecyclePolicy = original.LifecyclePolicy + " Synthetic scope revision." };
+        await fixture.Store.Execute<ProductGovernance>(new(original.Id, "productGovernance", original.ProductId, original.Version,
+            CaseScenario.Key(), "PreviewProfileFixture", "Gezielte synthetische Profilrevision nach der Versandvorschau.",
+            SqlFixture.Quality, changed, s.Clock.Now), _ => changed);
+        try
+        {
+            Assert.Equal("report_profile_stale", (await Assert.ThrowsAsync<DomainException>(() =>
+                s.Service.PreviewSubmission(s.Case.Id, preview.CaseVersion, SqlFixture.Ra))).Code);
+            Assert.Equal("report_profile_stale", (await Assert.ThrowsAsync<DomainException>(() =>
+                s.Service.Submit(s.Case.Id, new(preview.CaseVersion, "Accept",
+                    "Vorherige Profilbestaetigung darf nicht wiederverwendet werden."), SqlFixture.Ra, CaseScenario.Key()))).Code);
+            Assert.Empty((await s.Service.Get(s.Case.Id, SqlFixture.Ra)).Submissions);
+        }
+        finally
+        {
+            var restored = original with { Version = changed.Version + 1 };
+            await fixture.Store.Execute<ProductGovernance>(new(original.Id, "productGovernance", original.ProductId, changed.Version,
+                CaseScenario.Key(), "PreviewProfileRestored", "Vorherige synthetische Profilwerte als neue Version wiederherstellen.",
+                SqlFixture.Quality, restored, s.Clock.Now), _ => restored);
+        }
+    }
+
+    [Fact]
     public async Task MedicalCompletionPreservesInputsHistoricalSignaturesAndDeadlinesWithVersionAndIntentGuards()
     {
         var s = new CaseScenario(fixture);

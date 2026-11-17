@@ -13,6 +13,7 @@ public sealed record StoreEntry<T>(string Id, string Kind, string ProductId, int
 public interface IStateStore
 {
     Task<T?> Get<T>(string kind, string id, CancellationToken ct = default);
+    Task<T?> GetVersion<T>(string kind, string id, int version, CancellationToken ct = default);
     Task<T[]> List<T>(string kind, string[] products, CancellationToken ct = default);
     Task<T[]> History<T>(string kind, string[] products, CancellationToken ct = default);
     Task<PortfolioState> Capture(string[] products, CancellationToken ct = default);

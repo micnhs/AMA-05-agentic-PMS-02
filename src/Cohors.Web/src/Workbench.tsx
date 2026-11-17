@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, CheckCheck, ChevronRight, CircleAlert, ClipboardCheck, FileCheck2, FileText, Fingerprint, FlaskConical, Link2, LockKeyhole, PencilLine, Send, ShieldCheck, Sparkles, Stethoscope } from 'lucide-react'
 import { api, downloadApi } from './api'
-import type { Actor, Evidence, SafetyCase } from './types'
+import type { Actor, Evidence, SafetyCase, SubmissionPreview } from './types'
 import { Badge, date, Empty, ErrorBanner, EvidenceCategory, hash, label, primaryDeadline, roleNames, type Dialog, type Field } from './ui'
 import MirPanel from './MirPanel'
 import InformationPanel from './InformationPanel'
 import DocumentDialog, { type DocumentRequest } from './DocumentDialog'
 import CaseProcessBar from './CaseProcessBar'
+import SubmissionPreviewPanel from './SubmissionPreviewPanel'
 
 export default function Workbench({ value: c, actor, openDialog, mutate, busy, back }: {
   value: SafetyCase; actor: Actor; openDialog: (d: Dialog) => void; mutate: (path: string, body: unknown) => Promise<void>; busy: boolean; back: () => void
@@ -16,8 +17,11 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
   const [sourceId, setSourceId] = useState('')
   const [error, setError] = useState('')
   const [claimId, setClaimId] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const previewRequest = useRef(0)
   const workbench = useRef<HTMLDivElement>(null)
   useEffect(() => { setDocument(null); setSourceId(''); setClaimId('') }, [c.id, c.version])
+  useEffect(() => { setPreviewLoading(false); return () => { previewRequest.current++ } }, [c.id, c.version])
   const assessment = c.currentAssessment
   const report = c.currentReport
   const reopenedAssessmentStale = assessment && c.evidence.some(e => e.kind === 'Reopening' && !assessment.evidenceIds.includes(e.id))
@@ -55,6 +59,24 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
         { name: 'evidenceId', label: 'Freigegebene Produktversion', type: 'select', options: available.map(e => ({ value: e.id, label: `${e.title} · v${e.version}` })) }, reason
       ], onSubmit: values => mutate(`/cases/${c.id}/evidence`, { ...values, expectedVersion: c.version, evidenceVersion: available.find(e => e.id === values.evidenceId)?.version }) })
     } catch (error) { setError(error instanceof Error ? error.message : 'Evidenzliste nicht geladen.') }
+  }
+  async function previewSubmission() {
+    const request = ++previewRequest.current
+    setPreviewLoading(true); setError('')
+    try {
+      const preview = await api<SubmissionPreview>(`/cases/${encodeURIComponent(c.id)}/submission-preview?version=${c.version}`)
+      if (request !== previewRequest.current) return
+      openDialog({ title: 'Ausschließlich simuliert übermitteln',
+        description: `Abschließende Prüfung von ${preview.caseReference}, Fallversion ${preview.caseVersion}. Die Ansicht liest ausschließlich das bereits getrennt freigegebene, eingefrorene Paket und löst noch keinen Versand aus.`,
+        body: <SubmissionPreviewPanel value={preview} openEvidence={evidence} />,
+        fields: [{ name: 'scenario', label: 'Simulatorantwort', type: 'select', options: [
+          { value: 'Unknown', label: 'Unklar nach möglichem Empfang → Abgleich erforderlich' },
+          { value: 'Accept', label: 'Simulierte fachliche Annahme' }, { value: 'Reject', label: 'Simulierte Ablehnung' }
+        ] }, reason], submitLabel: 'An Simulator übermitteln',
+        onSubmit: values => mutate(`/cases/${preview.caseId}/submit`, { ...values, expectedVersion: preview.caseVersion }) })
+    } catch (error) {
+      if (request === previewRequest.current) setError(error instanceof Error ? error.message : 'Versandübersicht nicht bestätigt. Kein Versand ausgelöst.')
+    } finally { if (request === previewRequest.current) setPreviewLoading(false) }
   }
   const prepare = () => openDialog({ title: 'Konkretes Meldungspaket entwerfen', fields: [
     { name: 'jurisdiction', label: 'Dokumentierte Zieljurisdiktion · neuer Entwurf ersetzt den bisherigen Freigabestand',
@@ -108,7 +130,7 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
       {regulatory && report?.state === 'MedicalApproved' && <button disabled={busy || report.jurisdiction !== 'GB' && !report.mir?.valid} className="button primary full" onClick={() => action('Regulatorische Freigabe & Einfrieren', 'approve/regulatory', [reason], {}, 'Regulatorisch freigeben')}><LockKeyhole size={18} />Regulatorisch freigeben</button>}
       {(medical || regulatory) && report && !report.reviewReturn && ['Draft', 'MedicalApproved', 'Frozen'].includes(report.state) && <button disabled={busy} className="button secondary full" onClick={() => action('Meldung zur Korrektur zurückgeben', 'report/return',
         [{ ...reason, label: 'Konkrete Lücken, Korrekturen und benötigte Belege für PMS', minLength: 40 }], {}, 'Zur Korrektur zurückgeben')}><ArrowLeft size={16} />Zur Korrektur zurückgeben</button>}
-      {regulatory && report?.state === 'Frozen' && <button className="button primary full" onClick={() => action('Ausschließlich simuliert übermitteln', 'submit', [{ name: 'scenario', label: 'Simulatorantwort', type: 'select', options: [{ value: 'Unknown', label: 'Unklar nach möglichem Empfang → Abgleich erforderlich' }, { value: 'Accept', label: 'Simulierte fachliche Annahme' }, { value: 'Reject', label: 'Simulierte Ablehnung' }] }, reason], {}, 'An Simulator übermitteln')}><Send size={17} />Simuliert übermitteln</button>}
+      {regulatory && report?.state === 'Frozen' && <button disabled={busy || previewLoading} className="button primary full" onClick={() => void previewSubmission()}><Send size={17} />{previewLoading ? 'Versandübersicht laden…' : 'Simuliert übermitteln'}</button>}
       {regulatory && c.submissions.some(s => s.status === 'TransmissionUnknown') && <button className="button primary full" onClick={() => action('Unklaren Empfang abgleichen', 'reconcile', [reason], {}, 'Korrelations-ID abgleichen')}><CheckCheck size={17} />Empfang abgleichen</button>}
       <div className="guardrail-note"><ShieldCheck size={20} /><p>Dieses Konto: <b>{roleNames[actor.roles[0]]}</b>. Für die zweite Freigabe abmelden und ein anderes berechtigtes Konto verwenden.</p></div>
       {c.submissions.map(s => <div className="receipt" key={s.id}><Badge tone={s.status === 'TransmissionUnknown' ? 'amber' : 'blue'}>{label(s.status)}</Badge><b>{s.receiptReference ?? 'Noch kein bestätigter Empfang'}</b><span className="mono">{s.correlationId}</span><small>SIMULIERT · {s.attempts} Sendeversuch · {date(s.attemptedAt, true)}</small></div>)}

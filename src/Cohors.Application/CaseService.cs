@@ -398,6 +398,35 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
         return [new("productGovernance", new(bound.Id, bound.Version, Canonical.Hash(bound)))];
     }
 
+    private async Task<StoreDependency[]> SubmissionDependencies(SafetyCase c, CancellationToken ct)
+    {
+        var jurisdiction = c.CurrentReport?.Jurisdiction ?? c.Jurisdiction;
+        var ledgerId = EudamedRules.MirDeliveryId(c.ProductId, c.Id, jurisdiction);
+        var ledger = await store.Get<EudamedDeliveryLedger>("eudamedDelivery", ledgerId, ct);
+        EudamedRules.RequireLegacySendAvailable(ledger, c);
+        var ledgerSource = ledger is null ? new VersionReference(ledgerId, 0, "") :
+            new VersionReference(ledger.Id, ledger.Version, Canonical.Hash(ledger));
+        return [.. await ReportDependencies(c.CurrentReport, ct), new("eudamedDelivery", ledgerSource)];
+    }
+
+    public async Task<SubmissionPreview> PreviewSubmission(string id, int version, Actor actor, CancellationToken ct = default)
+    {
+        actor.RequireHuman(Roles.Regulatory);
+        var c = await Get(id, actor, ct);
+        Guard.Against(c.Version != version, "version_conflict",
+            "Fallfassung wurde geaendert. Aktuellen Stand laden und die Versanduebersicht erneut pruefen.", 409);
+        ReportRules.RequireSendable(c, actor);
+        var source = c.CurrentReport!.Preparation?.CaseSource
+            ?? throw new DomainException("dispatch_target_missing",
+                "Altpaket ohne eingefrorene Vorbereitung: neuen Entwurf getrennt freigeben, kein heutiges Profil hinzuerfinden.", 409);
+        var preparedFrom = await store.GetVersion<SafetyCase>("case", source.Id, source.Version, ct)
+            ?? throw new DomainException("dispatch_source_missing", "Die genaue Vorbereitungsfassung fehlt.", 409);
+        actor.RequireProduct(preparedFrom.ProductId);
+        var preview = SubmissionPreviews.Read(c, preparedFrom, actor);
+        await SubmissionDependencies(c, ct);
+        return preview;
+    }
+
     public async Task<SafetyCase> Submit(string id, SubmissionCommand input, Actor actor, string key, CancellationToken ct = default)
     {
         actor.RequireHuman(Roles.Regulatory);
@@ -405,14 +434,7 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
         var c = await Get(id, actor, ct);
         var context = Context(c, input.ExpectedVersion, key, "SimulatedSubmission", input.Reason, actor, input);
         if (await store.Receipt<SafetyCase>(context, ct) is { } replay) return replay;
-        var jurisdiction = c.CurrentReport?.Jurisdiction ?? c.Jurisdiction;
-        var ledgerId = EudamedRules.MirDeliveryId(c.ProductId, c.Id, jurisdiction);
-        var ledger = await store.Get<EudamedDeliveryLedger>("eudamedDelivery", ledgerId, ct);
-        EudamedRules.RequireLegacySendAvailable(ledger, c);
-        var ledgerSource = ledger is null ? new VersionReference(ledgerId, 0, "") :
-            new VersionReference(ledger.Id, ledger.Version, Canonical.Hash(ledger));
-        return await store.Execute<SafetyCase>(context with { Dependencies =
-            [.. await ReportDependencies(c.CurrentReport, ct), new("eudamedDelivery", ledgerSource)] }, current =>
+        return await store.Execute<SafetyCase>(context with { Dependencies = await SubmissionDependencies(c, ct) }, current =>
         {
             var value = Require(current);
             ReportRules.RequireSendable(value, actor);

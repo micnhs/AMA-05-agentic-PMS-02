@@ -392,6 +392,15 @@ blockquote { border-left: 2px solid var(--cp-accent); padding-left: 14px; margin
 .dialog header .icon-button { margin-top: -6px; }
 .dialog > p { font-size: 12px; color: var(--cp-text-muted); margin-bottom: 24px; }
 .dialog footer { display: flex; justify-content: flex-end; gap: 12px; padding-top: 15px; border-top: 1px solid var(--cp-border); }
+.dialog:has(.dispatch-preview) { width: 1000px; }
+.dispatch-preview { margin-bottom: 24px; overflow-wrap: anywhere; }
+.dispatch-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.dispatch-preview details { margin: 12px 0; padding: 12px; border: 1px solid var(--cp-border); border-radius: 10px; }
+.dispatch-metadata { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr); gap: 8px 16px; }
+.dispatch-metadata dt { color: var(--cp-text-muted); }
+.dispatch-metadata dd { margin: 0; }
+.psur-months .mono { overflow-wrap: anywhere; white-space: normal; }
+.psur-months > details { margin: 12px 0; }
 .document-dialog { width: min(1000px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 24px; overflow: auto; }
 .document-dialog h2 { display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere; }
 .document-dialog header { position: sticky; top: -24px; padding-top: 8px; background: var(--cp-surface); z-index: 1; }

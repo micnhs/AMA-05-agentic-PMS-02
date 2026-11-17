@@ -31,6 +31,10 @@ public sealed class PsurExportTests : IAsyncLifetime
             SqlFixture.Medical, CaseScenario.Key());
         p = await Service().Approve(p.Id, new(p.Version, reason), SqlFixture.Medical, CaseScenario.Key());
         p = await Service().Approve(p.Id, new(p.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+        var monthly = await Service().PsurMonths(p.Id, p.Version, "ortho", SqlFixture.Pms);
+        Assert.Equal(PortfolioRules.Reference(scenario.Case), Assert.Single(monthly.Months.SelectMany(m => m.Cases)));
+        await new CaseScenario(fixture).Create();
+        Assert.Equal(Canonical.Serialize(monthly), Canonical.Serialize(await Service().PsurMonths(p.Id, p.Version, "ortho", SqlFixture.Pms)));
         var exporter = new PsurExportService(fixture.Store, clock);
         var file = await exporter.Export(p.Id, p.Version, "zip", SqlFixture.Pms);
         Assert.Equal("application/zip", file.ContentType);
@@ -54,6 +58,8 @@ public sealed class PsurExportTests : IAsyncLifetime
         Assert.Equal(p.ScopeHash, metadata.RootElement.GetProperty("scopeHash").GetString());
         Assert.Equal(p.Snapshot.Series!.Reference, metadata.RootElement.GetProperty("series").GetProperty("reference").GetString());
         Assert.Equal(2, metadata.RootElement.GetProperty("approvals").GetArrayLength());
+        Assert.Equal(Canonical.Hash(monthly),
+            Canonical.Hash(Canonical.Read<PsurMonthlyView>(metadata.RootElement.GetProperty("monthlyCounts")[0].GetRawText())));
         Assert.Contains("Lesekopien", metadata.RootElement.GetProperty("boundary").GetString());
         var pdf = Read("report.pdf");
         using var document = PdfReader.Open(new MemoryStream(pdf), PdfDocumentOpenMode.Import);
@@ -75,6 +81,10 @@ public sealed class PsurExportTests : IAsyncLifetime
             exporter.Export(p.Id, p.Version, "json", SqlFixture.Pms with { Products = ["cardio"] }))).Status);
         Assert.Equal("version_conflict", (await Assert.ThrowsAsync<DomainException>(() =>
             exporter.Export(p.Id, p.Version - 1, "pdf", SqlFixture.Pms))).Code);
+        Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+            Service().PsurMonths(p.Id, p.Version, "ortho", SqlFixture.Pms with { Products = ["cardio"] }))).Status);
+        Assert.Equal("version_conflict", (await Assert.ThrowsAsync<DomainException>(() =>
+            Service().PsurMonths(p.Id, p.Version - 1, "ortho", SqlFixture.Pms))).Code);
         Assert.Equal("psur_export_format", (await Assert.ThrowsAsync<DomainException>(() =>
             exporter.Export(p.Id, p.Version, "unsupported", SqlFixture.Pms))).Code);
         var forged = p with { Version = p.Version + 1, SnapshotHash = new string('0', 64) };
@@ -82,6 +92,8 @@ public sealed class PsurExportTests : IAsyncLifetime
             "Gezielte synthetische Negativprobe mit inkonsistentem Snapshot-Hash.", SqlFixture.Quality, forged, clock.Now), _ => forged);
         Assert.Equal("psur_hash", (await Assert.ThrowsAsync<DomainException>(() =>
             exporter.Export(p.Id, forged.Version, "zip", SqlFixture.Pms))).Code);
+        Assert.Equal("psur_hash", (await Assert.ThrowsAsync<DomainException>(() =>
+            Service().PsurMonths(p.Id, forged.Version, "ortho", SqlFixture.Pms))).Code);
     }
 
     [Fact]
@@ -98,6 +110,8 @@ public sealed class PsurExportTests : IAsyncLifetime
         Assert.Contains(data.CurrentFindings, f => f.Severity is "Critical" or "Major");
         Assert.Null(data.Report.Snapshot.SourceManifest);
         Assert.Null(data.Report.Snapshot.Series);
+        Assert.Equal("Unavailable", Assert.Single(data.MonthlyCounts).Status);
+        Assert.Empty(data.MonthlyCounts[0].Months);
         Assert.Equal(Canonical.Hash(legacy), Canonical.Hash(await fixture.Store.Get<Psur>("psur", p.Id)));
     }
 }

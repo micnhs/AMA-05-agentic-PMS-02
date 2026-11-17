@@ -86,6 +86,28 @@ Die separate UI-Sektion **Nicht automatisch befuellbar - Angaben oder Belege erf
 
 RA sieht eine Pruefansicht statt einer verpflichtenden Dateneingabemaske. Fehlende Pflichtangaben sperren die Freigabe; Medical Safety oder RA koennen das konkrete Paket begruendet zur Korrektur an PMS zurueckgeben. Die Rueckgabe ist versionierte Zusatzmetadaten eines Drafts, kein neuer persistenter Enumwert und keine Simulator-Ablehnung. Korrektur erzeugt eine neue Fassung und verlangt beide getrennten Signaturen erneut. Produktprofilwechsel blockiert neue Freigabe/Sendung, veraendert aber keinen idempotenten alten Command-Receipt. Optionale Nullfelder bleiben bei Altberichten ungeschrieben; deren urspruenglicher Hashvertrag, XML und FrozenJson werden nicht beim Lesen neu komponiert. Kein SQL-Schemawechsel und kein Seed/Migrationsauftrag.
 
+### X-12: abschliessende gebundene Versanduebersicht
+
+Unmittelbar vor dem nativen Simulatorversand liest RA
+`GET /api/cases/{id}/submission-preview?version=N`. Die Ansicht zeigt die
+tatsaechlichen FrozenJson-Inhalte, MIR-Angaben/XML, Evidenz-/Anhangshashes,
+Originalbezug, logischen und technischen Empfaenger, Jurisdiktion, Sprache,
+Formular, Kanal/Umgebung und genau die zugehoerigen menschlichen Freigaben.
+Gespeicherte Evidenztexte bzw. Auszuege werden nicht als vollstaendige
+Original-PDF-/Word-Anhaenge ausgegeben. Nationale Einreichungsluecken bleiben
+sichtbar; andere Laenderpflichten werden nicht zusammengelegt.
+
+Die aktuelle Fallfassung und die exakt referenzierte Vorbereitungsfassung
+werden getrennt autorisiert und gehasht. `GetVersion` liest
+`AggregateVersions` ueber `(Kind, Id, Version)` und prueft den gespeicherten
+Payloadhash; keine gesamte Produkthistorie fuer eine einzelne Revision.
+Der reine Lesezugriff erzeugt weder Approval, Audit-/Outboxmutation noch
+Versand. Abbruch bleibt wirkungslos. Erst die ausdrueckliche
+Simulatorbestaetigung verwendet den bestehenden Sendebefehl mit dieser
+Fallversion. Aenderung von Revision, Paket, Ziel oder Profil bleibt gesperrt;
+Unknown erfordert weiterhin Abgleich. Der idempotente Command-Receipt wird
+weiterhin vor aktuellen Versandabhaengigkeiten gelesen.
+
 ### Gezielte Nachforderung: Kontakt, Versand und Ruecklauf getrennt
 
 Unter **Informationsbedarf** werden Organisation, benannter synthetischer Kontakt/Empfangsstelle, Rolle, Kontaktreferenz, vorgesehener Kanal und synthetische Zielreferenz ausdruecklich eingegeben. Es gibt keine Adressableitung aus Reviewer-Konten und keinen realen E-Mail-, Telefon- oder Portalconnector. `InformationRequest.Lifecycle` (`cohors-information-request-1`) bindet Fall, Produkt, Empfaenger, Fragestellung, Minimaldatensatz, Rechtsgrundlagen, interne Antwortfrist und stabile Korrelation im Anfrage-Scope. Medical und RA genehmigen mit getrennten Konten genau diesen Scope.
@@ -152,6 +174,39 @@ und eine Vereinbarungsreferenz; es gibt keine erfundene pauschale Tagesfrist
 nach Periodenende. Serienlose Altberichte werden nicht automatisch
 ruecknummeriert. Erneute Freigabe prueft Produktprofil und Vorberichtsstatus
 gegen die gebundenen SQL-Historienversionen.
+
+### X-15: Monatsfallzahlen aus einem unveraenderten Snapshot
+
+`GET /api/psurs/{id}/months?version=N&productId=P` bindet die ausdruecklich
+ausgewaehlte technische Fassung der Berichtsedition und das konkrete
+eingefrorene Basic-UDI-Mitglied. Aktueller und genauer historischer
+SQL-Payload werden per Pointread verglichen; beide verlangen den gesamten
+Produktscope der Gruppe einschliesslich gebundener regulatorischer Historie.
+Veraltete Version, fehlende Quellrevision oder Hashabweichung schliessen den
+Zugriff. Andere alte Berichtseditionen bleiben unter ihrer eigenen ID
+lesbar, keine stille Umdeutung in einen aktuellen Bericht.
+
+`cohors-psur-months-1` ist ausschliesslich eine Leseprojektion des
+`cohors-psur-sources-2`-Manifests und des dazugehoerigen N/Regionszaehlers.
+Kein neuer persistenter Aggregatwert, keine Live-Fallabfrage, kein Re-Freeze.
+Die Zeitreihe und Tabelle zeigen eindeutige Fall-IDs nach
+`OccurredAt.UtcDate`; angeschnittene Randmonate bleiben auf die ausgewaehlte
+Zwoelfmonatsperiode begrenzt (gegebenenfalls 13 Kalendermonate). Mehrere
+Versionen oder Eingangssignale erzeugen keinen zweiten Fall.
+
+Ereigniszeit, erste Organisationskenntnis, Systemeingang, exklusiver
+Kenntnisstichtag und Freeze werden separat gezeigt. Ein unbekanntes
+Ereignisdatum wird nicht durch eines dieser anderen Daten ersetzt.
+Offen/geschlossen am Stichtag braucht eine konkrete gebundene historische
+Fallversion; sonst ist der Status unbekannt, auch wenn der Freeze-Stand
+heute offen oder geschlossen ist. Carry-over, unbekannte Ereignisdaten,
+spaetere Kenntnis/Nachtraege und ausserhalb N liegende Ereignisse sind
+gesondert rekonstruierbar; ueberlappende Ausschlusslisten werden nicht
+addiert. Unvollstaendige/mehrdeutige Altmanifeste ergeben sichtbar
+`Unavailable`, keine erfundenen Nullreihen oder aktuelle Ersatzdaten.
+Dies sind Fallzahlen, keine neue klinische Inzidenz oder
+Vollstaendigkeitsbehauptung. Spaete UI-Antworten einer anderen
+Berichts-/Mitgliedsfassung werden nicht uebernommen.
 
 ### Begruendete Mehrfamilien-Gruppierung
 
@@ -253,6 +308,12 @@ ZIP enthaelt `report.json`, `snapshot.json`, `report.pdf`, `audit.json`,
 Gruppenmetadaten enthalten jede Mitgliedsprofil- und Snapshotbindung.
 Aktuelle Nachweisbefunde stehen neben dem unveraenderten Altbericht;
 fehlende historische Daten werden beim Export nicht ergaenzt.
+Der abgeleitete Exportumschlag `cohors-psur-export-2` enthaelt
+`monthlyCounts` im JSON beziehungsweise in `metadata.json`; PDF fuehrt die
+gleichen gebundenen Monatszahlen, Ausschluesse und Zeitquellen auf.
+`report.json` und `snapshot.json` bleiben bytegleich zum gespeicherten
+Original. Unzureichende Altquellen bleiben auch hier ausdruecklich
+nicht monatlich auswertbar. Der Export erteilt keine neue Freigabe.
 
 PDFsharp/PDFsharp-MigraDoc sind bewusst auf die MIT-Version **6.2.4** gepinnt.
 Kein stilles Upgrade auf einen anders lizenzierten Release. Unveraenderte

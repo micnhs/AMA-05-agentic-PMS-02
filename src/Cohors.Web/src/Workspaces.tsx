@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Activity, ArrowUpRight, CheckCheck, Download, FileCheck2, FileText, Fingerprint, Link2, Plus, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api, downloadApi } from './api'
 import type { Actor, AuditEvent, Capa, CaseSummary, ChangeRequest, Device, Evidence, PeriodicSummaryReport, ProductGovernance, ProductLifecycle, Psur, PsurFocus, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SourceRun, SummaryAgreement, SummaryContent, Trend, VersionReference } from './types'
-import { Badge, date, Empty, ErrorBanner, EvidenceCategory, hash, label, Loading, SectionHead, type Dialog, type Field } from './ui'
+import { Badge, date, Empty, ErrorBanner, EvidenceCategory, hash, label, Loading, PsurReferences, SectionHead, type Dialog, type Field } from './ui'
 import DocumentDialog, { type DocumentRequest } from './DocumentDialog'
+import PsurMonthlyPanel from './PsurMonthlyPanel'
 
 function useData<T>(path: string, revision: number) {
   const [data, setData] = useState<T | null>(null)
@@ -463,6 +464,7 @@ export function PsurWorkspace({ actor, revision, openDialog, mutate, initialFocu
           <p className="callout">Die folgenden Tabellen und Dokumente zeigen ausschließlich {family.productId}. Berichtstext, Human Reviews und Export binden weiterhin die gesamte eingefrorene Gruppe. Keine Addition zu einer gemeinsamen Inzidenz.</p>
         </> : <p>Einzelfamilie {family.productId} / {frozenProfile?.device.basicUdi ?? 'Profilbindung fehlt'}. Keine nachträgliche Umformung in eine Gruppe.</p>}
       </section>
+      <PsurMonthlyPanel key={`${psur.id}-${psur.version}-${family.productId}`} report={psur} productId={family.productId} />
       <section className="panel"><SectionHead eyebrow={`${family.productId} · N, N2, N3, N4 · KEINE Ratenaddition`.toUpperCase()} title="Zähler, Nenner und Quellfallversionen" /><p className="muted">{family.dateBasis}</p>
         <div className="table-scroll"><table className="case-table"><thead><tr><th>Periode / Region</th><th>Datenstand</th><th>Ereignisse</th><th>Nenner / Einheit</th><th>Rate / 1.000</th><th>Gebundene Belege</th></tr></thead><tbody>{family.periods.flatMap(period => period.regions.map(region => <tr key={`${period.label}-${region.region}`}>
           <td>{period.label} · {region.region}<small className="subline">{date(period.start)} – {date(period.end)}</small></td><td>{region.dataStatus}</td><td>{region.events ?? 'Unbekannt'}</td><td>{region.exposure ?? 'Unbekannt'} / {region.unit ?? 'unbekannt'}<small className="subline">{region.exposureId ?? 'kein Nenner'}@{region.exposureVersion ?? '?'}</small></td><td>{region.ratePerThousand?.toLocaleString('de-DE', { maximumFractionDigits: 4 }) ?? 'Unbekannt'}</td><td><details><summary>{region.numeratorSources?.length ?? '?'} Quellfälle</summary><PsurReferences values={region.numeratorSources} /></details></td>
@@ -494,12 +496,6 @@ export function PsurWorkspace({ actor, revision, openDialog, mutate, initialFocu
       <section className="panel"><SectionHead title="Befunde des gebundenen Entwurfs" />{psur.findings.map((finding, i) => <div className="history-entry" key={i}><Badge tone={['Critical', 'Major'].includes(finding.severity) ? 'danger' : 'amber'}>{finding.severity} · {finding.code}</Badge><p>{finding.description}</p><p>{finding.remedy}</p></div>)}<p className="muted">Keine automatische Risikoakzeptanz. Export und Freigabe prüfen den gespeicherten Stand erneut; neue Quellen erfordern eine neue kontrollierte Fassung.</p></section>
     </>}
   </div>
-}
-
-function PsurReferences({ values }: { values?: VersionReference[] | null }) {
-  if (!values) return <p>Kein hinreichendes Quellenmanifest vorhanden.</p>
-  if (!values.length) return <p>Keine ausgewiesenen Quellversionen in dieser Liste; Datenstatus und Geltungsbereich gesondert beachten.</p>
-  return <div>{values.map((value, i) => <p key={`${value.id}-${value.version}-${i}`}><b>{value.id}@{value.version}</b><br /><small className="mono">{value.hash}</small></p>)}</div>
 }
 
 function PsurRegulatorySnapshot({ report }: { report: Psur }) {

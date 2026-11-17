@@ -77,8 +77,9 @@ export interface ReportTarget { version: string; jurisdiction: string; authority
 export interface PreparedReportField { field: string; value: string | null; origin: string; source: string; rationale: string; claimIds: string[]; citations: Citation[] }
 export interface ReportFieldIssue { field: string; reason: string; explanation: string; requiredInformation: string; sources: string[] }
 export interface ReportPreparation { contract: string; productId: string; caseSource: VersionReference; device: Device; governance: ProductGovernance | null; target: ReportTarget; mode: string; authoringRunId: string; fields: PreparedReportField[]; problems?: ReportFieldIssue[] | null }
-export interface MirArtifact { kind: string; schemaFile: string; schemaHash: string; mappingVersion: string; xmlHash: string; valid: boolean; errors: string[]; limitations: string[]; facts: MirFacts; followUpSchedule?: FollowUpSchedule | null; createdAt: string; checks?: { schemaValid: boolean; contentErrors: string[]; contentBoundary: string; nationalSubmissionReady: boolean; externalRequirements: string[]; completionIssues?: ReportFieldIssue[] | null } | null }
-export interface Report { version: number; assessmentVersion: number; evidenceHash: string; kind: string; language: string; jurisdiction: string; recipient: string; formVersion: string; schemaVersion: string; narrative: string; state: string; scopeHash: string; preliminary: boolean; openQuestions: string; mir?: MirArtifact | null; obligationIds: string[]; followUpObligationIds?: string[] | null; preparation?: ReportPreparation | null; reviewReturn?: { actorId: string; role: string; at: string; reason: string; previousScopeHash: string } | null }
+export interface MirArtifact { kind: string; schemaFile: string; schemaHash: string; mappingVersion: string; xml: string; xmlHash: string; valid: boolean; errors: string[]; limitations: string[]; facts: MirFacts; followUpSchedule?: FollowUpSchedule | null; createdAt: string; checks?: { schemaValid: boolean; contentErrors: string[]; contentBoundary: string; nationalSubmissionReady: boolean; externalRequirements: string[]; completionIssues?: ReportFieldIssue[] | null } | null }
+export interface Report { version: number; assessmentVersion: number; evidenceHash: string; attachmentHashes: string[]; kind: string; language: string; jurisdiction: string; recipient: string; formVersion: string; schemaVersion: string; narrative: string; state: string; scopeHash: string; preliminary: boolean; openQuestions: string; mir?: MirArtifact | null; obligationIds: string[]; followUpObligationIds?: string[] | null; preparation?: ReportPreparation | null; reviewReturn?: { actorId: string; role: string; at: string; reason: string; previousScopeHash: string } | null }
+export interface SubmissionPreview { caseId: string; caseReference: string; caseVersion: number; productId: string; frozenJsonHash: string; report: Report; evidence: Evidence[]; originals: SafetyCase['sources']; approvals: Approval[]; channel: string; environment: string; simulated: boolean }
 export interface Approval { id: string; actorId: string; actorName: string; role: string; scopeHash: string; at: string; meaning: string; rationale: string }
 export interface Submission { id: string; correlationId: string; reportScopeHash: string; status: string; receiptReference: string | null; attemptedAt: string; simulated: boolean; attempts: number }
 export interface AgentRun { id: string; role: string; mode: string; status: string; startedAt: string; finishedAt: string; errorCode: string | null; model: string }
@@ -146,6 +147,17 @@ export interface PsurGroupDefinition {
 export interface PsurRegulatoryHistory {
   contract: string; products: string[]; cutoffExclusiveUtc: string; reviews: PsurActionState<PsurReview>[]; coverage: string;
 }
+export interface PsurCaseSource {
+  reference: VersionReference; productId: string; country: string; jurisdiction: string; occurredAt: string | null;
+  firstAwarenessAt: string; systemReceivedAt: string; synthetic: boolean; cutoffVersion: VersionReference | null; statusAtCutoff: string;
+}
+export interface PsurMonthlyView {
+  contract: string; reportId: string; reportVersion: number; snapshotHash: string; productId: string; basicUdi: string | null;
+  memberSnapshotHash: string | null; region: string; start: string; end: string; knowledgeCutoffExclusiveUtc: string; frozenAt: string;
+  dateBasis: string; status: 'Available' | 'Unavailable'; issues: string[]; boundary: string;
+  months: { month: string; from: string; through: string; cases: VersionReference[]; openAtCutoff: VersionReference[]; unknownStatusAtCutoff: VersionReference[] }[];
+  exclusions: { kind: string; reason: string; cases: VersionReference[] }[]; sources: PsurCaseSource[];
+}
 export interface PsurSnapshot {
   start: string; end: string; region: string; productId: string; leadProductId: string; frozenAt: string; dateBasis: string; completeness: string;
   cases: { id: string; version: number; reference: string; stage: string; disposition: string; openQuestions: string[]; statusAtCutoff?: string; knowledgeStatus?: string }[];
@@ -156,7 +168,7 @@ export interface PsurSnapshot {
   documents: Evidence[];
   periods: { label: string; start: string; end: string; regions: { region: string; dataStatus: string; events: number | null; exposure: number | null; unit: string | null; ratePerThousand: number | null; exposureId: string | null; exposureVersion: number | null; numeratorSources?: VersionReference[] | null }[] }[];
   sourceManifest?: { version: string; knowledgeCutoffExclusiveUtc: string; periodKnowledgeRule: string; stateEvidence: string;
-    cases: { reference: VersionReference; cutoffVersion: VersionReference | null; statusAtCutoff: string }[];
+    cases: PsurCaseSource[];
     postCutoffCases: { period: string; source: VersionReference; awarenessAt: string; reason: string }[] } | null;
   actions?: { cutoffExclusiveUtc: string; capas: PsurActionState<Capa>[]; changes: PsurActionState<ChangeRequest>[] } | null;
   directory?: { documentsEffectiveAt: string; coverage: string; entries: PsurDataSource[] } | null;

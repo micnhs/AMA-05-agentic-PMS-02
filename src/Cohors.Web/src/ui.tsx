@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, ArrowUpRight, Check, ChevronRight, FileText, HeartPulse, LoaderCircle, X } from 'lucide-react'
-import type { CaseOutcome, CaseOutcomeSource, CaseSummary, Deadline } from './types'
+import type { CaseOutcome, CaseOutcomeSource, CaseSummary, Deadline, VersionReference } from './types'
 
 export const roleNames: Record<string, string> = { PmsSpecialist: 'PMS Specialist', MedicalSafetyReviewer: 'Medical Safety Reviewer', RegulatoryAffairs: 'Regulatory Affairs', QualityManager: 'Quality Manager', Auditor: 'Auditor' }
 const names: Record<string, string> = { Intake: 'Intake', Assessing: 'Analyse läuft', AwaitingInformation: 'Befund ausstehend', AwaitingMedicalReview: 'Medical Review', Investigating: 'Untersuchung', Monitoring: 'Beobachtung', Closed: 'Abgeschlossen', Draft: 'Entwurf', MedicalApproved: 'RA-Review', Frozen: 'Freigegeben & eingefroren', TransmissionUnknown: 'Übermittlung unklar', SimulatedAccepted: 'Simuliert angenommen', SimulatedReported: 'Simuliert erledigt', NonReportableReviewed: 'Nichtmeldepflicht geprüft', Rejected: 'Abgelehnt', Superseded: 'Überholt', Undetermined: 'Offen', Reportable: 'Meldepflicht bestätigt', NonReportable: 'Nicht meldepflichtig', Completed: 'Abgeschlossen', Queued: 'Eingeplant', Running: 'In Bearbeitung', Failed: 'Fehlgeschlagen', Abandoned: 'Kontrolliert abgebrochen', SimulatedSent: 'Simuliert angefragt', SimulatedAnswered: 'Simuliert beantwortet', Open: 'Offen', Verified: 'Wirksamkeit bestätigt', Approved: 'Freigegeben' }
@@ -75,7 +75,12 @@ export function CaseTable({ cases, open }: { cases: CaseSummary[]; open: (id: st
   </tr> })}</tbody></table></div>
 }
 export type Field = { name: string; label: string; value?: string; type?: 'textarea' | 'date' | 'datetime-local' | 'select' | 'text'; options?: { value: string; label: string }[]; required?: boolean; minLength?: number; multiple?: boolean; values?: string[] }
-export type Dialog = { title: string; description?: string; fields: Field[]; submitLabel?: string; onSubmit: (values: Record<string, string>) => Promise<void> }
+export function PsurReferences({ values }: { values?: VersionReference[] | null }) {
+  if (!values) return <p>Kein hinreichendes Quellenmanifest vorhanden.</p>
+  if (!values.length) return <p>Keine ausgewiesenen Quellversionen in dieser Liste; Datenstatus und Geltungsbereich gesondert beachten.</p>
+  return <div>{values.map((value, i) => <p key={`${value.id}-${value.version}-${i}`}><b>{value.id}@{value.version}</b><br /><small className="mono">{value.hash}</small></p>)}</div>
+}
+export type Dialog = { title: string; description?: string; body?: ReactNode; fields: Field[]; submitLabel?: string; onSubmit: (values: Record<string, string>) => Promise<void> }
 export function ActionDialog({ dialog, close }: { dialog: Dialog; close: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
   const [busy, setBusy] = useState(false)
@@ -84,6 +89,7 @@ export function ActionDialog({ dialog, close }: { dialog: Dialog; close: () => v
   return <dialog className="dialog" ref={ref} onCancel={e => { if (busy) e.preventDefault(); else close() }}>
     <header><div><span className="eyebrow">KONTROLLIERTER SCHRITT</span><h2>{dialog.title}</h2></div><button type="button" className="icon-button" disabled={busy} onClick={close} aria-label="Dialog schließen"><X /></button></header>
     <p>{dialog.description ?? 'Die Änderung wird serverseitig geprüft und mit Identität, Version und Begründung protokolliert.'}</p>
+    {dialog.body}
     {error && <ErrorBanner message={error} />}
     <form onSubmit={async e => {
       e.preventDefault(); const form = new FormData(e.currentTarget); setBusy(true); setError('')
