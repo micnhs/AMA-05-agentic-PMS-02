@@ -8,6 +8,9 @@ if (-not (Test-Path -LiteralPath $dotnet)) { $dotnet = (Get-Command dotnet -Erro
 & $dotnet test (Join-Path $root 'tests\Cohors.Tests\Cohors.Tests.csproj') --no-restore --disable-build-servers -m:1 -p:UseSharedCompilation=false `
     --verbosity minimal --logger 'trx;LogFileName=acceptance.trx' --results-directory (Join-Path $root '.local\test-results')
 if ($LASTEXITCODE -ne 0) { throw '.NET/domain/SQL acceptance failed.' }
+& $dotnet test (Join-Path $root 'tests\Cohors.Bootstrap.Tests\Cohors.Bootstrap.Tests.csproj') --no-restore --disable-build-servers -m:1 -p:UseSharedCompilation=false `
+    --verbosity minimal --logger 'trx;LogFileName=bootstrap.trx' --results-directory (Join-Path $root '.local\bootstrap-test-results')
+if ($LASTEXITCODE -ne 0) { throw '.NET/bootstrap tests failed.' }
 if (-not $SkipBrowser) {
     $run = [Guid]::NewGuid().ToString('N')
     $application = Join-Path $root ".local\ui-package-$run"

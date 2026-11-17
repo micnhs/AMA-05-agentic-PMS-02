@@ -8,7 +8,8 @@ Set-Location $root
 $settingsPath = Join-Path $root '.local/settings.json'
 if (Test-Path -LiteralPath $settingsPath) { throw 'CI requires fresh configuration; existing settings must never be read or reused.' }
 foreach ($path in @('global.json', 'Cohors.slnx', 'scripts/Initialize-Local.ps1', 'scripts/Build-Local.ps1',
-        'scripts/Test-Local.ps1', 'scripts/Start-Local.ps1', 'src/Cohors.Web/package-lock.json')) {
+        'scripts/Test-Local.ps1', 'scripts/Start-Local.ps1', 'src/Cohors.Web/package-lock.json',
+        'src/Cohors.Bootstrap/Cohors.Bootstrap.csproj', 'tests/Cohors.Bootstrap.Tests/Cohors.Bootstrap.Tests.csproj')) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $path))) { throw "Required application contract is missing: $path" }
 }
 
@@ -66,8 +67,9 @@ $prohibitedValues = [System.Collections.Generic.List[string]]::new()
 $stdout = Join-Path $env:RUNNER_TEMP 'cohors-api.stdout.log'
 $stderr = Join-Path $env:RUNNER_TEMP 'cohors-api.stderr.log'
 $trxPath = Join-Path $root '.local/test-results/acceptance.trx'
+$bootstrapTrxPath = Join-Path $root '.local/bootstrap-test-results/bootstrap.trx'
 $junitPath = Join-Path $root '.local/e2e-results.xml'
-foreach ($path in @($trxPath, $junitPath, (Join-Path $root '.local/cohors-cockpit.png'),
+foreach ($path in @($trxPath, $bootstrapTrxPath, $junitPath, (Join-Path $root '.local/cohors-cockpit.png'),
         (Join-Path $root '.local/cohors-workbench.png'))) {
     if (Test-Path -LiteralPath $path) { throw 'CI evidence must be freshly generated; pre-existing reports/screenshots are refused.' }
 }
@@ -113,6 +115,8 @@ try {
     & pwsh -NoProfile -File (Join-Path $root 'scripts/Test-Local.ps1') -SkipBrowser
     Assert-Exit 'Real SQL/.NET acceptance'
     & (Join-Path $PSScriptRoot 'Test-CohorsResults.ps1') -TrxPath $trxPath
+    Write-Output 'Validating Bootstrap.Tests TRX (synthetic SQL/Search fakes).'
+    & (Join-Path $PSScriptRoot 'Test-CohorsResults.ps1') -TrxPath $bootstrapTrxPath
 
     $api = Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @('-NoProfile', '-File', 'scripts/Start-Local.ps1') `
         -WorkingDirectory $root -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
@@ -171,7 +175,7 @@ try {
             }
         }
         if ($credentialsCollected) {
-            $reports = @($trxPath, $junitPath) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+            $reports = @($trxPath, $bootstrapTrxPath, $junitPath) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
             foreach ($report in $reports) {
                 $content = Get-Content -LiteralPath $report -Raw
                 if ($content -match '(?i)(?:Authorization|Set-Cookie|Cookie|X-CSRF-Token)\s*[:=]\s*\S|(?:access_token|refresh_token|id_token)(?:&quot;|")?\s*:') {

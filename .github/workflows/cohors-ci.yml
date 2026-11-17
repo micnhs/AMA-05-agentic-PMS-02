@@ -69,6 +69,7 @@ jobs:
           name: cohors-test-evidence
           path: |
             ${{ runner.temp }}/cohors-test-evidence/acceptance.trx
+            ${{ runner.temp }}/cohors-test-evidence/bootstrap.trx
             ${{ runner.temp }}/cohors-test-evidence/e2e-results.xml
             ${{ runner.temp }}/cohors-test-evidence/cohors-cockpit.png
             ${{ runner.temp }}/cohors-test-evidence/cohors-workbench.png

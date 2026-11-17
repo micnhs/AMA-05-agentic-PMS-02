@@ -4,12 +4,14 @@
     <Project Path="src/Cohors.Agents/Cohors.Agents.csproj" />
     <Project Path="src/Cohors.Api/Cohors.Api.csproj" />
     <Project Path="src/Cohors.Application/Cohors.Application.csproj" />
+    <Project Path="src/Cohors.Bootstrap/Cohors.Bootstrap.csproj" />
     <Project Path="src/Cohors.Domain/Cohors.Domain.csproj" />
     <Project Path="src/Cohors.Infrastructure/Cohors.Infrastructure.csproj" />
     <Project Path="src/Cohors.Operations/Cohors.Operations.csproj" />
     <Project Path="src/Cohors.Workflows/Cohors.Workflows.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Cohors.Bootstrap.Tests/Cohors.Bootstrap.Tests.csproj" />
     <Project Path="tests/Cohors.Tests/Cohors.Tests.csproj" />
   </Folder>
 </Solution>
