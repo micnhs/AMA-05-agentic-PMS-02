@@ -46,12 +46,14 @@ public sealed partial class SqlStateStore : IWorkspaceReadStore
             ORDER BY a.Id
             """, ("products", Canonical.Serialize(products)), ("from", from), ("until", until));
         var result = new List<CaseProcessInput>();
-        await using (var reader = await query.ExecuteReaderAsync(ct))
+        await using (var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct))
             while (await reader.ReadAsync(ct))
             {
-                var c = WorkspaceOriginal<SafetyCase>(reader, 0, 1);
-                var source = reader.IsDBNull(4) ? null : WorkspaceOriginal<SafetyCase>(reader, 4, 5);
-                result.Add(new(c, reader.GetInt32(2), reader.GetInt32(3), source));
+                var c = await WorkspaceOriginal<SafetyCase>(reader, 0, 1, ct);
+                var revised = reader.GetInt32(2);
+                var requested = reader.GetInt32(3);
+                var source = reader.IsDBNull(4) ? null : await WorkspaceOriginal<SafetyCase>(reader, 4, 5, ct);
+                result.Add(new(c, revised, requested, source));
             }
         await transaction.CommitAsync(ct);
         return result.ToArray();
@@ -86,18 +88,18 @@ public sealed partial class SqlStateStore : IWorkspaceReadStore
         var cases = new List<CalendarCaseSource>();
         var psurs = new List<Psur>();
         var reviews = new List<PsurReview>();
-        await using (var reader = await query.ExecuteReaderAsync(ct))
+        await using (var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct))
         {
             while (await reader.ReadAsync(ct))
                 cases.Add(new(reader.GetString(0), reader.GetInt32(1), reader.GetString(2), reader.GetString(3),
-                    reader.GetString(4), Canonical.Read<Deadline[]>(reader.GetString(5)),
-                    reader.IsDBNull(6) ? null : Canonical.Read<FollowUpObligation[]>(reader.GetString(6))));
+                    reader.GetString(4), Canonical.Read<Deadline[]>(await ReadText(reader, 5, ct)),
+                    reader.IsDBNull(6) ? null : Canonical.Read<FollowUpObligation[]>(await ReadText(reader, 6, ct))));
             await reader.NextResultAsync(ct);
             while (await reader.ReadAsync(ct))
             {
                 // Full PSUR membership includes frozen BS history. Reuse its domain scope check before projecting dates.
-                if (reader.GetString(0) == "psur") psurs.Add(WorkspaceOriginal<Psur>(reader, 1, 2));
-                else reviews.Add(WorkspaceOriginal<PsurReview>(reader, 1, 2));
+                if (reader.GetString(0) == "psur") psurs.Add(await WorkspaceOriginal<Psur>(reader, 1, 2, ct));
+                else reviews.Add(await WorkspaceOriginal<PsurReview>(reader, 1, 2, ct));
             }
         }
         var correspondence = await ReadCorrespondenceSources(connection, transaction, authorizedProducts, ct);
@@ -138,25 +140,31 @@ public sealed partial class SqlStateStore : IWorkspaceReadStore
             ORDER BY l.Id,entry.AttemptId,correspondence.Id;
             """, ("products", Canonical.Serialize(products)));
         var sources = new List<EudamedCorrespondenceSource>();
-        await using var reader = await query.ExecuteReaderAsync(ct);
+        await using var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
         while (await reader.ReadAsync(ct))
         {
-            Guard.Against(reader.IsDBNull(2) || reader.IsDBNull(4) || reader.IsDBNull(6),
-                "eudamed_deadline_source", "SQL-Original fuer eine gespeicherte Korrespondenz fehlt; keine unbelegte Fristenanzeige.", 409);
-            var ledger = WorkspaceOriginal<EudamedDeliveryLedger>(reader, 0, 1);
-            var entries = ledger.Entries.Where(e => e.Attempt.Id == reader.GetString(8)).ToArray();
+            const string missing = "SQL-Original fuer eine gespeicherte Korrespondenz fehlt; keine unbelegte Fristenanzeige.";
+            var ledger = await WorkspaceOriginal<EudamedDeliveryLedger>(reader, 0, 1, ct);
+            Guard.Against(reader.IsDBNull(2), "eudamed_deadline_source", missing, 409);
+            var current = await WorkspaceOriginal<EudamedDossier>(reader, 2, 3, ct);
+            Guard.Against(reader.IsDBNull(4), "eudamed_deadline_source", missing, 409);
+            var approved = await WorkspaceOriginal<EudamedDossier>(reader, 4, 5, ct);
+            Guard.Against(reader.IsDBNull(6), "eudamed_deadline_source", missing, 409);
+            var inbox = await WorkspaceOriginal<EudamedInbox>(reader, 6, 7, ct);
+            var attemptId = reader.GetString(8);
+            var correspondenceId = reader.GetString(9);
+            var entries = ledger.Entries.Where(e => e.Attempt.Id == attemptId).ToArray();
             Guard.Against(entries.Length != 1, "eudamed_deadline_source", "Korrespondenzversuch ist nicht eindeutig.", 409);
-            var correspondence = entries[0].Correspondence.Where(c => c.Id == reader.GetString(9)).ToArray();
+            var correspondence = entries[0].Correspondence.Where(c => c.Id == correspondenceId).ToArray();
             Guard.Against(correspondence.Length != 1, "eudamed_deadline_source", "Korrespondenzoriginal ist nicht eindeutig.", 409);
-            sources.Add(new(ledger, entries[0], correspondence[0], WorkspaceOriginal<EudamedDossier>(reader, 2, 3),
-                WorkspaceOriginal<EudamedDossier>(reader, 4, 5), WorkspaceOriginal<EudamedInbox>(reader, 6, 7)));
+            sources.Add(new(ledger, entries[0], correspondence[0], current, approved, inbox));
         }
         return sources.ToArray();
     }
 
-    private static T WorkspaceOriginal<T>(SqlDataReader reader, int content, int hash)
+    private static async Task<T> WorkspaceOriginal<T>(SqlDataReader reader, int content, int hash, CancellationToken ct)
     {
-        var json = reader.GetString(content);
+        var json = await ReadText(reader, content, ct);
         Guard.Against(reader.IsDBNull(hash) || Canonical.HashText(json) != reader.GetString(hash),
             "workspace_source_integrity", "SQL-Quellfassung stimmt nicht mit ihrem gespeicherten Originalhash ueberein.", 409);
         return Canonical.Read<T>(json);

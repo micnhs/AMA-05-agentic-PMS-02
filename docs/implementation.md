@@ -453,6 +453,10 @@ ueberlappende Pollschleife pro Ansicht. SQL liest fuer den Prozess die
 ausgewaehlten aktuellen Faelle, fuer den Kalender kompakte Falltermine und
 die berechtigten PSUR-/BS-Originale sowie die ledgergebundenen
 EUDAMED-Korrespondenzoriginale fuer die vollstaendige Scopepruefung.
+Die vollstaendigen JSON-Spalten werden mit `SequentialAccess` und dem
+vorhandenen Textstream-Leser in Spaltenreihenfolge gelesen, nicht durch
+gepufferte asynchrone Zeilenabrufe. Der konsistente SQL-Leseschnitt und
+saemtliche Originalhash-/Versionspruefungen bleiben dabei erhalten.
 Erst danach entstehen die kompakten Antworten. Keine neue Migration oder
 persistierte Summenquelle; insbesondere kein Nachweis fuer 250000 Faelle
 oder 90 gleichzeitige Nutzer.
