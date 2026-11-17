@@ -472,7 +472,31 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
     expect(originalResponse.status()).toBe(200)
     const originalBytes = await originalResponse.body()
     expect(createHash('sha256').update(originalBytes).digest('hex')).toBe(frozen.scopeHash)
-    await queueDossierUi(regulator, 'InformationRequest')
+    let submitConfirmed = false
+    let heldRefresh = false
+    let releaseRefresh!: () => void
+    const refreshGate = new Promise<void>(resolve => { releaseRefresh = resolve })
+    await regulator.route(workspaceRoute, async route => {
+      if (!submitConfirmed) { await route.continue(); return }
+      const response = await route.fetch()
+      expect(response.status()).toBe(200)
+      heldRefresh = true
+      await refreshGate
+      await route.fulfill({ response })
+    })
+    try {
+      const submitted = regulator.waitForResponse(response => response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/eudamed/dossiers/${created.id}/submit`).then(response => {
+        expect(response.status()).toBe(200)
+        submitConfirmed = true
+      })
+      await Promise.all([submitted, queueDossierUi(regulator, 'InformationRequest')])
+      await expect.poll(() => heldRefresh).toBe(true)
+      await expect(regulator.getByRole('dialog')).not.toBeVisible()
+    } finally {
+      releaseRefresh()
+      await regulator.unroute(workspaceRoute)
+    }
     await expect.poll(async () => (await dossierView(ra, created.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
     view = await dossierView(ra, created.id)
     expect(view.ledger.entries[0].businessStatus).toBe('Pending')

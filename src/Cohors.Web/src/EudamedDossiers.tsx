@@ -393,11 +393,18 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
     workspace.activeChannel.id === dossier.package.binding.channelId &&
     workspace.activeChannel.version === dossier.package.binding.channelVersion &&
     workspace.activeChannel.dispatchGeneration === dossier.package.binding.dispatchGeneration
-  async function change(path: string, body: unknown) {
-    await api(path, body)
+  async function change(path: string, body: unknown, response: 'dossier' | 'view' = 'view') {
+    const result = response === 'dossier'
+      ? { ...currentView, dossier: await api<EudamedDossier>(path, body) }
+      : await api<DossierView>(path, body)
     if (!live.current) return
+    generation.current++
+    setView(current => current && current.dossier.version > result.dossier.version ? current : result)
+    setError('')
     setHistory(null); setHistoricalVersion(null); setAudit(null); historyGeneration.current++; auditGeneration.current++
-    await load(); if (live.current) await refresh()
+    void refresh().catch(failure => {
+      if (live.current) setError(`Aenderung gespeichert; Uebersicht nicht aktualisiert: ${failure instanceof Error ? failure.message : 'Leseaufruf fehlgeschlagen.'}`)
+    })
   }
   function approve() {
     setDialog({ title: dossier.reviewStatus === 'Draft' ? 'Dossier medizinisch freigeben' : 'Dossier regulatorisch einfrieren',
@@ -405,7 +412,7 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
       submitLabel: 'Genau dieses Paket freigeben', fields: [reasonField,
         ...(dossier.reviewStatus === 'Draft' ? [narrative('findingDisposition', 'Medizinische Einordnung offener Befunde und verbleibender Unsicherheit', undefined, 80)] : [])],
       onSubmit: async v => change(`/eudamed/dossiers/${dossier.id}/approve`,
-        { expectedVersion: dossier.version, reason: v.reason, findingDisposition: v.findingDisposition ?? null }) })
+        { expectedVersion: dossier.version, reason: v.reason, findingDisposition: v.findingDisposition ?? null }, 'dossier') })
   }
   function submit() {
     setDialog({ title: dossier.package.content.intendedAction === 'Reply' ? 'Freigegebene Antwort simuliert senden' : 'Freigegebenes Dossier simuliert senden',

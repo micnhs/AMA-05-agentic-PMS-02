@@ -445,6 +445,14 @@ identische Profil-/Pruefstand-Eingaben teilen die Bereitschaftsberechnung,
 nicht jedoch den Deaktivierungsstatus des aktiven Kanals. Es gibt keinen
 requestuebergreifenden Berechtigungs- oder Datenfallback.
 
+Die Dossieraktionen uebernehmen nach bestaetigtem POST den typisierten
+Serverstand direkt. Der Bestaetigungsdialog wartet nicht zusaetzlich auf
+erneute Dossier- und Workspace-Lesungen. Die Uebersicht wird getrennt
+aktualisiert; Lesefehler bleiben sichtbar. Ein eingereihter Versand wird
+weiterhin nur als eingereiht angezeigt, nicht als fachlich angenommen.
+Die Browserregression haelt eine echte nachgelagerte Workspace-Antwort
+zurueck und verlangt trotzdem den Abschluss des bereits bestaetigten Dialogs.
+
 ## Unveraenderte Originale
 
 `source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`, die freigegebenen Eingangsunterlagen sowie Logo und Animation werden nicht veraendert. Die unveraenderte `source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx` hat SHA256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`.
