@@ -517,7 +517,21 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
     expect(correspondenceResponse.status()).toBe(200)
     const correspondenceBytes = await correspondenceResponse.body()
     expect(createHash('sha256').update(correspondenceBytes).digest('hex')).toBe(question.originalHash)
-    await openDossierUi(author, baseURL!, created.id)
+    expect(question.dueAt).toBeTruthy()
+    async function calendarQuestion(page: Page) {
+      await page.getByRole('button', { name: 'Fristen', exact: true }).click()
+      await page.getByRole('combobox', { name: 'Fristtyp', exact: true }).selectOption('EudamedReply')
+      await page.getByLabel('Kalendermonat', { exact: true }).fill(question.dueAt!.slice(0, 7))
+      const event = page.locator(`[data-obligation-id$=":${question.id}"]`)
+      await expect(event).toContainText('Regulatory Affairs')
+      await expect(event).toContainText(`Originalrevision ${question.dossierRevision}`)
+      return event
+    }
+    const calendarOpen = await calendarQuestion(author)
+    await expect(calendarOpen).not.toContainText('Keine offene Terminpflicht')
+    await calendarOpen.getByRole('button').click()
+    await expect(author.getByTestId('eudamed-calendar-focus')).toContainText(question.id)
+    await expect(author.getByTestId('eudamed-calendar-focus')).toContainText(`Originalrevision ${question.dossierRevision}`)
     await author.locator(`[data-correspondence-id="${question.id}"]`).getByRole('button', { name: 'Getrennte Antwort entwerfen', exact: true }).click()
     dialog = author.getByRole('dialog')
     const replyTitle = `SYNTHETISCH: Originalantwort E03 ${Date.now()}`
@@ -546,6 +560,10 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
     expect(completed.approvals).toEqual(frozen.approvals)
     expect(await (await ra.get(originalUrl)).body()).toEqual(originalBytes)
     expect(await (await pms.get(`/api/cases/${c.id}`)).json()).toEqual(acceptedNative)
+    const calendarClosed = await calendarQuestion(regulator)
+    await expect(calendarClosed).toContainText('Keine offene Terminpflicht')
+    await calendarClosed.getByRole('button').click()
+    await expect(regulator.getByTestId('eudamed-calendar-focus')).toContainText(question.id)
     await regulator.getByRole('button', { name: 'Kanal deaktivieren', exact: true }).click()
     dialog = regulator.getByRole('dialog')
     await dialog.locator('[name=reason]').fill(eudamedReason)
@@ -563,6 +581,7 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
       channelBinding: frozen.package.binding, originalHash: question.originalHash,
       nativeSubmissions: acceptedNative.submissions.length, nativeUnchangedByReply: true, originalDeadlinesAndApprovalsPreserved: true,
       technicalAckDidNotCompleteObligations: true, onlyAddressedCorrespondenceClosed: true, newReplyApprovals: approvedReply.approvals.map(a => a.id),
+      calendarReachedExactOriginal: true, calendarClosedAfterBusinessReply: true, originalCorrespondenceDueAt: question.dueAt,
       oldChannelNotRetargeted: true, delayedWorkspaceReads: workspaceReads, browserExternalRequests: externalRequests, realAuthorityAcceptance: false,
     }, null, 2))
   } finally { for (const context of contexts) await context.close(); await pms.dispose(); await medical.dispose(); await ra.dispose() }

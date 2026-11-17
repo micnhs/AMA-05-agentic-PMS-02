@@ -177,11 +177,123 @@ public sealed class WorkspaceReadRuleTests
             WorkspaceReadService.ProjectCockpit(cases, Actor, null, new(2026, 10, 25), new(2026, 10, 25), Berlin, Now, "risk:high")).Code);
         Assert.Equal("workspace_period", Assert.Throws<DomainException>(() => WorkspaceDates.RequirePeriod(new(2026, 1, 1), new(2027, 1, 2))).Code);
     }
+
+    [Fact]
+    public void CorrespondenceUsesItsOriginalLedgerRevisionAndAllHistoricalProductsEvenWhenTheProjectionLags()
+    {
+        var source = WorkspaceTestData.Correspondence(Now, Now.AddHours(-1).ToOffset(TimeSpan.FromHours(2)));
+        var original = Canonical.Hash(source);
+        var full = Actor with { Products = ["ortho", "cardio"] };
+        var sources = new CalendarSources([], [], [], [source]);
+        var calendar = WorkspaceReadService.ProjectCalendar(sources, full, "cardio", new(2026, 10, 1), Berlin, Now);
+        var item = Assert.Single(calendar.Events);
+        Assert.True(item.IsOpen);
+        Assert.True(item.IsCurrent);
+        Assert.Equal("Overdue", item.Timing);
+        Assert.Equal(source.Inbox.Original!.DueAt, item.DueAt);
+        Assert.Equal(source.Inbox.Original.DueAt!.Value.Offset, item.DueAt!.Value.Offset);
+        Assert.Null(item.OriginalTimeZone);
+        Assert.Equal(source.Entry.ApprovedDossier, item.Correspondence!.ApprovedDossier);
+        Assert.Equal(1, item.Correspondence.DossierRevision);
+        Assert.Equal(2, source.CurrentDossier.Revision);
+        Assert.Empty(source.CurrentDossier.Correspondence);
+        Assert.Equal(source.Correspondence.OriginalHash, item.Correspondence.OriginalHash);
+        Assert.Equal(source.Entry.Attempt.PackageHash, item.Correspondence.PackageHash);
+        Assert.Equal(Roles.Regulatory, item.Correspondence.OwnerRole);
+        Assert.Equal(new[] { "cardio", "ortho" }, item.Products);
+        Assert.Equal(1, calendar.OverduePrimaryObligations);
+        Assert.Empty(WorkspaceReadService.ProjectCalendar(sources, Actor, null, new(2026, 10, 1), Berlin, Now).Events);
+        Assert.Equal(original, Canonical.Hash(source));
+    }
+
+    [Fact]
+    public void MissingAndConflictingResponseSchedulesAreVisibleWithoutInventedDatesOrUndatedCommentObligations()
+    {
+        var full = Actor with { Products = ["ortho", "cardio"] };
+        CalendarSnapshot Read(EudamedCorrespondenceSource source) =>
+            WorkspaceReadService.ProjectCalendar(new([], [], [], [source]), full, null, new(2027, 1, 1), Berlin, Now);
+        var missing = WorkspaceTestData.Correspondence(Now, null);
+        var conflict = WorkspaceTestData.Correspondence(Now, Now.AddDays(1));
+        var changed = conflict.Correspondence with { DueAt = Now.AddDays(2) };
+        var entry = conflict.Entry with { Correspondence = [changed] };
+        conflict = conflict with { Correspondence = changed, Entry = entry, Ledger = conflict.Ledger with { Entries = [entry] } };
+        foreach (var source in new[] { missing, conflict })
+        {
+            var calendar = Read(source);
+            Assert.Empty(calendar.Events);
+            var clarification = Assert.Single(calendar.UnscheduledEvents);
+            Assert.Null(clarification.DueAt);
+            Assert.Null(clarification.DueDate);
+            Assert.Null(clarification.DisplayDate);
+            Assert.True(clarification.IsOpen);
+            Assert.Equal("NeedsClarification", clarification.Timing);
+            var alert = Assert.IsType<EudamedCorrespondenceAlert>(EudamedDeadlineRules.Alert(
+                Assert.IsType<EudamedCorrespondenceDeadline>(EudamedDeadlineRules.Project(source)), Now));
+            Assert.Equal("ScheduleClarification", alert.Code);
+            Assert.Equal(Roles.Regulatory, alert.OwnerRole);
+        }
+        foreach (var kind in new[] { "Comment", "Evaluation" })
+        {
+            var calendar = Read(WorkspaceTestData.Correspondence(Now, null, kind));
+            Assert.Empty(calendar.Events);
+            Assert.Empty(calendar.UnscheduledEvents);
+        }
+        var scheduled = Assert.IsType<EudamedCorrespondenceDeadline>(
+            EudamedDeadlineRules.Project(WorkspaceTestData.Correspondence(Now, Now.AddHours(1))));
+        Assert.Null(EudamedDeadlineRules.Alert(scheduled, Now));
+        var first = EudamedDeadlineRules.Alert(scheduled, Now.AddHours(2))!;
+        var repeated = EudamedDeadlineRules.Alert(scheduled, Now.AddHours(3))!;
+        Assert.Equal(first.Id, repeated.Id);
+        Assert.Equal("Overdue", first.Code);
+        Assert.Equal(scheduled.Source.Correspondence.OriginalHash, first.OriginalHash);
+    }
+
+    [Fact]
+    public void AClaimedReplyWithoutItsAppliedBusinessReceiptRemainsOpenForClarification()
+    {
+        var source = WorkspaceTestData.Correspondence(Now, Now.AddHours(-1));
+        var claimed = source.Correspondence with { Status = "Replied", ReplyDossierId = "unproven-reply" };
+        var entry = source.Entry with { Correspondence = [claimed] };
+        source = source with { Correspondence = claimed, Entry = entry, Ledger = source.Ledger with { Entries = [entry] } };
+        var deadline = Assert.IsType<EudamedCorrespondenceDeadline>(EudamedDeadlineRules.Project(source));
+        Assert.True(deadline.IsOpen);
+        Assert.Null(deadline.DueAt);
+        Assert.Contains(deadline.Issues, issue => issue.Contains("fachliche Reply-Annahme", StringComparison.Ordinal));
+        Assert.Equal("ScheduleClarification", EudamedDeadlineRules.Alert(deadline, Now)!.Code);
+    }
 }
 
 [Collection("SQL pilot")]
 public sealed class WorkspaceReadSqlTests(SqlFixture fixture)
 {
+    [Fact]
+    public async Task CorrespondenceCalendarReadsFrozenSqlHistoryAndLedgerNotTheLaggingDossierProjection()
+    {
+        var now = DateTimeOffset.Parse("2026-10-25T12:00:00Z");
+        var source = WorkspaceTestData.Correspondence(now, now.AddHours(-1));
+        async Task Record<T>(string kind, string id, int expected, T value) => await fixture.Store.Execute<T>(
+            new(id, kind, "ortho", expected, CaseScenario.Key(), "SyntheticCalendarSourceRecorded",
+                WorkspaceTestData.Reason, SqlFixture.Ra, value!, now), _ => value);
+        await Record("eudamedDossier", source.ApprovedDossier.Id, 0, source.ApprovedDossier);
+        await Record("eudamedDossier", source.CurrentDossier.Id, 1, source.CurrentDossier);
+        await Record("eudamedInbox", source.Inbox.Id, 0, source.Inbox);
+        await Record("eudamedDelivery", source.Ledger.Id, 0, source.Ledger);
+        var reader = new WorkspaceReadService(fixture.Store, new TestClock(now));
+        var calendar = await reader.Calendar(SqlFixture.Pms, "cardio", new(2026, 10, 1), "UTC", "EudamedReply", "open", null, 0);
+        var item = Assert.Single(calendar.Events, e => e.EntityId == source.CurrentDossier.Id);
+        Assert.Equal(source.Correspondence.Id, item.Correspondence!.CorrespondenceId);
+        Assert.Equal(source.Entry.ApprovedDossier, item.Correspondence.ApprovedDossier);
+        Assert.Equal(1, item.SourceVersion);
+        Assert.Equal("Overdue", item.Timing);
+        var limited = SqlFixture.Pms with { Products = ["ortho"] };
+        Assert.DoesNotContain((await reader.Calendar(limited, null, new(2026, 10, 1), "UTC", null, null, null, 0)).Events,
+            e => e.EntityId == source.CurrentDossier.Id);
+        Assert.Equal(Canonical.Hash(source.CurrentDossier),
+            Canonical.Hash(await fixture.Store.Get<EudamedDossier>("eudamedDossier", source.CurrentDossier.Id)));
+        Assert.Equal(Canonical.Hash(source.Ledger),
+            Canonical.Hash(await fixture.Store.Get<EudamedDeliveryLedger>("eudamedDelivery", source.Ledger.Id)));
+    }
+
     [Fact]
     public async Task BatchedProcessProjectionMatchesTheWorkbenchIncludingHumanAndNonReportableHistory()
     {
@@ -306,4 +418,57 @@ internal static class WorkspaceTestData
     internal static PsurReview Review(Psur p, DateTimeOffset due) => new("review-" + p.Id, 1, p.ProductId, [p.ProductId],
         "DEMO-BS-" + p.Id, PsurReviewRules.Bind(p), "EU", "de", PsurReviewRules.Recipient,
         [new(1, Reason, due, false, Reason, due.AddDays(-1))], "QuestionOpen", null, "", [], [], [], [], true);
+
+    internal static EudamedCorrespondenceSource Correspondence(DateTimeOffset now, DateTimeOffset? due, string kind = "InformationRequest")
+    {
+        var id = "calendar-dossier-" + Guid.NewGuid().ToString("N");
+        var report = Psur("calendar-source-" + id, new(2026, 11, 1));
+        report = report with { Snapshot = report.Snapshot with
+            { RegulatoryHistory = new(PsurRegulatoryRules.Contract, ["ortho", "cardio"], now, [], Reason) } };
+        report = report with { SnapshotHash = Canonical.Hash(report.Snapshot) };
+        var governance = report.Snapshot.Series!.Governance;
+        var actor = new VersionReference("calendar-actor", 1, Canonical.HashText("synthetic calendar actor"));
+        var references = new EudamedReferences("calendar-references", 1, "ortho", actor,
+            new("DEMO calendar manufacturer", "MF", "DE", "SYNTHETISCH: Teststrasse 0",
+                new("Demo", "Contact", "calendar@example.invalid", "+49-0000"), true),
+            "DEMO-EUDAMED-CALENDAR", new("ortho", "DEMO implant", "Implant", governance.Device.BasicUdi,
+                Reason, "DEMO model", ["DE"]), report.Snapshot.Series.GovernanceSource, governance.Device,
+            new("DEMO-CERT", "1", "DEMO-NB", "synthetic", new(2025, 1, 1), new(2027, 12, 31),
+                Canonical.HashText("synthetic certificate"), Reason, "SyntheticMappingConfirmed", true),
+            "DEMO-NB", Reason, SqlFixture.Ra.Id, now, true, "GS1");
+        var profile = new EudamedProfile(EudamedMode.Simulator, EudamedEnvironment.Simulation,
+            actor.Id, actor.Version, references.Id, references.Version, "DEMO-NB", EudamedContracts.Business, EudamedContracts.Gateway, null);
+        var binding = new EudamedBinding("calendar-channel", 1, 1, Canonical.Hash(profile), profile, actor,
+            EudamedContracts.Bind(references), references.ActorIdentity, EudamedContracts.WsdlSha256, true);
+        var xml = "<SyntheticCalendarFixture />";
+        EudamedSource Source(Psur value) => new("psur", new(value.Id, value.Version, Canonical.Hash(value)), Canonical.Serialize(value));
+        var package = new EudamedPackage(EudamedContracts.Business, EudamedDossierKind.PSUR, id, 1, "ortho", binding, references,
+            new("SYNTHETISCH: Kalendervertrag", Reason, Reason, "de", "EU-DE", ["DE"], "Submit", null, null,
+                new(report.Snapshot.Start, report.Snapshot.End, Reason), null, null),
+            new("EU-DE", "calendar-fixture", "Europe/Berlin", new(2025, 1, 1), new(2027, 12, 31), [], false),
+            [Source(report)], xml, Canonical.HashText(xml), [],
+            new(EudamedContracts.Business, "fixture", "fixture", EudamedContracts.Mapping,
+                Canonical.HashText("fixture"), Canonical.HashText("fixture"), EudamedContracts.SchemaRuntime,
+                Canonical.HashText("fixture"), [], ["Calendar fixture only; no XSD or human approval acceptance."], "Synthetic contract fixture"), true);
+        var hash = Canonical.Hash(package);
+        var approved = new EudamedDossier(id, 1, "ortho", EudamedDossierKind.PSUR, 1, package, hash, "Approved",
+            [], hash, [], [], [], [], [], SqlFixture.Pms.Id, now) { AccessProducts = ["ortho", "cardio"] };
+        var narrower = report with { Snapshot = report.Snapshot with { RegulatoryHistory = null } };
+        narrower = narrower with { SnapshotHash = Canonical.Hash(narrower.Snapshot) };
+        var revised = package with { Revision = 2, Sources = [Source(narrower)] };
+        var current = approved with { Version = 2, Revision = 2, Package = revised, ScopeHash = Canonical.Hash(revised),
+            ReviewStatus = "Draft", FrozenPackageHash = null, AccessProducts = ["ortho"] };
+        var attempt = new EudamedAttempt("attempt-" + id, "correlation-" + id, id + "@cohors.invalid",
+            1, hash, binding, kind, EudamedContracts.Simulator, "TransportDelivered", 1, now.AddDays(-1), now.AddDays(-1), now.AddDays(-1), null, null);
+        var original = new EudamedInboxOriginal("question-" + id, attempt.CorrelationId, attempt.Id, id, 1, hash, 2,
+            kind, "Open", "DEMO evaluating NB", Reason, "DEMO-DTX-CALENDAR", 1, [], null, due, true);
+        var inbox = new EudamedInbox("inbox-" + id, 1, "ortho", binding, original, Canonical.Hash(original), null,
+            original.MessageId, "Applied", "NotApplicable", null, now, null);
+        var correspondence = new EudamedCorrespondence("correspondence-" + id, inbox.Id, inbox.OriginalHash,
+            original.Issuer, kind, original.Content, 1, now, due, Roles.Regulatory, "Open", null, true);
+        var entry = new EudamedDeliveryEntry(id, EudamedContracts.Bind(approved), attempt, "BusinessAccepted", 1)
+            { Correspondence = [correspondence] };
+        var ledger = new EudamedDeliveryLedger("ledger-" + id, 1, "ortho", id, [entry]);
+        return new(ledger, entry, correspondence, current, approved, inbox);
+    }
 }

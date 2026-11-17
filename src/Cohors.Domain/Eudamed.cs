@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Cohors.Domain;
 
 public enum EudamedMode { Simulator, Domibus }
@@ -87,7 +89,14 @@ public sealed record EudamedDeliveryEntry(string DossierId, VersionReference App
     public EudamedCorrespondence[] Correspondence { get; init; } = [];
 }
 public sealed record EudamedDeliveryLedger(string Id, int Version, string ProductId,
-    string ObligationKey, EudamedDeliveryEntry[] Entries);
+    string ObligationKey, EudamedDeliveryEntry[] Entries)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EudamedCorrespondenceAlert[]? CorrespondenceAlerts { get; init; }
+}
+public sealed record EudamedCorrespondenceAlert(string Id, string CorrespondenceId, string InboxId,
+    string OriginalHash, string DossierId, int DossierRevision, string AttemptId, string PackageHash,
+    string BindingHash, string[] Products, string OwnerRole, string Code, DateTimeOffset At, string Message);
 public sealed record EudamedPlannedResponse(string Id, string AttemptId, int Sequence,
     string Kind, DateTimeOffset DueAt, string Status, string Content, string? PublishedInboxId);
 public sealed record EudamedBusinessResponse(string InboxId, string MessageId, string AttemptId,

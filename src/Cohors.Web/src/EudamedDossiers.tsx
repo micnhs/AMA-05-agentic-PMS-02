@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, downloadApi } from './api'
-import type { Actor, Approval, AuditEvent, Device, VersionReference } from './types'
+import type { Actor, Approval, AuditEvent, Device, EudamedFocus, VersionReference } from './types'
 import type { IntegrationWorkspace } from './EudamedWorkspace'
 import { ActionDialog, Badge, date, ErrorBanner, hash, label, Loading, roleNames, SectionHead, type Dialog, type Field } from './ui'
 
@@ -225,13 +225,13 @@ function dossierForm(kind: DossierKind, source: SourceOption, options: SourceOpt
   } }
 }
 
-export default function EudamedDossiers({ actor, product, workspace, refresh }: {
-  actor: Actor; product: Device; workspace: IntegrationWorkspace; refresh: () => Promise<void>
+export default function EudamedDossiers({ actor, product, workspace, refresh, initialFocus }: {
+  actor: Actor; product: Device; workspace: IntegrationWorkspace; refresh: () => Promise<void>; initialFocus?: EudamedFocus
 }) {
   const [kind, setKind] = useState<DossierKind>('MIR')
   const [sourceId, setSourceId] = useState('')
   const [sources, setSources] = useState<SourceOption[]>([])
-  const [selectedId, setSelectedId] = useState('')
+  const [selectedId, setSelectedId] = useState(initialFocus?.dossierId ?? '')
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -310,6 +310,8 @@ export default function EudamedDossiers({ actor, product, workspace, refresh }: 
       }}>Dossierquellen neu lesen</button>
     </SectionHead>
       {error && <ErrorBanner message={error} dismiss={() => setError('')} />}
+      {initialFocus && !workspace.dossiers.some(d => d.id === initialFocus.dossierId) &&
+        <ErrorBanner message="Das konkret im Kalender gebundene Dossier ist in diesem berechtigten Lesestand nicht verfuegbar. Kein anderes Original wurde geoeffnet." />}
       <p>Fachlicher Entwurf, zwei getrennte Freigaben, Transport und fachliche Antwort sind eigenstaendige Schritte. Eine Antwort quittiert keine neue native Meldepflicht.</p>
       {author && <div className="eudamed-create">
         <label className="field">Dossiertyp<select value={kind} onChange={event => {
@@ -335,15 +337,16 @@ export default function EudamedDossiers({ actor, product, workspace, refresh }: 
       </details>}
     </section>
     {selected && <DossierDetail key={selected.id} actor={actor} summary={selected} workspace={workspace} refresh={refresh}
-      edit={edit} close={() => setSelectedId('')} open={setSelectedId} />}
+      edit={edit} close={() => setSelectedId('')} open={setSelectedId}
+      focus={initialFocus?.dossierId === selected.id ? initialFocus : undefined} />}
     {dialog && <ActionDialog key={dialog.title} dialog={dialog} close={() => { if (live.current) setDialog(null) }} />}
   </>
 }
 
-function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }: {
+function DossierDetail({ actor, summary, workspace, refresh, edit, close, open, focus }: {
   actor: Actor; summary: DossierSummary; workspace: IntegrationWorkspace; refresh: () => Promise<void>
   edit: (previous?: EudamedDossier, reply?: { parent: EudamedDossier; correspondence: Correspondence }) => Promise<void>
-  close: () => void; open: (id: string) => void
+  close: () => void; open: (id: string) => void; focus?: EudamedFocus
 }) {
   const [view, setView] = useState<DossierView | null>(null)
   const [history, setHistory] = useState<EudamedDossier[] | null>(null)
@@ -357,6 +360,8 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
   const auditGeneration = useRef(0)
   const downloadGeneration = useRef(0)
   const downloadController = useRef<AbortController | null>(null)
+  const correspondenceAnchor = useRef<HTMLElement | null>(null)
+  const focusApplied = useRef(false)
   const load = useCallback(async () => {
     const request = ++generation.current
     try {
@@ -373,6 +378,13 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
   }, [])
   useEffect(() => { void load() }, [load, summary.version])
   const d = historicalVersion === null ? view?.dossier : history?.find(value => value.version === historicalVersion)
+  useEffect(() => {
+    if (focus && !focusApplied.current && correspondenceAnchor.current) {
+      correspondenceAnchor.current.scrollIntoView({ block: 'center' })
+      correspondenceAnchor.current.focus({ preventScroll: true })
+      focusApplied.current = true
+    }
+  }, [d, focus])
   if (!view || !d) return <section className="panel">{error ? <ErrorBanner message={error} /> : <Loading />}</section>
   const dossier = d
   const currentView = view
@@ -535,7 +547,13 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
       <button className="button secondary" onClick={() => void original(response.originalHash, `${response.inboxId}.json`)}>Fachliches Original lesen</button>
     </article>)}
     <h3>Originalgebundene Kommentare und Nachforderungen</h3>
-    {dossier.correspondence.map(item => <article key={item.id} className="eudamed-record" data-correspondence-id={item.id}>
+    {focus && !dossier.correspondence.some(item => item.id === focus.correspondenceId && item.dossierRevision === focus.dossierRevision) &&
+      <ErrorBanner message="Die exakte Kalenderkorrespondenz ist in dieser Dossierprojektion noch nicht sichtbar. Keine andere Rueckfrage wurde ersetzt oder als erledigt gewertet." />}
+    {dossier.correspondence.map(item => <article key={item.id} className="eudamed-record" data-correspondence-id={item.id}
+      tabIndex={item.id === focus?.correspondenceId ? -1 : undefined}
+      ref={item.id === focus?.correspondenceId && item.dossierRevision === focus.dossierRevision ? correspondenceAnchor : undefined}>
+      {item.id === focus?.correspondenceId && item.dossierRevision === focus.dossierRevision &&
+        <p className="callout" data-testid="eudamed-calendar-focus">Kalenderbezug: Originalrevision {item.dossierRevision} · {item.id}</p>}
       <b>{item.kind} · {item.issuer} · {state(item.status)}</b><p className="eudamed-narrative">{item.content}</p>
       <p>Verantwortlich: {roleNames[item.ownerRole] ?? item.ownerRole} · {item.dueAt ? `Antworttermin ${date(item.dueAt, true)}` : 'Kein eigener Termin angegeben'}</p>
       <div className="eudamed-actions"><button className="button secondary" onClick={() => void original(item.originalHash, `${item.id}.json`)}>Korrespondenzoriginal lesen</button>

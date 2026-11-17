@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import type { Actor, Device, ProductGovernance, VersionReference } from './types'
+import type { Actor, Device, EudamedFocus, ProductGovernance, VersionReference } from './types'
 import { ActionDialog, Badge, date, ErrorBanner, hash, Loading, SectionHead, type Dialog, type Field } from './ui'
 import EudamedDossiers, { type DossierSummary } from './EudamedDossiers'
 
@@ -60,19 +60,20 @@ const domibusTextFields: { name: keyof DomibusProfile; label: string }[] = [
   { name: 'originalSender', label: 'Original Sender (keine Test-SRN uebernehmen)' }, { name: 'finalRecipient', label: 'Final Recipient' },
 ]
 
-export default function EudamedWorkspace({ actor, products }: { actor: Actor; products: Device[] }) {
+export default function EudamedWorkspace({ actor, products, initialFocus }: { actor: Actor; products: Device[]; initialFocus?: EudamedFocus }) {
   const allowedProducts = products.filter(value => actor.products.includes(value.id))
-  const [product, setProduct] = useState(allowedProducts[0]?.id ?? '')
-  const selected = allowedProducts.find(p => p.id === product) ?? allowedProducts[0]
+  const [product, setProduct] = useState(initialFocus?.productId ?? allowedProducts[0]?.id ?? '')
+  const selected = allowedProducts.find(p => p.id === product) ?? (initialFocus ? undefined : allowedProducts[0])
   return <div className="eudamed-workspace">
     <label className="field">Integrations-Produktscope<select value={selected?.id ?? ''} onChange={event => setProduct(event.target.value)}>
       {allowedProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
     </select></label>
-    {selected ? <ProductIntegration key={selected.id} actor={actor} product={selected} /> : <p>Kein freigegebener Produktscope verfuegbar.</p>}
+    {selected ? <ProductIntegration key={selected.id} actor={actor} product={selected}
+      initialFocus={initialFocus?.productId === selected.id ? initialFocus : undefined} /> : <p>Kein freigegebener Produktscope fuer diesen Bezug verfuegbar.</p>}
   </div>
 }
 
-function ProductIntegration({ actor, product }: { actor: Actor; product: Device }) {
+function ProductIntegration({ actor, product, initialFocus }: { actor: Actor; product: Device; initialFocus?: EudamedFocus }) {
   const [workspace, setWorkspace] = useState<IntegrationWorkspace | null>(null)
   const [governance, setGovernance] = useState<ProductGovernance | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
@@ -306,7 +307,7 @@ function ProductIntegration({ actor, product }: { actor: Actor; product: Device 
           <button className="button secondary" disabled={busy} onClick={() => void load()}>Stand neu lesen</button>
         </div>
       </section>
-      <EudamedDossiers actor={actor} product={product} workspace={workspace} refresh={load} />
+      <EudamedDossiers actor={actor} product={product} workspace={workspace} refresh={load} initialFocus={initialFocus} />
       {audit && <section className="panel"><SectionHead title={`Audit - ${audit.title}`}><button className="button secondary" onClick={() => setAudit(null)}>Audit schliessen</button></SectionHead>
         <pre className="eudamed-audit">{JSON.stringify(audit.value, null, 2)}</pre></section>}
     </>}

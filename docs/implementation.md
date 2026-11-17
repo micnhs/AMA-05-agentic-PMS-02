@@ -417,12 +417,42 @@ gespeicherte Mitgliedschaft einschliesslich historischer BS-Quellen sichtbar.
 Agenda-Links waehlen den konkreten PSUR bzw. BS-Vorgang und die Ursprungsrunde,
 keinen beliebigen aktuellen Bericht.
 
+EUDAMED-Korrespondenz besitzt einen eigenen Marker `EudamedReply`, nicht eine
+neue MDR-Initialfrist. Der SQL-Leseschnitt verbindet den fuehrenden
+Versandledger mit dem exakten freigegebenen Dossieroriginal und dem
+korrelierten Inbox-Original. Eine nachlaufende Dossierprojektion oder eine
+spaetere Neufassung darf eine noch offene Originalrueckfrage nicht
+verschwinden lassen. Aktuelle und historische Produkt-/Gruppenrechte sind
+gemeinsam erforderlich. Die Agenda nennt Original-ID, Revision,
+Versuch, Paket-/Binding-/Originalhash und Regulatory Affairs als Owner;
+der Link oeffnet genau diese Korrespondenz, keinen Ersatzvorgang.
+
+`InformationRequest` erfordert einen ausdruecklichen Antworttermin.
+Ein undatierter Kommentar oder eine undatierte Bewertung begruendet fuer
+sich allein keine neue Frist; ein dort ausdruecklich gespeicherter Termin
+wird nachverfolgt. Fehlende oder widerspruechliche Fristen bei
+fristbeduerftigen Rueckfragen erscheinen in `unscheduledEvents` als
+sichtbare RA-Klaerung, unabhaengig vom Monats-/Tagesfilter. Es gibt weder
+Pauschalfrist noch erfundenen Heute-Marker. Auch eine bereits ueberfaellig
+eingegangene Originalnachforderung wird nicht neu terminiert.
+
+Der KI-unabhaengige Watchdog persistiert deduplizierte
+`EudamedCorrespondenceEscalated`-Ereignisse einschliesslich Audit und Outbox
+im Versandledger. Seine optionale Alertmetadaten stehen ausserhalb von
+Korrespondenz und signiertem Paket; Originalbytes, Freigaben und bestehende
+LegalDue bleiben unveraendert. Ein Queue-Eintrag oder technischer ACK
+schliesst keine Antwortpflicht. Erst die angewandte fachliche Annahme der
+neu freigegebenen Reply schliesst ihre exakt adressierte Rueckfrage;
+andere Fragen bleiben offen. Diese Terminverfolgung belegt keinen echten
+Behoerdenkontakt oder externen Alarmversand.
+
 Die Leseoberflaechen mutieren keine Fachobjekte. Der Browser laedt dort nicht
 zusaetzlich `/cases` oder einzelne Prozessakten fuer Summen. Cockpit und
 Kalender aktualisieren sequenziell alle 30 Sekunden bzw. explizit; keine
 ueberlappende Pollschleife pro Ansicht. SQL liest fuer den Prozess die
 ausgewaehlten aktuellen Faelle, fuer den Kalender kompakte Falltermine und
-einmal die berechtigten PSUR-/BS-Originale fuer die vollstaendige Scopepruefung.
+die berechtigten PSUR-/BS-Originale sowie die ledgergebundenen
+EUDAMED-Korrespondenzoriginale fuer die vollstaendige Scopepruefung.
 Erst danach entstehen die kompakten Antworten. Keine neue Migration oder
 persistierte Summenquelle; insbesondere kein Nachweis fuer 250000 Faelle
 oder 90 gleichzeitige Nutzer.

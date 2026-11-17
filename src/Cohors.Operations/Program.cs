@@ -16,6 +16,7 @@ var host = new HostBuilder()
             ?? throw new InvalidOperationException("Operations SQL connection required."),
             context.Configuration["Cohors:SqlAuthentication"], context.HostingEnvironment.IsDevelopment()));
         services.AddSingleton<IStateStore>(sp => sp.GetRequiredService<SqlStateStore>());
+        services.AddSingleton<IWorkspaceReadStore>(sp => sp.GetRequiredService<SqlStateStore>());
         services.AddSingleton<OperationsService>();
         services.AddSingleton(_ =>
         {

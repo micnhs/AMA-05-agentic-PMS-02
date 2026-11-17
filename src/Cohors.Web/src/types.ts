@@ -30,17 +30,22 @@ export interface CockpitSnapshot {
   focus: string; offset: number; pageSize: number; matchingCases: number; cases: CockpitCase[];
 }
 export interface CalendarEvent {
-  id: string; obligationId: string; kind: string; entityKind: 'case' | 'psur' | 'psurReview'; entityId: string;
+  id: string; obligationId: string; kind: string; entityKind: 'case' | 'psur' | 'psurReview' | 'eudamedDossier'; entityId: string;
   psurId: string | null; round: number | null; productId: string; products: string[]; reference: string; title: string;
   sourceVersion: number; sourceField: string; originalTimeZone: string | null; dueAt: string | null;
-  dueDate: string | null; displayDate: string; status: string; timing: string; isOpen: boolean;
+  dueDate: string | null; displayDate: string | null; status: string; timing: string; isOpen: boolean;
   isCurrent: boolean; primary: boolean; details: string[];
+  correspondence?: { approvedDossier: VersionReference; dossierRevision: number; correspondenceId: string;
+    inboxId: string; originalHash: string; attemptId: string; packageHash: string; bindingHash: string;
+    ledgerId: string; ledgerVersion: number; ownerRole: string; simulated: boolean };
 }
+export interface EudamedFocus { productId: string; dossierId: string; correspondenceId: string; dossierRevision: number }
 export interface CalendarDay { date: string; events: number; openEvents: number; overdueMarkers: number; kinds: WorkspaceCount[] }
 export interface CalendarSnapshot {
   contract: string; asOf: string; month: string; timeZone: string; productId: string | null; kind: string; status: string;
   day: string | null; days: CalendarDay[]; obligations: number; openObligations: number; overduePrimaryObligations: number;
   missingPsurDates: number; totalEvents: number; matchingEvents: number; offset: number; pageSize: number; events: CalendarEvent[];
+  unscheduledEvents: CalendarEvent[];
 }
 export interface PsurFocus { reportId: string; reviewId?: string; round?: number }
 export interface Citation { evidenceId: string; hash: string; locator: string; quote: string }

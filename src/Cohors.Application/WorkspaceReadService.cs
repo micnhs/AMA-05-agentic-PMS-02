@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Cohors.Domain;
 
 namespace Cohors.Application;
@@ -6,12 +7,14 @@ public sealed record CaseProcessInput(SafetyCase Case, int LastAssessmentRevisio
     SafetyCase? DecisionSource);
 public sealed record CalendarCaseSource(string Id, int Version, string ProductId, string Reference, string Title,
     Deadline[] Deadlines, FollowUpObligation[]? FollowUps);
-public sealed record CalendarSources(CalendarCaseSource[] Cases, Psur[] Psurs, PsurReview[] Reviews);
+public sealed record CalendarSources(CalendarCaseSource[] Cases, Psur[] Psurs, PsurReview[] Reviews,
+    EudamedCorrespondenceSource[]? Correspondence = null);
 public interface IWorkspaceReadStore
 {
     Task<CaseProcessInput[]> ReadCockpitCases(string[] products, DateTimeOffset from, DateTimeOffset until, CancellationToken ct = default);
     Task<CalendarSources> ReadCalendarSources(string[] caseProducts, string[] authorizedProducts,
         DateTimeOffset from, DateTimeOffset until, CancellationToken ct = default);
+    Task<EudamedCorrespondenceSource[]> ReadCorrespondenceSources(string[] products, CancellationToken ct = default);
 }
 
 public sealed record WorkspaceCount(string Key, string Label, int Count);
@@ -30,12 +33,22 @@ public sealed record CockpitSnapshot(string Contract, DateTimeOffset AsOf, DateO
 public sealed record CalendarEvent(string Id, string ObligationId, string Kind, string EntityKind, string EntityId,
     string? PsurId, int? Round, string ProductId, string[] Products, string Reference, string Title,
     int SourceVersion, string SourceField, string? OriginalTimeZone, DateTimeOffset? DueAt, DateOnly? DueDate,
-    DateOnly DisplayDate, string Status, string Timing, bool IsOpen, bool IsCurrent, bool Primary, string[] Details);
+    DateOnly? DisplayDate, string Status, string Timing, bool IsOpen, bool IsCurrent, bool Primary, string[] Details)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CorrespondenceCalendarBinding? Correspondence { get; init; }
+}
+public sealed record CorrespondenceCalendarBinding(VersionReference ApprovedDossier, int DossierRevision,
+    string CorrespondenceId, string InboxId, string OriginalHash, string AttemptId, string PackageHash,
+    string BindingHash, string LedgerId, int LedgerVersion, string OwnerRole, bool Simulated);
 public sealed record CalendarDay(DateOnly Date, int Events, int OpenEvents, int OverdueMarkers, WorkspaceCount[] Kinds);
 public sealed record CalendarSnapshot(string Contract, DateTimeOffset AsOf, DateOnly Month, string TimeZone,
     string? ProductId, string Kind, string Status, DateOnly? Day, CalendarDay[] Days, int Obligations,
     int OpenObligations, int OverduePrimaryObligations, int MissingPsurDates,
-    int TotalEvents, int MatchingEvents, int Offset, int PageSize, CalendarEvent[] Events);
+    int TotalEvents, int MatchingEvents, int Offset, int PageSize, CalendarEvent[] Events)
+{
+    public CalendarEvent[] UnscheduledEvents { get; init; } = [];
+}
 
 public static class WorkspaceDates
 {
@@ -60,7 +73,7 @@ public static class WorkspaceDates
 public sealed class WorkspaceReadService(IWorkspaceReadStore store, TimeProvider clock)
 {
     public const int PageSize = 25;
-    public static readonly string[] CalendarKinds = ["LegalDue", "SafetyDue", "FollowUp", "PsurSubmission", "NotifiedBodyReply"];
+    public static readonly string[] CalendarKinds = ["LegalDue", "SafetyDue", "FollowUp", "PsurSubmission", "NotifiedBodyReply", "EudamedReply"];
     private static readonly (string Key, string Label)[] ReviewLabels =
     [
         ("Missing", "Ohne Assessment"), ("AiDraft", "KI-Entwurf, nicht medizinisch freigegeben"),
@@ -206,6 +219,7 @@ public sealed class WorkspaceReadService(IWorkspaceReadStore store, TimeProvider
             offset < 0 || day is { } chosen && (chosen < first || chosen >= until),
             "calendar_filter", "Kalenderfilter, Tag oder Seite sind ungueltig.");
         var events = new List<CalendarEvent>();
+        var unscheduled = new List<CalendarEvent>();
         foreach (var c in sources.Cases.Where(c => products.Contains(c.ProductId)))
         {
             foreach (var d in c.Deadlines)
@@ -269,6 +283,32 @@ public sealed class WorkspaceReadService(IWorkspaceReadStore store, TimeProvider
                             $"Antwort simuliert quittiert: {submission.SimulatedReceipt}; Frage/Bewertung dadurch nicht automatisch geschlossen."]);
             }
         }
+        foreach (var source in sources.Correspondence ?? [])
+        {
+            if (!EudamedDeadlineRules.CanRead(source, actor)) continue;
+            var deadline = EudamedDeadlineRules.Project(source);
+            if (deadline is null || productId is not null && !deadline.Products.Contains(productId)) continue;
+            var correspondence = source.Correspondence;
+            var attempt = source.Entry.Attempt;
+            var binding = new CorrespondenceCalendarBinding(source.Entry.ApprovedDossier, correspondence.DossierRevision,
+                correspondence.Id, correspondence.InboxId, correspondence.OriginalHash, attempt.Id, attempt.PackageHash,
+                Canonical.Hash(attempt.Binding), source.Ledger.Id, source.Ledger.Version, Roles.Regulatory, correspondence.Simulated);
+            Add(deadline.ObligationId, "EudamedReply", "eudamedDossier", source.Entry.DossierId, null, null,
+                source.Ledger.ProductId, deadline.Products, source.Entry.DossierId,
+                $"{source.ApprovedDossier.Kind} · {correspondence.Kind} · {source.ApprovedDossier.Package.Content.Title}",
+                source.Entry.ApprovedDossier.Version,
+                $"Ledger/{source.Ledger.Id}/Entries/{attempt.Id}/Correspondence/{correspondence.Id}/DueAt",
+                null, deadline.DueAt, null, correspondence.Status, deadline.IsOpen, true, true,
+                [$"Originaleingang {correspondence.InboxId}; Hash {correspondence.OriginalHash}; empfangen {correspondence.ReceivedAt:O}.",
+                    $"Originaltermin {source.Inbox.Original!.DueAt:O}; gebundene Dossierrevision {correspondence.DossierRevision}; Paket {attempt.PackageHash}.",
+                    $"Versuch {attempt.Id}; Binding {binding.BindingHash}; freigegebenes Dossier {binding.ApprovedDossier.Id}@{binding.ApprovedDossier.Version}.",
+                    "Originalzeitpunkt mit gespeichertem UTC-Offset; keine gesonderte IANA-Originalzeitzone uebermittelt.",
+                    $"Verantwortung: {Roles.Regulatory}; Aussteller {correspondence.Issuer}; {(correspondence.Simulated ? "simulierter" : "externer")} Originaleingang.",
+                    "Ausdruecklicher Antworttermin, keine MDR-Initialfrist. Eine technische Quittung oder eingereihte Antwort schliesst ihn nicht.",
+                    deadline.IsOpen ? "Keine angewandte fachliche Reply-Annahme dieser Rueckfrage." :
+                        $"Nur diese Rueckfrage fachlich beantwortet durch {correspondence.ReplyDossierId}.",
+                    .. deadline.Issues], binding);
+        }
         var filtered = events.Where(e => kind == "all" || e.Kind == kind).Where(e => status == "all" || e.IsOpen).ToArray();
         var days = Enumerable.Range(0, until.DayNumber - first.DayNumber).Select(i =>
         {
@@ -284,21 +324,28 @@ public sealed class WorkspaceReadService(IWorkspaceReadStore store, TimeProvider
             filtered.Where(e => e.IsOpen).Select(e => e.ObligationId).Distinct().Count(),
             filtered.Where(e => e.Primary && e.Timing == "Overdue").Select(e => e.ObligationId).Distinct().Count(),
             psurs.Count(p => p.Snapshot.Series is null), filtered.Length, matching.Length, offset, PageSize,
-            matching.Skip(offset).Take(PageSize).ToArray());
+            matching.Skip(offset).Take(PageSize).ToArray())
+        {
+            UnscheduledEvents = unscheduled.Where(e => kind == "all" || e.Kind == kind)
+                .Where(e => status == "all" || e.IsOpen).OrderBy(e => e.Id, StringComparer.Ordinal).ToArray()
+        };
 
         void Add(string obligation, string type, string entityKind, string entityId, string? psurId, int? round,
             string product, string[] memberProducts, string reference, string title, int version, string sourceField,
-            string? originalZone, DateTimeOffset? due, DateOnly? dueDate, string sourceStatus, bool open, bool current, bool primary, string[] details)
+            string? originalZone, DateTimeOffset? due, DateOnly? dueDate, string sourceStatus, bool open, bool current, bool primary,
+            string[] details, CorrespondenceCalendarBinding? correspondence = null)
         {
-            var date = dueDate ?? WorkspaceDates.Day(due!.Value, zone);
-            if (date < first || date >= until) return;
+            DateOnly? date = dueDate ?? (due is { } instant ? WorkspaceDates.Day(instant, zone) : null);
+            if (date is { } dated && (dated < first || dated >= until)) return;
             var today = WorkspaceDates.Day(now, zone);
-            var timing = !current ? "Historical" : !open ? "RecordedClosed" :
-                due is { } instant ? instant < now ? "Overdue" : instant <= now.AddHours(72) ? "Upcoming" : "Later" :
+            var timing = !current ? "Historical" : !open ? "RecordedClosed" : date is null ? "NeedsClarification" :
+                due is { } at ? at < now ? "Overdue" : at <= now.AddHours(72) ? "Upcoming" : "Later" :
                 date < today ? "Overdue" : date == today ? "DueToday" : date <= today.AddDays(3) ? "Upcoming" : "Later";
-            events.Add(new($"{entityKind}:{entityId}:{sourceField}", obligation, type, entityKind, entityId, psurId, round,
+            var item = new CalendarEvent($"{entityKind}:{entityId}:{sourceField}", obligation, type, entityKind, entityId, psurId, round,
                 product, memberProducts, reference, title, version, sourceField, originalZone, due, dueDate,
-                date, sourceStatus, timing, open, current, primary, details));
+                date, sourceStatus, timing, open, current, primary, details) { Correspondence = correspondence };
+            if (date is null) unscheduled.Add(item);
+            else events.Add(item);
         }
     }
 

@@ -38,7 +38,7 @@ public sealed class FollowUpTests : IAsyncLifetime
         Assert.All(s.Case.Deadlines, d => Assert.Equal("SimulatedReported", d.Status));
 
         s.Clock.Now = DateTimeOffset.Parse("2026-11-23T00:01:00Z");
-        var operations = new OperationsService(fixture.Store, s.Clock);
+        var operations = new OperationsService(fixture.Store, fixture.Store, s.Clock);
         var tick = await operations.Tick();
         Assert.Equal(1, tick.OpenFollowUps);
         s.Case = await s.Service.Get(s.Case.Id, SqlFixture.Ra);

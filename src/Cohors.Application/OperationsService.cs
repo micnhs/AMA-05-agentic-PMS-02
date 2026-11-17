@@ -2,7 +2,7 @@ using Cohors.Domain;
 
 namespace Cohors.Application;
 
-public sealed class OperationsService(IStateStore store, TimeProvider clock)
+public sealed class OperationsService(IStateStore store, IWorkspaceReadStore workspace, TimeProvider clock)
 {
     public async Task<AgentInvocation[]> ListInvocations(Actor actor, CancellationToken ct = default)
     {
@@ -103,6 +103,41 @@ public sealed class OperationsService(IStateStore store, TimeProvider clock)
             catch (DomainException error) when (error.Code == "version_conflict")
             {
                 // A human transition won; the next tick reads the persisted question again.
+                continue;
+            }
+        }
+        var correspondence = await workspace.ReadCorrespondenceSources(CaseService.Workflow.Products, ct);
+        foreach (var group in correspondence.GroupBy(s => s.Ledger.Id))
+        {
+            var ledger = group.First().Ledger;
+            var deadlines = group.Select(source =>
+            {
+                EudamedRules.RequireActorScope(source.CurrentDossier, CaseService.Workflow);
+                EudamedRules.RequireActorScope(source.ApprovedDossier, CaseService.Workflow);
+                return EudamedDeadlineRules.Project(source);
+            }).Where(d => d is not null).Cast<EudamedCorrespondenceDeadline>().ToArray();
+            var alerts = deadlines.Select(d => EudamedDeadlineRules.Alert(d, now)).Where(a => a is not null)
+                .Cast<EudamedCorrespondenceAlert>().Where(a => !(ledger.CorrespondenceAlerts ?? []).Any(old => old.Id == a.Id))
+                .OrderBy(a => a.Id, StringComparer.Ordinal).ToArray();
+            if (alerts.Length == 0) continue;
+            var dependencies = group.SelectMany(source => new[]
+            {
+                new StoreDependency("eudamedDossier", EudamedContracts.Bind(source.CurrentDossier)),
+                new StoreDependency("eudamedInbox", new(source.Inbox.Id, source.Inbox.Version, Canonical.Hash(source.Inbox)))
+            }).DistinctBy(d => (d.Kind, d.Source.Id)).ToArray();
+            try
+            {
+                await store.Execute<EudamedDeliveryLedger>(new(ledger.Id, "eudamedDelivery", ledger.ProductId, ledger.Version,
+                    "eudamed-watchdog-" + Canonical.Hash(new { ledger.Id, Alerts = alerts.Select(a => a.Id).ToArray() }),
+                    "EudamedCorrespondenceEscalated", string.Join(" ", alerts.Select(a => a.Message)),
+                    CaseService.Workflow, new { alerts }, now) with { Dependencies = dependencies },
+                    value => value! with { Version = value.Version + 1,
+                        CorrespondenceAlerts = [.. value.CorrespondenceAlerts ?? [], .. alerts] }, ct);
+                escalations += alerts.Length;
+            }
+            catch (DomainException error) when (error.Code is "version_conflict" or "dependency_version")
+            {
+                // A received reply or source transition won; re-read the authoritative ledger on the next tick.
                 continue;
             }
         }

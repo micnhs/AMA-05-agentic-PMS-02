@@ -6,14 +6,16 @@ import { Badge, Criticality, date, Empty, ErrorBanner, label, Loading, SectionHe
 
 const zones = ['Europe/Berlin', 'Europe/Dublin', 'Europe/London', 'Europe/Paris', 'Europe/Rome', 'UTC']
 const kindLabels: Record<string, string> = { LegalDue: 'Gesetzliche LegalDue', SafetyDue: 'Interne SafetyDue',
-  FollowUp: 'Bestätigter Folgetermin', PsurSubmission: 'PSUR-Einreichungstag', NotifiedBodyReply: 'BS-Antworttermin' }
+  FollowUp: 'Bestätigter Folgetermin', PsurSubmission: 'PSUR-Einreichungstag', NotifiedBodyReply: 'BS-Antworttermin',
+  EudamedReply: 'EUDAMED-Antworttermin' }
 const reviewLabels: Record<string, string> = { Missing: 'Ohne Assessment', AiDraft: 'KI-Entwurf · medizinisch ungeprüft',
   HumanDraft: 'Menschlicher Entwurf · medizinisch ungeprüft', MedicalReviewed: 'Aktuell medizinisch geprüft',
   Stale: 'Analyse veraltet / neuer Lauf offen', UnknownMode: 'Entwurfsmodus unbekannt' }
 const timingLabels: Record<string, string> = { Overdue: 'Überfällig', Upcoming: 'Bald fällig', Later: 'Später fällig',
   DueToday: 'Kalendertag heute', RecordedClosed: 'Keine offene Terminpflicht', Historical: 'Ältere Fassung / Runde' }
 const sourceStatuses: Record<string, string> = { QuestionOpen: 'Rückfrage offen', ReplyDraft: 'Antwortentwurf',
-  ReplyApproved: 'Antwort freigegeben', ReplySubmitted: 'Antwort simuliert quittiert', QuestionClosed: 'Frage simuliert geschlossen' }
+  ReplyApproved: 'Antwort freigegeben', ReplySubmitted: 'Antwort simuliert quittiert', QuestionClosed: 'Frage simuliert geschlossen',
+  Open: 'Offen', Replied: 'Adressierte Rückfrage fachlich beantwortet' }
 const number = (value: number) => value.toLocaleString('de-DE')
 export function civilDay(instant: string, timeZone: string) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(instant))
@@ -192,6 +194,16 @@ export function DeadlineCalendarWorkspace({ products, revision, open }: { produc
     </div><p className="muted">Nur gespeicherte Termine: keine Verschiebung, Neuberechnung oder automatische Erledigung. LegalDue und SafetyDue sind getrennte Marker derselben Pflicht. PSUR-Datumswerte bleiben reine Kalendertage.</p>
       {error && <ErrorBanner message={error} />}
     </section>
+    {!!data?.unscheduledEvents.length && <section className="panel" aria-label="Antworttermine zur Klärung">
+      <SectionHead title="Regulatory Affairs: Antworttermine klären" />
+      <p className="callout">Diese {number(data.unscheduledEvents.length)} Korrespondenztermine sind nicht verlässlich einem Kalendertag zugeordnet.
+        Sie bleiben unabhängig vom Monats-/Tagesfilter sichtbar. Kein Ersatzdatum, keine Pauschalfrist und keine automatische Erledigung.</p>
+      {data.unscheduledEvents.map(event => <article className="calendar-event" key={event.id} data-testid="calendar-clarification">
+        <h3><button className="text-button" onClick={() => open(event)}>{event.reference} · {event.title}<ArrowUpRight size={16} /></button></h3>
+        <p>{event.products.join(', ')} · {sourceStatuses[event.status] ?? label(event.status)}</p>
+        {event.details.map((detail, i) => <p key={i}>{detail}</p>)}
+      </article>)}
+    </section>}
     <section className="panel"><div className="calendar-heading"><button className="icon-button" aria-label="Vorheriger Monat" onClick={() => month(moveMonth(filters.month, -1))}><ChevronLeft /></button>
       <label className="field compact">Kalendermonat<input type="month" value={filters.month.slice(0, 7)} onChange={e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) month(`${e.target.value}-01`) }} /></label>
       <button className="icon-button" aria-label="Nächster Monat" onClick={() => month(moveMonth(filters.month, 1))}><ChevronRight /></button>
@@ -228,6 +240,8 @@ export function DeadlineCalendarWorkspace({ products, revision, open }: { produc
         <p className="muted">{event.dueDate ? 'Original: reiner Kalendertag; keine Zeitzone gespeichert.' :
           `Originalzeitzone: ${event.originalTimeZone ?? 'nicht gespeichert'} · ${date(event.dueAt, true, event.originalTimeZone ?? 'UTC')}`}
           {!event.isCurrent && ' · Ältere Fassung/Runde, keine aktuelle offene Pflicht daraus abgeleitet.'}</p>
+        {event.correspondence && <p>Regulatory Affairs · Originalrevision {event.correspondence.dossierRevision} · {event.correspondence.correspondenceId}
+          {' · '}{event.correspondence.simulated ? 'Simulierte Nachverfolgung' : 'Externer Originaleingang'}</p>}
         <details><summary>Gespeicherte Fälligkeit, Quelle und Fristgrundlage</summary><p className="mono">{event.entityKind}:{event.entityId}@{event.sourceVersion} · {event.sourceField}</p>
           <p className="mono">{event.dueDate ?? event.dueAt}</p>{event.details.map((detail, i) => <p key={i}>{detail}</p>)}</details>
       </article>)}

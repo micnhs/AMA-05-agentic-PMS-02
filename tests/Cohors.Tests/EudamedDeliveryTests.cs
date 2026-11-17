@@ -396,6 +396,100 @@ public sealed partial class EudamedConfigurationTests
     }
 
     [Fact]
+    public async Task CorrespondenceWatchdogDeduplicatesAndCalendarClosesOnlyTheBusinessAcceptedReplyTarget()
+    {
+        var (service, scenario, original) = await FrozenMirDossier();
+        var parent = await QueueAndProcess(service, original, "InformationRequest");
+        foreach (var planned in parent.Dossier.PlannedResponses.OrderBy(p => p.Sequence))
+        {
+            clock.Now = planned.DueAt;
+            parent = await service.AdvanceSimulator(original.Id, new(parent.Dossier.Version, planned.Id, false, Reason),
+                SqlFixture.Ra, CaseScenario.Key());
+        }
+        var first = Assert.Single(parent.Dossier.Correspondence);
+        var originalBytes = await fixture.Objects.ReadBytes(first.OriginalHash);
+        var firstInbox = (await fixture.Store.Get<EudamedInbox>("eudamedInbox", first.InboxId))!;
+        var secondOriginal = firstInbox.Original! with { MessageId = "second-question-" + CaseScenario.Key(),
+            Sequence = 3, Content = Reason + " Zweite unabhaengige Originalrueckfrage.", DueAt = first.DueAt!.Value.AddDays(1) };
+        var secondInboxId = "eu-inbox-" + Canonical.Hash(new { firstInbox.Binding.Profile.Environment,
+            firstInbox.Binding.ProfileHash, messageId = secondOriginal.MessageId });
+        var secondHash = await fixture.Objects.Put(Canonical.Serialize(secondOriginal));
+        await fixture.Store.Execute<EudamedInbox>(new(secondInboxId, "eudamedInbox", "ortho", 0, CaseScenario.Key(),
+            "SyntheticCorrespondenceOriginalReceived", Reason, SqlFixture.Ra, secondOriginal, clock.Now),
+            _ => new(secondInboxId, 1, "ortho", firstInbox.Binding, secondOriginal, secondHash, null,
+                secondOriginal.MessageId, "Stored", "NotApplicable", null, clock.Now, null));
+        await service.ApplyInbox(secondInboxId);
+        parent = await service.DossierView(original.Id, SqlFixture.Ra);
+        var second = Assert.Single(parent.Dossier.Correspondence, c => c.InboxId == secondInboxId);
+        var packageHash = Canonical.Hash(parent.Dossier.Package);
+        var signatures = Canonical.Hash(parent.Dossier.Approvals);
+        var nativeBefore = (await fixture.Store.Get<SafetyCase>("case", scenario.Case.Id))!;
+        clock.Now = first.DueAt.Value.AddMinutes(1);
+        var operations = new OperationsService(fixture.Store, fixture.Store, clock);
+        await operations.Tick();
+        var ledger = (await fixture.Store.Get<EudamedDeliveryLedger>("eudamedDelivery", parent.Ledger.Id))!;
+        var alert = Assert.Single(ledger.CorrespondenceAlerts!);
+        Assert.Equal(first.Id, alert.CorrespondenceId);
+        Assert.Equal(first.OriginalHash, alert.OriginalHash);
+        Assert.Equal(Roles.Regulatory, alert.OwnerRole);
+        Assert.Equal("Overdue", alert.Code);
+        var ledgerHash = Canonical.Hash(ledger);
+        await operations.Tick();
+        Assert.Equal(ledgerHash, Canonical.Hash(await fixture.Store.Get<EudamedDeliveryLedger>("eudamedDelivery", ledger.Id)));
+        Assert.Single(await fixture.Store.Audit(ledger.Id), e => e.Action == "EudamedCorrespondenceEscalated");
+        Assert.Equal(Canonical.Hash(first), Canonical.Hash((await service.GetDossier(original.Id, SqlFixture.Ra))
+            .Correspondence.Single(c => c.Id == first.Id)));
+        var reader = new WorkspaceReadService(fixture.Store, clock);
+        var month = new DateOnly(clock.Now.Year, clock.Now.Month, 1);
+        async Task<CalendarEvent[]> Events() => (await reader.Calendar(SqlFixture.Ra, "ortho", month, "UTC",
+            "EudamedReply", "all", null, 0)).Events.Where(e => e.EntityId == original.Id).ToArray();
+        var before = await Events();
+        Assert.Equal(2, before.Length);
+        Assert.Equal("Overdue", before.Single(e => e.Correspondence!.CorrespondenceId == first.Id).Timing);
+        Assert.All(before, e => Assert.True(e.IsOpen));
+        Assert.DoesNotContain((await reader.Calendar(SqlFixture.Ra with { Products = ["cardio"] }, null, month, "UTC",
+            "EudamedReply", "all", null, 0)).Events, e => e.EntityId == original.Id);
+        var native = (await fixture.Store.Get<SafetyCase>("case", scenario.Case.Id))!;
+        Assert.Equal(Canonical.Hash(nativeBefore.Deadlines), Canonical.Hash(native.Deadlines));
+        Assert.Equal(Canonical.Hash(nativeBefore.Approvals), Canonical.Hash(native.Approvals));
+        var nativeHash = Canonical.Hash(native);
+        parent = await service.DossierView(original.Id, SqlFixture.Ra);
+        var reply = await service.DraftDossier(null, new(0, "ortho", EudamedDossierKind.MIR,
+            parent.Dossier.Package.Content with { IntendedAction = "Reply", ParentId = original.Id,
+                ParentVersion = parent.Dossier.Version, ReplyToCorrespondenceId = first.Id },
+            [new("case", native.Id, native.Version), new("eudamedDossier", original.Id, parent.Dossier.Version)], Reason),
+            SqlFixture.Pms, CaseScenario.Key());
+        reply = await service.ApproveDossier(reply.Id, new(reply.Version, Reason, Reason), SqlFixture.Medical, CaseScenario.Key());
+        reply = await service.ApproveDossier(reply.Id, new(reply.Version, Reason, null), SqlFixture.Ra, CaseScenario.Key());
+        var view = await service.DossierView(reply.Id, SqlFixture.Ra);
+        view = await service.QueueDossier(reply.Id, new(reply.Version, view.Ledger.Version, "Accept", Reason),
+            SqlFixture.Ra, CaseScenario.Key());
+        Assert.All(await Events(), e => Assert.True(e.IsOpen));
+        await service.ProcessDelivery(view.Ledger.Id, Assert.Single(view.Dossier.Attempts).Id);
+        Assert.All(await Events(), e => Assert.True(e.IsOpen));
+        view = await service.DossierView(reply.Id, SqlFixture.Ra);
+        Assert.Equal("TransportDelivered", Assert.Single(view.Dossier.Attempts).Status);
+        view = await service.AdvanceSimulator(reply.Id, new(view.Dossier.Version,
+            Assert.Single(view.Dossier.PlannedResponses).Id, false, Reason), SqlFixture.Ra, CaseScenario.Key());
+        var after = await Events();
+        var completed = after.Single(e => e.Correspondence!.CorrespondenceId == first.Id);
+        Assert.False(completed.IsOpen);
+        Assert.Equal("RecordedClosed", completed.Timing);
+        Assert.Equal(first.DueAt, completed.DueAt);
+        Assert.Equal(first.OriginalHash, completed.Correspondence!.OriginalHash);
+        Assert.True(after.Single(e => e.Correspondence!.CorrespondenceId == second.Id).IsOpen);
+        await operations.Tick();
+        Assert.Single((await fixture.Store.Get<EudamedDeliveryLedger>("eudamedDelivery", ledger.Id))!.CorrespondenceAlerts!);
+        Assert.Single(await fixture.Store.Audit(ledger.Id), e => e.Action == "EudamedCorrespondenceEscalated");
+        var final = await service.GetDossier(original.Id, SqlFixture.Ra);
+        Assert.Equal(packageHash, Canonical.Hash(final.Package));
+        Assert.Equal(signatures, Canonical.Hash(final.Approvals));
+        Assert.Equal(originalBytes, await fixture.Objects.ReadBytes(first.OriginalHash));
+        Assert.Equal(nativeHash, Canonical.Hash(await fixture.Store.Get<SafetyCase>("case", native.Id)));
+        Assert.Equal(0, gateway.NetworkCalls);
+    }
+
+    [Fact]
     public async Task PsrpCorrespondenceReplyKeepsTheAcceptedPsrOriginalAndExactPeriodWithoutNativeChanges()
     {
         var service = Service;

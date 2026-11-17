@@ -242,7 +242,7 @@ public sealed class PsurReviewTests : IAsyncLifetime
         var service = Service();
         var due = clock.Now.AddDays(-2);
         var review = await service.Open(Question(report) with { DueAt = due }, SqlFixture.Ra, CaseScenario.Key());
-        var operations = new OperationsService(fixture.Store, clock);
+        var operations = new OperationsService(fixture.Store, fixture.Store, clock);
         await operations.Tick();
         review = await service.Get(review.Id, SqlFixture.Pms);
         Assert.Single(review.Alerts);

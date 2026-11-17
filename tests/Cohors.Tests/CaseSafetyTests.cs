@@ -70,7 +70,7 @@ public sealed class CaseSafetyTests(SqlFixture fixture)
         await s.Approve();
         Assert.Equal(ReportState.Frozen, s.Case.CurrentReport!.State);
         Assert.Equal(due, s.Case.Deadlines[0].LegalDue);
-        await new OperationsService(fixture.Store, s.Clock).Tick();
+        await new OperationsService(fixture.Store, fixture.Store, s.Clock).Tick();
         var persisted = await fixture.Store.Get<SafetyCase>("case", s.Case.Id);
         Assert.NotEmpty(persisted!.Alerts);
     }
@@ -220,7 +220,7 @@ public sealed class CaseSafetyTests(SqlFixture fixture)
         var persisted = await restarted.Get<SafetyCase>("case", s.Case.Id);
         Assert.Equal(s.Case.Approvals, persisted!.Approvals);
         Assert.Equal(Canonical.Hash(s.Case.Deadlines), Canonical.Hash(persisted.Deadlines));
-        await new OperationsService(restarted, s.Clock).Tick();
+        await new OperationsService(restarted, restarted, s.Clock).Tick();
         var heartbeat = Assert.IsType<OperationsHeartbeat>(await restarted.Get<OperationsHeartbeat>("operations", "heartbeat"));
         Assert.False(OperationsService.HeartbeatMissing(heartbeat, heartbeat.LastTick.AddMinutes(3)));
         Assert.True(OperationsService.HeartbeatMissing(heartbeat, heartbeat.LastTick.AddMinutes(3).AddTicks(1)));
@@ -228,7 +228,7 @@ public sealed class CaseSafetyTests(SqlFixture fixture)
         Assert.True(OperationsService.HeartbeatMissing(null, s.Clock.Now));
         s.Clock.Now = s.Clock.Now.AddMinutes(4);
         Assert.True(OperationsService.HeartbeatMissing(heartbeat, s.Clock.Now));
-        await new OperationsService(restarted, s.Clock).Tick();
+        await new OperationsService(restarted, restarted, s.Clock).Tick();
         Assert.False(OperationsService.HeartbeatMissing(await restarted.Get<OperationsHeartbeat>("operations", "heartbeat"), s.Clock.Now));
     }
 

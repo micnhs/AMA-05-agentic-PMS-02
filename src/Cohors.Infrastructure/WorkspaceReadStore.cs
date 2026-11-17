@@ -100,8 +100,58 @@ public sealed partial class SqlStateStore : IWorkspaceReadStore
                 else reviews.Add(WorkspaceOriginal<PsurReview>(reader, 1, 2));
             }
         }
+        var correspondence = await ReadCorrespondenceSources(connection, transaction, authorizedProducts, ct);
         await transaction.CommitAsync(ct);
-        return new(cases.ToArray(), psurs.ToArray(), reviews.ToArray());
+        return new(cases.ToArray(), psurs.ToArray(), reviews.ToArray(), correspondence);
+    }
+
+    public async Task<EudamedCorrespondenceSource[]> ReadCorrespondenceSources(string[] products, CancellationToken ct = default)
+    {
+        if (products.Length == 0) return [];
+        await using var connection = await Open(ct);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+        var sources = await ReadCorrespondenceSources(connection, transaction, products, ct);
+        await transaction.CommitAsync(ct);
+        return sources;
+    }
+
+    private static async Task<EudamedCorrespondenceSource[]> ReadCorrespondenceSources(SqlConnection connection,
+        SqlTransaction transaction, string[] products, CancellationToken ct)
+    {
+        using var query = Command(connection, transaction, """
+            SELECT l.Json,lv.Hash,d.Json,dv.Hash,approved.Json,approved.Hash,i.Json,iv.Hash,
+                entry.AttemptId,correspondence.Id
+            FROM dbo.Aggregates l
+            LEFT JOIN dbo.AggregateVersions lv ON lv.Kind=l.Kind AND lv.Id=l.Id AND lv.Version=l.Version
+            CROSS APPLY OPENJSON(l.Json,'$.entries') WITH (
+                DossierId nvarchar(200) '$.dossierId',ApprovedVersion int '$.approvedDossier.version',
+                AttemptId nvarchar(200) '$.attempt.id',Correspondence nvarchar(max) '$.correspondence' AS JSON) entry
+            CROSS APPLY OPENJSON(entry.Correspondence) WITH (
+                Id nvarchar(200) '$.id',InboxId nvarchar(200) '$.inboxId') correspondence
+            LEFT JOIN dbo.Aggregates d ON d.Kind='eudamedDossier' AND d.Id=entry.DossierId
+            LEFT JOIN dbo.AggregateVersions dv ON dv.Kind=d.Kind AND dv.Id=d.Id AND dv.Version=d.Version
+            LEFT JOIN dbo.AggregateVersions approved ON approved.Kind='eudamedDossier'
+                AND approved.Id=entry.DossierId AND approved.Version=entry.ApprovedVersion
+            LEFT JOIN dbo.Aggregates i ON i.Kind='eudamedInbox' AND i.Id=correspondence.InboxId
+            LEFT JOIN dbo.AggregateVersions iv ON iv.Kind=i.Kind AND iv.Id=i.Id AND iv.Version=i.Version
+            WHERE l.Kind='eudamedDelivery' AND l.ProductId IN (SELECT value FROM OPENJSON(@products))
+            ORDER BY l.Id,entry.AttemptId,correspondence.Id;
+            """, ("products", Canonical.Serialize(products)));
+        var sources = new List<EudamedCorrespondenceSource>();
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            Guard.Against(reader.IsDBNull(2) || reader.IsDBNull(4) || reader.IsDBNull(6),
+                "eudamed_deadline_source", "SQL-Original fuer eine gespeicherte Korrespondenz fehlt; keine unbelegte Fristenanzeige.", 409);
+            var ledger = WorkspaceOriginal<EudamedDeliveryLedger>(reader, 0, 1);
+            var entries = ledger.Entries.Where(e => e.Attempt.Id == reader.GetString(8)).ToArray();
+            Guard.Against(entries.Length != 1, "eudamed_deadline_source", "Korrespondenzversuch ist nicht eindeutig.", 409);
+            var correspondence = entries[0].Correspondence.Where(c => c.Id == reader.GetString(9)).ToArray();
+            Guard.Against(correspondence.Length != 1, "eudamed_deadline_source", "Korrespondenzoriginal ist nicht eindeutig.", 409);
+            sources.Add(new(ledger, entries[0], correspondence[0], WorkspaceOriginal<EudamedDossier>(reader, 2, 3),
+                WorkspaceOriginal<EudamedDossier>(reader, 4, 5), WorkspaceOriginal<EudamedInbox>(reader, 6, 7)));
+        }
+        return sources.ToArray();
     }
 
     private static T WorkspaceOriginal<T>(SqlDataReader reader, int content, int hash)

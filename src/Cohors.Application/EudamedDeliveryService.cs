@@ -8,7 +8,12 @@ public sealed partial class EudamedService
     {
         var dossier = await GetDossier(id, actor, ct);
         var ledger = await GetLedger(dossier.Package, ct);
-        return new(dossier, ledger with { Entries = ledger.Entries.Where(e => e.DossierId == id).ToArray() });
+        return new(dossier, ledger with
+        {
+            Entries = ledger.Entries.Where(e => e.DossierId == id).ToArray(),
+            CorrespondenceAlerts = ledger.CorrespondenceAlerts?.Where(a => a.DossierId == id &&
+                a.Products.All(actor.Products.Contains)).ToArray()
+        });
     }
 
     public async Task<EudamedDossierView> QueueDossier(string id, SubmitEudamedDossierCommand input,
