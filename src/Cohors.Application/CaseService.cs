@@ -398,7 +398,8 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
         return [new("productGovernance", new(bound.Id, bound.Version, Canonical.Hash(bound)))];
     }
 
-    public async Task<SafetyCase> Submit(string id, SubmissionCommand input, Actor actor, string key, CancellationToken ct = default)
+    public async Task<SafetyCase> Submit(string id, SubmissionCommand input, Actor actor, string key,
+        CancellationToken ct = default, bool requirePreview = false)
     {
         actor.RequireHuman(Roles.Regulatory);
         Guard.Against(!new[] { "Accept", "Reject", "Unknown" }.Contains(input.Scenario), "simulator_scenario", "Ungueltiges Simulatorszenario.");
@@ -416,6 +417,8 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
         {
             var value = Require(current);
             ReportRules.RequireSendable(value, actor);
+            if (requirePreview || input.Confirmation is not null)
+                DispatchPreviews.RequireConfirmation(input.Confirmation, DispatchPreviews.CaseBinding(value));
             var report = value.CurrentReport!;
             var state = input.Scenario switch { "Accept" => ReportState.SimulatedAccepted, "Reject" => ReportState.Rejected, _ => ReportState.TransmissionUnknown };
             var submissionId = Guid.NewGuid().ToString("N");

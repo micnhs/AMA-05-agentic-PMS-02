@@ -224,7 +224,9 @@ api.MapPost("/eudamed/dossiers/{id}", (string id, DraftEudamedDossierCommand inp
 api.MapPost("/eudamed/dossiers/{id}/approve", (string id, ApprovalCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
     service.ApproveDossier(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/eudamed/dossiers/{id}/submit", (string id, SubmitEudamedDossierCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
-    service.QueueDossier(id, input, Who(ctx), Key(ctx), ct));
+    service.QueueDossier(id, input, Who(ctx), Key(ctx), ct, requirePreview: true));
+api.MapGet("/eudamed/dossiers/{id}/dispatch-preview", (string id, int version, int ledgerVersion,
+    EudamedService service, HttpContext ctx, CancellationToken ct) => service.PreviewDossier(id, version, ledgerVersion, Who(ctx), ct));
 api.MapPost("/eudamed/dossiers/{id}/simulator", (string id, AdvanceEudamedSimulatorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
     service.AdvanceSimulator(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/eudamed/documents", (EudamedDocumentCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
@@ -278,7 +280,10 @@ api.MapPost("/cases/{id}/report", (string id, PrepareReportCommand input, CaseSe
 api.MapPost("/cases/{id}/report/return", (string id, VersionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.ReturnReport(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/approve/medical", (string id, ApprovalCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Approve(id, input, Who(ctx), Key(ctx), true, ct));
 api.MapPost("/cases/{id}/approve/regulatory", (string id, ApprovalCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Approve(id, input, Who(ctx), Key(ctx), false, ct));
-api.MapPost("/cases/{id}/submit", (string id, SubmissionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Submit(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/cases/{id}/submit", (string id, SubmissionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.Submit(id, input, Who(ctx), Key(ctx), ct, requirePreview: true));
+api.MapGet("/cases/{id}/dispatch-preview", (string id, int version, CaseService service, HttpContext ctx, CancellationToken ct) =>
+    service.PreviewSubmission(id, version, Who(ctx), ct));
 api.MapPost("/cases/{id}/reconcile", (string id, VersionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Reconcile(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/disposition", (string id, DispositionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.Decide(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/cases/{id}/disposition/approve", (string id, VersionCommand input, CaseService service, HttpContext ctx, CancellationToken ct) => service.ApproveDisposition(id, input, Who(ctx), Key(ctx), ct));
@@ -418,6 +423,8 @@ api.MapPost("/psur-groups", (RecordPsurGroupCommand input, AnalyticsService serv
     service.RecordGroup(input, Who(ctx), Key(ctx), ct));
 api.MapGet("/psurs", (AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.ListPsurs(Who(ctx), ct));
 api.MapGet("/psurs/{id}", (string id, AnalyticsService service, HttpContext ctx, CancellationToken ct) => service.GetPsur(id, Who(ctx), ct));
+api.MapGet("/psurs/{id}/months", (string id, int version, string productId, AnalyticsService service, HttpContext ctx, CancellationToken ct) =>
+    service.Monthly(id, version, productId, Who(ctx), ct));
 api.MapGet("/psurs/{id}/export/{format}", async (string id, int version, string format, PsurExportService exporter, HttpContext ctx, CancellationToken ct) =>
 {
     var result = await exporter.Export(id, version, format, Who(ctx), ct);

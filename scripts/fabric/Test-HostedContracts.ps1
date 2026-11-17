@@ -58,13 +58,14 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
 }
 
-$filter = 'FullyQualifiedName~Cohors.Tests.IndependentReferencesTests|FullyQualifiedName~Cohors.Tests.CaseProcessTests|FullyQualifiedName~Cohors.Tests.FabricCommitContractTests'
+$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests')
+$filter = ($classes | ForEach-Object { "FullyQualifiedName~Cohors.Tests.$_" }) -join '|'
 $results = Join-Path $temporary 'test-results'
 dotnet test tests/Cohors.Tests/Cohors.Tests.csproj --configuration Release --no-build --no-restore --filter $filter --logger 'console;verbosity=minimal' --logger 'trx;LogFileName=contracts.trx' --results-directory $results
 if ($LASTEXITCODE -ne 0) { throw 'Selected in-process business/commit contract tests failed.' }
 [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
 $testSummary = @()
-foreach ($class in @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests')) {
+foreach ($class in $classes) {
     $ids = @($trx.TestRun.TestDefinitions.UnitTest | Where-Object { $_.TestMethod.className -eq "Cohors.Tests.$class" } | ForEach-Object { $_.id })
     $executed = @($trx.TestRun.Results.UnitTestResult | Where-Object { $_.testId -in $ids })
     if ($executed.Count -eq 0 -or @($executed | Where-Object { $_.outcome -ne 'Passed' }).Count -ne 0) {

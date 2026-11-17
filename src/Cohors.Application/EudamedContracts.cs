@@ -16,7 +16,8 @@ public sealed record CheckDomibusCommand(int ExpectedVersion, int DraftVersion, 
 public sealed record EudamedSourceSelection(string Kind, string Id, int Version);
 public sealed record DraftEudamedDossierCommand(int ExpectedVersion, string ProductId, EudamedDossierKind Kind,
     EudamedDossierContent Content, EudamedSourceSelection[] Sources, string Reason);
-public sealed record SubmitEudamedDossierCommand(int ExpectedVersion, int ExpectedLedgerVersion, string Scenario, string Reason);
+public sealed record SubmitEudamedDossierCommand(int ExpectedVersion, int ExpectedLedgerVersion, string Scenario, string Reason,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] DispatchBinding? Confirmation = null);
 public sealed record AdvanceEudamedSimulatorCommand(int ExpectedVersion, string EventId, bool Duplicate, string Reason);
 public sealed record EudamedDistributionCommand(int ExpectedVersion, string Audience, string Channel, string Evidence, string Reason);
 public sealed record EudamedDocumentCommand(string ProductId, string Name, string MediaType,

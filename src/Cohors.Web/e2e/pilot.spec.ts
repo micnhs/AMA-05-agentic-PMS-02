@@ -157,11 +157,13 @@ async function approveDossierUi(page: Page, baseURL: string, id: string, medical
   await submitDialog(dialog, 'Genau dieses Paket freigeben')
 }
 async function queueDossierUi(page: Page, scenario: string) {
-  await page.getByRole('region', { name: 'Dossier-Workbench' }).getByRole('button', { name: 'Paket dem Simulator uebergeben', exact: true }).click()
+  await page.getByRole('region', { name: 'Dossier-Workbench' }).getByRole('button', { name: 'Versandvorschau pruefen', exact: true }).click()
   const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('Fachlicher Empfänger (gebundenes Profil)', { exact: true })).toBeVisible()
   await dialog.locator('[name=scenario]').selectOption(scenario)
   await dialog.locator('[name=reason]').fill(dossierRationale)
-  await submitDialog(dialog, 'Originalgebunden einplanen')
+  await dialog.getByRole('checkbox').check()
+  await submitDialog(dialog, 'Genau dieses Paket simuliert senden')
 }
 async function receiveDossierUi(page: Page, event: EudamedDossier['plannedResponses'][number]) {
   const row = page.locator(`[data-attempt-id="${event.attemptId}"] .eudamed-round`)
@@ -1866,11 +1868,19 @@ test('SQL-backed complaint → grounded assessment → distinct approvals → un
   expect(c.currentReport?.state).toBe('Frozen')
   expect(new Set(c.approvals.map(a => a.actorId)).size).toBe(2)
   expect(new Set(c.approvals.map(a => a.scopeHash)).size).toBe(1)
-  await raPage.getByRole('button', { name: 'Simuliert übermitteln', exact: true }).click()
+  await raPage.getByRole('button', { name: 'Versandvorschau prüfen', exact: true }).click()
+  dialog = raPage.getByRole('dialog')
+  await expect(dialog.getByText('Fachlicher Empfänger (gebundenes Profil)', { exact: true })).toBeVisible()
+  await dialog.getByRole('button', { name: 'Abbrechen ohne Versand', exact: true }).click()
+  c = await (await ra.get(`/api/cases/${c.id}`)).json()
+  expect(c.submissions).toHaveLength(0)
+  expect(c.currentReport?.state).toBe('Frozen')
+  await raPage.getByRole('button', { name: 'Versandvorschau prüfen', exact: true }).click()
   dialog = raPage.getByRole('dialog')
   await dialog.locator('[name=scenario]').selectOption('Unknown')
   await dialog.locator('[name=reason]').fill('Nur simulierte Übermittlung; absichtlich unklarer Rückkanal bei möglichem Empfang.')
-  await dialog.getByRole('button', { name: 'An Simulator übermitteln' }).click()
+  await dialog.getByRole('checkbox').check()
+  await dialog.getByRole('button', { name: 'Genau dieses Paket simuliert senden' }).click()
   await expect.poll(async () => {
     c = await (await ra.get(`/api/cases/${c.id}`)).json()
     return c.currentReport?.state

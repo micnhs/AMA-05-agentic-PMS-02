@@ -7,6 +7,7 @@ import MirPanel from './MirPanel'
 import InformationPanel from './InformationPanel'
 import DocumentDialog, { type DocumentRequest } from './DocumentDialog'
 import CaseProcessBar from './CaseProcessBar'
+import DispatchPreviewDialog from './DispatchPreviewDialog'
 
 export default function Workbench({ value: c, actor, openDialog, mutate, busy, back }: {
   value: SafetyCase; actor: Actor; openDialog: (d: Dialog) => void; mutate: (path: string, body: unknown) => Promise<void>; busy: boolean; back: () => void
@@ -16,8 +17,9 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
   const [sourceId, setSourceId] = useState('')
   const [error, setError] = useState('')
   const [claimId, setClaimId] = useState('')
+  const [dispatchPreview, setDispatchPreview] = useState(false)
   const workbench = useRef<HTMLDivElement>(null)
-  useEffect(() => { setDocument(null); setSourceId(''); setClaimId('') }, [c.id, c.version])
+  useEffect(() => { setDocument(null); setSourceId(''); setClaimId(''); setDispatchPreview(false) }, [c.id, c.version])
   const assessment = c.currentAssessment
   const report = c.currentReport
   const reopenedAssessmentStale = assessment && c.evidence.some(e => e.kind === 'Reopening' && !assessment.evidenceIds.includes(e.id))
@@ -69,6 +71,11 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
     <CaseProcessBar c={c} actor={actor} navigate={navigateTab} prepare={prepare} />
     {reopenedAssessmentStale && <div className="callout" role="status"><b>Frühere Bewertung durch Wiederaufnahme überholt.</b><p>Die neue Wiederaufnahmebegründung ist noch nicht bewertet. Medical Safety kann ohne KI einen aktuellen menschlichen Entwurf erstellen. Historische Signaturen sind keine aktuelle Freigabe.</p></div>}
     {document && <DocumentDialog request={document} close={() => setDocument(null)} />}
+    {dispatchPreview && report && <DispatchPreviewDialog path={`/cases/${encodeURIComponent(c.id)}/dispatch-preview?version=${c.version}`}
+      expected={{ route: 'CaseSimulator', aggregateId: c.id, aggregateVersion: c.version, packageVersion: report.version, scopeHash: report.scopeHash, ledgerVersion: null }}
+      scenarios={[{ value: 'Unknown', label: 'Unklar nach möglichem Empfang – Abgleich erforderlich' }, { value: 'Accept', label: 'Simulierte fachliche Annahme' }, { value: 'Reject', label: 'Simulierte Ablehnung' }]}
+      reasonLength={20} close={() => setDispatchPreview(false)}
+      confirm={(confirmation, scenario, reason) => mutate(`/cases/${c.id}/submit`, { expectedVersion: confirmation.aggregateVersion, confirmation, scenario, reason })} />}
     <button className="text-button back-link" onClick={back}><ArrowLeft size={16} />Zurück zu den Fallakten</button>
     <div className="workbench-heading"><div><div className="row"><span className="eyebrow">{c.reference}</span><Badge tone="amber">SYNTHETISCH</Badge><Badge>{label(c.stage)}</Badge></div><h1>{c.title}</h1><p>{c.productId === 'ortho' ? 'OrthoLink Modular Hip / OL-M3' : 'CardioFlow Valve / CF-V2'} <span>·</span> {c.jurisdiction} <span>·</span> Fallversion {c.version}</p></div><div className="row">{editor && <button disabled={busy || c.agentRuns.some(r => r.status === 'Queued' || r.status === 'Running')} className="button primary" onClick={() => action('Begründete Analyse beauftragen', 'assessment', [{ name: 'mode', label: 'Expliziter Ausführungsmodus', type: 'select', options: [{ value: 'Replay', label: 'Replay · reproduzierbare Demo, kein Live-Modell' }, { value: 'Live', label: 'Live · konfiguriertes Foundry-Modell, kein Fallback' }, { value: 'Failure', label: 'Fehlerdemo · sichtbarer KI-Ausfall' }] }, { ...reason, value: 'Medizinisch-technische Bewertung mit Quellen, Gegenhypothesen und verbleibender Unsicherheit anfordern.' }], {}, 'Analyse starten')}><Sparkles size={17} />Analyse beauftragen</button>}</div></div>
     <div className="case-context"><span><small>ERSTES WISSEN · {deadline?.timeZone}</small><b>{date(c.firstAwarenessAt, true, deadline?.timeZone)}</b></span><span><small>SYSTEMEINGANG · {deadline?.timeZone}</small><b>{date(c.systemReceivedAt, true, deadline?.timeZone)}</b></span><span><small>{deadline?.title.toUpperCase()} · {deadline?.timeZone}</small><b>{date(deadline?.dueAt, true, deadline?.timeZone)}</b></span><span><small>PRODUKTIDENTITÄT</small><b>{c.udi ?? 'UDI unbekannt'}</b></span></div>
@@ -108,7 +115,7 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
       {regulatory && report?.state === 'MedicalApproved' && <button disabled={busy || report.jurisdiction !== 'GB' && !report.mir?.valid} className="button primary full" onClick={() => action('Regulatorische Freigabe & Einfrieren', 'approve/regulatory', [reason], {}, 'Regulatorisch freigeben')}><LockKeyhole size={18} />Regulatorisch freigeben</button>}
       {(medical || regulatory) && report && !report.reviewReturn && ['Draft', 'MedicalApproved', 'Frozen'].includes(report.state) && <button disabled={busy} className="button secondary full" onClick={() => action('Meldung zur Korrektur zurückgeben', 'report/return',
         [{ ...reason, label: 'Konkrete Lücken, Korrekturen und benötigte Belege für PMS', minLength: 40 }], {}, 'Zur Korrektur zurückgeben')}><ArrowLeft size={16} />Zur Korrektur zurückgeben</button>}
-      {regulatory && report?.state === 'Frozen' && <button className="button primary full" onClick={() => action('Ausschließlich simuliert übermitteln', 'submit', [{ name: 'scenario', label: 'Simulatorantwort', type: 'select', options: [{ value: 'Unknown', label: 'Unklar nach möglichem Empfang → Abgleich erforderlich' }, { value: 'Accept', label: 'Simulierte fachliche Annahme' }, { value: 'Reject', label: 'Simulierte Ablehnung' }] }, reason], {}, 'An Simulator übermitteln')}><Send size={17} />Simuliert übermitteln</button>}
+      {regulatory && report?.state === 'Frozen' && <button disabled={busy} className="button primary full" onClick={() => setDispatchPreview(true)}><Send size={17} />Versandvorschau prüfen</button>}
       {regulatory && c.submissions.some(s => s.status === 'TransmissionUnknown') && <button className="button primary full" onClick={() => action('Unklaren Empfang abgleichen', 'reconcile', [reason], {}, 'Korrelations-ID abgleichen')}><CheckCheck size={17} />Empfang abgleichen</button>}
       <div className="guardrail-note"><ShieldCheck size={20} /><p>Dieses Konto: <b>{roleNames[actor.roles[0]]}</b>. Für die zweite Freigabe abmelden und ein anderes berechtigtes Konto verwenden.</p></div>
       {c.submissions.map(s => <div className="receipt" key={s.id}><Badge tone={s.status === 'TransmissionUnknown' ? 'amber' : 'blue'}>{label(s.status)}</Badge><b>{s.receiptReference ?? 'Noch kein bestätigter Empfang'}</b><span className="mono">{s.correlationId}</span><small>SIMULIERT · {s.attempts} Sendeversuch · {date(s.attemptedAt, true)}</small></div>)}

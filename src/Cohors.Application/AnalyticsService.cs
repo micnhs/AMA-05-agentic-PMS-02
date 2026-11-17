@@ -258,6 +258,15 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
         return report;
     }
 
+    public async Task<PsurMonthlyView> Monthly(string id, int version, string productId, Actor actor, CancellationToken ct = default)
+    {
+        var current = await GetPsur(id, actor, ct);
+        var selected = current.Version == version ? current :
+            (await store.History<Psur>("psur", [current.ProductId], ct)).SingleOrDefault(p => p.Id == id && p.Version == version)
+                ?? throw new DomainException("psur_version_missing", "Die ausgewaehlte PSUR-Fassung fehlt; kein aktueller Ersatz.", 404);
+        return PsurMonthly.Read(selected, productId, actor);
+    }
+
     private async Task VerifySourceVersions(Psur p, CancellationToken ct)
     {
         Guard.Against(p.Snapshot.SourceManifest is null, "psur_numerator_provenance",

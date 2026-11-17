@@ -136,7 +136,8 @@ public sealed record PrepareReportCommand(int ExpectedVersion, string Kind, stri
 public sealed record ApprovalCommand(int ExpectedVersion, string Reason, string? FindingDisposition);
 public sealed record DispositionCommand(int ExpectedVersion, Disposition Disposition, string Reason,
     ExpectedSideEffectException? ExpectedSideEffect = null);
-public sealed record SubmissionCommand(int ExpectedVersion, string Scenario, string Reason);
+public sealed record SubmissionCommand(int ExpectedVersion, string Scenario, string Reason,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DispatchBinding? Confirmation = null);
 public sealed record AwarenessCommand(int ExpectedVersion, DateTimeOffset At, string Source,
     string Reason, bool NewReportabilityInformation);
 public sealed record LinkEvidenceCommand(int ExpectedVersion, string EvidenceId, string Reason, int? EvidenceVersion = null);

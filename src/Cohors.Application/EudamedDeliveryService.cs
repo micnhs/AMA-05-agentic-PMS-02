@@ -17,7 +17,7 @@ public sealed partial class EudamedService
     }
 
     public async Task<EudamedDossierView> QueueDossier(string id, SubmitEudamedDossierCommand input,
-        Actor actor, string key, CancellationToken ct = default)
+        Actor actor, string key, CancellationToken ct = default, bool requirePreview = false)
     {
         actor.RequireHuman(Roles.Regulatory);
         var dossier = await GetDossier(id, actor, ct);
@@ -42,6 +42,8 @@ public sealed partial class EudamedService
         var channel = await CurrentChannel(dossier.Package.Binding, dossier.ProductId, ct);
         var ledger = await GetLedger(dossier.Package, ct);
         Guard.Against(ledger.Version != input.ExpectedLedgerVersion, "version_conflict", "Versandreservierung wurde geaendert.", 409);
+        if (requirePreview || input.Confirmation is not null)
+            DispatchPreviews.RequireConfirmation(input.Confirmation, DispatchPreviews.DossierBinding(dossier, ledger.Version));
         RequireNoPending(ledger);
         if (dossier.Package.Content.IntendedAction == "Reply") RequireOpenReplyTarget(dossier.Package, ledger);
         Guard.Against(ledger.Entries.Any(e => e.Attempt.PackageHash == dossier.ScopeHash &&

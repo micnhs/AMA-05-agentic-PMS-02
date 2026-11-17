@@ -109,6 +109,59 @@ on `4a5d38dec7543b30fa69663b11a0fcd01178cf6c` passes 31 commit-model cases
 (55 .NET tests total), including native SQL digest formatting and ambiguous
 JSON rejection. Both builds report zero warnings/errors.
 
+## X-12 and X-15: frozen business read views
+
+These features add business read projections and UI, not a Fabric adapter or
+service acceptance. The original requirement register retains its specification
+and acceptance boundaries; the following entry points implement the two wishes.
+
+| Requirement | Implementation | Focused in-process regression class |
+| --- | --- | --- |
+| X-12 | `DispatchPreview.cs`, `DispatchPreviewService.cs`, `DispatchPreviewDialog.tsx`, Workbench and EUDAMED dossiers | `DispatchPreviewTests` |
+| X-15 | `PsurMonthly.cs`, `AnalyticsService.Monthly`, `PsurMonthlyPanel.tsx`, PSUR workspace | `PsurMonthlyTests` |
+
+X-12 uses `GET /api/cases/{id}/dispatch-preview?version=...` and
+`GET /api/eudamed/dossiers/{id}/dispatch-preview?version=...&ledgerVersion=...`.
+It shows the exact approved frozen payload, scope/payload hashes, package and
+record versions, original/source references separately from actual attachments,
+business and technical recipients, jurisdiction, countries, channel and explicit
+simulation environment. Case metadata comes from the prepared source revision,
+not current unapproved case fields. An old report lacking that source fails
+explicitly rather than using live metadata. Reading/cancelling does not mutate,
+reserve or send anything. Dynamic attempt IDs and AS4 security headers are not
+presented as already frozen business content; the current paths remain simulators.
+
+Fresh HTTP `submit` commands require the returned `confirmation` binding.
+The existing application-level commands keep their legacy shape when this
+optional property is absent, so stored receipt replay and original request
+hashes are not rewritten. Existing receipts are resolved before the new HTTP
+confirmation gate; supplied bindings are always checked. Existing four-eyes,
+version, stale-profile, dependency, idempotency and Unknown/reconciliation
+checks remain authoritative. After an unconfirmed POST the dialog does not
+offer a blind second attempt. Preview is neither a new approval nor a claim
+that referenced original files were natively re-read or that transport is ready.
+
+X-15 uses `GET /api/psurs/{id}/months?version=...&productId=...`, authorizes the
+entire frozen group and selects the exact stored report revision. It reads only
+the snapshot: unique case IDs with bound revision/hash, UTC `OccurredAt` months,
+clipped first/last months, exclusive N knowledge cutoff and separate late-known
+cases through freeze. Unknown dates, earlier/later events, carry-over narrative
+membership and known/unknown historical status are explicit. Open cases remain
+in the event counts; freeze status never substitutes for cutoff status. A
+non-calendar twelve-month report can occupy thirteen partial calendar months.
+The selected family's table and chart never pool group members or overlapping
+regions and never claim incidence. Missing/ambiguous historic manifests produce
+`Unavailable` with `months: null`, not zero values or a live-data fallback.
+No fields were added to old case/PSUR/package aggregates, signed payloads or
+snapshot serializers.
+
+The existing single standard-hosted job includes both regression classes and
+the Web/Solution build. Its exact source-bound log is the execution evidence;
+it does not execute SQL, HTTP/API integration, a browser or cloud services.
+Real UI/accessibility, API/authentication, transactional concurrency, stored
+original availability and end-to-end simulator acceptance remain unproven here.
+G01-G04 and all deployment/adapter gates remain open.
+
 ## Execution and deployment
 
 The [deployment plan](../../.azure/deployment-plan.md) records approval

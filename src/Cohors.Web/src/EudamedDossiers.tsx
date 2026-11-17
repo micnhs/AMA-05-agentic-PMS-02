@@ -3,6 +3,7 @@ import { api, downloadApi } from './api'
 import type { Actor, Approval, AuditEvent, Device, EudamedFocus, VersionReference } from './types'
 import type { IntegrationWorkspace } from './EudamedWorkspace'
 import { ActionDialog, Badge, date, ErrorBanner, hash, label, Loading, roleNames, SectionHead, type Dialog, type Field } from './ui'
+import DispatchPreviewDialog from './DispatchPreviewDialog'
 
 export type DossierKind = 'MIR' | 'MTR' | 'PSR' | 'PSRP' | 'PSUR' | 'FSCA' | 'FSN'
 interface Period { start: string; end: string; basis: string }
@@ -349,6 +350,7 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open, 
   close: () => void; open: (id: string) => void; focus?: EudamedFocus
 }) {
   const [view, setView] = useState<DossierView | null>(null)
+  const [dispatchPreview, setDispatchPreview] = useState(false)
   const [history, setHistory] = useState<EudamedDossier[] | null>(null)
   const [historicalVersion, setHistoricalVersion] = useState<number | null>(null)
   const [audit, setAudit] = useState<AuditEvent[] | null>(null)
@@ -377,6 +379,7 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open, 
     }
   }, [])
   useEffect(() => { void load() }, [load, summary.version])
+  useEffect(() => { setDispatchPreview(false) }, [view?.dossier.version, view?.ledger.version, historicalVersion])
   const d = historicalVersion === null ? view?.dossier : history?.find(value => value.version === historicalVersion)
   useEffect(() => {
     if (focus && !focusApplied.current && correspondenceAnchor.current) {
@@ -426,16 +429,6 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open, 
       onSubmit: async v => change(`/eudamed/dossiers/${dossier.id}/approve`,
         { expectedVersion: dossier.version, reason: v.reason, findingDisposition: v.findingDisposition ?? null }, 'dossier') })
   }
-  function submit() {
-    setDialog({ title: dossier.package.content.intendedAction === 'Reply' ? 'Freigegebene Antwort simuliert senden' : 'Freigegebenes Dossier simuliert senden',
-      description: `Originalprofil ${dossier.package.binding.profile.recipient}, Generation ${dossier.package.binding.dispatchGeneration}. Handlung ${dossier.package.content.intendedAction}. Transport ist keine fachliche Annahme. Keine realen Netzwerkaufrufe.`,
-      submitLabel: 'Originalgebunden einplanen', fields: [
-        { name: 'scenario', label: 'Explizites Dossier-Simulatorszenario', type: 'select', value: '',
-          options: [{ value: '', label: 'Szenario bewusst auswaehlen' }, ...Object.entries(scenarios).filter(([key]) => key !== 'PeriodMismatch' || dossier.kind === 'PSRP').map(([value, label]) => ({ value, label }))] },
-        reasonField,
-      ], onSubmit: async v => change(`/eudamed/dossiers/${dossier.id}/submit`,
-        { expectedVersion: dossier.version, expectedLedgerVersion: currentView.ledger.version, ...v }) })
-  }
   function advance(eventId: string, duplicate: boolean) {
     setDialog({ title: duplicate ? 'Originaleingang erneut zustellen' : 'Persistierte Simulatorantwort einlesen',
       description: 'Verwendet ausschliesslich das gespeicherte Ereignis des urspruenglichen Versuchs. Original, Eingang und fachliche Projektion bleiben getrennt. Auch ein deaktivierter Kanal wird nicht umgeleitet.',
@@ -471,6 +464,14 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open, 
     } catch (failure) { if (live.current && request === auditGeneration.current) setError(failure instanceof Error ? failure.message : 'Audit nicht geladen.') }
   }
   return <section className="panel eudamed-dossier-detail" aria-label="Dossier-Workbench">
+    {dispatchPreview && <DispatchPreviewDialog
+      path={`/eudamed/dossiers/${encodeURIComponent(dossier.id)}/dispatch-preview?version=${dossier.version}&ledgerVersion=${currentView.ledger.version}`}
+      expected={{ route: 'DossierSimulator', aggregateId: dossier.id, aggregateVersion: dossier.version, packageVersion: dossier.revision,
+        scopeHash: dossier.scopeHash, ledgerVersion: currentView.ledger.version }}
+      scenarios={Object.entries(scenarios).filter(([key]) => key !== 'PeriodMismatch' || dossier.kind === 'PSRP').map(([value, label]) => ({ value, label }))}
+      reasonLength={80} close={() => setDispatchPreview(false)}
+      confirm={(confirmation, scenario, reason) => change(`/eudamed/dossiers/${dossier.id}/submit`,
+        { expectedVersion: confirmation.aggregateVersion, expectedLedgerVersion: confirmation.ledgerVersion, confirmation, scenario, reason })} />}
     <SectionHead eyebrow={`${dossier.kind} - ${historical ? 'HISTORISCH / NUR LESEN' : 'AKTUELLE FASSUNG'}`} title={dossier.package.content.title}>
       <button className="button secondary" onClick={close}>Dossier schliessen</button>
     </SectionHead>
@@ -489,7 +490,7 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open, 
         <button className="button primary" onClick={approve}>{dossier.reviewStatus === 'Draft' ? 'Medical-Dossierfreigabe' : 'RA-Dossierfreigabe'}</button>}
       {!historical && regulatory && profileCurrent && !pending && dossier.reviewStatus === 'Frozen' &&
         !ownEntries.some(e => ['BusinessAccepted', 'DraftCreated', 'BusinessRejected'].includes(e.businessStatus)) &&
-        <button className="button primary" onClick={submit}>Paket dem Simulator uebergeben</button>}
+        <button className="button primary" onClick={() => setDispatchPreview(true)}>Versandvorschau pruefen</button>}
       {dossier.frozenPackageHash && <button className="button secondary" onClick={() => void original(dossier.frozenPackageHash!, `COHORS-DEMO-${dossier.id}-r${dossier.revision}.json`)}>Eingefrorenes Originalpaket</button>}
       <button className="button secondary" onClick={() => void showHistory()}>Dossierhistorie lesen</button>
       <button className="button secondary" onClick={() => void showAudit('eudamedDossier', dossier.id)}>Dossier-Audit</button>

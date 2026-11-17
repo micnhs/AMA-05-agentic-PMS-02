@@ -184,6 +184,11 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .chart-value { fill: var(--cp-text); font-size: 12px; font-weight: 600; }
 .chart-label { fill: var(--cp-text-muted); font-size: 11px; }
 .intake-figure figcaption { font-size: 12px; color: var(--cp-text-muted); line-height: 1.7; }
+.psur-month-figure { margin: 20px 0; }
+.psur-month-figure svg { display: block; width: 100%; height: auto; }
+.psur-month-figure figcaption { font-size: 12px; color: var(--cp-text-muted); line-height: 1.7; }
+.psur-month-line { fill: none; stroke: var(--cp-link); stroke-width: 2; }
+.psur-month-late { stroke: var(--cp-text-muted); stroke-dasharray: 6 4; }
 .workspace-pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; padding-top: 20px; }
 .workspace-pagination > span { font-size: 12px; margin-right: auto; color: var(--cp-text-muted); }
 .cockpit-results { scroll-margin-top: 20px; }
