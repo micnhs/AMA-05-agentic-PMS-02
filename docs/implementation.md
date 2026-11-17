@@ -483,6 +483,18 @@ identische Profil-/Pruefstand-Eingaben teilen die Bereitschaftsberechnung,
 nicht jedoch den Deaktivierungsstatus des aktiven Kanals. Es gibt keinen
 requestuebergreifenden Berechtigungs- oder Datenfallback.
 
+Der native MIR-Korrespondenz-Zweierfall kann ueber den absoluten, privaten
+`COHORS_TEST_PHASE_FILE`-Pfad eine getrennte JSONL-Zeitspur schreiben.
+Jede feste Fachphasenmarke wird sofort mit `WriteThrough` und `Flush(true)`
+geschlossen, nicht erst am Testende aus einem xUnit-Puffer ausgegeben.
+Comment und InformationRequest behalten getrennte Sequenzen mit monotonen
+Stopwatch-Ticks und Frequenz. Die Spur enthaelt nur feste Varianten-/Phasenlabels,
+Sequenz und Zeiten, keine Originaltexte, SQL-Parameter oder Anmeldedaten.
+Ein konfigurierter Schreibfehler bleibt ein Fehler. Der sechsphasige
+Ressourcenjournalvertrag bleibt unveraendert und separat. Die Fachzeitspur
+ist kein Ersatz fuer den vollstaendigen Prozesswaechter, Assertions, TRX
+oder die eigene nachgewiesene Bereinigung.
+
 Die Dossieraktionen uebernehmen nach bestaetigtem POST den typisierten
 Serverstand direkt. Der Bestaetigungsdialog wartet nicht zusaetzlich auf
 erneute Dossier- und Workspace-Lesungen. Die Uebersicht wird getrennt

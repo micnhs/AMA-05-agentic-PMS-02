@@ -1,4 +1,5 @@
 using Cohors.Domain;
+using System.Text.Json;
 
 namespace Cohors.Tests;
 
@@ -84,5 +85,45 @@ public sealed class SqlFixtureResourceTests
             () => { removed = true; return Task.CompletedTask; }));
         Assert.True(removed);
         Assert.Same(failure, observed);
+    }
+
+    [Fact]
+    public void PhaseTimingIsImmediatelyReadableAndKeepsVariantsSeparateWithoutOriginalData()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cohors-phase-{Guid.NewGuid():N}.jsonl");
+        try
+        {
+            var first = new TestPhaseTiming("Comment", path);
+            first.Record(CorrespondencePhase.CaseStarted);
+            Assert.Single(File.ReadAllLines(path));
+            first.Record(CorrespondencePhase.DossierBuilt);
+            new TestPhaseTiming("InformationRequest", path).Record(CorrespondencePhase.CaseStarted);
+            var rows = File.ReadAllLines(path).Select(line => JsonSerializer.Deserialize<JsonElement>(line)).ToArray();
+            Assert.Equal(3, rows.Length);
+            Assert.All(rows, row => Assert.Equal(
+                ["elapsedTicks", "frequency", "phase", "sequence", "timestampTicks", "utc", "variant"],
+                row.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal)));
+            Assert.Equal("Comment", rows[0].GetProperty("variant").GetString());
+            Assert.Equal("DossierBuilt", rows[1].GetProperty("phase").GetString());
+            Assert.Equal(2, rows[1].GetProperty("sequence").GetInt32());
+            Assert.Equal("InformationRequest", rows[2].GetProperty("variant").GetString());
+            Assert.Equal(1, rows[2].GetProperty("sequence").GetInt32());
+            Assert.True(rows[1].GetProperty("timestampTicks").GetInt64() >= rows[0].GetProperty("timestampTicks").GetInt64());
+            Assert.True(rows[1].GetProperty("elapsedTicks").GetInt64() >= rows[0].GetProperty("elapsedTicks").GetInt64());
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void PhaseTimingIoFailureRemainsVisible()
+    {
+        var parent = Path.Combine(Path.GetTempPath(), $"cohors-phase-{Guid.NewGuid():N}.tmp");
+        File.WriteAllText(parent, "Not a directory.");
+        try
+        {
+            var timing = new TestPhaseTiming("Comment", Path.Combine(parent, "phases.jsonl"));
+            Assert.ThrowsAny<IOException>(() => timing.Record(CorrespondencePhase.CaseStarted));
+        }
+        finally { File.Delete(parent); }
     }
 }

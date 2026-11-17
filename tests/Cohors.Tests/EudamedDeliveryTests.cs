@@ -330,13 +330,21 @@ public sealed partial class EudamedConfigurationTests
     [InlineData("InformationRequest")]
     public async Task AcceptedMirCorrespondenceNeedsNewReplyApprovalsWithoutResubmittingNativeObligations(string kind)
     {
+        var timing = TestPhaseTiming.FromEnvironment(kind);
+        timing.Record(CorrespondencePhase.CaseStarted);
         var (service, scenario, original) = await FrozenMirDossier();
+        timing.Record(CorrespondencePhase.DossierBuilt);
         var parent = await QueueAndProcess(service, original, kind);
+        timing.Record(CorrespondencePhase.OriginalTransportCompleted);
+        var responseIndex = 0;
         foreach (var planned in parent.Dossier.PlannedResponses.OrderBy(p => p.Sequence))
         {
+            var firstAcceptance = responseIndex++ == 0;
+            timing.Record(firstAcceptance ? CorrespondencePhase.FirstAcceptanceStarted : CorrespondencePhase.CorrespondenceProcessingStarted);
             clock.Now = planned.DueAt;
             parent = await service.AdvanceSimulator(original.Id, new(parent.Dossier.Version, planned.Id, false, Reason),
                 SqlFixture.Ra, CaseScenario.Key());
+            timing.Record(firstAcceptance ? CorrespondencePhase.FirstAcceptanceCompleted : CorrespondencePhase.CorrespondenceProcessingCompleted);
         }
         var correspondence = Assert.Single(parent.Dossier.Correspondence);
         var originalBytes = await fixture.Objects.Read(correspondence.OriginalHash);
@@ -344,36 +352,48 @@ public sealed partial class EudamedConfigurationTests
         var nativeHash = Canonical.Hash(native);
         var nativeAudit = Canonical.Hash(await fixture.Store.Audit(native.Id));
         Assert.Single(native.Submissions);
+        timing.Record(CorrespondencePhase.OriginalChecksCompleted);
         var content = parent.Dossier.Package.Content with { IntendedAction = "Reply", ParentId = original.Id,
             ParentVersion = parent.Dossier.Version, ReplyToCorrespondenceId = correspondence.Id,
             Title = "SYNTHETISCH: Quellengebundene Antwort auf " + kind,
             ClinicalRationale = Reason + " Die Antwort behandelt die bezeichnete Originalrueckfrage, nicht eine neue Erstmeldung." };
         var selections = new EudamedSourceSelection[] { new("case", native.Id, native.Version),
             new("eudamedDossier", parent.Dossier.Id, parent.Dossier.Version) };
+        timing.Record(CorrespondencePhase.ReplyDraftStarted);
         var reply = await service.DraftDossier(null, new(0, "ortho", EudamedDossierKind.MIR,
             content, selections, Reason), SqlFixture.Pms, CaseScenario.Key());
+        timing.Record(CorrespondencePhase.ReplyDraftCompleted);
         Assert.Empty(reply.Approvals);
         var draft = await service.DossierView(reply.Id, SqlFixture.Ra);
         Assert.Equal("open_findings", (await Assert.ThrowsAsync<DomainException>(() =>
             service.QueueDossier(reply.Id, new(reply.Version, draft.Ledger.Version, "Accept", Reason),
                 SqlFixture.Ra, CaseScenario.Key()))).Code);
+        timing.Record(CorrespondencePhase.MedicalApprovalStarted);
         reply = await service.ApproveDossier(reply.Id, new(reply.Version, Reason, Reason),
             SqlFixture.Medical, CaseScenario.Key());
+        timing.Record(CorrespondencePhase.MedicalApprovalCompleted);
         Assert.Equal("eudamed_approval", (await Assert.ThrowsAsync<DomainException>(() =>
             service.QueueDossier(reply.Id, new(reply.Version, draft.Ledger.Version, "Accept", Reason),
                 SqlFixture.Ra, CaseScenario.Key()))).Code);
         Assert.Equal("four_eyes", (await Assert.ThrowsAsync<DomainException>(() =>
             service.ApproveDossier(reply.Id, new(reply.Version, Reason, null),
                 SqlFixture.Medical with { Roles = [Roles.Medical, Roles.Regulatory] }, CaseScenario.Key()))).Code);
+        timing.Record(CorrespondencePhase.RegulatoryApprovalStarted);
         reply = await service.ApproveDossier(reply.Id, new(reply.Version, Reason, null), SqlFixture.Ra, CaseScenario.Key());
+        timing.Record(CorrespondencePhase.RegulatoryApprovalCompleted);
         Assert.All(reply.Approvals, approval => Assert.DoesNotContain(original.Approvals, old => old.Id == approval.Id));
+        timing.Record(CorrespondencePhase.ReplyQueueTransportStarted);
         var view = await QueueAndProcess(service, reply, "Accept");
+        timing.Record(CorrespondencePhase.ReplyQueueTransportCompleted);
         Assert.Null(Assert.Single(view.Ledger.Entries).CaseObligation);
         Assert.Equal("Open", Assert.Single((await service.DossierView(original.Id, SqlFixture.Ra)).Dossier.Correspondence).Status);
         Assert.Equal(nativeHash, Canonical.Hash(await fixture.Store.Get<SafetyCase>("case", native.Id)));
         var response = Assert.Single(view.Dossier.PlannedResponses);
+        timing.Record(CorrespondencePhase.ReplyAcceptanceStarted);
         view = await service.AdvanceSimulator(reply.Id, new(view.Dossier.Version, response.Id, false, Reason),
             SqlFixture.Ra, CaseScenario.Key());
+        timing.Record(CorrespondencePhase.ReplyAcceptanceCompleted);
+        timing.Record(CorrespondencePhase.FinalAssertionsStarted);
         var completed = await service.DossierView(original.Id, SqlFixture.Ra);
         var answered = Assert.Single(completed.Dossier.Correspondence);
         Assert.Equal("Replied", answered.Status);
@@ -385,14 +405,18 @@ public sealed partial class EudamedConfigurationTests
         Assert.Equal(nativeHash, Canonical.Hash(await fixture.Store.Get<SafetyCase>("case", native.Id)));
         Assert.Equal(nativeAudit, Canonical.Hash(await fixture.Store.Audit(native.Id)));
         Assert.Equal("BusinessAccepted", Assert.Single(view.Ledger.Entries).BusinessStatus);
+        timing.Record(CorrespondencePhase.DuplicateReceiptStarted);
         await service.AdvanceSimulator(reply.Id, new(view.Dossier.Version, response.Id, true, Reason),
             SqlFixture.Ra, CaseScenario.Key());
+        timing.Record(CorrespondencePhase.DuplicateReceiptCompleted);
         Assert.Equal(Canonical.Hash(completed.Dossier), Canonical.Hash(await service.GetDossier(original.Id, SqlFixture.Ra)));
         Assert.Equal(nativeHash, Canonical.Hash(await fixture.Store.Get<SafetyCase>("case", native.Id)));
+        timing.Record(CorrespondencePhase.ResubmissionGuardStarted);
         Assert.Equal("already_submitted", (await Assert.ThrowsAsync<DomainException>(() =>
             service.QueueDossier(original.Id, new(completed.Dossier.Version, completed.Ledger.Version, "Accept", Reason),
                 SqlFixture.Ra, CaseScenario.Key()))).Code);
         Assert.Equal(0, gateway.NetworkCalls);
+        timing.Record(CorrespondencePhase.CaseCompleted);
     }
 
     [Fact]
