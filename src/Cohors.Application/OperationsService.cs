@@ -127,7 +127,7 @@ public sealed class OperationsService(IStateStore store, IWorkspaceReadStore wor
             }).DistinctBy(d => (d.Kind, d.Source.Id)).ToArray();
             try
             {
-                await store.Execute<EudamedDeliveryLedger>(new(ledger.Id, "eudamedDelivery", ledger.ProductId, ledger.Version,
+                await store.Execute<EudamedDeliveryLedger>(new CommandContext(ledger.Id, "eudamedDelivery", ledger.ProductId, ledger.Version,
                     "eudamed-watchdog-" + Canonical.Hash(new { ledger.Id, Alerts = alerts.Select(a => a.Id).ToArray() }),
                     "EudamedCorrespondenceEscalated", string.Join(" ", alerts.Select(a => a.Message)),
                     CaseService.Workflow, new { alerts }, now) with { Dependencies = dependencies },
