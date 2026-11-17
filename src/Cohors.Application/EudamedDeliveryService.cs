@@ -54,7 +54,7 @@ public sealed partial class EudamedService
         }
         Guard.Against(await objects.Put(Canonical.Serialize(dossier), ct) != Canonical.Hash(dossier),
             "eudamed_snapshot_hash", "Freigegebener Versandstand konnte nicht originalgetreu gespeichert werden.", 409);
-        var attemptId = "eu-" + Canonical.Hash(new { actor.Id, key, id })[..32];
+        var attemptId = "eu-" + Canonical.Hash(new { ActorId = actor.Id, key, DossierId = id })[..32];
         var attempt = new EudamedAttempt(attemptId, "EU-" + Canonical.Hash(new { id, attemptId })[..32],
             attemptId + "@cohors.invalid", dossier.Revision, dossier.ScopeHash, dossier.Package.Binding,
             input.Scenario, EudamedContracts.Simulator, "Queued", ledger.Version + 1,

@@ -21,12 +21,11 @@ public sealed partial class EudamedConfigurationTests
         Assert.Equal("eudamed_delivery_pending", (await Assert.ThrowsAsync<DomainException>(() =>
             scenario.Service.Submit(scenario.Case.Id, new(scenario.Case.Version, "Accept", Reason),
                 SqlFixture.Ra, CaseScenario.Key()))).Code);
-        var queued = (await fixture.Store.PendingEvents(1000)).Single(e =>
-            e.Type == "EudamedDeliveryQueued" && e.AggregateId == view.Ledger.Id);
+        var queued = await OutboxId("eudamedDelivery", view.Ledger.Id, Assert.Single(view.Dossier.Attempts).QueuedVersion);
         var worker = new OutboxProcessor(fixture.Store, scenario.Service,
             new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store), service);
-        Assert.Equal("Handled", (await worker.Process(queued.Id)).State);
-        Assert.Equal("Handled", (await worker.Process(queued.Id)).State);
+        Assert.Equal("Handled", (await worker.Process(queued)).State);
+        Assert.Equal("Handled", (await worker.Process(queued)).State);
         view = await service.DossierView(dossier.Id, SqlFixture.Ra);
         Assert.Equal("TransportDelivered", Assert.Single(view.Dossier.Attempts).Status);
         var beforeBusiness = (await fixture.Store.Get<SafetyCase>("case", scenario.Case.Id))!;
@@ -166,6 +165,26 @@ public sealed partial class EudamedConfigurationTests
             Assert.Equal(Canonical.Hash(scenario.Case.Deadlines), Canonical.Hash(result.Deadlines));
         }
         Assert.Equal(0, gateway.NetworkCalls);
+    }
+
+    [Fact]
+    public async Task ExpectedAbsentReservationDependencyRejectsAConcurrentCreationWithoutChangingTheTarget()
+    {
+        var sourceId = "eu-absence-" + CaseScenario.Key();
+        var targetId = "eu-guarded-" + CaseScenario.Key();
+        var context = new CommandContext(targetId, "eudamedDelivery", "ortho", 0, CaseScenario.Key(),
+            "EudamedDependencyProbe", Reason, SqlFixture.Ra, new { targetId }, clock.Now)
+            { Dependencies = [new("eudamedDelivery", new(sourceId, 0, ""))] };
+        var target = await fixture.Store.Execute<EudamedDeliveryLedger>(context,
+            _ => new(targetId, 1, "ortho", "synthetic-guard", []));
+        await fixture.Store.Execute<EudamedDeliveryLedger>(new(sourceId, "eudamedDelivery", "ortho", 0,
+            CaseScenario.Key(), "EudamedReservationCreated", Reason, SqlFixture.Ra, new { sourceId }, clock.Now),
+            _ => new(sourceId, 1, "ortho", "synthetic-reservation", []));
+        var next = context with { ExpectedVersion = target.Version, IdempotencyKey = CaseScenario.Key() };
+        Assert.Equal("dependency_version", (await Assert.ThrowsAsync<DomainException>(() =>
+            fixture.Store.Execute<EudamedDeliveryLedger>(next, current => current! with { Version = current.Version + 1 }))).Code);
+        Assert.Equal(Canonical.Hash(target), Canonical.Hash(await fixture.Store.Get<EudamedDeliveryLedger>("eudamedDelivery", targetId)));
+        Assert.Single(await fixture.Store.Audit(targetId));
     }
 
     [Fact]

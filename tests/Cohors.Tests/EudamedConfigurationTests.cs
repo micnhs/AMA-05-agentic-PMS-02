@@ -25,14 +25,13 @@ public sealed partial class EudamedConfigurationTests(SqlFixture fixture)
                 application = await service.SaveActor(application.Id, new(application.Version, "ortho",
                     application.Details with { Address = application.Details.Address + " / reviewed" }, Reason), SqlFixture.Pms, CaseScenario.Key());
             var submitted = await service.SubmitActor(application.Id, new(application.Version, scenario, Reason), SqlFixture.Ra, CaseScenario.Key());
-            var dispatch = (await fixture.Store.PendingEvents(1000)).Single(e =>
-                e.Type == "EudamedActorSubmitted" && e.AggregateId == submitted.Id && e.Version == submitted.Version);
+            var dispatch = await OutboxId("eudamedActor", submitted.Id, submitted.Version);
             var processor = new OutboxProcessor(fixture.Store, fixture.Service(clock),
                 new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store), service);
-            Assert.Equal("Handled", (await processor.Process(dispatch.Id)).State);
+            Assert.Equal("Handled", (await processor.Process(dispatch)).State);
             application = (await fixture.Store.Get<EudamedActorApplication>("eudamedActor", submitted.Id))!;
             var audit = await fixture.Store.Audit(application.Id);
-            Assert.Equal("Handled", (await processor.Process(dispatch.Id)).State);
+            Assert.Equal("Handled", (await processor.Process(dispatch)).State);
             Assert.Equal(audit.Length, (await fixture.Store.Audit(application.Id)).Length);
             Assert.Equal(submitted.Version, application.Rounds.Last().Revision);
             Assert.Equal(Canonical.Hash(application.Details), application.Rounds.Last().ApplicationHash);
@@ -135,6 +134,20 @@ public sealed partial class EudamedConfigurationTests(SqlFixture fixture)
             governance.Version, "synthetic-1", new(2025, 1, 1), new(2030, 12, 31), Reason, "DEMO-NB-TEST", "GS1", Reason),
             SqlFixture.Ra, CaseScenario.Key());
         return (application, references);
+    }
+
+    private async Task<string> OutboxId(string kind, string id, int version)
+    {
+        await using var connection = new Microsoft.Data.SqlClient.SqlConnection(fixture.ConnectionString);
+        await connection.OpenAsync();
+        using var command = SqlStateStore.Command(connection, null,
+            "SELECT Id FROM dbo.Outbox WHERE AggregateKind=@kind AND AggregateId=@id AND Version=@version",
+            ("kind", kind), ("id", id), ("version", version));
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        var eventId = reader.GetString(0);
+        Assert.False(await reader.ReadAsync());
+        return eventId;
     }
 
     private static EudamedActorDetails Details() => new("DEMO test manufacturer", "MF", "IE",
