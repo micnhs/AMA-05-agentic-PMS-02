@@ -29,7 +29,7 @@ public sealed partial class EudamedConfigurationTests
             [new("case", scenario.Case.Id, scenario.Case.Version)], Reason);
         var key = CaseScenario.Key();
         var dossier = await service.DraftDossier(null, input, SqlFixture.Pms, key);
-        Assert.Empty(dossier.Package.Validation.Errors);
+        Assert.True(dossier.Package.Validation.Errors.Length == 0, string.Join("\n", dossier.Package.Validation.Errors));
         Assert.Equal(Canonical.Hash(dossier), Canonical.Hash(await service.DraftDossier(null, input, SqlFixture.Pms, key)));
         Assert.Equal(originalCase, dossier.Package.Sources.Single().Source.Hash);
         Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
@@ -131,6 +131,11 @@ public sealed partial class EudamedConfigurationTests
         await scenario.Create();
         await scenario.Assess();
         await scenario.Prepare();
+        scenario.Case = await scenario.Regulatory.AttachMir(scenario.Case.Id, new(scenario.Case.Version,
+            scenario.MirFacts() with { DeviceProblemCode = "A0401", InvestigationTypeCode = "B01",
+                InvestigationFindingCode = "C01", InvestigationConclusionCode = "D01", ComponentCode = "G01",
+                Rationale = "SYNTHETISCH: Ausdrueckliche Testauswahl aus den gepinnten aktiven EUDAMED-Katalogen; keine reale klinische Kodierentscheidung. " + Reason },
+            Reason), SqlFixture.Medical, CaseScenario.Key());
         await scenario.Approve();
         return scenario;
     }
