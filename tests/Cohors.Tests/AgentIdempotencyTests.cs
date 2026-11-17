@@ -151,6 +151,8 @@ public sealed class AgentIdempotencyTests(SqlFixture fixture)
             }
             return value;
         }
+        public Task<T?> GetVersion<T>(string kind, string key, int version, string[] products, CancellationToken ct = default) =>
+            inner.GetVersion<T>(kind, key, version, products, ct);
         public Task<T[]> List<T>(string kind, string[] products, CancellationToken ct = default) => inner.List<T>(kind, products, ct);
         public Task<T[]> History<T>(string kind, string[] products, CancellationToken ct = default) => inner.History<T>(kind, products, ct);
         public Task<PortfolioState> Capture(string[] products, CancellationToken ct = default) => inner.Capture(products, ct);

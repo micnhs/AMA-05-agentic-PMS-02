@@ -155,6 +155,23 @@ regions and never claim incidence. Missing/ambiguous historic manifests produce
 No fields were added to old case/PSUR/package aggregates, signed payloads or
 snapshot serializers.
 
+The historical selections in `PreviewSubmission` and `Monthly` use the shared
+`IStateStore.GetVersion<T>(kind, id, version, products)` operation. SQL binds
+`Kind`, `Id` and `Version` against the existing `PK_AggregateVersions` and
+preserves the previous product filter through the current aggregate's
+`ProductId`. At most the selected historical payload is returned/deserialized;
+there is no full-history enumeration or hidden current-state fallback. No schema
+change or general history refactor is involved. Current permissions, all frozen
+PSUR group members, preparation/hash/freeze checks and explicit missing/mismatch
+errors remain authoritative.
+
+The two regression classes exercise these application reads with a read-only
+store double that rejects full-history/list/live-capture operations and leaves
+unrelated raw payloads unread. They cover exact revision selection, missing or
+out-of-scope records, changed hashes and both current/historical group scopes.
+This is not execution evidence for SQL or a measured SLO/load result; input-signal
+volumes are not counts of `SafetyCase` aggregates.
+
 The existing single standard-hosted job includes both regression classes and
 the Web/Solution build. Its exact source-bound log is the execution evidence;
 it does not execute SQL, HTTP/API integration, a browser or cloud services.

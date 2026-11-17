@@ -262,8 +262,9 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
     {
         var current = await GetPsur(id, actor, ct);
         var selected = current.Version == version ? current :
-            (await store.History<Psur>("psur", [current.ProductId], ct)).SingleOrDefault(p => p.Id == id && p.Version == version)
-                ?? throw new DomainException("psur_version_missing", "Die ausgewaehlte PSUR-Fassung fehlt; kein aktueller Ersatz.", 404);
+            await store.GetVersion<Psur>("psur", id, version, [current.ProductId], ct);
+        if (selected is null || selected.Id != id || selected.Version != version)
+            throw new DomainException("psur_version_missing", "Die ausgewaehlte PSUR-Fassung fehlt; kein aktueller Ersatz.", 404);
         return PsurMonthly.Read(selected, productId, actor);
     }
 

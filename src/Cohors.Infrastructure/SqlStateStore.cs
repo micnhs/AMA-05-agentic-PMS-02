@@ -75,6 +75,20 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         return json is null ? default : Canonical.Read<T>(json);
     }
 
+    public async Task<T?> GetVersion<T>(string kind, string id, int version, string[] products, CancellationToken ct = default)
+    {
+        if (products.Length == 0) return default;
+        await using var connection = await Open(ct);
+        using var query = Command(connection, null, """
+            SELECT h.Json FROM dbo.AggregateVersions h
+            INNER JOIN dbo.Aggregates a ON a.Kind=h.Kind AND a.Id=h.Id
+            WHERE h.Kind=@kind AND h.Id=@id AND h.Version=@version
+                AND a.ProductId IN (SELECT value FROM OPENJSON(@products))
+            """, ("kind", kind), ("id", id), ("version", version), ("products", Canonical.Serialize(products)));
+        var json = await ReadScalarText(query, ct);
+        return json is null ? default : Canonical.Read<T>(json);
+    }
+
     public async Task<T[]> List<T>(string kind, string[] products, CancellationToken ct = default)
     {
         if (products.Length == 0) return [];

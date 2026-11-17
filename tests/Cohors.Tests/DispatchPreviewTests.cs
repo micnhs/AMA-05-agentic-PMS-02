@@ -32,6 +32,59 @@ public sealed class DispatchPreviewTests
         DispatchPreviews.RequireConfirmation(preview.Binding, DispatchPreviews.CaseBinding(value));
     }
 
+    [Fact]
+    public async Task CasePreviewReadsOnlyThePreparedRevisionWithoutDeserializingOtherCasesOrVersions()
+    {
+        var (value, source) = Case();
+        var current = value with { Title = "UNAPPROVED LIVE TITLE", Country = "FR" };
+        var original = new StoreEntry<string>(source.Id, "case", source.ProductId, source.Version, Canonical.Serialize(source));
+        var store = new HistoricalReadStore(
+            [new(value.Id, "case", value.ProductId, current.Version, Canonical.Serialize(current)),
+             new("other-case", "case", value.ProductId, 1, "Unrelated current payload must not be read."),
+             new(value.Id, "psur", value.ProductId, 1, "Another kind must not be read.")],
+            [original, original with { Version = value.Version, Value = "Later revision must not be deserialized." },
+             original with { Id = "other-case", Value = "Another case must not be deserialized." },
+             original with { Kind = "psur", Value = "Another kind must not be deserialized." }]);
+        var service = new CaseService(store, null!, null!, null!, null!, TimeProvider.System, null!);
+        var preview = await service.PreviewSubmission(value.Id, value.Version, Ra with { Products = ["ortho", "cardio"] });
+
+        Assert.Equal(Canonical.Serialize(DispatchPreviews.ForCase(value, source, Ra)), Canonical.Serialize(preview));
+        var query = Assert.Single(store.VersionReads);
+        Assert.Equal(("case", source.Id, source.Version), (query.Kind, query.Id, query.Version));
+        Assert.Equal(["ortho"], query.Products);
+        Assert.Equal(1, store.HistoricalPayloadReads);
+        Assert.Equal(new[] { ("case", value.Id),
+            ("eudamedDelivery", EudamedRules.MirDeliveryId(value.ProductId, value.Id, value.CurrentReport!.Jurisdiction)) }, store.CurrentReads);
+    }
+
+    [Theory]
+    [InlineData("missing", "dispatch_preview_source", 0)]
+    [InlineData("stored-scope", "dispatch_preview_source", 0)]
+    [InlineData("hash", "dispatch_preview_source", 1)]
+    [InlineData("actor-scope", "product_scope", 0)]
+    public async Task CasePreviewDoesNotReplaceMissingDeniedOrMismatchedSourceWithLiveState(string problem, string code, int payloads)
+    {
+        var (value, source) = Case();
+        var row = new StoreEntry<string>(value.Id, "case", problem == "stored-scope" ? "cardio" : value.ProductId,
+            value.Version, Canonical.Serialize(value));
+        var storedSource = problem == "hash" ? source with { Title = "Changed historical bytes" } : source;
+        var historical = new StoreEntry<string>(source.Id, "case", source.ProductId,
+            problem == "missing" ? source.Version + 1 : source.Version, Canonical.Serialize(storedSource));
+        var store = new HistoricalReadStore([row], [historical]);
+        var service = new CaseService(store, null!, null!, null!, null!, TimeProvider.System, null!);
+
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            service.PreviewSubmission(value.Id, value.Version, problem == "actor-scope" ? Ra with { Products = ["cardio"] } : Ra))).Code);
+        Assert.Equal(payloads, store.HistoricalPayloadReads);
+        if (problem == "actor-scope") Assert.Empty(store.VersionReads);
+        else
+        {
+            var query = Assert.Single(store.VersionReads);
+            Assert.Equal(("case", source.Id, source.Version), (query.Kind, query.Id, query.Version));
+            Assert.Equal(["ortho"], query.Products);
+        }
+    }
+
     [Theory]
     [InlineData("source", "dispatch_preview_source")]
     [InlineData("frozen", "frozen_tampered")]

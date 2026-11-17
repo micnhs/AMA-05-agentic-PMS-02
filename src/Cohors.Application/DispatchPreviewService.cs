@@ -13,8 +13,7 @@ public sealed partial class CaseService
         await ReportDependencies(value.CurrentReport, ct);
         var report = Canonical.Read<ReportDraft>(value.CurrentReport!.FrozenJson!);
         var source = report.Preparation is { } preparation
-            ? (await store.History<SafetyCase>("case", [value.ProductId], ct))
-                .SingleOrDefault(c => c.Id == id && c.Version == preparation.CaseSource.Version)
+            ? await store.GetVersion<SafetyCase>("case", id, preparation.CaseSource.Version, [value.ProductId], ct)
             : null;
         var ledger = await store.Get<EudamedDeliveryLedger>("eudamedDelivery",
             EudamedRules.MirDeliveryId(value.ProductId, value.Id, report.Jurisdiction), ct);

@@ -1,3 +1,4 @@
+using Cohors.Application;
 using Cohors.Domain;
 
 namespace Cohors.Tests;
@@ -70,6 +71,91 @@ public sealed class PsurMonthlyTests
         Assert.Empty(PsurMonthly.Read(restored, "ortho", Reader).Months!.Single(m => m.Month.Month == 5).Cases);
     }
 
+    [Fact]
+    public async Task MonthlySelectsTheExactReportRevisionWithoutReadingOtherReportsOrLiveCases()
+    {
+        var source = Case("fixed", "2026-01-20T12:00:00Z", "2026-01-21T12:00:00Z");
+        var selected = Report(Snapshot([source]));
+        var current = Report(Snapshot([source with { Version = 3, OccurredAt = DateTimeOffset.Parse("2026-05-01T12:00:00Z") }]))
+            with { Version = 3 };
+        var original = new StoreEntry<string>(selected.Id, "psur", selected.ProductId, selected.Version, Canonical.Serialize(selected));
+        var store = new HistoricalReadStore(
+            [new(current.Id, "psur", current.ProductId, current.Version, Canonical.Serialize(current)),
+             new("other-report", "psur", current.ProductId, 1, "Unrelated current report must not be read."),
+             new(current.Id, "case", current.ProductId, 1, "A live case must not be read.")],
+            [original, original with { Version = 2, Value = "Another report revision must not be deserialized." },
+             original with { Id = "other-report", Value = "Another report must not be deserialized." },
+             original with { Kind = "case", Value = "Another kind must not be deserialized." }]);
+        var service = new AnalyticsService(store, null!, null!, TimeProvider.System);
+
+        var view = await service.Monthly(selected.Id, selected.Version, "ortho", Reader);
+        Assert.Equal(Canonical.Serialize(PsurMonthly.Read(selected, "ortho", Reader)), Canonical.Serialize(view));
+        var query = Assert.Single(store.VersionReads);
+        Assert.Equal(("psur", selected.Id, selected.Version), (query.Kind, query.Id, query.Version));
+        Assert.Equal(["ortho"], query.Products);
+        Assert.Equal(1, store.HistoricalPayloadReads);
+        Assert.Equal(("psur", selected.Id), Assert.Single(store.CurrentReads));
+
+        var latest = await service.Monthly(current.Id, current.Version, "ortho", Reader);
+        Assert.Single(latest.Months!.Single(m => m.Month.Month == 5).Cases);
+        Assert.Single(store.VersionReads);
+        Assert.Equal(1, store.HistoricalPayloadReads);
+    }
+
+    [Theory]
+    [InlineData("missing", "psur_version_missing", 0)]
+    [InlineData("stored-scope", "psur_version_missing", 0)]
+    [InlineData("hash", "psur_snapshot_hash", 1)]
+    [InlineData("identity", "psur_version_missing", 1)]
+    [InlineData("revision", "psur_version_missing", 1)]
+    public async Task MonthlyDoesNotReplaceMissingDeniedOrChangedHistoricalSnapshots(string problem, string code, int payloads)
+    {
+        var selected = Report(Snapshot([Case("fixed", "2026-01-20T12:00:00Z", "2026-01-21T12:00:00Z")]));
+        var current = selected with { Version = 2 };
+        var row = new StoreEntry<string>(current.Id, "psur", problem == "stored-scope" ? "cardio" : current.ProductId,
+            current.Version, Canonical.Serialize(current));
+        var storedReport = problem switch
+        {
+            "hash" => selected with { SnapshotHash = new string('0', 64) },
+            "identity" => selected with { Id = "different-report" },
+            "revision" => current,
+            _ => selected
+        };
+        var historical = new StoreEntry<string>(selected.Id, "psur", selected.ProductId,
+            problem == "missing" ? current.Version : selected.Version,
+            Canonical.Serialize(storedReport));
+        var store = new HistoricalReadStore([row], [historical]);
+        var service = new AnalyticsService(store, null!, null!, TimeProvider.System);
+
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            service.Monthly(selected.Id, selected.Version, "ortho", Reader))).Code);
+        var query = Assert.Single(store.VersionReads);
+        Assert.Equal(("psur", selected.Id, selected.Version), (query.Kind, query.Id, query.Version));
+        Assert.Equal(["ortho"], query.Products);
+        Assert.Equal(payloads, store.HistoricalPayloadReads);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MonthlyRequiresEveryGroupMemberInBothCurrentAndSelectedHistoricalReports(bool currentGrouped)
+    {
+        var lead = Snapshot([Case("lead", "2026-01-20T12:00:00Z", "2026-01-21T12:00:00Z")]);
+        var second = Snapshot([Case("member", "2026-02-20T12:00:00Z", "2026-02-21T12:00:00Z") with { ProductId = "cardio" }], "cardio");
+        var grouped = Group(lead, second);
+        var selected = Report(currentGrouped ? lead : grouped);
+        var current = Report(currentGrouped ? grouped : lead) with { Version = 2 };
+        var store = new HistoricalReadStore(
+            [new(current.Id, "psur", current.ProductId, current.Version, Canonical.Serialize(current))],
+            [new(selected.Id, "psur", selected.ProductId, selected.Version, Canonical.Serialize(selected))]);
+        var service = new AnalyticsService(store, null!, null!, TimeProvider.System);
+
+        Assert.Equal("product_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            service.Monthly(selected.Id, selected.Version, "ortho", Reader with { Products = ["ortho"] }))).Code);
+        Assert.Equal(currentGrouped ? 0 : 1, store.VersionReads.Count);
+        Assert.Equal(currentGrouped ? 0 : 1, store.HistoricalPayloadReads);
+    }
+
     [Theory]
     [InlineData("legacy")]
     [InlineData("date-basis")]
@@ -104,15 +190,7 @@ public sealed class PsurMonthlyTests
     {
         var lead = Snapshot([Case("lead", "2026-01-20T12:00:00Z", "2026-01-21T12:00:00Z")]);
         var second = Snapshot([Case("member", "2026-02-20T12:00:00Z", "2026-02-21T12:00:00Z") with { ProductId = "cardio" }], "cardio");
-        var governance = WorkspaceTestData.Psur("monthly-group", new(2026, 12, 1)).Snapshot.Series!.Governance with { FirstPeriodStart = Start };
-        var secondProfile = governance with { Id = "cardio", ProductId = "cardio", Device = governance.Device with { BasicUdi = "DEMO-CARDIO" } };
-        var definition = new PsurGroupDefinition("monthly-group", 1, "ortho", "DEMO-PSUR-GROUP-MONTHLY",
-            [PsurGroupRules.Product(governance), PsurGroupRules.Product(secondProfile)], Start,
-            WorkspaceTestData.Reason, WorkspaceTestData.Reason, Freeze);
-        var grouped = lead with { Group = new(PsurGroupRules.Contract,
-            new(definition.Id, definition.Version, Canonical.Hash(definition)), definition,
-            [new(PsurGroupRules.Product(governance), governance, lead), new(PsurGroupRules.Product(secondProfile), secondProfile, second)],
-            "Separate family counts; no pooled incidence.") };
+        var grouped = Group(lead, second);
         var report = Report(grouped);
         Assert.Empty(PsurGroupRules.Check(grouped));
         var member = PsurMonthly.Read(report, "cardio", Reader);
@@ -151,6 +229,19 @@ public sealed class PsurMonthlyTests
             [new("world", 1, product, "Worldwide", Start, End, "DeviceYears", 100, "Synthetic", "Synthetic", true),
              new("subset", 1, product, "EEA-Turkey-NI", Start, End, "DeviceYears", 50, "Synthetic", "Synthetic", true)],
             [], [], [], [], Freeze, history));
+
+    private static PsurSnapshot Group(PsurSnapshot lead, PsurSnapshot second)
+    {
+        var governance = WorkspaceTestData.Psur("monthly-group", new(2026, 12, 1)).Snapshot.Series!.Governance with { FirstPeriodStart = Start };
+        var secondProfile = governance with { Id = "cardio", ProductId = "cardio", Device = governance.Device with { BasicUdi = "DEMO-CARDIO" } };
+        var definition = new PsurGroupDefinition("monthly-group", 1, "ortho", "DEMO-PSUR-GROUP-MONTHLY",
+            [PsurGroupRules.Product(governance), PsurGroupRules.Product(secondProfile)], Start,
+            WorkspaceTestData.Reason, WorkspaceTestData.Reason, Freeze);
+        return lead with { Group = new(PsurGroupRules.Contract,
+            new(definition.Id, definition.Version, Canonical.Hash(definition)), definition,
+            [new(PsurGroupRules.Product(governance), governance, lead), new(PsurGroupRules.Product(secondProfile), secondProfile, second)],
+            "Separate family counts; no pooled incidence.") };
+    }
 
     private static Psur Report(PsurSnapshot snapshot) =>
         new("monthly-report", 1, snapshot.ProductId, snapshot, Canonical.Hash(snapshot), "Synthetic draft", "synthetic-scope",
