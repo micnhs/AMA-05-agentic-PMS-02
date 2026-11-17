@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using Cohors.Agents;
@@ -81,18 +82,19 @@ public sealed class SqlFixture : IAsyncLifetime
     public async Task DisposeAsync()
     {
         if (!databaseCreated) return;
-        await RecordResource("CleanupRequested");
-        SqlConnection.ClearAllPools();
-        await using var connection = new SqlConnection(master);
-        await connection.OpenAsync();
-        using var command = new SqlCommand($"IF DB_ID(N'{database}') IS NOT NULL BEGIN ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]; END", connection);
-        await command.ExecuteNonQueryAsync();
-        if (Directory.Exists(objectDirectory)) Directory.Delete(objectDirectory, recursive: true);
-        var directory = Path.GetDirectoryName(objectDirectory);
-        if (directory is not null && Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
-            Directory.Delete(directory);
-        await RecordResource("Disposed");
-        databaseCreated = false;
+        await SqlFixtureResources.Cleanup(RecordResource, async () =>
+        {
+            SqlConnection.ClearAllPools();
+            await using var connection = new SqlConnection(master);
+            await connection.OpenAsync();
+            using var command = new SqlCommand($"IF DB_ID(N'{database}') IS NOT NULL BEGIN ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]; END", connection);
+            await command.ExecuteNonQueryAsync();
+            if (Directory.Exists(objectDirectory)) Directory.Delete(objectDirectory, recursive: true);
+            var directory = Path.GetDirectoryName(objectDirectory);
+            if (directory is not null && Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
+                Directory.Delete(directory);
+            databaseCreated = false;
+        });
     }
 
     private Task RecordResource(string stage) => SqlFixtureResources.Append(resourceJournal,
@@ -111,11 +113,29 @@ internal static class SqlFixtureResources
         await writer.WaitAsync();
         try
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
             await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
             await stream.WriteAsync(Encoding.UTF8.GetBytes(Canonical.Serialize(entry) + "\n"));
             stream.Flush(flushToDisk: true);
         }
         finally { writer.Release(); }
+    }
+
+    internal static async Task Cleanup(Func<string, Task> record, Func<Task> cleanup)
+    {
+        List<Exception> errors = [];
+        try { await record("CleanupRequested"); }
+        catch (Exception error) { errors.Add(error); }
+        var removed = false;
+        try { await cleanup(); removed = true; }
+        catch (Exception error) { errors.Add(error); }
+        if (removed)
+        {
+            try { await record("Disposed"); }
+            catch (Exception error) { errors.Add(error); }
+        }
+        if (errors.Count == 1) ExceptionDispatchInfo.Capture(errors[0]).Throw();
+        if (errors.Count > 1) throw new AggregateException("SQL fixture recording and cleanup failures.", errors);
     }
 }
 
