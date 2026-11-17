@@ -392,6 +392,113 @@ public sealed partial class EudamedConfigurationTests
         Assert.Equal(0, gateway.NetworkCalls);
     }
 
+    [Fact]
+    public async Task PsrpCorrespondenceReplyKeepsTheAcceptedPsrOriginalAndExactPeriodWithoutNativeChanges()
+    {
+        var service = Service;
+        await ActivateSimulator(service);
+        var scenario = new CaseScenario(fixture);
+        scenario.Case = await scenario.Service.Register(scenario.Input with
+        {
+            OccurredAt = DateTimeOffset.Parse("2026-10-11T10:00:00Z"),
+            AwarenessAt = DateTimeOffset.Parse("2026-10-12T10:00:00Z")
+        }, SqlFixture.Pms, CaseScenario.Key());
+        await scenario.Respond();
+        await scenario.Assess();
+        await scenario.Prepare();
+        scenario.Case = await scenario.Regulatory.AttachMir(scenario.Case.Id, new(scenario.Case.Version,
+            scenario.MirFacts() with { EventDateFrom = new(2026, 10, 11), EventDateTo = new(2026, 10, 11) }, Reason),
+            SqlFixture.Medical, CaseScenario.Key());
+        await scenario.Approve();
+        var evidence = (await fixture.Store.List<Evidence>("evidence", ["ortho"])).Single(e => e.Kind == "RiskFile");
+        var agreement = await scenario.Regulatory.RecordSummaryAgreement(new(0, "ortho", "DEMO-PSRP-" + CaseScenario.Key(),
+            "HPRA-SIMULATOR", "EU-IE", "de", SummaryReportingRules.ReportContract, Reason, Reason, 61,
+            new(2026, 9, 1), new(2026, 12, 31), DateTimeOffset.Parse("2026-08-31T10:00:00Z"),
+            "CommonAndWellDocumented", Reason, evidence.Id, evidence.Version, Reason), SqlFixture.Ra, CaseScenario.Key());
+        var periodic = await scenario.Regulatory.DraftSummary(new(0, agreement.Id, agreement.Version,
+            new(2026, 9, 1), new(2026, 10, 31), [new(scenario.Case.Id, scenario.Case.Version, Reason)],
+            new(Reason, Reason, Reason, Reason), Reason), SqlFixture.Pms, CaseScenario.Key());
+        periodic = await scenario.Regulatory.ApproveSummary(periodic.Id, new(periodic.Version, Reason), SqlFixture.Medical, CaseScenario.Key());
+        periodic = await scenario.Regulatory.ApproveSummary(periodic.Id, new(periodic.Version, Reason), SqlFixture.Ra, CaseScenario.Key());
+        var nativeHash = Canonical.Hash(scenario.Case);
+        var nativeAudit = Canonical.Hash(await fixture.Store.Audit(scenario.Case.Id));
+        var periodicHash = Canonical.Hash(periodic);
+        async Task<EudamedDossier> Freeze(EudamedDossierKind kind, EudamedDossierContent content, EudamedSourceSelection[] sources)
+        {
+            var value = await service.DraftDossier(null, new(0, "ortho", kind, content, sources, Reason), SqlFixture.Pms, CaseScenario.Key());
+            value = await service.ApproveDossier(value.Id, new(value.Version, Reason, Reason), SqlFixture.Medical, CaseScenario.Key());
+            return await service.ApproveDossier(value.Id, new(value.Version, Reason, null), SqlFixture.Ra, CaseScenario.Key());
+        }
+        async Task<EudamedDossierView> Receive(EudamedDossier value, string outcome)
+        {
+            var received = await QueueAndProcess(service, value, outcome);
+            foreach (var planned in received.Dossier.PlannedResponses.OrderBy(p => p.Sequence))
+            {
+                clock.Now = planned.DueAt;
+                received = await service.AdvanceSimulator(value.Id, new(received.Dossier.Version, planned.Id, false, Reason),
+                    SqlFixture.Ra, CaseScenario.Key());
+            }
+            return received;
+        }
+        var psr = await Freeze(EudamedDossierKind.PSR, DossierContent() with
+            { PsrTerms = new(2, periodic.Start, Reason + " Zwei ausdrueckliche Kalendermonate, keine Umrechnung von Tagen.") },
+            [new("summaryAgreement", agreement.Id, agreement.Version)]);
+        psr = (await Receive(psr, "Accept")).Dossier;
+        var psrHash = Canonical.Hash(psr);
+        var psrBytes = await fixture.Objects.ReadBytes(psr.FrozenPackageHash!);
+        var psrp = await Freeze(EudamedDossierKind.PSRP, DossierContent() with
+            { Period = new(periodic.Start, periodic.End, Reason), ParentId = psr.Id, ParentVersion = psr.Version },
+            [new("summaryReport", periodic.Id, periodic.Version), new("eudamedDossier", psr.Id, psr.Version)]);
+        var originalPackage = Canonical.Hash(psrp.Package);
+        var originalApprovals = Canonical.Hash(psrp.Approvals);
+        var psrpBytes = await fixture.Objects.ReadBytes(psrp.FrozenPackageHash!);
+        psrp = (await Receive(psrp, "InformationRequest")).Dossier;
+        var target = Assert.Single(psrp.Correspondence);
+        var originalCorrespondence = await fixture.Objects.ReadBytes(target.OriginalHash);
+        var contentReply = psrp.Package.Content with { IntendedAction = "Reply", ParentId = psrp.Id,
+            ParentVersion = psrp.Version, ReplyToCorrespondenceId = target.Id, ClinicalRationale = Reason + " Originalgebundene Antwort." };
+        var selections = new EudamedSourceSelection[] { new("summaryReport", periodic.Id, periodic.Version),
+            new("eudamedDossier", psrp.Id, psrp.Version) };
+        Assert.Equal("eudamed_period_source", (await Assert.ThrowsAsync<DomainException>(() =>
+            service.DraftDossier(null, new(0, "ortho", EudamedDossierKind.PSRP,
+                contentReply with { Period = contentReply.Period! with { Start = periodic.Start.AddDays(1) } },
+                selections, Reason), SqlFixture.Pms, CaseScenario.Key()))).Code);
+        var reply = await service.DraftDossier(null, new(0, "ortho", EudamedDossierKind.PSRP,
+            contentReply, selections, Reason), SqlFixture.Pms, CaseScenario.Key());
+        Assert.Empty(reply.Approvals);
+        Assert.Empty(reply.Package.Validation.Errors);
+        var xml = System.Xml.Linq.XDocument.Parse(reply.Package.BusinessXml);
+        Assert.Equal(Assert.Single(psr.BusinessResponses).DossierCode,
+            xml.Descendants().Single(e => e.Name.LocalName == "psr_ref").Value);
+        Assert.Equal(Assert.Single(psrp.BusinessResponses).DossierCode,
+            xml.Root!.Elements().Single(e => e.Name.LocalName == "DossierCode").Value);
+        Assert.Equal(psrHash, Canonical.Hash(EudamedRules.PsrAgreement(reply.Package.Content, reply.Package.Sources)));
+        Assert.Equal(contentReply.Period, reply.Package.Content.Period);
+        reply = await service.ApproveDossier(reply.Id, new(reply.Version, Reason, Reason), SqlFixture.Medical, CaseScenario.Key());
+        reply = await service.ApproveDossier(reply.Id, new(reply.Version, Reason, null), SqlFixture.Ra, CaseScenario.Key());
+        Assert.All(reply.Approvals, approval => Assert.DoesNotContain(psrp.Approvals, old => old.Id == approval.Id));
+        var accepted = await Receive(reply, "Accept");
+        Assert.Equal("BusinessAccepted", Assert.Single(accepted.Ledger.Entries).BusinessStatus);
+        Assert.Null(Assert.Single(accepted.Ledger.Entries).CaseObligation);
+        Assert.Equal(periodic.Start, Assert.Single(accepted.Dossier.BusinessResponses).ReturnedPeriod!.Start);
+        Assert.Equal(periodic.End, Assert.Single(accepted.Dossier.BusinessResponses).ReturnedPeriod!.End);
+        var completed = await service.GetDossier(psrp.Id, SqlFixture.Ra);
+        var answered = Assert.Single(completed.Correspondence);
+        Assert.Equal("Replied", answered.Status);
+        Assert.Equal(reply.Id, answered.ReplyDossierId);
+        Assert.Equal(Canonical.Hash(target), Canonical.Hash(answered with { Status = "Open", ReplyDossierId = null }));
+        Assert.Equal(originalPackage, Canonical.Hash(completed.Package));
+        Assert.Equal(originalApprovals, Canonical.Hash(completed.Approvals));
+        Assert.Equal(psrpBytes, await fixture.Objects.ReadBytes(completed.FrozenPackageHash!));
+        Assert.Equal(psrHash, Canonical.Hash(await service.GetDossier(psr.Id, SqlFixture.Ra)));
+        Assert.Equal(psrBytes, await fixture.Objects.ReadBytes(psr.FrozenPackageHash!));
+        Assert.Equal(originalCorrespondence, await fixture.Objects.ReadBytes(answered.OriginalHash));
+        Assert.Equal(periodicHash, Canonical.Hash(await fixture.Store.Get<PeriodicSummaryReport>("summaryReport", periodic.Id)));
+        Assert.Equal(nativeHash, Canonical.Hash(await fixture.Store.Get<SafetyCase>("case", scenario.Case.Id)));
+        Assert.Equal(nativeAudit, Canonical.Hash(await fixture.Store.Audit(scenario.Case.Id)));
+        Assert.Equal(0, gateway.NetworkCalls);
+    }
+
     private async Task<(EudamedService Service, CaseScenario Scenario, EudamedDossier Dossier)> FrozenMirDossier(string action = "Submit")
     {
         var service = Service;

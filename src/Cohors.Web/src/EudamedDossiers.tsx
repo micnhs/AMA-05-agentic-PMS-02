@@ -355,6 +355,8 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
   const generation = useRef(0)
   const historyGeneration = useRef(0)
   const auditGeneration = useRef(0)
+  const downloadGeneration = useRef(0)
+  const downloadController = useRef<AbortController | null>(null)
   const load = useCallback(async () => {
     const request = ++generation.current
     try {
@@ -364,7 +366,10 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
   }, [summary.id])
   useEffect(() => {
     live.current = true
-    return () => { live.current = false; generation.current++; historyGeneration.current++; auditGeneration.current++ }
+    return () => {
+      live.current = false; generation.current++; historyGeneration.current++; auditGeneration.current++
+      downloadGeneration.current++; downloadController.current?.abort()
+    }
   }, [])
   useEffect(() => { void load() }, [load, summary.version])
   const d = historicalVersion === null ? view?.dossier : history?.find(value => value.version === historicalVersion)
@@ -419,8 +424,17 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
         { expectedVersion: dossier.version, eventId, duplicate, reason: v.reason }) })
   }
   async function original(originalHash: string, filename: string) {
-    try { await downloadApi(`/eudamed/dossiers/${dossier.id}/originals/${originalHash}?version=${dossier.version}`, filename) }
-    catch (failure) { if (live.current) setError(failure instanceof Error ? failure.message : 'Originaldownload nicht bestaetigt.') }
+    const request = ++downloadGeneration.current
+    downloadController.current?.abort()
+    const controller = new AbortController()
+    downloadController.current = controller
+    try {
+      await downloadApi(`/eudamed/dossiers/${dossier.id}/originals/${originalHash}?version=${dossier.version}`, filename,
+        { signal: controller.signal, isCurrent: () => live.current && request === downloadGeneration.current })
+    } catch (failure) {
+      if (live.current && request === downloadGeneration.current)
+        setError(failure instanceof Error ? failure.message : 'Originaldownload nicht bestaetigt.')
+    }
   }
   async function showHistory() {
     const request = ++historyGeneration.current

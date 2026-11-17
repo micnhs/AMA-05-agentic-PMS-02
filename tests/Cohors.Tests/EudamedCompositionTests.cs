@@ -99,6 +99,70 @@ public sealed class EudamedCompositionTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void PsrpReplySeparatesItsCorrespondenceTargetFromTheCapturedPsrAgreement()
+    {
+        var fixture = Create(EudamedDossierKind.PSRP);
+        var parent = Parent(EudamedDossierKind.PSRP, fixture);
+        var reply = fixture with
+        {
+            Content = fixture.Content with { IntendedAction = "Reply", ParentId = parent.Id,
+                ParentVersion = parent.Version, ReplyToCorrespondenceId = "original-correspondence" },
+            Sources = [fixture.Sources.Single(s => s.Kind == "summaryReport"),
+                Source("eudamedDossier", parent.Id, parent.Version, parent)]
+        };
+        var originals = Canonical.Hash(reply.Sources);
+        var result = Compose(reply);
+        Assert.True(result.Validation.Errors.Length == 0, string.Join("\n", result.Validation.Errors));
+        var xml = XDocument.Parse(result.Xml);
+        Assert.Equal("DEMO-DTX-PSRP", xml.Root!.Element(Base + "DossierCode")!.Value);
+        Assert.Equal("DEMO-DTX-PSR", xml.Descendants(V1 + "psr_ref").Single().Value);
+        Assert.Equal(fixture.Content.Period, reply.Content.Period);
+        Assert.Equal(originals, Canonical.Hash(reply.Sources));
+        Assert.Equal(EudamedRules.PsrAgreement(fixture.Content, fixture.Sources).ScopeHash,
+            EudamedRules.PsrAgreement(reply.Content, reply.Sources).ScopeHash);
+    }
+
+    [Theory]
+    [InlineData("Period", "eudamed_period_source")]
+    [InlineData("Source", "eudamed_psrp_reply_source")]
+    [InlineData("Agreement", "eudamed_psrp_agreement")]
+    [InlineData("DraftAgreement", "eudamed_remote_reference")]
+    public void PsrpReplyCannotReplaceItsOriginalPeriodSourceOrAcceptedAgreement(string change, string code)
+    {
+        var fixture = Create(EudamedDossierKind.PSRP);
+        var parent = Parent(EudamedDossierKind.PSRP, fixture);
+        if (change is "Agreement" or "DraftAgreement")
+        {
+            var psr = EudamedRules.Source<EudamedDossier>(parent.Package.Sources, "eudamedDossier");
+            if (change == "Agreement")
+            {
+                var agreement = EudamedRules.Source<SummaryAgreement>(psr.Package.Sources, "summaryAgreement") with
+                    { Version = 2, AgreementText = Reason + " Different agreement revision." };
+                var package = psr.Package with { Sources = [Source("summaryAgreement", agreement.Id, agreement.Version, agreement)] };
+                psr = psr with { Package = package, ScopeHash = Canonical.Hash(package) };
+            }
+            else psr = psr with { BusinessResponses = psr.BusinessResponses.Select(r => r with { Status = "DraftCreated" }).ToArray() };
+            var packageParent = parent.Package with { Sources = [fixture.Sources.Single(s => s.Kind == "summaryReport"),
+                Source("eudamedDossier", psr.Id, psr.Version, psr)] };
+            parent = parent with { Package = packageParent, ScopeHash = Canonical.Hash(packageParent) };
+        }
+        var source = fixture.Sources.Single(s => s.Kind == "summaryReport");
+        if (change == "Source")
+        {
+            var periodic = Canonical.Read<PeriodicSummaryReport>(source.Json) with { Version = source.Source.Version + 1 };
+            source = Source("summaryReport", periodic.Id, periodic.Version, periodic);
+        }
+        var reply = fixture with
+        {
+            Content = fixture.Content with { IntendedAction = "Reply", ParentId = parent.Id, ParentVersion = parent.Version,
+                ReplyToCorrespondenceId = "original-correspondence",
+                Period = change == "Period" ? fixture.Content.Period! with { Start = fixture.Content.Period.Start.AddDays(1) } : fixture.Content.Period },
+            Sources = [source, Source("eudamedDossier", parent.Id, parent.Version, parent)]
+        };
+        Assert.Equal(code, Assert.Throws<DomainException>(() => Compose(reply)).Code);
+    }
+
+    [Fact]
     public void ChangedSourceBytesOrReferencesCannotProduceAnApprovalScope()
     {
         var fixture = Create(EudamedDossierKind.MTR);

@@ -50,8 +50,8 @@ public sealed class EudamedComposer : IEudamedComposer
         if (kind == EudamedDossierKind.FSCA) fields.Add(E("cca_srn", binding.Profile.Recipient));
         if (kind == EudamedDossierKind.PSRP)
         {
-            Guard.Against(parent?.Kind != EudamedDossierKind.PSR, "eudamed_psrp_parent", "PSRP braucht eine konkret angenommene PSR-Vereinbarung.");
-            fields.Add(E("psr_ref", RemoteCode(parent!)));
+            var agreement = EudamedRules.PsrAgreement(content, sources);
+            fields.Add(E("psr_ref", RemoteCode(agreement, acceptedOnly: true)));
         }
         var root = new XElement(Base + "Dossier",
             new XAttribute(XNamespace.Xmlns + "v", V1), new XAttribute(XNamespace.Xmlns + "xsi", Xsi),
@@ -300,8 +300,9 @@ public sealed class EudamedComposer : IEudamedComposer
             new XElement(Base + "FileURI", "attachments/" + value.Hash + "/" + value.Name));
     }
 
-    private static string RemoteCode(EudamedDossier value) => value.BusinessResponses
-        .Where(r => r.Applied && r.Status is "BusinessAccepted" or "DraftCreated" && !string.IsNullOrWhiteSpace(r.DossierCode))
+    private static string RemoteCode(EudamedDossier value, bool acceptedOnly = false) => value.BusinessResponses
+        .Where(r => r.Applied && (r.Status == "BusinessAccepted" || !acceptedOnly && r.Status == "DraftCreated") &&
+            !string.IsNullOrWhiteSpace(r.DossierCode))
         .OrderByDescending(r => r.Sequence).FirstOrDefault()?.DossierCode
         ?? throw new DomainException("eudamed_remote_reference", "Kein korreliertes Remote-Dossierkennzeichen; Transport-ACK ist keine Geschaeftsannahme.");
 

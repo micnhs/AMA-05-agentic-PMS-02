@@ -352,13 +352,24 @@ public sealed partial class EudamedService
             "eudamed_parent_version", "Konkrete Dossier-Vorfassung fehlt.", 409);
         var parent = Canonical.Read<EudamedDossier>(source!.Json);
         EudamedRules.RequireFrozen(parent);
-        Guard.Against(parent.Kind != (package.Kind == EudamedDossierKind.PSRP ? EudamedDossierKind.PSR : package.Kind) ||
+        var reply = package.Content.IntendedAction == "Reply";
+        Guard.Against(parent.Kind != (package.Kind == EudamedDossierKind.PSRP && !reply ? EudamedDossierKind.PSR : package.Kind) ||
             parent.ProductId != package.ProductId || parent.Package.Binding.ProfileHash != package.Binding.ProfileHash,
             "eudamed_parent_scope", "Vorfassung muss denselben fachlichen Typ/Produktscope und das urspruengliche Profil treffen.", 409);
-        if (package.Kind != EudamedDossierKind.PSRP)
+        if (package.Kind != EudamedDossierKind.PSRP || reply)
             Guard.Against(EudamedRules.ObligationKey(package) != EudamedRules.ObligationKey(parent.Package),
                 "eudamed_parent_obligation", "Eine Vorfassung darf keine andere fachliche Meldepflicht oder Berichtsperiode umetikettieren.", 409);
-        if (package.Content.IntendedAction == "Reply")
+        if (package.Kind == EudamedDossierKind.PSRP)
+        {
+            var agreement = EudamedRules.PsrAgreement(package.Content, package.Sources);
+            EudamedRules.RequireFrozen(agreement);
+            Guard.Against(agreement.Package.Binding.ProfileHash != package.Binding.ProfileHash ||
+                !agreement.BusinessResponses.Any(r => r.Applied && r.Status == "BusinessAccepted" &&
+                    agreement.Attempts.Any(a => a.Id == r.AttemptId && a.DossierRevision == agreement.Revision &&
+                        a.PackageHash == agreement.ScopeHash)),
+                "eudamed_psr_not_accepted", "Nur die originalgebundene fachlich angenommene PSR-Fassung traegt diese periodische Analyse.", 409);
+        }
+        if (reply)
             Guard.Against(package.DossierId == parent.Id ||
                 !parent.Correspondence.Any(c => c.Id == package.Content.ReplyToCorrespondenceId &&
                 c.Status == "Open" && c.DossierRevision == parent.Revision),

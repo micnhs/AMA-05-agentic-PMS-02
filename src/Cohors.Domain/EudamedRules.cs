@@ -218,6 +218,42 @@ public static class EudamedRules
             medical.ActorId == regulatory.ActorId, "eudamed_approval", "Zwei getrennte aktuelle Freigaben und identisches eingefrorenes Paket erforderlich.", 409);
     }
 
+    public static EudamedDossier PsrAgreement(EudamedDossierContent content, EudamedSource[] sources)
+    {
+        var periodic = Source<PeriodicSummaryReport>(sources, "summaryReport");
+        var periodicSource = sources.Single(s => s.Kind == "summaryReport").Source;
+        var cursor = content;
+        var originals = sources;
+        for (var depth = 0; depth < 32; depth++)
+        {
+            var source = originals.SingleOrDefault(s => s.Kind == "eudamedDossier" && s.Source.Id == cursor.ParentId);
+            Guard.Against(source is null || source.Source.Version != cursor.ParentVersion ||
+                source.Source.Hash != Canonical.HashText(source.Json),
+                "eudamed_psrp_parent", "Die konkrete PSRP-/PSR-Originalbindung fehlt oder wurde veraendert.", 409);
+            var parent = Canonical.Read<EudamedDossier>(source!.Json);
+            Guard.Against(EudamedContracts.Bind(parent) != source.Source || parent.ProductId != periodic.ProductId,
+                "eudamed_psrp_parent", "Die gebundene Vorfassung hat einen anderen Original- oder Produktscope.", 409);
+            if (cursor.IntendedAction != "Reply")
+            {
+                Guard.Against(parent.Kind != EudamedDossierKind.PSR, "eudamed_psrp_parent",
+                    "Die periodische Analyse braucht ihre konkret gebundene PSR-Vereinbarung.", 409);
+                var agreement = Source<SummaryAgreement>(parent.Package.Sources, "summaryAgreement");
+                Guard.Against(periodic.AgreementSource != SummaryReportingRules.Bind(agreement) ||
+                    Canonical.Hash(periodic.Agreement) != Canonical.Hash(agreement),
+                    "eudamed_psrp_agreement", "Die Analyse darf keine fremde oder neuere PSR-Voraussetzungen-Vereinbarung einschieben.", 409);
+                return parent;
+            }
+            Guard.Against(parent.Kind != EudamedDossierKind.PSRP, "eudamed_psrp_parent",
+                "Eine PSRP-Antwort adressiert die konkrete PSRP-Korrespondenz, nicht die PSR-Vereinbarung.", 409);
+            Guard.Against(parent.Package.Sources.SingleOrDefault(s => s.Kind == "summaryReport")?.Source != periodicSource,
+                "eudamed_psrp_reply_source", "Eine Korrespondenzantwort behaelt das exakt gebundene periodische Originalpaket.", 409);
+            RequirePeriod(cursor, parent.Package.Content.Period!.Start, parent.Package.Content.Period.End);
+            cursor = parent.Package.Content;
+            originals = parent.Package.Sources;
+        }
+        throw new DomainException("eudamed_psrp_parent", "PSRP-Antwortkette ueberschreitet die begrenzte Originalaufloesung.", 409);
+    }
+
     public static void RequireActorScope(EudamedDossier value, Actor actor)
     {
         actor.RequireProduct(value.ProductId);

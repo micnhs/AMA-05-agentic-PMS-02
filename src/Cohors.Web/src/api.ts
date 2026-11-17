@@ -7,7 +7,7 @@ let msal: PublicClientApplication | null = null
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number, public readonly code: string) { super(message) }
 }
-async function request(path: string, data?: unknown): Promise<Response> {
+async function request(path: string, data?: unknown, signal?: AbortSignal): Promise<Response> {
   const headers: Record<string, string> = {}
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
   if (data !== undefined) {
@@ -15,7 +15,7 @@ async function request(path: string, data?: unknown): Promise<Response> {
     headers['X-CSRF-Token'] = csrf
     headers['Idempotency-Key'] = crypto.randomUUID()
   }
-  const response = await fetch(`/api${path}`, { method: data === undefined ? 'GET' : 'POST', headers, credentials: 'same-origin', body: data === undefined ? undefined : JSON.stringify(data) })
+  const response = await fetch(`/api${path}`, { method: data === undefined ? 'GET' : 'POST', headers, credentials: 'same-origin', body: data === undefined ? undefined : JSON.stringify(data), signal })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ title: `HTTP ${response.status}: Operation nicht bestaetigt.`, code: 'http_error' }))
     throw new ApiError(error.title ?? error.message ?? `HTTP ${response.status}`, response.status, error.code ?? 'http_error')
@@ -27,13 +27,22 @@ export async function api<T>(path: string, data?: unknown): Promise<T> {
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
-export async function downloadApi(path: string, filename: string): Promise<void> {
-  const response = await request(path)
-  const url = URL.createObjectURL(await response.blob())
+export async function downloadApi(path: string, filename: string, scope: { signal?: AbortSignal; isCurrent?: () => boolean } = {}): Promise<void> {
+  function requireCurrent() {
+    scope.signal?.throwIfAborted()
+    if (scope.isCurrent && !scope.isCurrent()) throw new DOMException('Originalabruf nach Kontextwechsel abgebrochen.', 'AbortError')
+  }
+  requireCurrent()
+  const response = await request(path, undefined, scope.signal)
+  const bytes = await response.blob()
+  requireCurrent()
+  const url = URL.createObjectURL(bytes)
+  const anchor = document.createElement('a')
   try {
-    const anchor = document.createElement('a')
-    anchor.href = url; anchor.download = filename; document.body.appendChild(anchor); anchor.click(); anchor.remove()
-  } finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
+    anchor.href = url; anchor.download = filename; document.body.appendChild(anchor)
+    requireCurrent()
+    anchor.click()
+  } finally { anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
 }
 export async function session(): Promise<Session> {
   const result = await api<Session>('/auth/session')
