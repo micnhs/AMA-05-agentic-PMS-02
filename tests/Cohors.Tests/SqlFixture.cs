@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Cohors.Agents;
 using Cohors.Application;
@@ -13,8 +14,12 @@ public sealed class SqlCollection : ICollectionFixture<SqlFixture>;
 public sealed class SqlFixture : IAsyncLifetime
 {
     private readonly string database = "Cohors_Test_" + Guid.NewGuid().ToString("N");
+    private static readonly string runId = Guid.NewGuid().ToString("N");
     private string master = "";
     private string objectDirectory = "";
+    private string sourceCheckout = "";
+    private string resourceJournal = "";
+    private bool databaseCreated;
     public string ObjectDirectory => objectDirectory;
     public string ConnectionString { get; private set; } = "";
     public SqlStateStore Store { get; private set; } = null!;
@@ -43,24 +48,30 @@ public sealed class SqlFixture : IAsyncLifetime
             throw new InvalidOperationException("SQL integration tests are restricted to the isolated loopback SQL instance.");
         builder.InitialCatalog = "master";
         master = builder.ConnectionString;
+        sourceCheckout = home;
+        objectDirectory = Path.Combine(home, ".local", database, "blobs");
+        resourceJournal = Environment.GetEnvironmentVariable("COHORS_TEST_RESOURCE_FILE") is { Length: > 0 } resourceFile
+            ? resourceFile + ".journal.jsonl"
+            : Path.Combine(home, ".local", $"sql-fixtures-{Environment.ProcessId}-{runId}.jsonl");
+        await RecordResource("CreateRequested");
         await using (var connection = new SqlConnection(master))
         {
             await connection.OpenAsync();
             using var command = new SqlCommand($"CREATE DATABASE [{database}]", connection);
             await command.ExecuteNonQueryAsync();
+            databaseCreated = true;
         }
+        await RecordResource("DatabaseCreated");
         builder.InitialCatalog = database;
         ConnectionString = builder.ConnectionString;
         Store = new(ConnectionString);
         await Store.Initialize();
-        objectDirectory = Path.Combine(home, ".local", database, "blobs");
-        if (Environment.GetEnvironmentVariable("COHORS_TEST_RESOURCE_FILE") is { Length: > 0 } resourceFile)
-            await File.WriteAllTextAsync(resourceFile, Canonical.Serialize(new
-                { database, objectDirectory, testHostPid = Environment.ProcessId, createdAt = DateTimeOffset.UtcNow }));
+        await RecordResource("SchemaReady");
         Objects = new LocalObjectStore(objectDirectory);
         Policies = DemoBaseline.LoadPolicies(Path.Combine(home, "policies"));
         var clock = new TestClock(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
         await DemoBaseline.Seed(Path.Combine(home, "demo"), Store, Objects, Service(clock), clock, includeCases: SeedCases);
+        await RecordResource("Ready");
     }
 
     public CaseService Service(TimeProvider clock, IKnowledgeSearch? knowledge = null) =>
@@ -69,19 +80,42 @@ public sealed class SqlFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        if (string.IsNullOrEmpty(master)) return;
+        if (!databaseCreated) return;
+        await RecordResource("CleanupRequested");
         SqlConnection.ClearAllPools();
         await using var connection = new SqlConnection(master);
         await connection.OpenAsync();
-        using var command = new SqlCommand($"ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]", connection);
+        using var command = new SqlCommand($"IF DB_ID(N'{database}') IS NOT NULL BEGIN ALTER DATABASE [{database}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{database}]; END", connection);
         await command.ExecuteNonQueryAsync();
         if (Directory.Exists(objectDirectory)) Directory.Delete(objectDirectory, recursive: true);
         var directory = Path.GetDirectoryName(objectDirectory);
         if (directory is not null && Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any())
             Directory.Delete(directory);
-        if (Environment.GetEnvironmentVariable("COHORS_TEST_RESOURCE_FILE") is { Length: > 0 } resourceFile)
-            await File.WriteAllTextAsync(resourceFile + ".terminal.json", Canonical.Serialize(new
-                { database, objectDirectory, databaseRemoved = true, objectsRemoved = !Directory.Exists(objectDirectory), at = DateTimeOffset.UtcNow }));
+        await RecordResource("Disposed");
+        databaseCreated = false;
+    }
+
+    private Task RecordResource(string stage) => SqlFixtureResources.Append(resourceJournal,
+        new(database, objectDirectory, Environment.ProcessId, sourceCheckout, stage, DateTimeOffset.UtcNow));
+}
+
+internal sealed record SqlFixtureResource(string Database, string ObjectDirectory, int TestHostPid,
+    string SourceCheckout, string Stage, DateTimeOffset RecordedAt);
+
+internal static class SqlFixtureResources
+{
+    private static readonly SemaphoreSlim writer = new(1, 1);
+
+    internal static async Task Append(string path, SqlFixtureResource entry)
+    {
+        await writer.WaitAsync();
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+            await stream.WriteAsync(Encoding.UTF8.GetBytes(Canonical.Serialize(entry) + "\n"));
+            stream.Flush(flushToDisk: true);
+        }
+        finally { writer.Release(); }
     }
 }
 

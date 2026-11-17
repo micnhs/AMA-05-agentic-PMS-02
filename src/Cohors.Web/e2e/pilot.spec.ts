@@ -407,6 +407,7 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
       const context = await browser.newContext({ storageState: await client.storageState(), timezoneId: 'UTC' })
       contexts.push(context)
       const page = await context.newPage()
+      page.setDefaultTimeout(25_000)
       page.on('pageerror', failure => errors.push(failure.message))
       page.on('request', request => { if (new URL(request.url()).origin !== new URL(baseURL!).origin) externalRequests.push(request.url()) })
       return page
@@ -415,8 +416,8 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
     const clinician = await pageFor(medical)
     const regulator = await pageFor(ra)
     await openDossierUi(author, baseURL!)
-    await author.getByLabel('Dossiertyp', { exact: true }).selectOption('MIR')
-    await author.getByLabel('Primaere versionierte Dossierquelle', { exact: true }).selectOption(c.id)
+    await author.getByRole('combobox', { name: 'Dossiertyp', exact: true }).selectOption('MIR')
+    await author.getByRole('combobox', { name: 'Primaere versionierte Dossierquelle', exact: true }).selectOption(c.id)
     await author.getByRole('button', { name: 'Neues Dossier entwerfen', exact: true }).click()
     let dialog = author.getByRole('dialog')
     const title = `SYNTHETISCH: MIR E03 ${Date.now()}`
@@ -545,6 +546,7 @@ test('E04: byte-exact dossier PDF and audit originals, historical scope and canc
       const context = await browser.newContext({ storageState: await client.storageState(), timezoneId: 'UTC' })
       contexts.push(context)
       const page = await context.newPage()
+      page.setDefaultTimeout(25_000)
       page.on('pageerror', failure => errors.push(failure.message))
       return page
     }
@@ -552,8 +554,8 @@ test('E04: byte-exact dossier PDF and audit originals, historical scope and canc
     const clinician = await pageFor(medical)
     const regulator = await pageFor(ra)
     await openDossierUi(author, baseURL!)
-    await author.getByLabel('Dossiertyp', { exact: true }).selectOption('FSCA')
-    await author.getByLabel('Primaere versionierte Dossierquelle', { exact: true }).selectOption(capa.id)
+    await author.getByRole('combobox', { name: 'Dossiertyp', exact: true }).selectOption('FSCA')
+    await author.getByRole('combobox', { name: 'Primaere versionierte Dossierquelle', exact: true }).selectOption(capa.id)
     await author.getByRole('button', { name: 'Neues Dossier entwerfen', exact: true }).click()
     const dialog = author.getByRole('dialog')
     const title = `SYNTHETISCH: FSCA E04 ${Date.now()}`
