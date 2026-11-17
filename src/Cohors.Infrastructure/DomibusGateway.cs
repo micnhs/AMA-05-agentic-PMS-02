@@ -16,6 +16,7 @@ public sealed record DomibusEndpoint(string Id, string Uri, bool LocalContractTe
 public sealed record DomibusSecretReference(string Id, string Version, string UserNameVariable, string PasswordVariable);
 public sealed record DomibusGatewayOptions(DomibusEndpoint[] Endpoints, DomibusSecretReference[] Secrets, bool LocalAllowed)
 {
+    public DomibusGatewayOptions() : this([], [], false) { }
     public DomibusReferenceChoice[] ModuleKeys { get; init; } = [];
     public string[] OnboardingEvidence { get; init; } = [];
 }

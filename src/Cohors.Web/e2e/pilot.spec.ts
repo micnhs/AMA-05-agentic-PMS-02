@@ -96,10 +96,12 @@ test('E01: persisted actor corrections and rejection, simulator activation and b
     const errors: string[] = []
     const externalRequests: string[] = []
     for (const page of [author, reviewer]) {
+      page.setDefaultTimeout(25_000)
       page.on('pageerror', failure => errors.push(failure.message))
       page.on('request', request => { if (new URL(request.url()).origin !== new URL(baseURL!).origin) externalRequests.push(request.url()) })
       await page.goto(baseURL!)
       await page.getByRole('navigation').getByRole('button', { name: 'EUDAMED Integration', exact: true }).click()
+      await page.getByRole('combobox', { name: 'Integrations-Produktscope', exact: true }).selectOption('ortho')
     }
     const title = `DEMO Actor E01 ${Date.now()}`
     await author.getByRole('button', { name: 'Neuer Actor-Antrag', exact: true }).click()
@@ -203,7 +205,7 @@ test('E01: persisted actor corrections and rejection, simulator activation and b
       humanPmsAndRaAccountsSeparated: true, persistedReload: true, activeChannel: activated, draftMode: pending.draft!.profile.mode,
       blockedExternalActivation: true, browserExternalRequests: externalRequests, realGatewayOrAuthorityAcceptance: false,
     }, null, 2))
-  } finally { await pmsContext?.close(); await raContext?.close(); await pms.dispose(); await ra.dispose() }
+  } finally { await Promise.all([pmsContext?.close(), raContext?.close(), pms.dispose(), ra.dispose()]) }
 })
 
 test('E02: integration role and product checks survive an account switch with a delayed old workspace', async ({ playwright, browser, baseURL }) => {
@@ -231,10 +233,12 @@ test('E02: integration role and product checks survive an account switch with a 
     expect((await medical.post('/api/eudamed/actors', { headers: { 'X-CSRF-Token': medicalCsrf, 'Idempotency-Key': crypto.randomUUID() }, data: input })).status()).toBe(403)
     context = await browser.newContext({ storageState: await ra.storageState() })
     const page = await context.newPage()
+    page.setDefaultTimeout(25_000)
     const errors: string[] = []
     page.on('pageerror', failure => errors.push(failure.message))
     await page.goto(baseURL!)
     await page.getByRole('navigation').getByRole('button', { name: 'EUDAMED Integration', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Integrations-Produktscope', exact: true }).selectOption('ortho')
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
     let markHeld: (() => void) | undefined
     let held = false

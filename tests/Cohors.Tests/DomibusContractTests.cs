@@ -6,6 +6,7 @@ using Cohors.Application;
 using Cohors.Domain;
 using Cohors.Infrastructure;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Configuration;
 
 namespace Cohors.Tests;
 
@@ -33,6 +34,27 @@ public sealed class DomibusContractTests : IDisposable
         Environment.SetEnvironmentVariable(userVariable, null);
         Environment.SetEnvironmentVariable(passwordVariable, null);
         directory.Delete(true);
+    }
+
+    [Fact]
+    public void EmptyOperatorCatalogBindsWithoutInventingEndpointOrLocalPermission()
+    {
+        foreach (var source in new[]
+        {
+            """{"Domibus":{"Endpoints":[],"Secrets":[],"ModuleKeys":[],"OnboardingEvidence":[]}}""",
+            """{"Domibus":{"ModuleKeys":[],"OnboardingEvidence":[]}}"""
+        })
+        {
+            using var json = new MemoryStream(Encoding.UTF8.GetBytes(source));
+            var configuration = new ConfigurationBuilder().AddJsonStream(json).Build();
+            var options = configuration.GetSection("Domibus").Get<DomibusGatewayOptions>();
+            Assert.NotNull(options);
+            Assert.Empty(options.Endpoints);
+            Assert.Empty(options.Secrets);
+            Assert.Empty(options.ModuleKeys);
+            Assert.Empty(options.OnboardingEvidence);
+            Assert.False(options.LocalAllowed);
+        }
     }
 
     [Fact]
