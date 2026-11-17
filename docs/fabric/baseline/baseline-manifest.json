@@ -1,0 +1,2501 @@
+{
+  "id": "FAB-BASELINE-01",
+  "version": "0.2",
+  "distribution": {
+    "original_sha256": "801e854d7bdf7bc81df802f18e1ea159384fb091e10a0b8e5d58eaf9d0598c33",
+    "transform": "Source file labels replace private workstation paths. Requirements, priorities, statuses, scope, source hashes and output hash are unchanged."
+  },
+  "status": "Zur Konzeptfreigabe vorgelegt; keine Implementierungs- oder Erfüllungsbescheinigung",
+  "matrix_requirements": 118,
+  "unique_matrix_ids": 118,
+  "source_priorities": {
+    "Muss": 104,
+    "Soll": 14
+  },
+  "additions": 45,
+  "acceptance_scenarios": 53,
+  "module_counts": {
+    "A Governance & QMS": 10,
+    "B Datenerfassung": 12,
+    "C Vigilanz-Fallmanagement": 15,
+    "D Trend & Signal": 7,
+    "E Untersuchung/CAPA/FSCA": 12,
+    "F PSUR": 16,
+    "G PMCF": 13,
+    "H SSCP & Produktinformation": 5,
+    "I Risikomanagement & TD": 8,
+    "J UDI & Rückverfolgbarkeit": 6,
+    "K Schnittstellen": 7,
+    "L Datenhaltung & Audit": 7
+  },
+  "requirements": [
+    {
+      "id": "A-01",
+      "source_row": 3,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: versionierte Produkt- und PMS-Systemakte für beide fiktiven Familien",
+      "original_system_function": "Produktstammdaten mit Risikoklasse (III), Implantat-Kennzeichen, Zweckbestimmung; PMS-Systemakte je Produkt/Produktgruppe mit Versionierung",
+      "required_artifact": "PMS-Systemdokumentation",
+      "primary_reference": "§3.1, §5.1; P00",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T07",
+        "T08"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-02",
+      "source_row": 4,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: versionierte QMS-/SOP-Referenzen und Verknüpfung zu Change/CAPA",
+      "original_system_function": "Verknüpfung zu QMS-Prozessen (Dokumentenlenkung, Änderungsmanagement, CAPA); Prozessreferenzen im System hinterlegt",
+      "required_artifact": "QMS-Dokumentation mit PMS-Verfahren",
+      "primary_reference": "§5.1, §7, §14.6; P00/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T17"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-03",
+      "source_row": 5,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Meldung, CAPA, Kennzahlen und protokollierte Kommunikation",
+      "original_system_function": "Workflow-Engine für Meldungen; CAPA-Modul mit Wirksamkeitsnachweis; Analyse-/Reporting-Funktion; Korrespondenzverwaltung",
+      "required_artifact": "Verfahrensanweisungen, CAPA-Akten",
+      "primary_reference": "§7, §11, §12; P09–P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T13",
+        "T15",
+        "T17",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-04",
+      "source_row": 6,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Fallregister mit getrennten Einzel-, Sammel- und Trendmeldungen",
+      "original_system_function": "Fall-/Vorkommnisdatenbank mit Meldemodul (Einzel-, Sammel-, Trendmeldung)",
+      "required_artifact": "Systemvalidierung, Falldatenbank",
+      "primary_reference": "§5.1, §8, §12; P03/P10/P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T13",
+        "T14",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-05",
+      "source_row": 7,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: PRRC-Verantwortung sichtbar; zwei getrennte medizinische/RA-Freigaben",
+      "original_system_function": "Rollen-/Berechtigungskonzept mit PRRC-Rolle; Freigabe-Workflow (Vier-Augen-Prinzip) für Meldungen und Berichte; Eskalationsregeln bei Fristgefährdung",
+      "required_artifact": "Rollenmatrix, Freigabeprotokolle",
+      "primary_reference": "§7.3, §8, §14.1; P00/P08/P09",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T06",
+        "T07",
+        "T08"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-06",
+      "source_row": 8,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: schriftliche Zuständigkeitsreferenz je Produkt und Vertretung",
+      "original_system_function": "Verantwortlichkeitsmatrix je Produkt/Prozess im System (Zuordnung Produkt ↔ PRRC)",
+      "required_artifact": "Dokumentierte Aufgabenverteilung",
+      "primary_reference": "§5.1, §7.3; P00",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T08"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-07",
+      "source_row": 9,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Rückruf, Rücknahme und sonstige Maßnahmen mit Empfängern",
+      "original_system_function": "Rückruf-/Rücknahme-Workflow mit Maßnahmentyp (Rückruf, Rücknahme, Konformitätsherstellung); Verteilerlisten Wirtschaftsakteure; Behörden-/BS-Benachrichtigung protokolliert",
+      "required_artifact": "Maßnahmenakte, Benachrichtigungsnachweise",
+      "primary_reference": "§5.1, §7.3, §12; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T17",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-08",
+      "source_row": 10,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Behördenanfrage mit Frist, Antwort und Dossierpaket",
+      "original_system_function": "Behördenanfragen-Tracking (Eingang, Frist, Antwort); Dossier-Export je Produkt/Fall",
+      "required_artifact": "Anfrageprotokoll, Exportpakete",
+      "primary_reference": "§5.1, §7, §12; P07/P11",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T14",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-09",
+      "source_row": 11,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: PMS-bedingter TD-Änderungsauftrag mit Ursprung und Freigabe",
+      "original_system_function": "Änderungs-Trigger aus PMS-Ergebnissen an die TD (Änderungsantrag mit Referenz auf Fall/Trend/PSUR)",
+      "required_artifact": "TD-Änderungshistorie",
+      "primary_reference": "§5.1, §8, §11.1; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "A-10",
+      "source_row": 12,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: klar gegliederte, versionierte und auffindbare PMS-Dokumente",
+      "original_system_function": "Dokumentenmanagement mit Volltextsuche, Struktur nach Anhang III (1.1 Plan, 1.2 Berichte), Versionierung",
+      "required_artifact": "Dokumentenstruktur, Suchfunktion",
+      "primary_reference": "§5.3, §13, §14.2",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T08",
+        "T20"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-01",
+      "source_row": 13,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: zentraler Quellen-/Falldatenbestand mit Provenienz und Zeitachse",
+      "original_system_function": "Zentrale PMS-Datenbank mit strukturierten Datensätzen je Produkt, Zeitachse über Lebenszyklus, Analysefunktionen",
+      "required_artifact": "Datenmodell, Datenbestand",
+      "primary_reference": "§5, §7; P01–P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T01",
+        "T02",
+        "T04"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-02",
+      "source_row": 14,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Vorkommnisse und FSCA als nachvollziehbare PSUR-Quellen",
+      "original_system_function": "Verknüpfung Vigilanzfälle und FSCA mit PMS-Auswertung; Übernahme in PSUR",
+      "required_artifact": "PMS-Plan Abschnitt Datenquellen",
+      "primary_reference": "§5.1, §11.3; P12/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T16",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-03",
+      "source_row": 15,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: nicht schwerwiegende Vorkommnisse und Nebenwirkungen separat klassifizieren",
+      "original_system_function": "Erfassung nicht meldepflichtiger Vorkommnisse und Nebenwirkungen in derselben Datenstruktur (Kennzeichen „nicht schwerwiegend“/„erwartete Nebenwirkung“)",
+      "required_artifact": "Vorkommnisregister",
+      "primary_reference": "§5.1, §7.1, §11.2; P03/P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T15"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-04",
+      "source_row": 16,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Trendentscheidungen und Trendmeldungen rückführen",
+      "original_system_function": "Trendmodul-Ergebnisse (Signale, Trendmeldungen) als PMS-Datenquelle",
+      "required_artifact": "Trendauswertungen",
+      "primary_reference": "§11.2–11.3; P13/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T15",
+        "T16",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-05",
+      "source_row": 17,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: PubMed-Metadaten real, Registerdaten synthetisch; menschliche Relevanzbewertung",
+      "original_system_function": "Literatur-Review-Modul (Suchstrategie, Protokoll, Bewertung, Relevanz); Import-/Schnittstelle für Registerdaten",
+      "required_artifact": "Literaturprotokoll, Registerauswertung",
+      "primary_reference": "§5.3, §12; P01/P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T08",
+        "T09",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-06",
+      "source_row": 18,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: synthetische Beschwerde-/Rückmeldekanäle mit Herkunft",
+      "original_system_function": "Beschwerdemanagement mit mehreren Eingangskanälen (z. B. Web-Formular, E-Mail, Telefonprotokoll, Händlerportal); Erfassung Herkunft und Meldender",
+      "required_artifact": "Beschwerderegister",
+      "primary_reference": "§3.1, §12; P01/P02",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T01",
+        "T02",
+        "T08"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-07",
+      "source_row": 19,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: öffentliche Vergleichsmetadaten getrennt von Herstellerfällen",
+      "original_system_function": "Marktbeobachtung: Erfassung und Bewertung öffentlicher Informationen zu ähnlichen Produkten (z. B. öffentlich zugängliche FSN und Vigilanzinformationen nach Art. 92 Abs. 3)",
+      "required_artifact": "Marktbeobachtungsprotokoll",
+      "primary_reference": "§11.1, §12; P01/P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T01",
+        "T04",
+        "T15"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-08",
+      "source_row": 20,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: produktbezogene Raten und qualifizierter Vergleich",
+      "original_system_function": "Kennzahlen je Produkt (z. B. Beschwerderate, Vorkommnisrate je Absatzmenge); Vergleichsgruppen/Benchmark ähnlicher Produkte",
+      "required_artifact": "Kennzahlenbericht",
+      "primary_reference": "§5.1, §11.1–11.2; P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T15"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-09",
+      "source_row": 21,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: Kodierung, Priorisierung, Assessment, Assurance und Human Review",
+      "original_system_function": "Bewertungsworkflow mit Kodierung (Produktproblem, Patientenfolge), Priorisierung, Vier-Augen-Bewertung",
+      "required_artifact": "Bewertungsverfahren im PMS-Plan",
+      "primary_reference": "§6–§10; P03–P09",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T03",
+        "T04",
+        "T06",
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-10",
+      "source_row": 22,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: Untersuchungsaufgaben und technische Evidenz nach Land/Charge",
+      "original_system_function": "Beschwerdeuntersuchung (Rückläuferanalyse, Ursachenanalyse), Feldberichte, Auswertung nach Land/Charge/Anwender",
+      "required_artifact": "Untersuchungsberichte",
+      "primary_reference": "§5.1, §10, §11.1; P04/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T17"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-11",
+      "source_row": 23,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Behördenweiterleitung als Ursprung mit korrekter Kenntnis",
+      "original_system_function": "Eingangskanal „Behördenweiterleitung“; Fallanlage mit Herkunft und Fristbeginn (Kenntnisdatum); Begründungs-Workflow bei Nichtmeldung",
+      "required_artifact": "Fallakte mit Behördenkorrespondenz",
+      "primary_reference": "§7.1, §9.2, §12; P01/P03/P11",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T01",
+        "T10",
+        "T11"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "B-12",
+      "source_row": 24,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: Anwendungsfehler/Informationsmangel mit IFU-/Usability-Rückkopplung",
+      "original_system_function": "Vorkommnistypen „Anwendungsfehler“ und „Informationsmangel“ mit Rückkopplung an Gebrauchstauglichkeit/IFU",
+      "required_artifact": "Vorkommnisklassifikation",
+      "primary_reference": "§5.1, §10, §11.1; P03/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-01",
+      "source_row": 25,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: kontrollierte Vorkommnis-, Problem- und Folgenklassifikation",
+      "original_system_function": "Pflichtattribute im Falldatensatz (Vorkommnisart, Produktproblem, Patientenfolge), kontrollierte Wertelisten",
+      "required_artifact": "Klassifikationsschema",
+      "primary_reference": "§5.1, §10.1; P03",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T04"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-02",
+      "source_row": 26,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: begründete menschliche Seriousness-Entscheidung mit Fristfolge",
+      "original_system_function": "Entscheidungsassistent (Entscheidungsbaum) mit dokumentierter Begründung; Einstufung steuert Meldefrist",
+      "required_artifact": "Einstufungsdokumentation je Fall",
+      "primary_reference": "§7.1, §9, §10; P03/P08",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T10"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-03",
+      "source_row": 27,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: eng begründete Ausnahme für erwartete Nebenwirkungen",
+      "original_system_function": "Referenzliste erwarteter Nebenwirkungen mit quantifizierten Raten je Produkt (aus TD/IFU); automatischer Abgleich; Ausnahme-Kennzeichen mit Begründung und Weiterleitung ans Trendmodul",
+      "required_artifact": "Liste erwarteter Nebenwirkungen",
+      "primary_reference": "§7.1, §10, §11.2; P03/P08/P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T15"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-04",
+      "source_row": 28,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: FSCA mit Drittland-/EU-Marktbezug",
+      "original_system_function": "FSCA-Objekt mit Länder-/Marktbezug; Trigger bei Drittland-FSCA, wenn Produkt auch EU-Markt hat",
+      "required_artifact": "FSCA-Meldungen",
+      "primary_reference": "§5.1, §7.3, §12; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-05",
+      "source_row": 29,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: validierte Meldungspakete; kontofreier Simulator und Domibus-Backendadapter. Reale Registrierung, Playground-/Produktivfreischaltung und echter Versand bleiben getrennte Gates.",
+      "original_system_function": "Schnittstelle/Export an das elektronische Vigilanzsystem (Formate der Durchführungsrechtsakte nach Art. 91 [außerhalb des MDR-Texts – zu ergänzen])",
+      "required_artifact": "Übermittlungsnachweise",
+      "primary_reference": "§12.1–12.2; P09–P11",
+      "scope_supplement": "PRIMARY §12.3; EU §§8,10,13; T19/T21–T23",
+      "candidate_test_ids": [
+        "T13",
+        "T14",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-06",
+      "source_row": 30,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: 15-Tage-Höchstfrist plus unverzügliche Bearbeitung",
+      "original_system_function": "Fristenrechner ab Kenntnisdatum; Fälligkeitsanzeige, Erinnerungen, Eskalation an PRRC",
+      "required_artifact": "Fristenprotokoll",
+      "primary_reference": "§9; P03/P09",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T11",
+        "T12"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-07",
+      "source_row": 31,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: 2-Tage-Höchstfrist, priorisierte Bearbeitung und Eskalation",
+      "original_system_function": "Priorisierte Fristberechnung, Sofortalarm, Bereitschaftsregelung",
+      "required_artifact": "Fristenprotokoll",
+      "primary_reference": "§7.2, §9; P03/P09",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T12"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-08",
+      "source_row": 32,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: 10-Tage-Höchstfrist bei zutreffender Klassifikation",
+      "original_system_function": "Fristberechnung, Alarm",
+      "required_artifact": "Fristenprotokoll",
+      "primary_reference": "§9; P03/P09",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T11",
+        "T12"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-09",
+      "source_row": 33,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: getrennte Initial-, Follow-up- und Abschlussversionen",
+      "original_system_function": "Meldestatus (vorläufig / Folgemeldung / abschließend); Nachverfolgung offener Folgemeldungen",
+      "required_artifact": "Meldehistorie",
+      "primary_reference": "§5.1, §7.1, §8; P09–P11",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T05",
+        "T07",
+        "T13",
+        "T14"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-10",
+      "source_row": 34,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Unsicherheit sichtbar, fristgerechter menschlicher Vorläufigkeitsweg",
+      "original_system_function": "Entscheidungsregel im Assistenten („im Zweifel melden“); Dokumentation der Entscheidung",
+      "required_artifact": "Entscheidungsprotokoll",
+      "primary_reference": "§7.2, §9, §10; P06/P08/P09",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T03",
+        "T04",
+        "T05",
+        "T10"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-11",
+      "source_row": 35,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: FSCA-Melde-Gate vor Durchführung, begründete Dringlichkeit",
+      "original_system_function": "Workflow-Gate: Meldung vor Start der FSCA; Dringlichkeitsausnahme mit Begründung",
+      "required_artifact": "FSCA-Akte",
+      "primary_reference": "§7.3, §8, §12; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-12",
+      "source_row": 36,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: eigenständige Sammelmeldung mit passender Behördenvereinbarung",
+      "original_system_function": "Sammelmeldungs-Modul: Gruppierung nach Produkt/Produktart und Ursache; Hinterlegung der Behördenvereinbarung (Form, Inhalt, Häufigkeit); periodische Generierung",
+      "required_artifact": "Vereinbarung und Sammelmeldungen",
+      "primary_reference": "§5.1, §12; P09/P10",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-13",
+      "source_row": 37,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Nichtmeldebegründung, Behördenreaktion und kontrollierte Neubewertung",
+      "original_system_function": "Begründungsdokument je Fall; Behördenkorrespondenz-Tracking; Re-Klassifizierung mit neuem Fristlauf",
+      "required_artifact": "Begründungsschreiben",
+      "primary_reference": "§7.1, §9.2; P08/P11",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T11"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-14",
+      "source_row": 38,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: Kenntnis, Kausalitätsbewertung und neue Information getrennt erfassen",
+      "original_system_function": "Kausalitätsfeld (festgestellt / durchaus möglich / vermutet / ausgeschlossen) mit Zeitstempel; Kenntnisdatum unveränderbar protokolliert",
+      "required_artifact": "Fallakte",
+      "primary_reference": "§9.2, §10.1; P03/P05/P08",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T11"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "C-15",
+      "source_row": 39,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Ereignisland und korrekter behördlicher Empfängerscope",
+      "original_system_function": "Pflichtfeld Ereignisland; Stammdaten zuständiger Behörden je Mitgliedstaat",
+      "required_artifact": "Fallakte",
+      "primary_reference": "§5.1, §9.1, §12; P09/P10",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T10",
+        "T13",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "D-01",
+      "source_row": 40,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: statistischer Kandidat, menschliche Relevanz-/Meldeentscheidung, Trendpaket",
+      "original_system_function": "Trendmodul: periodische statistische Auswertung je Produkt/Nebenwirkung, Signalgenerierung, Erstellung und Übermittlung der Trendmeldung",
+      "required_artifact": "Trendmeldungen",
+      "primary_reference": "§11.2, §12; P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T15",
+        "T16",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "D-02",
+      "source_row": 41,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: freigegebene Referenzraten mit TD-/IFU-Version",
+      "original_system_function": "Hinterlegte, versionierte Referenzraten (Baseline) je Produkt/Produktgruppe und Nebenwirkung; Verknüpfung mit TD/IFU",
+      "required_artifact": "Baseline-Dokumentation in TD",
+      "primary_reference": "§5.1, §11.2; P00/P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T15"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "D-03",
+      "source_row": 42,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: versionierte Methodik, Fenster und Schwellen im PMS-Plan",
+      "original_system_function": "Konfigurierbare Methodik je Produkt (Statistikverfahren, Schwellenwerte, Beobachtungszeitraum) mit Dokumentationsexport in den PMS-Plan",
+      "required_artifact": "PMS-Plan Abschnitt Trend",
+      "primary_reference": "§11.2, §16.4; P00/P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T15"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "D-04",
+      "source_row": 43,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: Indikatoren, Review-Alarm und RM-Änderungsauftrag",
+      "original_system_function": "Kennzahlen-/Schwellenwert-Engine mit Alarmierung; Verknüpfung zur Risikomanagement-Akte",
+      "required_artifact": "Indikatorenliste im PMS-Plan",
+      "primary_reference": "§11.2, §7.3; P13/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T15",
+        "T17"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "D-05",
+      "source_row": 44,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Behördenantwort zu einem Trend mit Maßnahmenverfolgung",
+      "original_system_function": "Erfassung behördlicher Rückmeldungen zu Trendmeldungen; Maßnahmenverfolgung",
+      "required_artifact": "Korrespondenz, Maßnahmenakte",
+      "primary_reference": "§7, §12; P11/P12/P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T17",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "D-06",
+      "source_row": 45,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: externes Sicherheitssignal löst verpflichtenden Maßnahmenreview aus",
+      "original_system_function": "Eingang externer Signale als Fall-/Signaltyp; verpflichtender CAPA-Anstoß; Nachverfolgung",
+      "required_artifact": "Signalakte",
+      "primary_reference": "§5.1, §7; P01/P03/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T01",
+        "T04",
+        "T17",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "D-07",
+      "source_row": 46,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: vergleichbare Expositionsraten mit dokumentiertem Nenner",
+      "original_system_function": "Raten-Berechnung (Vorkommnisse je Absatz-/Implantationszahl und Zeitraum) auf Basis Vertriebsdaten",
+      "required_artifact": "Ratenauswertung",
+      "primary_reference": "§11.2–11.3; P13/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T15",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-01",
+      "source_row": 47,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: fallbezogene Untersuchung und begründete Risikobewertung",
+      "original_system_function": "Untersuchungs-Workflow (Ursachenanalyse, Risikobewertung) verknüpft mit Fall und Risikomanagement-Akte",
+      "required_artifact": "Untersuchungsbericht",
+      "primary_reference": "§10, §11.1; P04–P08/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T03",
+        "T04",
+        "T17"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-02",
+      "source_row": 48,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Asservatenbezug, vorherige Behördenunterrichtung und interne Prüffreigabe",
+      "original_system_function": "Freigabe-Gate vor produktverändernden Prüfungen; Behördenbenachrichtigung protokolliert; Rückläufer-/Asservatenverwaltung (Eingang, Zustand, Lagerort)",
+      "required_artifact": "Prüfprotokoll mit Freigabe",
+      "primary_reference": "§5.1, §7.3; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-03",
+      "source_row": 49,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Abschlussbericht mit Untersuchung, Schlussfolgerung und Maßnahmen",
+      "original_system_function": "Generierung des Abschlussberichts aus Fall-/Untersuchungsdaten; Übermittlung; Statusverfolgung",
+      "required_artifact": "Abschlussberichte",
+      "primary_reference": "§7, §10, §12.2; P11/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T07",
+        "T14",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-04",
+      "source_row": 50,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Behördeninteraktionen und Untersuchungsauflagen protokollieren",
+      "original_system_function": "Protokollierung behördlicher Interaktionen und Auflagen je Fall",
+      "required_artifact": "Fallakte",
+      "primary_reference": "§5.1, §7; P11/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T18",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-05",
+      "source_row": 51,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: CAPA-Plan, Termine und unabhängige Wirksamkeitsentscheidung",
+      "original_system_function": "CAPA-Modul: Maßnahmenplan, Verantwortliche, Termine, Wirksamkeitsnachweis, Benachrichtigungen",
+      "required_artifact": "CAPA-Akten",
+      "primary_reference": "§5.1, §7.3; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T17"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-06",
+      "source_row": 52,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: synthetische Betroffenheitsliste über Produkt/Charge/Markt",
+      "original_system_function": "Betroffenheitsanalyse über UDI-DI/UDI-PI (Serien-/Losnummer), Chargenrückverfolgung, Distributionsdaten je Land/Kunde",
+      "required_artifact": "Betroffenheitsliste",
+      "primary_reference": "§5.1, §11.1; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T08"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-07",
+      "source_row": 53,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: versionierter FSN-Entwurf, Behördenreview und Sprach-/Empfängerscope",
+      "original_system_function": "FSN-Vorlagen, Sprachversionen, Behörden-Review-Schritt, Versionskontrolle, Verteilung an Anwender/Kunden mit Empfangsnachweis",
+      "required_artifact": "FSN mit Versandnachweis",
+      "primary_reference": "§7.3, §8.2, §12; P09/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-08",
+      "source_row": 54,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: FSN-Pflichtfelder mit klarer Risiko- und Anwendermaßnahmenbeschreibung",
+      "original_system_function": "FSN-Template mit Pflichtfeldern (UDI, SRN, Fehlfunktion, Risiko, Anwendermaßnahmen); automatische Übernahme aus Produkt-/Herstellerstammdaten",
+      "required_artifact": "FSN",
+      "primary_reference": "§5.1, §10, §12; P09/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-09",
+      "source_row": 55,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "S: FSN-Einstellung mit eindeutig simuliertem Übermittlungsbeleg",
+      "original_system_function": "Übermittlung der FSN an das elektronische System; Nachweis der Einstellung",
+      "required_artifact": "Übermittlungsnachweis",
+      "primary_reference": "§12.1; P10/P11",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T13",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-10",
+      "source_row": 56,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: koordinierter Vorgang mit Länderfällen und koordinierender Behörde",
+      "original_system_function": "Stammdaten koordinierende Behörde; Verknüpfung von Fällen mehrerer Länder zu einem Vorgang; zentrale Korrespondenz",
+      "required_artifact": "Vorgangsakte",
+      "primary_reference": "§5.1–5.2, §12; P09/P11/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T13",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-11",
+      "source_row": 57,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: nachvollziehbares Untersuchungs-/Risikodossier",
+      "original_system_function": "Dossier-Export je Fall (Untersuchung, Risikobewertung, Maßnahmen)",
+      "required_artifact": "Exportpaket",
+      "primary_reference": "§5.3, §10, §14.2; P11/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T07",
+        "T18",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "E-12",
+      "source_row": 58,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Rückruf, Rücknahme und sonstige FSCA mit Umfang und Status",
+      "original_system_function": "FSCA-Objekt mit Maßnahmentyp (Rückruf, Rücknahme, sonstige FSCA), Umfang (Produkte, Chargen, Länder), Status",
+      "required_artifact": "FSCA-Akte",
+      "primary_reference": "§5.1, §7.3; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T17",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-01",
+      "source_row": 59,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: eingefrorener produkt-/gruppenbezogener PSUR-Entwurf",
+      "original_system_function": "PSUR-Generator mit automatischer Datenaggregation aus Fall-, Trend-, CAPA-, PMCF- und Literaturmodul; Zuordnung Produkt ↔ Produktgruppe",
+      "required_artifact": "PSUR",
+      "primary_reference": "§5.1, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-02",
+      "source_row": 60,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: begründete Nutzen-Risiko-Schlussfolgerung mit aktuellem Evidenzscope",
+      "original_system_function": "Übernahme der aktuellen Nutzen-Risiko-Bewertung aus Risikomanagement/klinischer Bewertung",
+      "required_artifact": "PSUR Abschnitt Nutzen-Risiko",
+      "primary_reference": "§10, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-03",
+      "source_row": 61,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: richtige PMCF-Berichtsversion und Hauptergebnisse im PSUR",
+      "original_system_function": "Verknüpfung mit PMCF-Bewertungsbericht (aktuelle Version)",
+      "required_artifact": "PSUR Abschnitt PMCF",
+      "primary_reference": "§5.3, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-04",
+      "source_row": 62,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: synthetische Absatz-/Expositionsdaten samt Population und Einheit",
+      "original_system_function": "Schnittstelle zu Vertriebs-/Logistikdaten (Absatz je Land, Zeitraum, UDI-DI); Expositionsmodell für Implantate (implantierte Patienten, Verweildauer); Ratenberechnung",
+      "required_artifact": "PSUR Abschnitt Exposition",
+      "primary_reference": "§5.1, §11.2–11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T15",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-05",
+      "source_row": 63,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: Jahreszyklus, Fälligkeit, Berichtsversion und TD-Bezug",
+      "original_system_function": "Fälligkeitsplanung je Produkt (Berichtszeitraum, Stichtag), Erinnerungen, Versionierung, Ablage in TD",
+      "required_artifact": "PSUR-Versionen, TD-Index",
+      "primary_reference": "§9.1, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T12",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-06",
+      "source_row": 64,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: PSUR-Dossier, getrennte Freigaben, simulierte NB-Rückfragen/-Bewertung; Domibus-Adapter. Echte NB-Akzeptanz und reale externe Aktivierung nicht durch Demo belegt.",
+      "original_system_function": "Einreichungs-Workflow an das elektronische System, Status „bei BS“ / „bewertet“; Erfassung der BS-Bewertung und daraus folgender Maßnahmen",
+      "required_artifact": "Einreichungsnachweis, BS-Bewertung",
+      "primary_reference": "§11.3, §12; P14/P11",
+      "scope_supplement": "PRIMARY §11.3/§12.3; EU §7.4/§9; EU-12/EU-20",
+      "candidate_test_ids": [
+        "T07",
+        "T13",
+        "T16",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-07",
+      "source_row": 65,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: jede PSUR-Aussage auf Fall-/Daten-/Evidenzversion zurückführen",
+      "original_system_function": "Rückverfolgbarkeit jeder PSUR-Aussage auf zugrunde liegende Datensätze (Fall-IDs, Auswertungen) im System",
+      "required_artifact": "Datenanhang zum PSUR",
+      "primary_reference": "§5.3, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-08",
+      "source_row": 66,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: stabile PSUR-Referenz, fortlaufende Version und Revisionshistorie",
+      "original_system_function": "Vergabe und Sperre der Referenznummer am Leitprodukt; automatische Versionszählung je Aktualisierung; Revisionshistorie mit Vorversionen, früheren BS und deren Maßnahmen",
+      "required_artifact": "PSUR-Deckblatt, Revisionshistorie",
+      "primary_reference": "§5.1, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-09",
+      "source_row": 67,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: begründete Gruppe mit gesperrtem Leitprodukt und passender BS",
+      "original_system_function": "Gruppenverwaltung je PSUR mit Prüfregeln (höchste Risikoklasse, gleiche BS, Leitprodukt gesperrt, Eindeutigkeit je Zeitraum); Begründungspflicht für Gruppierung und Änderungen; Verweis auf den PSUR, in dem entfernte Produkte weiterberichtet werden; Datenausweis je Basis-UDI-DI",
+      "required_artifact": "PSUR-Abschnitt Gruppierung, Gruppenprotokoll",
+      "primary_reference": "§5.1, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-10",
+      "source_row": 68,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: lückenlose Berichtsperioden und gesonderter vereinbarter Einreichungstermin",
+      "original_system_function": "Zeitplan je PSUR aus Zertifizierungsdatum oder vereinbartem Zeitplan; Prüfung auf lückenlose Zeiträume; begründete Abweichungen; mit der BS vereinbarter Einreichungstermin; Erfassung von geplantem Datum, Einreichungsdatum und Termintreue in Tagen; Erinnerungen und Eskalation an die PRRC",
+      "required_artifact": "Fristenreport PSUR, Einreichungsnachweis",
+      "primary_reference": "§9.1, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-11",
+      "source_row": 69,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: kontrollierter Produktlebenszyklus und geprüfte Regel zum PSUR-Ende",
+      "original_system_function": "Berechnung des Endes der PSUR-Pflicht je Produktmodell aus letztem Inverkehrbringen, Haltbarkeit und Lebensdauer mit einstellbarer Deckelung auf die Aufbewahrungsfrist; Weiterführung nach Vertriebsende mit Mindestinhalt (Beschwerden, schwerwiegende Vorkommnisse, FSCA, Trendmeldungen, Literatur, Datenbanken); Empfänger nach Status (BS oder Behörden auf Anfrage)",
+      "required_artifact": "Lebenszyklusnachweis je Produktmodell",
+      "primary_reference": "§11.3, §14.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T16",
+        "T18"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-12",
+      "source_row": 70,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: Basic-UDI-, regions-, perioden- und nennerkonsistente Tabellen",
+      "original_system_function": "Auswertung nach Basis-UDI-DI, Region und Zeitscheibe; Zuordnung Land zu Region (EWR, Türkei, Nordirland, weltweit); einheitliche Bezugsgröße je PSUR; Expositionsschätzung mit mehreren Implantaten je Patient; Populationsmerkmale; getrennter Ausweis bei Gruppenänderung",
+      "required_artifact": "PSUR-Tabellen nach Anhang II (Tabellen 1 bis 3)",
+      "primary_reference": "§11.2–11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T15",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-13",
+      "source_row": 71,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: versionierte IMDRF-Kodes, Ebenen, Todesfälle und historische Kennzeichnung",
+      "original_system_function": "Pflichtkodierung schwerwiegender Vorkommnisse (Anhänge A, C, D, F) mit Ebene und Release; Zuordnung interner Beschwerdecodes zu IMDRF-Anhang A; Auswertungen nach den Tabellen 4 bis 6; Kennzeichnung historischer Daten",
+      "required_artifact": "PSUR-Tabellen nach Anhang II (Tabellen 4 bis 6)",
+      "primary_reference": "§10.1, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T14",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-14",
+      "source_row": 72,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: sicherheitsrelevante und offene CAPA/FSCA mit Stichtagsstatus",
+      "original_system_function": "Kennzeichen „sicherheitsrelevant nach Art. 83 Abs. 4“ am CAPA mit automatischer Übernahme in den PSUR; Pflichtfelder für CAPA und FSCA; Status zum Ende des Datenerhebungszeitraums; Listen der eingeleiteten und offenen Maßnahmen (Tabellen 7 und 8)",
+      "required_artifact": "PSUR-Tabellen nach Anhang II (Tabellen 7 und 8)",
+      "primary_reference": "§5.2, §11.3; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T16",
+        "T17"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-15",
+      "source_row": 73,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: vollständiges Quellenverzeichnis einschließlich begründeter Ausschlüsse",
+      "original_system_function": "Quellenverzeichnis je PSUR aus dem Quellenkatalog (Modul B) mit Registerattributen; Beschwerdeauswertung mit Rate und Auswahlbegründung; Vergleich mit Produkten gleicher Zweckbestimmung; Pflichtbegründung für nicht genutzte Datensätze",
+      "required_artifact": "PSUR-Abschnitte zu PMS- und allgemeinen PMCF-Daten",
+      "primary_reference": "§5.3, §11.3, §12; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "F-16",
+      "source_row": 74,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Bericht, Pflichtaussage und vollständiger simuliert einreichbarer Datensatz",
+      "original_system_function": "Berichtsgenerator nach der Vorlage in Anhang I; Pflichtaussage zum Nutzen-Risiko-Profil; Maßnahmenstatus aus dem Vor-PSUR; Webformular-Datensatz aus den Stammdaten mit Vollständigkeitsprüfung; PDF-Export; Ausschluss von Legacy- und Nicht-Klasse-III-Produkten aus dem Webformular",
+      "required_artifact": "PSUR (PDF), Webformular-Datensatz, Einreichungsnachweis",
+      "primary_reference": "§11.3, §12; P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T16",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-01",
+      "source_row": 75,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: PMCF-Akte als versionierte Evidenz mit CER-/QMS-Bezug",
+      "original_system_function": "PMCF-Modul im System, verknüpft mit klinischer Bewertung",
+      "required_artifact": "PMCF-Dokumentation",
+      "primary_reference": "§3.1, §5.1; P00/P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-02",
+      "source_row": 76,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/S: synthetische klinische/Registry-Evidenz und reale zulässige Literaturmetadaten",
+      "original_system_function": "Erfassung klinischer PMCF-Daten (Register, Studien, Anwenderbefragungen, Literatur) mit Verknüpfung zu Produkt/Lebensdauer",
+      "required_artifact": "PMCF-Daten",
+      "primary_reference": "§3.1, §12; P01/P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T08",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-03",
+      "source_row": 77,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: freigegebene PMCF-Planversion mit PMS-Plan-Verweis",
+      "original_system_function": "PMCF-Plan als versioniertes Dokumentobjekt mit Pflichtabschnitten",
+      "required_artifact": "PMCF-Plan",
+      "primary_reference": "§5.1–5.3; P00/P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-04",
+      "source_row": 78,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: Ziele und neue Risiken im Plan-/Ergebnisdokument nachvollziehen",
+      "original_system_function": "Zielkatalog je PMCF-Plan mit Kennzahlen; Auswertung von Fall-/Registerdaten auf Off-Label-/Fehlanwendung",
+      "required_artifact": "PMCF-Plan Abschnitt Ziele",
+      "primary_reference": "§10, §11.1; P04/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-05",
+      "source_row": 79,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: vollständige Planvorlage und referenzierte Aufgaben/Fälligkeiten",
+      "original_system_function": "Strukturierte Planvorlage mit Pflichtabschnitten a–h; Zeitplan mit Meilensteinen und Aufgabenverfolgung",
+      "required_artifact": "PMCF-Plan",
+      "primary_reference": "§5.1, §9.1; P00/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T10"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-06",
+      "source_row": 80,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: versionierter PMCF-Bericht als CER-/TD-/PSUR-Evidenz",
+      "original_system_function": "Berichtsgenerator für den PMCF-Bewertungsbericht; Ablage in TD; Verknüpfung mit klinischem Bewertungsbericht",
+      "required_artifact": "PMCF-Bewertungsbericht",
+      "primary_reference": "§3.1, §5.3, §11.3; P04/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-07",
+      "source_row": 81,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/P: PMCF-Befund erzeugt kontrollierten CER-/RM-Change oder CAPA",
+      "original_system_function": "Verknüpfung PMCF-Ergebnis → klinischer Bewertungsbericht, Risikomanagement-Akte, CAPA-Anstoß",
+      "required_artifact": "Änderungshistorie CER/RM",
+      "primary_reference": "§5.1, §7; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T17"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-08",
+      "source_row": 82,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/P: jährliche Review-Aufgabe für PMCF-Bericht und gegebenenfalls SSCP",
+      "original_system_function": "Jahreszyklus mit Fälligkeitssteuerung, Erinnerung, Versionierung",
+      "required_artifact": "Jahresversionen",
+      "primary_reference": "§3.1, §9.1; P12/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T12"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-09",
+      "source_row": 83,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: PMS-/PMCF-getriggerter Änderungsauftrag an die klinische Bewertung",
+      "original_system_function": "Daten-Feed aus PMS-Modulen an die klinische Bewertung; Änderungs-Trigger",
+      "required_artifact": "Aktualisierte klinische Bewertung",
+      "primary_reference": "§5.1, §11.1; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-10",
+      "source_row": 84,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "Z: Anzeige und Management invasiver/belastender PMCF-Studien",
+      "original_system_function": "Studienverwaltung: Studienobjekt, Anzeigefrist (30 Tage), Dokumentenpaket, Status je Mitgliedstaat",
+      "required_artifact": "Anzeigenachweis",
+      "primary_reference": "§3.1, §12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-11",
+      "source_row": 85,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/S: erforderliche PMCF-Studie und BS-Rückmeldung als Plan-/Auflagenreferenz",
+      "original_system_function": "Kennzeichnung im PMCF-Plan („PMCF-Studie erforderlich“), Nachweis der Studienplanung, Erfassung der BS-Rückmeldung",
+      "required_artifact": "PMCF-Plan mit Studienteil",
+      "primary_reference": "§3.1, §5.1, §12; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-12",
+      "source_row": 86,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/S: Bescheinigungsauflagen mit Nachweisreferenz und Aufgabe",
+      "original_system_function": "Auflagen-Tracking je Bescheinigung (Bedingungen, Termine, Erfüllungsnachweis)",
+      "required_artifact": "Auflagenregister",
+      "primary_reference": "§5.1, §9.1, §12; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T10",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "G-13",
+      "source_row": 87,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/S: synthetische Registerdaten mit Herkunft und Produktbezug",
+      "original_system_function": "Schnittstelle/Import von Registerdaten (Standzeit, Revisionen o. ä. je nach Register), Zuordnung über UDI",
+      "required_artifact": "Registerauswertung",
+      "primary_reference": "§5.3, §12; P01/P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T04",
+        "T08"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "H-01",
+      "source_row": 88,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: versioniertes SSCP-Dokument mit Sprache und Produktbezug",
+      "original_system_function": "SSCP-Dokumentobjekt mit Versionierung und Sprachversionen",
+      "required_artifact": "SSCP",
+      "primary_reference": "§3.1, §5.1; P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "H-02",
+      "source_row": 89,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/S: BS-Validierungsnachweis und öffentliche Fundstelle als getrennte Metadaten",
+      "original_system_function": "Workflow-Status (Entwurf → BS-Validierung → veröffentlicht); Verweis auf SSCP-Fundstelle in Labeling-Stammdaten",
+      "required_artifact": "Validierungsnachweis",
+      "primary_reference": "§5.1, §12; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "H-03",
+      "source_row": 90,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: SSCP-Pflichtabschnitte als kontrollierte Dokumentvorlage/Checkliste",
+      "original_system_function": "SSCP-Vorlage mit Pflichtabschnitten a–h; Datenübernahme aus Produktstammdaten, klinischer Bewertung, PMCF, Risikomanagement",
+      "required_artifact": "SSCP",
+      "primary_reference": "§3.1, §5.1, §10",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "H-04",
+      "source_row": 91,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/P/S: Änderungsauftrag, Jahresreview und simulierte Revalidierung",
+      "original_system_function": "Änderungs-Trigger aus PMS/PMCF-Ergebnissen; Jahreszyklus; Re-Validierungs-Workflow mit BS",
+      "required_artifact": "SSCP-Versionshistorie",
+      "primary_reference": "§5.1, §9.1; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T10",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "H-05",
+      "source_row": 92,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: belegter IFU-/Labeling-/Design-Änderungsauftrag",
+      "original_system_function": "Änderungsanträge an Design/Labeling aus PMS-Erkenntnissen; Nachverfolgung bis zur Umsetzung",
+      "required_artifact": "Änderungshistorie IFU/Labeling",
+      "primary_reference": "§5.1, §11.1; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "I-01",
+      "source_row": 93,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/P: belegte Gefährdungszuordnung und menschlicher RM-Änderungsauftrag",
+      "original_system_function": "Schnittstelle zur Risikomanagement-Akte: Zuordnung Vorkommnisse ↔ Gefährdungen, Aktualisierung von Häufigkeiten, Neubewertung, Anpassung Kontrollmaßnahmen",
+      "required_artifact": "Aktualisierte Risikomanagement-Akte",
+      "primary_reference": "§5.1, §10, §11.1; P04/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T07",
+        "T15"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "I-02",
+      "source_row": 94,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/P: signal-/trend-/PSUR-getriggerter RM-Review mit Historie",
+      "original_system_function": "Review-Zyklus für Risikomanagement mit Auslösern aus PMS (Signal, Trend, PSUR); Änderungshistorie",
+      "required_artifact": "Review-Protokolle",
+      "primary_reference": "§5.1, §7, §11; P12–P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T16",
+        "T17"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "I-03",
+      "source_row": 95,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: versionsgebundener Daten-/Änderungsbezug zur klinischen Bewertung",
+      "original_system_function": "Daten-Feed an klinische Bewertung (siehe G-09)",
+      "required_artifact": "Aktualisierte klinische Bewertung",
+      "primary_reference": "§5.1, §11.1; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "I-04",
+      "source_row": 96,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/P: begründeter Verbesserungsvorschlag mit bewertetem Change Request",
+      "original_system_function": "Verbesserungsvorschläge als Objekt mit Bewertung und Verknüpfung zu Änderungsanträgen",
+      "required_artifact": "Verbesserungsregister",
+      "primary_reference": "§10.1, §5.1; P05/P08/P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T04",
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "I-05",
+      "source_row": 97,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: produktübergreifende Hypothese mit Komponenten-/Materialbezug",
+      "original_system_function": "Produktfamilien-/Plattform-Verknüpfung; produktübergreifende Signalauswertung (gemeinsame Komponenten, Materialien)",
+      "required_artifact": "Produktübergreifende Auswertung",
+      "primary_reference": "§5.1, §11.1; P04/P13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T04",
+        "T08"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "I-06",
+      "source_row": 98,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: versionierter TD-Index mit PMS-/PSUR-/PMCF-Beziehungen",
+      "original_system_function": "Ablage/Verknüpfung PMS-Plan, PSUR, PMCF-Plan und -Bericht in der TD-Struktur; Versionierung",
+      "required_artifact": "TD-Index",
+      "primary_reference": "§5.1, §11.3; P00/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "I-07",
+      "source_row": 99,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/P/S: PMS-Prozessreferenzen und nachvollziehbare Kommunikationsprotokolle",
+      "original_system_function": "Hinterlegte Prozessreferenzen; Kommunikationsvorlagen und Protokollierung aller Kommunikationsvorgänge",
+      "required_artifact": "PMS-Plan",
+      "primary_reference": "§7, §12.1; P00/P07/P11",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T13",
+        "T18",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "I-08",
+      "source_row": 100,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D: TD-Verknüpfung zu CER/Plan und PMCF/Plan/Bericht",
+      "original_system_function": "Dokumentverknüpfung TD ↔ klinische Bewertung ↔ PMCF",
+      "required_artifact": "TD",
+      "primary_reference": "§5.1–5.3; P00/P04",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "J-01",
+      "source_row": 101,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: synthetischer Basic-UDI-/UDI-DI-/UDI-PI-Stamm mit Referenzen",
+      "original_system_function": "UDI-Stammdatenverwaltung (Basis-UDI-DI, UDI-DI, UDI-PI-Struktur) als Schlüssel für Fälle, FSCA, PSUR, SSCP",
+      "required_artifact": "UDI-Liste",
+      "primary_reference": "§5.1–5.2; P00/P02",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T14",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "J-02",
+      "source_row": 102,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: synthetische Distributions-/Implantationsdaten als Betroffenheits-/Expositionsquelle",
+      "original_system_function": "Aufnahme von Distributions- und – soweit verfügbar – Implantationsdaten (UDI-PI, Einrichtung, Datum) für Betroffenheitsanalyse und Expositionsschätzung",
+      "required_artifact": "Rückverfolgungsdaten",
+      "primary_reference": "§5.1, §11.2, §12; P02/P12/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T15",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "J-03",
+      "source_row": 103,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/Z: versionierte Patienten-/Implantatinformation und Änderungsauftrag",
+      "original_system_function": "Verwaltung der Patienteninformationen je Produkt mit Versionierung und Sprachen; Aktualisierungs-Trigger aus PMS-Erkenntnissen; Veröffentlichung auf der Hersteller-Website",
+      "required_artifact": "Patienteninformationen, Website-Versionen",
+      "primary_reference": "§3.1, §5.1; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "J-04",
+      "source_row": 104,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D: begründetes Produktmerkmal zur Art.-18-Anwendbarkeit",
+      "original_system_function": "Produktattribut „Art.-18-pflichtig ja/nein“",
+      "required_artifact": "Produktstammdaten",
+      "primary_reference": "§5.1; P00",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "J-05",
+      "source_row": 105,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: konsistente UDI-Bezüge in Meldungen und Berichtspaketen",
+      "original_system_function": "UDI-konsistente Datenübermittlung (gleiche UDI-DI in Meldung, FSN, PSUR, SSCP)",
+      "required_artifact": "Datenkonsistenzprüfung",
+      "primary_reference": "§5.2, §12; P09/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T14",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "J-06",
+      "source_row": 106,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: synthetischer Hersteller-/Actorstamm mit SRN-Herkunft, kontofreiem Antrag/Korrektur/Ablehnung/Freigabe. Reale externe Registrierungen nur mit verifizierten Nachweisen.",
+      "original_system_function": "Herstellerstammdaten incl. SRN, Bevollmächtigter, eingetragene Niederlassung (Sitzstaat → koordinierende Behörde)",
+      "required_artifact": "Stammdaten",
+      "primary_reference": "§5.1, §12; P00/P09",
+      "scope_supplement": "PRIMARY §12.3; EU §6.4; T21; EU-22",
+      "candidate_test_ids": [
+        "T14",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "K-01",
+      "source_row": 107,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: alle beauftragten Dossierarten, kanonisches Mapping, Regulatory Submission, Inbox/Outbox, Simulator und Domibus-Backendadapter. Keine erfundenen produktiven Dienste.",
+      "original_system_function": "Integrationsschicht für fünf herstellerseitige Meldearten (Vorkommnis/FSCA, Sammelmeldung, Trend, PSUR, FSN) mit Übertragungsprotokoll und Statusrückmeldung; Datenformate gemäß Durchführungsrechtsakten [außerhalb des MDR-Texts – zu ergänzen]",
+      "required_artifact": "Schnittstellenspezifikation, Übertragungsprotokolle",
+      "primary_reference": "§5.1, §12; P09–P14",
+      "scope_supplement": "EU §§5–10,13; EU-04/EU-10–EU-13/EU-27",
+      "candidate_test_ids": [
+        "T13",
+        "T14",
+        "T16",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "K-02",
+      "source_row": 108,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: Empfänger-/Jurisdiktionsmapping je Meldeart",
+      "original_system_function": "Stammdaten zuständiger Behörden je Mitgliedstaat; Erfassung der Empfänger je Meldung zur Nachverfolgung",
+      "required_artifact": "Empfängerprotokoll",
+      "primary_reference": "§9.1, §12; P09/P10",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T13",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "K-03",
+      "source_row": 109,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: produkt-/periodenbezogenes BS-/Auditpaket mit Zugriffsscope",
+      "original_system_function": "BS-Berichtspaket (Export) je Produkt/Zeitraum; Lesezugriff oder Exportfunktion für Audits",
+      "required_artifact": "Auditunterlagen",
+      "primary_reference": "§12, §14.1–14.2; P11/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T08",
+        "T16",
+        "T18",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "K-04",
+      "source_row": 110,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: originale RFI-/Behörden-/NB-/Maßnahmenkorrespondenz mit Scope, Empfänger, Frist, Antwortrevision und getrennten Freigaben; kontrollierter Simulator und Domibuspfad.",
+      "original_system_function": "Korrespondenzverwaltung mit Verteilern (Behörden, BS, Händler, Importeure, Bevollmächtigter, Anwender), Vorlagen, Fristen",
+      "required_artifact": "Korrespondenzakte",
+      "primary_reference": "§5.1, §7, §12; P07/P11/P12",
+      "scope_supplement": "PRIMARY §10.3; EU §§9,12; EU-06/EU-09/EU-18/EU-24",
+      "candidate_test_ids": [
+        "T10",
+        "T13",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "K-05",
+      "source_row": 111,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: synthetische Wirtschaftsakteur-Verteiler und Benachrichtigungsbelege",
+      "original_system_function": "Verteilerlisten je Produkt/Land; Nachweis der Benachrichtigung",
+      "required_artifact": "Benachrichtigungsnachweise",
+      "primary_reference": "§5.1, §12; P12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "K-06",
+      "source_row": 112,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/S: validierter Import synthetischer Absatz-/Lieferdaten",
+      "original_system_function": "Import von Absatz-/Lieferdaten je UDI-DI, Charge, Land, Kunde aus Vertriebs-/Logistiksystem",
+      "required_artifact": "Schnittstellenspezifikation",
+      "primary_reference": "§5.1, §11.2, §12; P02/P12/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T02",
+        "T15",
+        "T16"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "K-07",
+      "source_row": 113,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "Z: Art.-73-/Art.-74-Studienanzeige als späterer Schnittstellenvertrag",
+      "original_system_function": "Übergabe der Anzeigeunterlagen (Anhang XV Kapitel II) an das System für klinische Prüfungen; Statusverfolgung",
+      "required_artifact": "Anzeigenachweis",
+      "primary_reference": "§3.1, §12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "L-01",
+      "source_row": 114,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: objektbezogene Retention, Legal Hold und Lesbarkeits-/Recovery-Nachweise",
+      "original_system_function": "Aufbewahrungsrichtlinie ≥ 15 Jahre für PMS-Dokumente und zugrunde liegende Daten; Archivierung; Löschsperre; Sicherstellung der Lesbarkeit über die Frist",
+      "required_artifact": "Archivierungskonzept",
+      "primary_reference": "§14.3, §15; P00",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T18",
+        "T20"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "L-02",
+      "source_row": 115,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "Z/D: bedingter Bevollmächtigtenzugang über freigegebene Dokumente/Exportscope",
+      "original_system_function": "Rollenbasierter Lesezugriff für den Bevollmächtigten auf TD/PMS-Dokumente",
+      "required_artifact": "Berechtigungsnachweis",
+      "primary_reference": "§14.1, §12",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T08"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "L-03",
+      "source_row": 116,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: nachvollziehbarer Audit-Trail und produktbezogenes Auditpaket",
+      "original_system_function": "Lückenloser Audit-Trail (wer/was/wann), Stichprobenabfragen je Produkt, Berichtsexporte, Nachweis der Planumsetzung",
+      "required_artifact": "Audit-Trail, Auditberichte",
+      "primary_reference": "§14.2, §15, §17; P11/P14",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T18",
+        "T20"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "L-04",
+      "source_row": 117,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "D/P: versioniertes QMS-Antragspaket aus PMS-Beschreibung und Verfahren",
+      "original_system_function": "Zusammenstellung des Dokumentenpakets (PMS-Systembeschreibung, Verfahren, Aktualisierungsverfahren) als Export",
+      "required_artifact": "QMS-Antragsunterlagen",
+      "primary_reference": "§5.1, §14.6, §16",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T18"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "L-05",
+      "source_row": 118,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: Rollen/Produktscope, Verschlüsselung, minimierte Daten und getrennte Datenklassen",
+      "original_system_function": "Zugriffskonzept (Rollen, Need-to-know), Pseudonymisierung von Patientendaten in Fällen, Protokollierung von Zugriffen, Verschlüsselung",
+      "required_artifact": "Datenschutzkonzept",
+      "primary_reference": "§14.1–14.5, §15",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T08",
+        "T09",
+        "T18",
+        "T20"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "L-06",
+      "source_row": 119,
+      "source_priority": "Soll",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P: unveränderbare Ereigniszeiten und auditierte Korrekturen statt Überschreiben",
+      "original_system_function": "Systemseitige, nicht editierbare Zeitstempel für Eingang, Kenntnis, Einstufung, Meldung; Berichte zur Fristeinhaltung",
+      "required_artifact": "Fristenreport",
+      "primary_reference": "§9.2, §14.2",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T10",
+        "T11",
+        "T18"
+      ],
+      "alternative_status": "not_demonstrated"
+    },
+    {
+      "id": "L-07",
+      "source_row": 120,
+      "source_priority": "Muss",
+      "source_status": "Offen",
+      "project_binding": "mandatory_in_agreed_scope",
+      "pilot_scope": "P/D/S: Sprach-/Länderversionen im freigegebenen Paketscope",
+      "original_system_function": "Mehrsprachige Dokumentvorlagen und Versionsverwaltung je Sprache/Land",
+      "required_artifact": "Sprachversionen",
+      "primary_reference": "§8.2, §12, §13",
+      "scope_supplement": "PRIMARY v0.5 §3.1; historische Einzelzuordnung unverändert, spätere Ergänzungen zusätzlich beachten",
+      "candidate_test_ids": [
+        "T07",
+        "T14",
+        "T19"
+      ],
+      "alternative_status": "not_demonstrated"
+    }
+  ],
+  "additional_requirements": [
+    {
+      "id": "X-01",
+      "title": "Cohors-Branding und Bedienbarkeit",
+      "requirement": "Cohors-Name, geliefertes Logo und Animation erhalten; Bewertung verständlich, UI tastaturbedienbar, Kontraste und Status zusätzlich zu Farbe; reduzierte Bewegung berücksichtigen.",
+      "scope": "Beide Varianten; Pilot und Zielbetrieb",
+      "source": "PRIMARY §13; Nutzerturn 2",
+      "acceptance": "Gleiche Markenassets und Kernarbeitsplätze; Tastatur-/Fokus-/Reduced-Motion-Prüfung ohne Änderung fachlicher Daten."
+    },
+    {
+      "id": "X-02",
+      "title": "Menschliche Hoheit und API-Grenze",
+      "requirement": "Alle verbindlichen Fachänderungen über die autorisierte Cohors API. Medical und RA sind getrennte Menschen/Konten und genehmigen dieselbe Fassung; Agenten, IQ, BI und Worker dürfen weder freigeben noch eigenmächtig melden.",
+      "scope": "Beide Varianten; alle Freigabepfade",
+      "source": "PRIMARY §§6–8; ADR12 §§1,4; EU EU-06/EU-07",
+      "acceptance": "T06–T09 und EU-06/EU-07; Identitäts-, Rollen-, Scope-, Versions- und geänderter-Paket-Negativfälle."
+    },
+    {
+      "id": "X-03",
+      "title": "Ausführliche medizinisch-technische Bewertung",
+      "requirement": "Assessment mit Fakten, technischer/medizinischer Analyse, Kausalität, Unsicherheit, Risiken, Nutzen-Risiko, regulatorischem Vorschlag, begründeten Optionen und gezieltem Informationsbedarf. Tragende Aussagen sind auf konkrete Quellenversion/Fundstelle gebunden.",
+      "scope": "Beide Varianten; synthetische Pilotfälle, später fachlich validiert",
+      "source": "PRIMARY §10.1; Nutzerturn 1",
+      "acceptance": "T03/T04/T16; kuratierte Fachfälle zu Gegenhypothesen, fehlenden Befunden, Quellenreichweite und verbotener Scheingenauigkeit; keine Mindestwortzahl als Qualitätsersatz."
+    },
+    {
+      "id": "X-04",
+      "title": "Unabhängige Assurance",
+      "requirement": "Separater Agent prüft Belegbarkeit, Vollständigkeit, Widersprüche, Risikoargumentation und Nachforderungsbedarf. Er darf keine menschliche Entscheidung ersetzen oder Befunde unbemerkt entfernen.",
+      "scope": "Beide Varianten",
+      "source": "PRIMARY §§6,8.3,10; Nutzerturn 1",
+      "acceptance": "Fehlende/widersprüchliche Belege erzeugen sichtbare Befunde; begründete menschliche Abweichungen bleiben auditierbar."
+    },
+    {
+      "id": "X-05",
+      "title": "Beobachtung statt erzwungener Meldung",
+      "requirement": "Melden, begründet nicht melden, nicht relevant und noch nicht ausreichend unterscheiden. Signale und Historie bleiben für spätere Korrelation erhalten; neue Evidenz erlaubt menschliche Neubewertung ohne Fristreset oder erfundene Kausalität.",
+      "scope": "Beide Varianten; genehmigte Pilotprozesse",
+      "source": "PRIMARY §7.1/§9.2; Nutzerturns 115,120; ALT-FAB-01 v0.1 §§12/13",
+      "acceptance": "Fall mit späterem verwandten Signal erneut bewerten; Gründe/Originale erhalten, keine alte Freigabe aktivieren und keine unberechtigte Patientenzusammenführung."
+    },
+    {
+      "id": "X-06",
+      "title": "Ablehnungssicht und direkte Wiederaufnahme",
+      "requirement": "Eigene Sicht abgelehnter Signale mit Agent-/Reviewerherkunft, Grund, Zeitpunkt und Quelle. Medical Reviewer oder RA dürfen jeweils direkt in die sofort sichtbare menschliche Review Queue wiederaufnehmen, ohne vorherigen KI-Neulauf.",
+      "scope": "Beide Varianten; eigenständiger Wiederaufnahme-Command",
+      "source": "Nutzerturn 145; primärer Auftrag cohors-rejected-signals-implementation",
+      "acceptance": "Rollen-/Produktscope, Parallelität und Idempotenz prüfen; keine doppelte Fallanlage, kein manuelles Reload nötig, Fristen/Historie erhalten, alte Signaturen bleiben historisch."
+    },
+    {
+      "id": "X-07",
+      "title": "Rückgabegründe in erneuter Prüfung",
+      "requirement": "Fachliche Rückgabe-/Korrekturbegründungen bleiben bei erneuter Vorlage sichtbar. Historische Entscheidungen werden nicht überschrieben; neue Inhalte verlangen passende neue Freigaben.",
+      "scope": "Beide Varianten",
+      "source": "Nutzerturns 115,120; PRIMARY §8",
+      "acceptance": "Mehrfacher Return/Edit/Resubmit-Zyklus erhält alle Gründe und verweigert Freigabe oder Versand auf veralteter Fassung."
+    },
+    {
+      "id": "X-08",
+      "title": "Originaldokumente und Quellenansicht",
+      "requirement": "Originale unverändert abrufbar; Dokumentdialog in Fallakte/Evidenzbibliothek, Kategorie, Herkunft, Version und Belegstelle erkennbar. Extraktion, OCR und Redaktion sind Derivate, nicht das Original.",
+      "scope": "Beide Varianten; berechtigte Nutzer",
+      "source": "Nutzerturns 84,87,88,92; PRIMARY §§5.3,13; EU §11.2",
+      "acceptance": "Binärhash-/Versionsvergleich, historische Rechte, fehlende Originale und Konten-/Produktscopewechsel; kein verspäteter fremder Download."
+    },
+    {
+      "id": "X-09",
+      "title": "Prozessleiste und getrennte Statusachsen",
+      "requirement": "Aktueller und nächster Prozessschritt sichtbar; Fallarbeit, Berichtsentwurf/Freigabe und Übermittlung getrennt darstellen. Bearbeiteter PSUR-Text ist nicht automatisch ein freigegebener Bericht.",
+      "scope": "Beide Varianten; Fallakte und PSUR",
+      "source": "Nutzerturns 84,88,107; PRIMARY §§8.1,13",
+      "acceptance": "UI zeigt in jedem Prozesszustand passende nächste Aktionen und unterscheidet Entwurf, geprüft, freigegeben, versucht und fachlich quittiert."
+    },
+    {
+      "id": "X-10",
+      "title": "Kritikalität und lesbare Bewertung",
+      "requirement": "Todesfälle und schwere gesundheitliche Folgen klar kennzeichnen; Dokumentkategorien sichtbar. Bewertung/Empfehlung oben, Metadaten einklappbar, ohne Quellen-/Auditverlust. Dringlichkeit nicht als klinische Risikogruppe ausgeben.",
+      "scope": "Beide Varianten; Fallakte und Cockpit",
+      "source": "Nutzerturns 92,117,120; PRIMARY §13",
+      "acceptance": "Darstellungstoggle ändert weder Payload noch Hash/Signatur; kritische Lücken bleiben sichtbar, unbekannte Risikoklasse bleibt unbekannt."
+    },
+    {
+      "id": "X-11",
+      "title": "Belegtes Vorbefüllen von Meldungen",
+      "requirement": "Agenten befüllen erforderliche Meldefelder aus zulässigen belegten Fakten; fehlende oder widersprüchliche Pflichtangaben gesondert kennzeichnen, keine Kontakt-/Patienten-/Behördenwerte erfinden. Feldherkunft und menschliche Korrektur bleiben nachvollziehbar.",
+      "scope": "Beide Varianten; gleicher Fach-/Formularvertrag",
+      "source": "Nutzerturns 89,90,113,114; EU §§5.4,7",
+      "acceptance": "Schema-, Business-Rule- und Faktenvollständigkeit getrennt testen; Leerlücken sperren unzulässige Freigabe, doppelte Vorbefüllung überschreibt keine bestätigten Human-Edits."
+    },
+    {
+      "id": "X-12",
+      "title": "Jurisdiktionen und Versandvorschau",
+      "requirement": "Empfänger/Land im Entwurf und unmittelbar vor finalem RA-Senden anzeigen; mehrere Verpflichtungen für denselben Sachverhalt getrennt führen. Vorschau bindet genau den genehmigten Inhalt, Anhänge, Empfänger, Kanal und Umgebung.",
+      "scope": "Beide Varianten; im Pilot simuliert",
+      "source": "Nutzerturns 89,119; PRIMARY §12; EU §§8,12",
+      "acceptance": "EU/GB/NI getrennte Profile; Änderung am Paketscope verlangt neue Freigabe; Abbruch bleibt ohne Versandwirkung; Unknown verhindert blinde Wiederholung.",
+      "note": "Turn119 wurde historisch nicht erfolgreich an die Implementierungssession zugestellt. Hier als belegter Nutzerwunsch für die Gleichwertigkeitsbaseline erfasst, nicht als bereits geliefert."
+    },
+    {
+      "id": "X-13",
+      "title": "Informationsanforderungen mit Antwortmapping",
+      "requirement": "Empfänger, Zweck, minimale Datenfelder, Freigabe-, Versand- und Antwortstatus explizit anzeigen. Antworten an die konkrete Frage/Fall-/Quellversion binden und fachlich prüfen; keine Antwort ist keine negative medizinische Evidenz.",
+      "scope": "Beide Varianten; externe klinische Kommunikation im Pilot simuliert",
+      "source": "Nutzerturn 118; PRIMARY §10.3",
+      "acceptance": "Empfänger-/Rechteprüfung, keine heimliche Aussendung, versionierte Antwortzuordnung und Neuerhebung; Fristen laufen bei ausbleibender Antwort weiter."
+    },
+    {
+      "id": "X-14",
+      "title": "Cockpit und Fristenkalender",
+      "requirement": "Grafische Trends, Prozessfallzahlen, fachlich belegbare Kritikalität/Risikogruppen und weitere quellgebundene KPIs; Kalender mit Fristtyp, Datum, Owner, Status und Navigation zum Fachvorgang.",
+      "scope": "Beide Varianten; autorisierter Daten-/Produktscope",
+      "source": "Nutzerturn 108; PRIMARY §13",
+      "acceptance": "Zähler mit Quellfällen abgleichen; Filter, Zeitzone, Tagesgrenzen und leere Mengen prüfen; unbekannte klinische Gruppierung nicht durch Urgency ersetzen."
+    },
+    {
+      "id": "X-15",
+      "title": "PSUR-Monatssicht",
+      "requirement": "Fallzahlen je Monat innerhalb des jeweiligen PSUR-Zeitraums und Zeitverlauf anzeigen. Ereignis-, Kenntnis-, Perioden- und Snapshotzeit auseinanderhalten; offene Fälle und Scope nachvollziehbar berücksichtigen.",
+      "scope": "Beide Varianten; fachlicher Nutzerwunsch",
+      "source": "Nutzerturn 139; PRIMARY §11.3",
+      "acceptance": "Monatssummen gegen gebundene Fallrevisionen/Periodengrenzen prüfen; keine Doppelzählung, keine Mischung von Livebestand und freigegebenem Snapshot.",
+      "note": "Historische Weitergabe an Core scheiterte an abgelaufener Nachrichtenreferenz. Kein Implementierungsstand behauptet; in der vorgelegten Baseline ausdrücklich enthalten."
+    },
+    {
+      "id": "X-16",
+      "title": "On-demand-Dokumentintake",
+      "requirement": "Neue synthetische oder zulässig öffentliche Signaldokumente tatsächlich einlesen, nicht nur Simulatorfälle auswählen. Original, Herkunft, Extraktion, Eingangszeit und Awareness getrennt führen; Zuordnung als Signal oder zusätzliche Evidenz bestätigen.",
+      "scope": "Beide Varianten; bestehende Datenschutz-/Quellenrechte",
+      "source": "Nutzerturn 144; PRIMARY §§3.1,5.3,12",
+      "acceptance": "Echter Dateiinhalt und Bytehash, erlaubte Formate, fehlende OCR, Malware/Quarantäne, Dubletten und Produktzuordnung prüfen; keine verdeckte Replay-Auswertung."
+    },
+    {
+      "id": "X-17",
+      "title": "Manueller fristwahrender Weg",
+      "requirement": "Menschliche Bearbeitung, vorläufige Erstmeldung und Fristenüberwachung dürfen nicht auf KI, IQ, Suche, PSUR-Batches oder eine vollständige Ursachenanalyse warten.",
+      "scope": "Beide Varianten; regulierter Normal-/Notbetrieb",
+      "source": "PRIMARY §§7.2,9.4,15.1; EU EU-18",
+      "acceptance": "T05/T12/EU-18 mit KI-/IQ-Ausfall und offenen Rückfragen; kein Friststopp und keine Aufhebung menschlicher Freigaben."
+    },
+    {
+      "id": "X-18",
+      "title": "Quellen- und Datenherkunft",
+      "requirement": "Öffentliche FDA-/PubMed-Quellen möglichst echt lesend nutzen, Fehler sichtbar; fremde Meldungen nicht zu eigenen Herstellerfällen umetikettieren. Klinik-/Register-/interne Daten im Pilot synthetisch; Rechte an Volltext und Wiederverwendung gesondert beachten.",
+      "scope": "Beide Varianten; Pilotgrenzen unverändert",
+      "source": "PRIMARY §§3.1,11,12; Nutzerturn 144",
+      "acceptance": "Quellenfehler, Cursor/Deduplikation, Provenienz und Vergleichsevidenz prüfen; öffentliche Rohzahlen sind keine Inzidenz und kein bestätigter eigener Fall."
+    },
+    {
+      "id": "X-19",
+      "title": "Berichtsspezifische EUDAMED-Prozesse",
+      "requirement": "Canonical Data Model, Regulatory Submission und Audit durchgängig für MIR, MTR, PSR/PSRP, PSUR, FSCA und FSN einschließlich Behördenkommentaren. Keine Ersetzung periodischer Sammelmeldungen durch PSUR.",
+      "scope": "Beide Varianten; beauftragter Simulator/Adapter, reale Aktivierung separat",
+      "source": "Nutzerturns 147,161–163; EU §§5–9 und EU-01 bis EU-30",
+      "acceptance": "Alle 30 EU-Szenarien plus je Dossierart spezifische Pflichtfelder, Vereinbarung/Periode, Validierung, Freigabe, Quittung und Korrespondenz; Unsupported bleibt sichtbar."
+    },
+    {
+      "id": "X-20",
+      "title": "Domibus statt eigenem AS4-Stack",
+      "requirement": "Domibus ist das AS4-Gateway; unterstützte Version/Plugin/P-Mode und technische Speicherung binden. Cohors nutzt einen kontrollierten Backendvertrag; Transport-ACK ist keine Behördenannahme.",
+      "scope": "Beide Varianten; Simulator benötigt kein Gateway",
+      "source": "Nutzerturn 161; PRIMARY §12.3; EU §§10,11",
+      "acceptance": "Backend-Stub, laufender Domibus, lokales AS4 und echter Playground getrennt nachweisen; keine behauptete reale Registrierung oder Berechtigung aus technischer Erreichbarkeit."
+    },
+    {
+      "id": "X-21",
+      "title": "Kontofreier Actor-Simulator und Moduswahl",
+      "requirement": "UI wählt Simulator oder Domibus mit autorisierter versionierter Aktivierung. Synthetische Actor-Anträge, Korrektur, Ablehnung, erneute Einreichung und Freigabe funktionieren ohne EUDAMED-Account. Modus-/Actorherkunft bleibt in UI und Export erhalten.",
+      "scope": "Beide Varianten; sichere Simulatorvoreinstellung",
+      "source": "Nutzerturns 161–163; EU EU-21 bis EU-30",
+      "acceptance": "Kein Simulator-Netzaufruf zu Domibus/EUDAMED; keine automatische Simulation bei Gatewayfehler, kein realer Nachversand historischer Simulationsaufträge, keine Scopevermischung beim Wechsel."
+    },
+    {
+      "id": "X-22",
+      "title": "Originalgebundene Korrespondenz",
+      "requirement": "Behörden-/NB-Rückfragen und Antworten an ursprüngliches Dossier, Quelle, Profilrevision und Empfänger binden; Frist, Owner und Eskalation unabhängig führen. Neue Antwortfassung verlangt eigene passende Humanfreigaben.",
+      "scope": "Beide Varianten; gleiche Fachregeln für Simulator und reale Profile",
+      "source": "EU §§8–9,12; Nutzerturns 147,161–163",
+      "acceptance": "Späte/doppelte/umgeordnete Antworten, Kontenwechsel und neue Profilrevision schließen nur die adressierte Rückfrage; native Fallpflichten und Originalsignaturen bleiben erhalten."
+    },
+    {
+      "id": "X-23",
+      "title": "Datenschutz, EU-Verarbeitung und Telemetrie",
+      "requirement": "Synthetische Pilotfalldaten; geringste Rollen-/Produktscopes, fachlich begründete Retention/Löschung, keine Secrets oder unnötigen klinischen Texte in Logs. Modell/Region/Deployment/Unterauftragnehmer und erforderliche DPIA/AI-Act-Einstufung getrennt freigeben.",
+      "scope": "Beide Varianten; einschließlich Ledger, WORM, Foundry- und Domibuskopien",
+      "source": "PRIMARY §14; EU §11; ADR12 §7",
+      "acceptance": "T08/T09/T18/T20 und EU-16; tatsächliche Verarbeitungsgrenze statt EU-Label, Lösch-/Sperrfortschreibung in Ableitungen und Wiederherstellungen."
+    },
+    {
+      "id": "X-24",
+      "title": "Versionierte Fachsemantik und kontrolliertes Wissen",
+      "requirement": "Begriffe, Beziehungen, externe Codes und Wissensreleases versionieren. Kontrollierte typisierte SQL-Abfragen und dokumentenbasiertes Retrieval liefern Scope, Stand, Fundstellen und Widersprüche; Hypothese ist nicht Kausalität.",
+      "scope": "Primär: Foundry IQ; Alternative: Fabric IQ und geeigneter dokumentenbasierter Pfad",
+      "source": "Nutzerturn 188; ADR12 §§4–6",
+      "acceptance": "Gleiche kuratierte Fakten-/Beziehungs-/Retrievalfälle, historische Versionen, Rechteentzug und Datenlag; IQ erhält keine Freigabe- oder beliebigen DB-Rechte."
+    },
+    {
+      "id": "X-25",
+      "title": "Fabric und Managed Foundry als alternative Basis",
+      "requirement": "Neue Variante verwendet Fabric/OneLake, Fabric IQ und Managed Foundry für Agenten. Menschliche API-Grenze, deterministische Fachlogik und Workflows bleiben erhalten; zusätzliche Schutzdienste transparent ausweisen.",
+      "scope": "Nur Alternative; Primär-ADR12 bleibt unverändert",
+      "source": "Nutzerturns 193,203; aktueller Auftrag 17.11.2026 15:25",
+      "acceptance": "Konkrete Datenhoheiten, Agententyp/SDK/Region, Identitäten, privater Zugriff, Reentry, Idempotenz und Quellenbindung durch eigene Capability-Nachweise absichern."
+    },
+    {
+      "id": "X-26",
+      "title": "Zwei unabhängige Auslieferungen",
+      "requirement": "Eigene Branches/Arbeitskopien, CI/CD-Ziele, Identitäten, Konfigurationen und veränderliche Daten; auch gemeinsame Host-/Capacity-/Quotenlast isolieren. Keine automatische Rückintegration; keine Laufzeitabhängigkeit von der anderen Cohors-Variante.",
+      "scope": "Beide Varianten, nach Freigabe der Alternative",
+      "source": "Nutzerturn 203; aktueller Auftrag 17.11.2026 15:25",
+      "acceptance": "Eine Variante starten, aktualisieren, zurücksetzen oder abschalten, während die andere unverändert weiterarbeitet; Zugriff auf falsche Ressourcen scheitert technisch."
+    },
+    {
+      "id": "X-27",
+      "title": "Vollständiges auslieferbares Repository",
+      "requirement": "Nach Umsetzungsfreigabe vollständiger Quell-/Infrastruktur-/Dokumentationsstand je Variante, ausführliche README, reproduzierbarer Build/Bootstrap und eigene Deploymentanleitung. Keine Geheimnisse oder benutzerspezifischen lokalen Pfade als Voraussetzung.",
+      "scope": "Beide Varianten; Cloudaktivierung separat",
+      "source": "Nutzerturn 164; aktueller Auftrag 17.11.2026 15:25",
+      "acceptance": "Frischer isolierter Checkout baut und startet nach dokumentiertem Vertrag; eigene Pakete/Versionsbindung und Rückweg vorhanden, keine Abhängigkeit von uncommitteten Primärdateien."
+    },
+    {
+      "id": "X-28",
+      "title": "Kapazität und fachliche Last",
+      "requirement": "250.000 Eingangssignale pro Jahr und PMS-Team von 90 Personen; Rohsignale nicht mit bestätigten Fällen und Teamgröße nicht mit gleichzeitigen Nutzern verwechseln. Importspitzen, Langzeitbestand und Parallelität separat dimensionieren.",
+      "scope": "Produktionsziel beider Varianten",
+      "source": "Nutzerturn 96; PRIMARY §§1,15.1",
+      "acceptance": "Genehmigtes Lastprofil mit Messung der einzelnen Kern-/Agenten-/Analytics- und Speicherpfade; keine Skalierungszusage allein aus Plattformnamen."
+    },
+    {
+      "id": "X-29",
+      "title": "Verfügbarkeit des PMS-Kerns",
+      "requirement": "SLO 99,95 % über rollierende 30 Tage, 24/7, für Intake, Fristen, Fall-/Evidenzzugriff, Review und Pakete. Fachliche Nutzbarkeit messen; RTO ist kein zusätzlich erlaubtes Ausfallbudget.",
+      "scope": "Produktionsziel beider Varianten",
+      "source": "Nutzerturn 101; PRIMARY §15.1",
+      "acceptance": "Ende-zu-Ende-Messung, Fehlerbudget und Betriebsnachweis; 60 Minuten Regionalausfall verletzen dieses SLO trotz eingehaltenem RTO."
+    },
+    {
+      "id": "X-30",
+      "title": "Komponenten- und Regionalwiederanlauf",
+      "requirement": "RTO höchstens 5 Minuten bei Komponenten-/AZ-Ausfall und 60 Minuten bei vollständigem Regionalausfall, einschließlich Erkennung, Entscheidung, Umschaltung, Anmeldung und Daten-/Objekt-/Workflowabgleich.",
+      "scope": "Produktionsziel beider Varianten",
+      "source": "Nutzerturn 101; PRIMARY §15.1",
+      "acceptance": "Getrennte Fehlerdomänenübungen mit fachlich nutzbarem Ende; reine SQL-Failoverzeit, zweite Fabric-Instanz oder DNS-Wechsel genügen nicht."
+    },
+    {
+      "id": "X-31",
+      "title": "Unabhängiger Notbetrieb",
+      "requirement": "Fristenregister, Aufnahme und manueller Meldeweg innerhalb von 15 Minuten außerhalb der ausgefallenen Fehlerdomäne nutzbar. Neue Eingänge und tatsächliche Awareness erhalten; späterer Abgleich ohne Doppelmeldung.",
+      "scope": "Produktionsziel beider Varianten; zusätzliche Dienste nun als Konzeptoption erlaubt",
+      "source": "Nutzerturn 101; PRIMARY §15.1; EU §11.3",
+      "acceptance": "Ausfall des gesamten Fabric-/Primärpfads; unabhängige Aufnahme, Warnungen und manueller Belegpfad praktisch nachweisen, kein Fristreset bei Rückkehr."
+    },
+    {
+      "id": "X-32",
+      "title": "Fachliches RPO null",
+      "requirement": "Bereits bestätigte Eingänge, Awareness, Evidenz, Freigaben, Audit, freigegebene Meldungen/PSURs und Quittungen ohne Datenverlust erhalten. Vor endgültigem Erfolg Daten und Bindungen in unabhängiger Region dauerhaft sichern.",
+      "scope": "Produktionsziel beider Varianten",
+      "source": "Nutzerturn 101; PRIMARY §15.1; EU §11.3",
+      "acceptance": "Absturz/Regionsverlust an jeder ACK-/Commitgrenze; vollständige Originale und Entscheidungen rekonstruieren. Asynchrone Replikation, Digest allein oder zwei Best-effort-Writes sind kein RPO0-Nachweis."
+    },
+    {
+      "id": "X-33",
+      "title": "Wiederholbare Arbeit und KI-Verfügbarkeit",
+      "requirement": "RPO höchstens 5 Minuten nur für wiederholbare, noch nicht freigegebene Zwischenstände. KI-/PSUR-Erzeugung: RTO höchstens 4 Stunden, SLO 99,9 %. Keine Herabstufung geschützter Fachdaten.",
+      "scope": "Produktionsziel beider Varianten",
+      "source": "Nutzerturn 101; PRIMARY §15.1",
+      "acceptance": "Datenklassen eindeutig trennen; KI-Reentry/Neulauf erzeugt keine doppelte Fachwirkung, manueller Review und Fristen bleiben unabhängig."
+    },
+    {
+      "id": "X-34",
+      "title": "Fristenalarmierung und Watchdog",
+      "requirement": "99,9 % der Alarme innerhalb von 2 Minuten nach gespeicherter Warn-/Fälligkeitsgrenze; jede Verzögerung über 5 Minuten als Störung. Fehlenden Watchdog-Herzschlag spätestens nach 3 Minuten unabhängig erkennen.",
+      "scope": "Produktionsziel beider Varianten",
+      "source": "Nutzerturn 101; PRIMARY §15.1; EU §11.4",
+      "acceptance": "Zeitstempelbasierte Alarm-/Heartbeatmessung bei Last, Neustart und Ausfall; keine bloße Selbstgesundheitsmeldung oder still übersprungene Fälligkeit."
+    },
+    {
+      "id": "X-35",
+      "title": "Menschliche Bereitschaft",
+      "requirement": "Kritische Alarme binnen 15 Minuten menschlich bestätigen, mit Vertretung und 24/7-Eskalation. Technische Zustellung ist keine menschliche Bestätigung.",
+      "scope": "Produktionsziel/Organisationspflicht beider Varianten",
+      "source": "Nutzerturn 101; PRIMARY §15.1",
+      "acceptance": "Ausbleibende Bestätigung löst Eskalation aus; Dienst-/Personenwechsel und Nachweis der realen Bestätigung prüfen."
+    },
+    {
+      "id": "X-36",
+      "title": "Interaktive Leistung",
+      "requirement": "Nicht-KI-Operationen p95 unter 2 Sekunden und p99 unter 5 Sekunden unter einem definierten Produktionslastprofil einschließlich Importspitzen. Agenten-/PSUR-Dauer getrennt messen.",
+      "scope": "Produktionsziel beider Varianten",
+      "source": "Nutzerturn 101; PRIMARY §15.1",
+      "acceptance": "Messung an autorisierten Ende-zu-Ende-Aktionen; Schutz-/Ledgerpfad und Mehrregionenlatenz einschließen, keine Lockerung von Sicherheitsgates für Benchmarkwerte."
+    },
+    {
+      "id": "X-37",
+      "title": "Korruption, Ransomware und Retention",
+      "requirement": "Geschützte Backups, Schlüsselzugriff, integritätsgeprüfter Wiederanlauf und Lösch-/Sperrjournal zusätzlich zu regionaler Redundanz. Retention/Legal Hold je Datenklasse; keine pauschale ewige Speicherung personenbezogener Rohdaten.",
+      "scope": "Beide Varianten; Produktion eigenständig abzunehmen",
+      "source": "PRIMARY §§14.3,15.1; EU §11.2/§11.3",
+      "acceptance": "Privilegierte Löschung, Rollback, fehlende Objekte, Schlüsselverlust und versehentlich wiederbelebte gelöschte Daten prüfen; unabhängiges Auditpaket bleibt verifizierbar."
+    },
+    {
+      "id": "X-38",
+      "title": "Ledger und unabhängige Auditprüfung",
+      "requirement": "Die Fabric-Alternative erhält eine begründete Ledger-Lösung samt unabhängigem Nachweis gegen unbemerkte Änderung, Rücknahme, Löschung und unvollständige Historie. Originale, Akteure, Versionen, Freigaben und externe Quittungen bleiben verbunden.",
+      "scope": "Neue Konzeptanforderung der Alternative",
+      "source": "Aktueller Nutzerauftrag e6c17707-40db-4492-a0a3-faa8838c7d0b rev1; L-03/L-06; EU-15",
+      "acceptance": "Manipulation/Verkürzung/Rollback/fehlender Digest/fehlende Originalbytes werden unabhängig erkannt; verifizierbare Receipts/Digests und lesbare vollständige Nachweise, nicht nur ein Ledger-Label."
+    },
+    {
+      "id": "X-39",
+      "title": "Konsistenz vor Freigabe und Versand",
+      "requirement": "Keine fachlich wirksame Freigabe, Meldung oder Erfolgsbestätigung auf inkonsistenten Daten. Commitpunkt und führende Zustände klar definieren; partielle technische Zustände sichtbar abgleichen statt verteilte ACID-Atomizität zu behaupten.",
+      "scope": "Neue Konzeptanforderung der Alternative; bestehende Fachinvarianten bleiben",
+      "source": "Aktueller Nutzerauftrag 17.11.2026 15:25; PRIMARY §4.4; EU §11.3",
+      "acceptance": "Abbruch vor/nach jedem Schreib-/ACK-Schritt, doppelte Commands, veraltete Version, ungeklärte Zustellung, Split Brain und Projektionrückstand; kein Release aus unvollständiger Kette."
+    },
+    {
+      "id": "X-40",
+      "title": "Zusätzliche Dienste transparent zulassen",
+      "requirement": "Bei Bedarf mehrere Fabric-Bereiche/Regionen und externe Schutzdienste nutzen. Fachlicher Master, Commit-/Auditautorität, Evidenzarchiv und rekonstruierbare Projektionen explizit unterscheiden; keine versteckte zweite führende Wahrheit.",
+      "scope": "Neue Konzeptentscheidung, noch keine Ressourcenfreigabe",
+      "source": "Aktueller Nutzerauftrag 17.11.2026 15:25",
+      "acceptance": "Datenfluss-/Hoheitsmatrix und Fehlerdomänenplan; kein unbelegter RPO0-Schluss aus zwei Instanzen oder asynchronem Spiegel, keine Verschleierung externer Fachdaten."
+    },
+    {
+      "id": "X-41",
+      "title": "Anforderungsregister als Pflicht",
+      "requirement": "Alle 118 IDs plus bestätigte Ergänzungen mit Prozess, Rollen, Daten, Umsetzung und Abnahme verknüpfen. Kein stilles Streichen wegen Plattformgrenzen; jede offene Abweichung sichtbar bis zur fachlichen Entscheidung.",
+      "scope": "Beide Varianten als Vergleich; Alternative als Umbaupflicht",
+      "source": "Aktueller Nutzerauftrag 17.11.2026 15:25; Nutzerturns 201,203",
+      "acceptance": "Vollständige eindeutige ID-Menge, unveränderte Quellprioritäten/-status, keine pauschalen Grünmeldungen; Freigabe je definiertem Releaseumfang mit sichtbaren Zielbetriebsresten."
+    },
+    {
+      "id": "X-42",
+      "title": "Konzeptfreigabe vor Branch und Umbau",
+      "requirement": "Zuerst neues Konzept vorlegen. Erst nach ausdrücklicher Nutzerfreigabe einen gebundenen Branch der bisherigen Lösung erstellen und isoliert umsetzen; kritische Fabric-Fähigkeiten zuerst absichern, danach technische Adapter schrittweise ersetzen.",
+      "scope": "Aktueller Auftrag; keine sofortige Implementierung",
+      "source": "Aktueller Nutzerauftrag e6c17707-40db-4492-a0a3-faa8838c7d0b rev1",
+      "acceptance": "Kein Branch-/Repo-/Deploymentstart aus der Konzeptarbeit; spätere Baseline und Capability-Gates dokumentieren, keine gemeinsamen Daten oder unkontrollierten Rückmerges."
+    },
+    {
+      "id": "X-43",
+      "title": "Fachliche Regression und Datenbewahrung",
+      "requirement": "Fachprozesse, Funktionen, Capabilities und UI wiederverwenden. Vorhandene Originale, historische Signaturen, Quell-/Fallrevisionen und negative Nachweise nicht durch Migration, Seeds oder neue Defaults überschreiben.",
+      "scope": "Beide Varianten; isolierte Kopien für Vergleichsprüfungen",
+      "source": "Nutzerturn 203; EU EU-19/EU-25; PRIMARY §16.4",
+      "acceptance": "Gemeinsamer unabhängiger Fachtestsatz plus Plattformspezifika; Alt-/Neufassung mit gebundenen Daten vergleichen, kein fremder/primärer Bestand verändern."
+    },
+    {
+      "id": "X-44",
+      "title": "Wirtschaftlichkeit und Geschäftshypothesen",
+      "requirement": "70 % kürzere Signal-to-Decision-Zeit und 60 % weniger PSUR-Aufwand als zu messende Case-Study-Hypothesen behandeln. Capacity, Modelle, Schutzspeicher, Ledger, Recovery, Netz und Betriebskosten gemeinsam betrachten.",
+      "scope": "Beide Varianten; kein zugesagtes Einsparungsergebnis",
+      "source": "PRIMARY §§1,15,17.4",
+      "acceptance": "Gleiche Ausgangsdaten, zulässige Rollen und Messdefinitionen; keine Einsparungs- oder Produktivitätsbehauptung aus Plattformwechsel oder Einzel-Demo."
+    },
+    {
+      "id": "X-45",
+      "title": "Sprachen und Originaltreue",
+      "requirement": "UI/Vorlagen lokalisierbar, Sprach-/Länderversionen im freigegebenen Paketscope. Übersetzung verändert keine genehmigte Aussage stillschweigend; bytegleiche PDF-/Audit-/Behördenoriginale bleiben separat zugreifbar.",
+      "scope": "Beide Varianten; nationale Freigaben vor realer Nutzung",
+      "source": "PRIMARY §13; L-07; EU §§7,11,12",
+      "acceptance": "Sprach-/Templatewechsel, historische Originale und Auditexporte mit berechtigtem Konten-/Produktscope prüfen; keine Behauptung vollständiger nationaler Sprachabnahme aus deutscher Demo."
+    }
+  ],
+  "source_manifest": [
+    {
+      "key": "MATRIX",
+      "file": "PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx",
+      "sha256": "6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca",
+      "note": "Unverändertes Nutzeroriginal, sechs Blätter; gelesen, nicht gespeichert oder neu berechnet."
+    },
+    {
+      "key": "PRIMARY",
+      "file": "cohors-architektur-und-implementierungskonzept.md",
+      "sha256": "bf79acb1481a3e298df35b809efc259d5dee8a9a19ed5dcd198c5c90a07f80d1",
+      "note": "Fachliche Baseline v0.5 einschließlich Produktionszielannahmen; kein Live-Abnahmestatus."
+    },
+    {
+      "key": "CROSSWALK",
+      "file": "cohors-requirements-mapping.json",
+      "sha256": "ee251190b044289869fb352416cc9e8c13b913503aaecdb0333c0a55c54dfe0a",
+      "note": "Historische Zuordnung v0.3, 118 IDs; Teilnachweise nicht auf Alternative übertragen."
+    },
+    {
+      "key": "CLARIFICATIONS",
+      "file": "cohors-anforderungsabgleich.md",
+      "sha256": "199b4b73bb4d23d49334ab4f0fb9fb3ecddbbac822b6913cecd074c0179e1784",
+      "note": "Fachliche M01–M09-Präzisierungen und historische Scopegrenzen."
+    },
+    {
+      "key": "EU",
+      "file": "cohors-eudamed-integrationskonzept.md",
+      "sha256": "422500477c7300030ba549fa9a6a26fac115fec5b66302e3d537a98c66c0ec32",
+      "note": "Abgenommenes Domibus-/Simulator-Konzept v1.1; 30 Abnahmekriterien."
+    },
+    {
+      "key": "ADR12",
+      "file": "cohors-adr-012-wissensarchitektur.md",
+      "sha256": "34031ebfb81c8bac9f3ecfbdc5d8a88293234aba01463e09da156f0f57f5ad13",
+      "note": "Primärarchitektur unverändert; Fachsemantik/API-Grenze übernommen, Technologiepfad der Alternative getrennt."
+    },
+    {
+      "key": "REFERENCES",
+      "file": "cohors-acceptance-references.json",
+      "sha256": "60c624678d901fa0ca90647f54e0d22fc7000caa218900713b3064b28dbf8fe0",
+      "note": "Unabhängige synthetische Referenzeingaben; keine rechtliche Kalenderfreigabe."
+    },
+    {
+      "key": "CONFIG",
+      "file": "baseline-config.json",
+      "sha256": "7f4d40727f02bede8fe9ad0cc79dc7d3c17b66d9cc85867da25cbc0d9494d045",
+      "note": "Quellenbelegte Ergänzungen und aktuelle Konzeptvorgaben; kein Implementierungsauftrag vor Freigabe."
+    }
+  ],
+  "output": {
+    "file": "Cohors-Fabric-Pflichtbaseline.xlsx",
+    "sha256": "8c3b0ac0e48309852ab3047779f8c0a3d47cf48b1ab7846b741f83575ea19d0a",
+    "bytes": 93190
+  },
+  "verification": {
+    "source_rows_exact": true,
+    "source_hashes_unchanged": true,
+    "formula_count": 0,
+    "excel_errors": [],
+    "not_verified": [
+      "Anforderungsimplementierung",
+      "Fachliche oder regulatorische Abnahme",
+      "Native Excel-Paginierung"
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "baseline": "FAB-BASELINE-01 v0.2",
+  "clarifications": [
+    {
+      "id": "M01",
+      "requirements": "C-06 bis C-08, C-13, C-14, L-06",
+      "scope": "Die Höchstfristen beziehen sich auf die maßgebliche Kenntnis. Ein späterer KI-/Kausalitätsbefund und eine bloße Reklassifizierung starten keine neue Frist. Eine begründete neue Reportability-Awareness nach zuvor gerechtfertigter Nichtmeldepflicht braucht tatsächlich neue Information. Die bereits spezifizierte Regel aus Architektur §9 bleibt maßgeblich."
+    },
+    {
+      "id": "M02",
+      "requirements": "C-03, D-01 bis D-04",
+      "scope": "„Erwartete Nebenwirkung“ allein belegt keine Ausnahme: Dokumentation in Produktinformationen, Quantifizierung in der TD und Einbeziehung in die Trendmeldung müssen zusammen nachvollziehbar sein. Kein automatisches Nichtmelden durch ein einzelnes Expectedness-Flag oder eine KI-Vermutung."
+    },
+    {
+      "id": "M03",
+      "requirements": "C-12, K-01",
+      "scope": "Periodische Sammelmeldungen sind nicht PSUR. Vor einer simulierten Nutzung müssen die einschlägigen Voraussetzungen und eine dokumentierte, passende Behördenvereinbarung zu Form, Inhalt und Häufigkeit vorliegen. Gruppieren allein genügt nicht."
+    },
+    {
+      "id": "M04",
+      "requirements": "E-02",
+      "scope": "Vor einer die Ursachenbewertung beeinträchtigenden Prüfung sind Asservat/Zustand und die vorherige Behördenunterrichtung nachzuweisen. Die interne menschliche Prüffreigabe ist von einer gesetzlich nicht pauschal vorauszusetzenden behördlichen Genehmigung zu unterscheiden. Im Pilot nur ein synthetischer Vorgang, keine reale Materialprüfung."
+    },
+    {
+      "id": "M05",
+      "requirements": "F-11, L-01",
+      "scope": "Ende der PSUR-Erstellung, Ende anderer PMS-Aufgaben und Datenlöschung sind getrennte Entscheidungen. Die in F-11 selbst gekennzeichnete Leitlinien-/Mindestfristfrage wird nicht als universeller 15-Jahre-Stop oder Löschautomat implementiert."
+    },
+    {
+      "id": "M06",
+      "requirements": "A-05, A-06, L-02",
+      "scope": "PRRC-Verantwortung und Produkt-/Vertretungszuständigkeit müssen organisatorisch erkennbar sein. Eine technische RA-Berechtigung allein belegt keine PRRC-Bestellung. Die genehmigten zwei menschlichen Freigaben bleiben bestehen; keine dritte Pflichtsignatur und keine automatische PRRC-Übersteuerung werden daraus abgeleitet."
+    },
+    {
+      "id": "M07",
+      "requirements": "C-05, F-06, F-16, H-02, K-01 bis K-03, K-07",
+      "scope": "Die Matrix beschreibt Zielpflichten, nicht die heutige Verfügbarkeit sämtlicher EUDAMED-Module. Reale Formatvalidierung und Export sind von simuliertem Versand und späterem autorisiertem Produktivzugang zu trennen. Keine erfundene API oder Behördenportal-RPA."
+    },
+    {
+      "id": "M08",
+      "requirements": "F-08 bis F-16",
+      "scope": "Diese neun Ergänzungen sind Soll-Anforderungen der Quelle. Sie konkretisieren den bereits vereinbarten PSUR-Piloten: stabile Kennung/Leitprodukt, zusammenhängende Perioden, N/N2/N3/N4, regions- und nennerkonsistente Daten, versionierte Terminologie sowie offene Maßnahmen. Die Soll-Kennzeichnung macht zugesagte Nachvollziehbarkeit oder unveränderliche Zeitstempel nicht optional."
+    },
+    {
+      "id": "M09",
+      "requirements": "G-01 bis G-13, H-01 bis H-05, I-01 bis I-08, J-03, K-07, L-05",
+      "scope": "Kein stiller Ausbau zu Studien-, Patienten-, QMS-/PLM- oder Publikationssystemen. PMCF/SSCP/TD bleiben Evidenz und Change Requests. Datenschutz und KI-Governance gehen über die MDR-Matrix hinaus; synthetische Falldaten und das separate EU-Verarbeitungsgate bleiben bestehen."
+    }
+  ]
+}

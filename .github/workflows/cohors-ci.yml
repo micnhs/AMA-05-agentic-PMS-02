@@ -1,8 +1,6 @@
-name: Cohors CI
+name: Cohors primary CI (disabled in Fabric checkout)
 
 'on':
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -14,6 +12,7 @@ concurrency:
 
 jobs:
   infrastructure:
+    if: ${{ false }}
     name: Bicep and local security gates
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -44,6 +43,7 @@ jobs:
         run: ./infra/scripts/Validate-Infrastructure.ps1 -OutputDirectory "$env:RUNNER_TEMP/cohors-iac"
 
   acceptance:
+    if: ${{ false }}
     name: SQL, .NET and Chromium acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 40

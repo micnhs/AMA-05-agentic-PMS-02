@@ -1,0 +1,233 @@
+{
+  "governance": {
+    "process": "Versioned product/PMS governance and organisational responsibilities",
+    "roles": ["PmsSpecialist: product-scoped read", "QualityManager: controlled changes", "PRRC: documented responsibility, not a third signature"],
+    "data": ["Device", "ProductGovernance", "Evidence", "ChangeRequest"],
+    "ui": ["src/Cohors.Web/src/Workspaces.tsx"],
+    "api": ["GET /api/products/profiles", "GET /api/evidence", "POST /api/changes"],
+    "code": ["src/Cohors.Domain/Governance.cs", "src/Cohors.Application/QualityService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/GovernanceTests.cs", "tests/Cohors.Tests/QualityAndEvidenceTests.cs"],
+    "failureRecovery": "Reject stale source revision; preserve old governance/evidence and reconcile the same command after unknown commit.",
+    "gap": "Existing reads and controlled changes do not prove complete PMS-system files or organisational PRRC appointments."
+  },
+  "intake": {
+    "process": "Signal intake, awareness, product match and original provenance",
+    "roles": ["PmsSpecialist: product-scoped intake", "MedicalSafetyReviewer: factual review", "RegulatoryAffairs: reportability review"],
+    "data": ["SafetyCase", "SourceReference", "AwarenessEvent", "Evidence"],
+    "ui": ["src/Cohors.Web/src/SignalWorkspace.tsx", "src/Cohors.Web/src/Workbench.tsx"],
+    "api": ["POST /api/cases", "POST /api/cases/{id}/awareness", "GET /api/signals"],
+    "code": ["src/Cohors.Application/CaseService.cs", "src/Cohors.Application/SignalReviewService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/CaseSafetyTests.cs", "tests/Cohors.Tests/SignalReviewTests.cs"],
+    "failureRecovery": "Retain first awareness, source ID and original bytes; local recording cannot acknowledge regional durability; same CommandId reconciles retries.",
+    "gap": "Canonical intake exists; complete multichannel/file intake and Fabric-protected awareness require separate implementation and execution."
+  },
+  "assessment": {
+    "process": "Evidence-bound assessment, independent assurance and human disposition",
+    "roles": ["PmsSpecialist: request/correct drafts", "MedicalSafetyReviewer: medical decision", "RegulatoryAffairs: separate bound decision", "Agent: draft only"],
+    "data": ["Assessment", "QualityReview", "MedicalDecision", "Approval", "CaseCoding"],
+    "ui": ["src/Cohors.Web/src/Workbench.tsx", "src/Cohors.Web/src/MirPanel.tsx"],
+    "api": ["POST /api/cases/{id}/assessment", "POST /api/cases/{id}/disposition", "POST /api/cases/{id}/coding", "POST /api/cases/{id}/approve/medical", "POST /api/cases/{id}/approve/regulatory"],
+    "code": ["src/Cohors.Application/CaseService.cs", "src/Cohors.Domain/AssessmentRules.cs", "src/Cohors.Domain/Terminology.cs"],
+    "testCandidates": ["tests/Cohors.Tests/AssuranceTests.cs", "tests/Cohors.Tests/CaseSafetyTests.cs", "tests/Cohors.Tests/TerminologyTests.cs"],
+    "failureRecovery": "Model/search failure stays explicit; manual route remains available; changed evidence invalidates new-release approvals without deleting old signatures.",
+    "gap": "Clinical quality requires curated independent expert cases; structural tests and deterministic replay cannot establish medical validity."
+  },
+  "deadlines": {
+    "process": "Awareness-bound legal deadlines, internal safety deadlines and independent escalation",
+    "roles": ["PmsSpecialist: record awareness", "MedicalSafetyReviewer: review classification", "RegulatoryAffairs: accountable response", "Operations workload: alarms only"],
+    "data": ["AwarenessEvent", "Deadline", "FollowUpObligation", "OperationsHeartbeat"],
+    "ui": ["src/Cohors.Web/src/WorkspaceViews.tsx", "src/Cohors.Web/src/CaseProcessBar.tsx"],
+    "api": ["GET /api/deadline-calendar", "POST /api/cases/{id}/awareness", "POST /api/cases/{id}/reclassify", "POST /internal/watchdog"],
+    "code": ["src/Cohors.Domain/Deadlines.cs", "src/Cohors.Domain/FollowUpRules.cs", "src/Cohors.Application/OperationsService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/FollowUpTests.cs", "tests/Cohors.Tests/WorkspaceReadTests.cs", "tests/Cohors.Tests/CaseSafetyTests.cs"],
+    "failureRecovery": "Timers do not wait for IQ/agents; overdue/unknown work escalates; restore preserves original awareness and warning timestamps.",
+    "gap": "Independent outage-domain watchdog, 24/7 human response and measured timing targets need deployed drills, not local self-health."
+  },
+  "reports": {
+    "process": "Draft, bound preview, two-person approval and submission reconciliation",
+    "roles": ["PmsSpecialist: draft", "MedicalSafetyReviewer: first human approval", "RegulatoryAffairs: distinct approval/send", "Dispatcher: certified intent only"],
+    "data": ["ReportDraft", "Approval", "Submission", "MirArtifact", "EudamedDossier"],
+    "ui": ["src/Cohors.Web/src/MirPanel.tsx", "src/Cohors.Web/src/EudamedDossiers.tsx"],
+    "api": ["POST /api/cases/{id}/report", "POST /api/cases/{id}/mir", "POST /api/cases/{id}/submit", "POST /api/cases/{id}/reconcile", "POST /api/eudamed/dossiers/{id}/submit"],
+    "code": ["src/Cohors.Application/RegulatoryService.cs", "src/Cohors.Application/EudamedDossierService.cs", "src/Cohors.Application/EudamedDeliveryService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/MirTests.cs", "tests/Cohors.Tests/EudamedCompositionTests.cs", "tests/Cohors.Tests/EudamedDeliveryTests.cs"],
+    "failureRecovery": "Unknown never authorises blind resend; reconcile original attempt/profile/package IDs; new revisions cannot reuse old approvals.",
+    "gap": "Generic report flows are partial candidates; each report type, jurisdiction/recipient preview and real channel needs its own evidence."
+  },
+  "summary": {
+    "process": "Periodic summary agreement and exact selected case reporting, distinct from PSUR",
+    "roles": ["PmsSpecialist: draft selection", "MedicalSafetyReviewer: approve", "RegulatoryAffairs: agreement and separate approval"],
+    "data": ["SummaryAgreement", "SummaryReport", "EudamedDossier", "VersionReference"],
+    "ui": ["src/Cohors.Web/src/Workspaces.tsx", "src/Cohors.Web/src/EudamedDossiers.tsx"],
+    "api": ["POST /api/summary-agreements", "POST /api/summary-reports", "POST /api/summary-reports/{id}/approve", "GET /api/summary-reports/{id}/export"],
+    "code": ["src/Cohors.Domain/SummaryReporting.cs", "src/Cohors.Application/RegulatoryService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/SummaryReportingTests.cs", "tests/Cohors.Tests/EudamedCompositionTests.cs"],
+    "failureRecovery": "Withdrawn/mismatched agreements block new effects; old agreement/case snapshots remain immutable; replay reconciles original report IDs.",
+    "gap": "No real authority agreement or receipt is inferred from simulated summary reports."
+  },
+  "correspondence": {
+    "process": "Original-bound authority/NB correspondence, owner, response and separate deadlines",
+    "roles": ["RegulatoryAffairs: correspondence", "MedicalSafetyReviewer: medical response approval", "PmsSpecialist: draft", "QualityManager: action tracking"],
+    "data": ["EudamedDossier", "EudamedInbox", "PsurReview", "Deadline"],
+    "ui": ["src/Cohors.Web/src/EudamedDossiers.tsx", "src/Cohors.Web/src/Workspaces.tsx"],
+    "api": ["GET /api/eudamed/dossiers/{id}/history", "POST /api/eudamed/dossiers", "POST /api/psur-reviews", "POST /api/psur-reviews/{id}/draft"],
+    "code": ["src/Cohors.Application/EudamedDeliveryService.cs", "src/Cohors.Application/PsurReviewService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/EudamedDeliveryTests.cs", "tests/Cohors.Tests/PsurReviewTests.cs"],
+    "failureRecovery": "Late/duplicate replies reconcile only the addressed original round and profile; cannot complete unrelated native obligations.",
+    "gap": "End-to-end recipient directories, distribution and real authority/NB cooperation remain separately gated."
+  },
+  "evidence": {
+    "process": "Versioned original/derivative evidence and controlled QMS/PMCF/SSCP/TD changes",
+    "roles": ["Product-scoped readers", "QualityManager: change approval", "PmsSpecialist: evidence draft", "Auditor: read-only"],
+    "data": ["Evidence", "Citation", "ChangeRequest", "VersionReference"],
+    "ui": ["src/Cohors.Web/src/DocumentDialog.tsx", "src/Cohors.Web/src/Workspaces.tsx"],
+    "api": ["GET /api/evidence/{id}/versions", "GET /api/evidence/{id}/versions/{version:int}/content", "POST /api/evidence/{id}/revise", "POST /api/changes"],
+    "code": ["src/Cohors.Application/EvidenceService.cs", "src/Cohors.Domain/EvidenceRules.cs", "src/Cohors.Application/QualityService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/QualityAndEvidenceTests.cs", "tests/Cohors.Tests/ObjectStoreIntegrityTests.cs", "tests/Cohors.Tests/ProductAuditTests.cs"],
+    "failureRecovery": "Missing/corrupt original fails visibly; no LLM replacement; historical access is reauthorised after account/product-scope changes.",
+    "gap": "Generic evidence is not complete PMCF/study/SSCP/PLM functionality. D/Z scope requires explicit documents/tasks and external completion evidence."
+  },
+  "sources": {
+    "process": "Public-source reading and human relevance, synthetic internal/clinical register input",
+    "roles": ["PmsSpecialist: scoped read/relevance", "MedicalSafetyReviewer: reopen", "RegulatoryAffairs: reopen"],
+    "data": ["PublicSourceRun", "SourceReference", "SignalReview", "Evidence"],
+    "ui": ["src/Cohors.Web/src/SignalWorkspace.tsx", "src/Cohors.Web/src/DocumentDialog.tsx"],
+    "api": ["POST /api/sources/{source}/sync", "POST /api/sources/{id}/approve", "GET /api/signals", "POST /api/signals/{kind}/{id}/reopen"],
+    "code": ["src/Cohors.Infrastructure/PublicSources.cs", "src/Cohors.Application/PublicSourceService.cs", "src/Cohors.Application/SignalReviewService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/AgentIdempotencyTests.cs", "tests/Cohors.Tests/SignalReviewTests.cs"],
+    "failureRecovery": "Cursor/deduplication persists under same source identity; failed public retrieval stays failure, never a successful replay or own-manufacturer case.",
+    "gap": "Live source rights and actual transport need explicit evidence; file intake/OCR/quarantine are not established by this public-source adapter."
+  },
+  "trends": {
+    "process": "Denominator-aware reproducible trends and human-reviewed signals",
+    "roles": ["PmsSpecialist: run analysis", "MedicalSafetyReviewer: review candidate", "QualityManager: measures"],
+    "data": ["TrendRun", "TrendPolicy", "Exposure", "VersionReference", "Capa"],
+    "ui": ["src/Cohors.Web/src/Workspaces.tsx", "src/Cohors.Web/src/WorkspaceViews.tsx"],
+    "api": ["GET /api/exposures", "POST /api/trends", "POST /api/trends/{id}/review", "GET /api/cockpit"],
+    "code": ["src/Cohors.Domain/Statistics.cs", "src/Cohors.Application/AnalyticsService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/AnalyticsTests.cs", "tests/Cohors.Tests/WorkspaceReadTests.cs"],
+    "failureRecovery": "Preserve policy, numerator/denominator and snapshot vector; incomplete exposure prevents rate claims; model failure cannot change deterministic statistics.",
+    "gap": "Production methods, thresholds, causal interpretation and external denominators need independent methodological approval."
+  },
+  "quality": {
+    "process": "Investigation, CAPA, effectiveness and controlled technical-document change",
+    "roles": ["PmsSpecialist: draft action", "QualityManager: independent approval/effectiveness", "MedicalSafetyReviewer: risk review"],
+    "data": ["Capa", "ChangeRequest", "SafetyCase", "Evidence"],
+    "ui": ["src/Cohors.Web/src/Workspaces.tsx", "src/Cohors.Web/src/Workbench.tsx"],
+    "api": ["POST /api/capas", "POST /api/capas/{id}/verify", "POST /api/changes", "POST /api/changes/{id}/complete"],
+    "code": ["src/Cohors.Application/QualityService.cs", "src/Cohors.Domain/PortfolioRules.cs"],
+    "testCandidates": ["tests/Cohors.Tests/QualityAndEvidenceTests.cs", "tests/Cohors.Tests/AnalyticsTests.cs"],
+    "failureRecovery": "Stale action/source versions and self-approval fail; incomplete effectiveness evidence cannot silently close CAPA.",
+    "gap": "Complete external QMS/PLM and actual field corrective action remain outside the synthetic pilot."
+  },
+  "specimen": {
+    "process": "Specimen custody, prior authority information and internal human investigation release",
+    "roles": ["PmsSpecialist: plan/custody", "MedicalSafetyReviewer: approve", "RegulatoryAffairs: prior authority notice"],
+    "data": ["SpecimenInvestigation", "SafetyCase", "Approval"],
+    "ui": ["src/Cohors.Web/src/Workbench.tsx"],
+    "api": ["POST /api/cases/{id}/investigations", "POST /api/cases/{id}/investigations/{investigationId}/approve", "POST /api/cases/{id}/investigations/{investigationId}/inform"],
+    "code": ["src/Cohors.Application/SpecimenService.cs", "src/Cohors.Domain/SpecimenInvestigation.cs"],
+    "testCandidates": ["tests/Cohors.Tests/SpecimenInvestigationTests.cs"],
+    "failureRecovery": "Preserve condition/custody and notice proof; uncertain notice blocks destructive simulated examination until reconciled.",
+    "gap": "No real specimen examination or universal legal authority-approval requirement is introduced."
+  },
+  "psur": {
+    "process": "Frozen PSUR period, provenance, independent author/assurance and two human approvals",
+    "roles": ["PmsSpecialist: freeze/draft", "MedicalSafetyReviewer: approval", "RegulatoryAffairs: separate approval", "Agent: draft only"],
+    "data": ["Psur", "PsurSnapshot", "CaseSnapshot", "Exposure", "VersionReference"],
+    "ui": ["src/Cohors.Web/src/Workspaces.tsx"],
+    "api": ["POST /api/psurs", "GET /api/psurs/{id}", "POST /api/psurs/{id}/approve", "GET /api/psurs/{id}/export/{format}"],
+    "code": ["src/Cohors.Application/AnalyticsService.cs", "src/Cohors.Domain/PsurSources.cs", "src/Cohors.Domain/PsurSupplement.cs"],
+    "testCandidates": ["tests/Cohors.Tests/PsurProvenanceTests.cs", "tests/Cohors.Tests/PsurExportTests.cs", "tests/Cohors.Tests/AnalyticsTests.cs"],
+    "failureRecovery": "Keep frozen revision vector and source bytes; report edits require new approvals; generated text is never an already approved report.",
+    "gap": "Each PSUR field/table/monthly view and clinical interpretation needs ID-specific acceptance; generic generation is insufficient."
+  },
+  "psur-series": {
+    "process": "PSUR leading identity, grouping, gap-free periods and lifecycle",
+    "roles": ["QualityManager: product governance", "PmsSpecialist: group/period preparation", "RegulatoryAffairs: review"],
+    "data": ["PsurSeries", "PsurGroupDefinition", "ProductGovernance", "ProductLifecycle"],
+    "ui": ["src/Cohors.Web/src/Workspaces.tsx"],
+    "api": ["POST /api/psur-groups", "POST /api/psurs", "GET /api/products/profiles", "POST /api/product-lifecycles"],
+    "code": ["src/Cohors.Domain/PsurSeries.cs", "src/Cohors.Domain/PsurGroups.cs", "src/Cohors.Domain/Governance.cs"],
+    "testCandidates": ["tests/Cohors.Tests/PsurSeriesTests.cs", "tests/Cohors.Tests/PsurGroupTests.cs", "tests/Cohors.Tests/LifecycleTests.cs"],
+    "failureRecovery": "Concurrent period/group change must conflict; retry resolves same command; no leading-ID replacement or deletion on lifecycle expiry.",
+    "gap": "Native locking must be replaced with certified multi-aggregate ordering before Fabric activation; organisational schedule agreement is external."
+  },
+  "information": {
+    "process": "Minimal information request, simulated delivery and explicit response mapping",
+    "roles": ["PmsSpecialist: request/map", "MedicalSafetyReviewer: content approval", "RegulatoryAffairs: separate disclosure approval"],
+    "data": ["InformationRequest", "InformationResponse", "InformationRecipient", "Evidence"],
+    "ui": ["src/Cohors.Web/src/InformationPanel.tsx"],
+    "api": ["POST /api/cases/{id}/information", "POST /api/cases/{id}/information/{requestId}/dispatch", "POST /api/cases/{id}/information/respond"],
+    "code": ["src/Cohors.Application/InformationService.cs", "src/Cohors.Domain/InformationRequests.cs"],
+    "testCandidates": ["tests/Cohors.Tests/InformationRequestTests.cs"],
+    "failureRecovery": "Unknown delivery cannot be blindly retried; missing references hold the response for mapping, and unanswered questions do not stop deadlines.",
+    "gap": "Only simulated clinical communication; actual recipients, disclosure basis and external processing need separate approval."
+  },
+  "integration": {
+    "process": "Actor/configuration lifecycle and bound simulator/Domibus transport",
+    "roles": ["RegulatoryAffairs: authorise profile activation", "MedicalSafetyReviewer: package approval", "Dispatcher: bound attempt", "Agent: no activation"],
+    "data": ["EudamedActor", "EudamedConfiguration", "EudamedDossier", "EudamedInbox", "DomibusProfile"],
+    "ui": ["src/Cohors.Web/src/EudamedWorkspace.tsx", "src/Cohors.Web/src/EudamedDossiers.tsx"],
+    "api": ["POST /api/eudamed/actors", "POST /api/eudamed/configuration", "POST /api/eudamed/{product}/activate", "POST /api/eudamed/dossiers/{id}/submit"],
+    "code": ["src/Cohors.Application/EudamedService.cs", "src/Cohors.Application/EudamedDeliveryService.cs", "src/Cohors.Infrastructure/DomibusGateway.cs"],
+    "testCandidates": ["tests/Cohors.Tests/EudamedConfigurationTests.cs", "tests/Cohors.Tests/EudamedDeliveryTests.cs", "tests/Cohors.Tests/DomibusContractTests.cs"],
+    "failureRecovery": "No automatic simulator fallback, rerouting or real resend of synthetic attempts; unknown delivery reconciles fixed message and original profile.",
+    "gap": "Stub, native Domibus/AS4, playground registration and real authority acceptance are separate gates."
+  },
+  "audit": {
+    "process": "Protected original evidence, scoped audit export and independent integrity/recovery",
+    "roles": ["Auditor: product-scoped read", "API: authorised state changes", "Independent certifier: proof only", "Separate archive administrators"],
+    "data": ["AuditEvent", "AggregateRevision", "Evidence", "CommitCertificate", "ReplayEnvelope"],
+    "ui": ["src/Cohors.Web/src/Workspaces.tsx", "src/Cohors.Web/src/DocumentDialog.tsx"],
+    "api": ["GET /api/products/{id}/audit", "GET /api/cases/{id}/manifest", "GET /api/eudamed/audit/{kind}/{id}"],
+    "code": ["src/Cohors.Application/ProductAudit.cs", "src/Cohors.Infrastructure/SqlStateStore.cs"],
+    "testCandidates": ["tests/Cohors.Tests/ProductAuditTests.cs", "tests/Cohors.Tests/EudamedAuditTests.cs", "tests/Cohors.Tests/ObjectStoreIntegrityTests.cs"],
+    "failureRecovery": "Missing original/digest/tail/authorization fails closed; only complete certified replay can restore a current head; unknown is not rollback.",
+    "gap": "Inherited transactional audit is not SQL Ledger, WORM or Fabric proof. G01/G02 block activation until actual service evidence exists."
+  },
+  "retention": {
+    "process": "Data-class retention, legal hold and explicit lifecycle/deletion separation",
+    "roles": ["QualityManager: justified lifecycle/hold/deletion decision", "Auditor: read", "Archive admin: separate from medical/RA"],
+    "data": ["RetentionRecord", "ProductLifecycle", "ObjectDependency", "ObjectDeletionReceipt"],
+    "ui": ["src/Cohors.Web/src/Workspaces.tsx"],
+    "api": ["GET /api/retention", "POST /api/retention/{id}/hold", "POST /api/retention/{id}/authorize-deletion", "POST /api/product-lifecycles"],
+    "code": ["src/Cohors.Application/RetentionService.cs", "src/Cohors.Domain/Retention.cs"],
+    "testCandidates": ["tests/Cohors.Tests/RetentionRulesTests.cs", "tests/Cohors.Tests/RetentionTests.cs"],
+    "failureRecovery": "Deletion/suppression journal must survive recovery and derived-copy rebuild; failure remains explicit and reconciles the original operation.",
+    "gap": "Locked A/B WORM, long-term readability and approved retention are not demonstrated by local synthetic deletion tests."
+  },
+  "identity": {
+    "process": "Least privilege, product scope, separate humans and no agent decision authority",
+    "roles": ["PmsSpecialist", "MedicalSafetyReviewer", "RegulatoryAffairs", "QualityManager", "Auditor", "Restricted workload identities"],
+    "data": ["Actor", "Approval", "VersionReference", "AuditEvent"],
+    "ui": ["src/Cohors.Web/src/App.tsx", "src/Cohors.Web/src/DocumentDialog.tsx"],
+    "api": ["GET /api/auth/session", "POST /api/cases/{id}/approve/medical", "POST /api/cases/{id}/approve/regulatory"],
+    "code": ["src/Cohors.Domain/Identity.cs", "src/Cohors.Api/Authentication.cs"],
+    "testCandidates": ["tests/Cohors.Tests/CaseSafetyTests.cs", "tests/Cohors.Tests/GovernanceTests.cs", "tests/Cohors.Tests/FoundryBoundaryTests.cs"],
+    "failureRecovery": "Reauthorise all reads/downloads and resumed jobs; revoked or stale identities cannot reuse cached scopes or approvals.",
+    "gap": "Real Entra, Fabric/OneLake/IQ private paths, pseudonymisation and organisational authority need independent negative service tests."
+  },
+  "ui": {
+    "process": "Accessible branded workspaces, separated process states and source-grounded visualisation",
+    "roles": ["Authenticated product-scoped human reader; commands retain server-side role checks"],
+    "data": ["CaseProcess", "SafetyCase", "PsurSnapshot", "WorkspaceReadModels"],
+    "ui": ["src/Cohors.Web/src/App.tsx", "src/Cohors.Web/src/Workbench.tsx", "src/Cohors.Web/src/WorkspaceViews.tsx"],
+    "api": ["GET /api/cockpit", "GET /api/deadline-calendar", "GET /api/cases/{id}/process", "GET /api/psurs/{id}"],
+    "code": ["src/Cohors.Domain/CaseProcess.cs", "src/Cohors.Application/WorkspaceReadService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/CaseProcessTests.cs", "tests/Cohors.Tests/WorkspaceReadTests.cs"],
+    "failureRecovery": "Account/scope change clears stale views; unknown states stay visible; presentation toggles must not mutate signed payloads.",
+    "gap": "Browser/accessibility acceptance and X-12/X-15 remain explicit work, not inferred from existing screens."
+  },
+  "platform": {
+    "process": "Fabric capability, runtime, recovery and independent delivery acceptance",
+    "roles": ["Independent deployment/operations owners", "API writer", "Journal coordinator", "Independent verifier/signer", "Restricted hosted-agent identity"],
+    "data": ["Delivery identity", "Capability evidence", "Topology epoch", "CommitCertificate", "Certified snapshot vector"],
+    "ui": ["docs/fabric/README.md"],
+    "api": ["GET /health/ready (candidate only; not a capability acceptance endpoint)", "G01-G11 capability harness: planned, no public mutation endpoint"],
+    "code": ["src/Cohors.Infrastructure/SqlStateStore.cs", "src/Cohors.Infrastructure/RemoteAgentRunner.cs", "src/Cohors.Application/OperationsService.cs"],
+    "testCandidates": ["tests/Cohors.Tests/OutboxTests.cs", "tests/Cohors.Tests/AgentIdempotencyTests.cs", "tests/Cohors.Tests/FoundryBoundaryTests.cs"],
+    "failureRecovery": "No final ACK with one protection region, stale epoch or incomplete certificate; deadlines/manual route continue; dependent deployment stays blocked.",
+    "gap": "No Fabric adapter/service/host/region/capacity is accepted. Native and cloud execution require separately allocated, approved resources."
+  }
+}

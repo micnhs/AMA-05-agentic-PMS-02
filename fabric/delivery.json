@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "deliveryId": "cohors-fabric",
+  "sourceRepository": "micnhs/AMA-05-agentic-PMS-02",
+  "forkCommit": "445efc75c0b79dcfa9f23489593df0ddb8be02dc",
+  "implementationBranch": "micnhs-cohors-fabric-umsetzung",
+  "automaticPrimaryIntegration": false,
+  "dataClassification": "synthetic-pilot-only",
+  "execution": {
+    "state": "github-standard-hosted-contract-validation-approved",
+    "nativeHostRunsAllowed": false,
+    "sharedPrimaryResourcesAllowed": false,
+    "validationBranch": "micnhs-cohors-fabric-umsetzung",
+    "validationRunner": "ubuntu-24.04",
+    "validationProfile": "build-and-contracts-no-sql-docker-browser-cloud",
+    "jobs": 1,
+    "sharedCachesAllowed": false,
+    "artifactUploadsAllowed": false
+  },
+  "deployment": {
+    "state": "blocked",
+    "resourceApproval": null,
+    "subscriptionIds": [],
+    "regions": [],
+    "fabricCapacityIds": [],
+    "fabricWorkspaceIds": [],
+    "identityIds": [],
+    "resourceGroupIds": [],
+    "portAllocations": [],
+    "ciEnvironment": "cohors-fabric-validation",
+    "previewEnvironment": "cohors-fabric-preview",
+    "deployEnvironment": "cohors-fabric-deploy",
+    "runnerGroup": "cohors-fabric-private-deployment"
+  },
+  "canonicalTerminologySource": {
+    "path": "source/imdrf-2026-fda-mapping-source.xlsx",
+    "gitBlob": "83f7b84fe257c66236de7a111a560c539db56d92",
+    "sha256": "c73f606d8ffbdcf715950cf342028b45a8008440255cd5467fa74315f2e42c76"
+  },
+  "approvedReferences": [
+    {
+      "id": "ALT-FAB-01",
+      "version": "0.2",
+      "path": "docs/fabric/baseline/konzept.json",
+      "sha256": "49c07066a81caaac87560d1f6be3fadb9efd9956d1656a5930f84f9e9ccc7abb"
+    },
+    {
+      "id": "FAB-BASELINE-01",
+      "version": "0.2",
+      "path": "docs/fabric/baseline/Cohors-Fabric-Pflichtbaseline.xlsx",
+      "sha256": "8c3b0ac0e48309852ab3047779f8c0a3d47cf48b1ab7846b741f83575ea19d0a"
+    },
+    {
+      "id": "FAB-BASELINE-01-MANIFEST",
+      "version": "0.2",
+      "path": "docs/fabric/baseline/baseline-manifest.json",
+      "sha256": "39311eb897f4094c2e77d35655821e47227e9880b25236036f34f9ed3698e369",
+      "originalSha256": "801e854d7bdf7bc81df802f18e1ea159384fb091e10a0b8e5d58eaf9d0598c33",
+      "distributionTransform": "private_source_paths_to_document_labels"
+    },
+    {
+      "id": "FAB-BASELINE-01-CONFIG",
+      "version": "0.2",
+      "path": "docs/fabric/baseline/baseline-config.json",
+      "sha256": "7f4d40727f02bede8fe9ad0cc79dc7d3c17b66d9cc85867da25cbc0d9494d045"
+    }
+  ]
+}

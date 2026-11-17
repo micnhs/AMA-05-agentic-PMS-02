@@ -1,4 +1,4 @@
-name: Cohors manual infrastructure
+name: Cohors primary deployment (disabled in Fabric checkout)
 
 'on':
   workflow_dispatch:
@@ -35,6 +35,7 @@ concurrency:
 
 jobs:
   request:
+    if: ${{ false }}
     name: Fail-closed manual request and CI provenance
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -73,6 +74,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Source SHA is not merged to the protected default branch.' }
 
   preview:
+    if: ${{ false }}
     name: Protected read-only what-if
     needs: request
     environment: cohors-pilot-preview
@@ -109,7 +111,7 @@ jobs:
 
   apply:
     name: Separately approved incremental apply
-    if: ${{ inputs.operation == 'apply' }}
+    if: ${{ false }}
     needs: preview
     environment: cohors-pilot-deploy
     runs-on:

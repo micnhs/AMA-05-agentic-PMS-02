@@ -1,0 +1,43 @@
+name: Cohors Fabric contracts
+
+'on':
+  push:
+    branches: [micnhs-cohors-fabric-umsetzung]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cohors-fabric-contracts-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    name: Isolated Fabric build and local contracts only
+    if: ${{ github.ref == 'refs/heads/micnhs-cohors-fabric-umsetzung' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_HOME: ${{ runner.temp }}/cohors-fabric-${{ github.run_id }}-${{ github.run_attempt }}/dotnet-home
+      DOTNET_INSTALL_DIR: ${{ runner.temp }}/cohors-fabric-${{ github.run_id }}-${{ github.run_attempt }}/dotnet
+      NUGET_PACKAGES: ${{ runner.temp }}/cohors-fabric-${{ github.run_id }}-${{ github.run_attempt }}/nuget
+      npm_config_cache: ${{ runner.temp }}/cohors-fabric-${{ github.run_id }}-${{ github.run_attempt }}/npm
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: '10.0.404'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.10.0'
+          package-manager-cache: false
+      - name: Validate exact source without SQL, Docker, browser or cloud
+        shell: pwsh
+        run: ./scripts/fabric/Test-HostedContracts.ps1

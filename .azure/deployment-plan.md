@@ -1,100 +1,96 @@
-# Cohors pilot deployment preparation
+# Cohors Fabric deployment preparation
 
-Status: Approved for synthetic implementation and local preparation only.
-Azure validation is incomplete; deployment is NOT authorized.
+Status: Planning; isolated source implementation approved, deployment target
+and resource/cost approval outstanding. NOT Ready for Validation or Validated.
 
-## Approved scope
+## Approval and immutable baseline
 
-The coordinator's approved implementation plan is the source for the functional
-scope. Build a synthetic PMS pilot with React/TypeScript, .NET 10, Container Apps,
-.NET isolated Durable Functions, SQL, Blob, AI Search and Microsoft Foundry.
-Authority transmissions and medical information requests remain simulated.
-Separate medical and regulatory human identities must approve immutable packages.
+The approved ALT-FAB-01 v0.2 and FAB-BASELINE-01 v0.2 govern this independent
+alternative. Mode: MODIFY the existing Azure application without changing its
+primary branch, branding or functional scope.
 
-## Deployment boundary
+- Fork: `445efc75c0b79dcfa9f23489593df0ddb8be02dc`.
+- Branch: `micnhs-cohors-fabric-umsetzung`.
+- Delivery identity: `cohors-fabric`; never reuse the primary delivery targets.
+- The 118 original IDs (104 Muss, 14 Soll), 45 additions, 53 acceptance scenarios
+  and nine scope clarifications remain mandatory within their agreed boundaries.
+- Inherited tests, local tooling claims and deployment evidence are historical,
+  NOT evidence for this variant.
 
-Preparation only. Do not provision Azure resources or choose a paid subscription,
-region, model deployment, SKU or irreversible retention policy. These are separate
-approval gates. Report local emulation, compiled integrations and live-tested
-integrations separately. No production credentials or patient data.
+## Approved sequence
 
-## Implementation sequence
+1. Bind source, configuration and rule versions; establish delivery isolation.
+2. Version the complete requirement register with ID-specific evidence and gaps.
+3. Address G01 commit/audit/original protection and G02 recovery/fencing first;
+   investigate actual app-only Fabric IQ (G03) and private end-to-end paths (G04).
+4. Replace persistence/evidence, knowledge/retrieval and agent hosting by adapters
+   only after their prerequisite gates permit it. Preserve deterministic rules,
+   independent human approvals, deadlines, UI and Domibus/simulator semantics.
+5. Validate and deploy to separately approved targets; prove independent rollback.
 
-1. Baseline, domain, identity contracts and transactional SQL audit/outbox.
-2. Complaint, awareness, deadline, assessment, two approvals, frozen package,
-   simulator receipt and audit; UI grows with this slice.
-3. Versioned evidence, deduplication, product matching and public read adapters.
-4. Six bounded logical agents; explicit Foundry live and deterministic replay.
-5. Assurance, simulated information requests, preliminary reports and follow-ups.
-6. Denominator-aware trends, CAPA effectiveness, change requests and PSUR review.
-7. Integrated workbench, regulatory desk, deadlines and audit.
-8. Bicep, gated CI/CD, managed identities, private paths and operating guide.
-9. Twenty-scenario acceptance checks and a verified reachable local preview.
+## Target architecture
 
-## Known gates
+- Fabric Core SQL: operational state, hidden pending revisions and gated outbox.
+- OneLake: operational evidence/knowledge copies, NOT the original WORM authority.
+- Fabric IQ: controlled, scoped, version-bound queries; no approval authority.
+- Foundry Hosted Agents: own .NET agents; no direct business-state mutation.
+- Separate Web/API, deterministic workflow/deadline/watchdog and Domibus services.
+- Narrow external Azure SQL Ledger journal: ordering/commit authority, NOT a
+  second editable case database.
+- Two directly written regional Blob WORM archives: complete original bytes,
+  replay envelopes, digests and certificates; independently administered.
+- Independent certifier; explicit regional fencing and recovery.
 
-- The original source DOCX is read-only and will remain unchanged.
-- The unchanged 118-requirement spreadsheet and completed individual mapping are
-  integrated under `source` and `docs/requirements`. All original statuses remain
-  Open; assignment is not fulfillment of all pilot/target-operation requirements.
-- Medical, regulatory, privacy and quality validation are not software tests.
-- Live Azure authentication, network integration, model quality and disaster
-  recovery require an approved deployed environment.
-- Local .NET SDK 10.0.404 is installed in the worktree tooling area.
+## Azure context and execution isolation
 
-## Recipe
+Subscription(s), regions, Fabric tenant/workspaces/capacities, identities,
+resource groups, SKUs, budgets and actual processing geography are UNCONFIRMED.
+Existing primary resources, credentials, containers, SQL instances, volumes,
+ports, fixtures, processes and local directories must not be used.
+The source worktree is isolated; host/compute/quota isolation is not yet proven.
+No native build, service, browser or load run until a separate execution path
+is allocated. No global tool, SDK, Docker or Azure configuration changes.
 
-Bicep preparation for the approved architecture; no deployment execution.
-The existing approved storage-backed Durable Functions design is retained.
+A single standard GitHub-hosted Ubuntu job is now allocated for this exact
+Fabric branch: .NET 10.0.404, Node 24.10.0, own temporary package/cache paths,
+no SQL/Docker/browser, credentials, Azure login, OIDC, shared caches or uploads.
+The branch-only workflow does not modify the primary/default branch. Inherited
+primary workflows are disabled in this checkout. Azure context was observed
+privately by the coordinator, but no resource target/cost/region is approved;
+identity/subscription/host details must not enter this public repository.
 
-## Host contract and coordination
+## Hard gates and fail-closed boundary
 
-`docs/runtime-contract.md` is the integration contract. Web/API and ONE internal
-agent host are separate processes/images/identities in Azure; the in-process
-agent library is a labelled local-only alternative. Workflows and Operations are
-separate .NET isolated Flex Functions code packages deployed through OneDeploy.
-Functions Dockerfiles are local Linux validation aids, not a change of cloud plan.
-Their backend is the explicitly approved Azure Storage task hub;
-a different paid scheduler is not implicitly authorized by a generic template.
+G02 remains a production conflict: B alone cannot finally acknowledge normal
+commands after loss of A. A second complete protection path including historical
+evidence within 60 minutes is unproven. Region C is an option, not an approved
+topology. No single-region exception or reduced RPO/RTO.
 
-The separate infrastructure session's isolated commits `35a29bc0` and `ae692f2b`
-are integrated here as `1073a40` and `56ca20e`. Their offline tests pass, but the
-security gate remains blocked. This worktree retains Dockerfiles, host code,
-local scripts, application packages and integration. No cloud provisioning is
-authorized.
+Specification, local tests, real-service evidence and functional/operational
+acceptance are separate evidence levels. Missing credentials/capacity or product
+limitations block only dependent work, but always block production cutover.
+Pending/unknown commits never become success through retries or timeouts.
+Awareness starts deadlines immediately; a local observation is not an RPO0 ACK.
 
-Live Foundry remains gated on a configuration-bound provider review for actual
-EU-member-state processing countries. A DataZone label is not sufficient and is
-rejected; a regional SKU still requires geography verification. The optional
-Foundry CLI setup is blocked: azd is absent and the authenticated GitHub release
-lookup returned HTTP 403 / organization SAML enforcement. No authentication
-bypass, CLI deployment or live model invocation was performed.
+## Deployment preparation and rollback
 
-## All validation checks pass
+Recipe decision pending inspection of the inherited Bicep deployment contracts.
+Do not invoke inherited deployment scripts against their old defaults.
+Use synthetic pilot data only. Real authority communication and medical
+production operation are not authorized. Resource/cost/retention approvals
+remain separate from the approval to implement source changes.
 
-- [ ] Bicep recipe core validation (CLI, authentication, build, validate, what-if).
-  Offline compilation is allowed; subscription-scoped authentication, deployment
-  validation and what-if require a separately approved real target. They have not
-  been run or inferred from examples.
-- [ ] Optional Bicep lint and the pinned offline security gate.
-- [ ] Azure Policy validation for the actually approved subscription.
-- [ ] Runtime/managed-identity/private-network and provider-geography proof.
-- [ ] Initial AAD telemetry ingestion/schema/query and three-minute watchdog
-  activation proof. Local SQL/query-model tests are not Kusto ingestion evidence.
+Before any deployment: finalize the isolated target plan and obtain target/cost
+approval; invoke azure-validate, then azure-deploy. Do not claim readiness until
+the application, infrastructure and platform gates have actual evidence.
+Rollback must affect this delivery only; decided commands roll forward under
+the protocol and must not be rolled back by an application/image rollback.
 
-## 7. Validation Proof
+## Validation proof
 
-- Current Windows local SQL/domain acceptance: 64 passed, 0 failed, 0 skipped.
-  MIR fixed follow-up obligations and effective PSUR document revisions included.
-- Current React/TypeScript build passed; Web/API image builds use Node 24 as a
-  build-only stage, not a Node Azure runtime. Application hosts are .NET.
-- Integrated infrastructure offline tests: 25 passed, including the narrow
-  SQLite model of the productive three-minute KQL predicates. Not Kusto/Azure.
-- Infrastructure owner's recorded security result remains BLOCKED: 184 checks
-  passed, 79 finding occurrences across 17 controls; no automatic waivers.
-- True Linux loopback reachability was probed without credentials or database
-  mutation. Isolated current Linux application/browser acceptance is in progress.
-- The Actions-only harness guard remains intact. No `GITHUB_ACTIONS=true`
-  spoofing, no workflow dispatch, no push, and no Azure deployment were performed.
-- Plan status is not `Validated`. The full azure-validate recipe is intentionally
-  blocked at target-dependent/cloud checks and unresolved security controls.
+- Exact fork, concept/workbook/config hashes and manifest distribution transform
+  checked. Only private source-path labels changed in the distributed manifest.
+- 118+45 IDs, 104/14 priorities, 326 distinct test specifications, 53 scenarios
+  and nine scope clarifications checked; four local Python contract tests pass.
+- No .NET/Node build, Fabric service, recovery or deployment validation claimed
+  yet. Hosted build evidence will be separate from platform/acceptance evidence.

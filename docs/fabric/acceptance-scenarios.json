@@ -1,0 +1,376 @@
+{
+  "baseline": "FAB-BASELINE-01 v0.2",
+  "scenarios": [
+    {
+      "id": "T01",
+      "title": "Doppelter Eingang",
+      "expectedEvidence": "Ein Vorfall wird nicht doppelt gezählt; beide Quellen und Kenntniszeitpunkte bleiben erhalten",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T02",
+      "title": "Unbekannte UDI",
+      "expectedEvidence": "Intake funktioniert; Identitätslücke ist sichtbar; kein erfundener UDI-Wert",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T03",
+      "title": "Fehlender klinischer Befund",
+      "expectedEvidence": "QA erstellt begründete Nachforderung; Unsicherheit bleibt sichtbar; Frist läuft weiter",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T04",
+      "title": "Unbelegte Kausalität",
+      "expectedEvidence": "Quellenvalidator/QA bzw. Reviewer verhindert eine unberechtigte endgültige Schlussfolgerung",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T05",
+      "title": "KI-/Search-Ausfall",
+      "expectedEvidence": "Manueller Review-/Vorläufigkeitsweg und Fristenüberwachung funktionieren ohne KI",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T06",
+      "title": "Parallele Reviewer-Änderung",
+      "expectedEvidence": "Veraltete Version wird abgewiesen; keine stille Überschreibung oder Freigabe falscher Inhalte",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T07",
+      "title": "Änderung nach Freigabe",
+      "expectedEvidence": "Neuer Inhalt/Empfänger/Anhang invalidiert die Versandberechtigung für dieses Paket",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T08",
+      "title": "Unberechtigter Agent oder Nutzer",
+      "expectedEvidence": "Kein direkter DB-/Dokumentzugriff außerhalb des Scopes; kein Approve-/Submit-Bypass",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T09",
+      "title": "Prompt Injection",
+      "expectedEvidence": "Fremddokument kann keine Quellenrechte erweitern, keine Secrets abfragen und keine Meldung auslösen",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T10",
+      "title": "Deadline-Grenzen",
+      "expectedEvidence": "2/10/15 Tage, Tag 0, Zeitzone, DST, Jahreswechsel, Feiertage, EU-Arbeitstagsregel und getrennte GB-/NI-Regeln",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T11",
+      "title": "Neue Informationen",
+      "expectedEvidence": "Belegte Ausnahme zu reportabilityAwarenessAt wird getrennt abgebildet; verspätete Bearbeitung setzt keinen neuen Beginn",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T12",
+      "title": "Restart und Timer",
+      "expectedEvidence": "Persistierte Freigabe und Frist überleben Neustart; verpasste Watchdog-Prüfung wird erkannt",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T13",
+      "title": "Timeout nach möglichem Versand",
+      "expectedEvidence": "TransmissionUnknown bleibt offen; Reconcile verhindert blinde Doppelmeldung",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T14",
+      "title": "MIR-Kontrakt",
+      "expectedEvidence": "Export validiert gegen gepinnte XSD; fehlende Pflichtdaten werden nicht erfunden",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T15",
+      "title": "Statistische Referenz",
+      "expectedEvidence": "Berechnung stimmt mit unabhängig kuratierter Referenz überein; fehlender/unpassender Nenner sperrt Inzidenzaussage",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T16",
+      "title": "PSUR-Konsistenz",
+      "expectedEvidence": "Zähler, Nenner, Regionen und Perioden stimmen; offene Fälle sichtbar; jede Konklusion nachvollziehbar",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T17",
+      "title": "CAPA-Abschluss",
+      "expectedEvidence": "Abschluss erst nach dokumentierter Wirksamkeitsbewertung durch berechtigte Person",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T18",
+      "title": "Audit / Retention",
+      "expectedEvidence": "Manifest-/Digestprüfung erkennt Manipulation; Aufbewahrungs- und Löschregeln wirken über relevante Speicher hinweg",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T19",
+      "title": "Simulator-Schutz",
+      "expectedEvidence": "Kein Domibus-/EUDAMED-Aufruf des Simulatorpfads, kein automatischer Fallback und kein realer Nachversand simulierter Aufträge; Quittungen und Exporte behalten ihre sichtbare Simulationsherkunft",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T20",
+      "title": "Wiederherstellung",
+      "expectedEvidence": "SQL-/Dokumentstände und Verknüpfungen wiederhergestellt; Fristen/Outbox abgeglichen; Search neu aufbaubar",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T21",
+      "title": "Kontofreie Akteurregistrierung",
+      "expectedEvidence": "Antrag, Korrektur, Ablehnung, erneute Einreichung und simulierte Freigabe sind ohne externe Accounts nachvollziehbar und persistent; keine echte Registrierung behauptet",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T22",
+      "title": "Kanal- und Rollenwechsel",
+      "expectedEvidence": "Konfigurationskonflikte, unberechtigte Aktivierung, laufende Versuche, späte Antworten und historische Simulatorobjekte erzeugen keine Scope-Vermischung oder Wiederverwendung alter Freigaben",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "T23",
+      "title": "Domibus-Empfang",
+      "expectedEvidence": "Abruf, dauerhafte Original-/Inbox-/Audit-Speicherung und Downloadbestätigung bleiben auch in Fehlerfenstern nachvollziehbar; ausgeführte Stub-/Gateway-/AS4-/Playground-Nachweise sind ausdrücklich getrennt",
+      "source": "PRIMARY §17.1, v0.5",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-01",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "API-Import umfasst mehr als eine 100er-Seite; abgebrochene Läufe setzen kontrolliert fort. Fremde `nextLink`-Hosts erhalten keinen API-Key.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-02",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Playground-/Produktionskennungen kollidieren nicht; ähnliche Gerätenamen führen nicht zu ungeprüfter Zuordnung.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-03",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "MF-Zertifikatsimport behauptet keine CA-/NB-Rechte. Originale, NB/Revision/Scope und Verifikationsstatus bleiben nachvollziehbar.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-04",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Gültige und ungültige Beispieldossiers je Typ prüfen XSD **und** Business Rules/Enumerationen; unbekannte Schema-/Templateversionen werden sichtbar blockiert.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-05",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Output-only-Felder werden nicht gesendet; Dossier- und Templateversion sind getrennt. PSRP-Perioden werden nach Rückmeldung abgeglichen.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-06",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Änderung von Fachinhalt, Anhang, Actor, Empfänger oder Umgebung nach Freigabe verhindert Versand ohne passende erneute Freigabe.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-07",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Gleiche Identität kann die erforderlichen getrennten Medical-/RA-Freigaben nicht ersetzen; Modell-/Workeridentitäten dürfen nicht fachlich genehmigen.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-08",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Transportquittung, angelegter Entwurf, eingereichtes Dossier und NB-/CA-Bewertung sind in API und UI unterscheidbar.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-09",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Timeout nach möglicher Zustellung, doppelte Nachricht und verspätete Antwort erzeugen keine unkontrollierte Zweiteinreichung und keinen Rückschritt des Dossierzustands.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-10",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "PSR und PSRP sind getrennt; außerhalb der Vereinbarung liegende Fälle behalten ihre Einzelmeldeprüfung. Keine erfundenen PSRP.GET/PUT- oder PSR.PUT-Aufrufe.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-11",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "MTR ist aus gebundenen Fällen, Exposition und Methoden reproduzierbar. Fehlender Nenner wird als Lücke dargestellt, nicht als gültige Rate.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-12",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "PSUR bindet Serie, Periode, Geräte und evaluierende NB; neue Bewertung/Rückfrage verändert das freigegebene Original nicht.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-13",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "FSN-Kommentar, neue Sprachfassung, behördliche Einreichung und Anwenderverteilung besitzen getrennte Versionen und Belege; unsupported PUT-Aktion ist sichtbar.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-14",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Schemaloses XML, XXE, fehlerhafte Archive, Pfadüberschreitung, zu große/auffällige Dateien und unzulässige Dokumenttypen werden kontrolliert abgewiesen.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-15",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Prüfpaket rekonstruiert Originale, Quellen, Freigaben, Attempts, Rückmeldungen und Audit-Verknüpfungen. Manipulationen werden durch Hash-/Ledger-/Digestprüfung erkannt.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-16",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Logs/Traces/Exporte enthalten keine Module-Keys, API-Keys, privaten Schlüssel oder unzulässigen klinischen Payloads; Zugriff auf technische Originale ist gesondert kontrolliert.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-17",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Komponenten-/Regionsausfall einschließlich ACK-Grenze des AP beweist den geforderten Erhalt bestätigter Fachdaten und verhindert Split-Brain-Senden.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-18",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Ausfall von KI, API-Sync oder EUDAMED lässt unabhängige Fristen und fristwahrenden manuellen Weg weiter funktionieren; tatsächliche Übermittlungsbelege werden nachgeführt.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-19",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Daten-/Schemaerweiterungen erhalten alte Aggregate, Hashes, Freigabehistorien und Simulatorverhalten; ein neuer Code-Stand gilt erst nach eigener Prüfung als ausgeliefert.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-20",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Jeder aktivierte reale Dienst hat einen aktuellen Capability-, Rollen-, Umgebungs-, Vertrags- und End-to-End-Nachweis. Fehlende Aktivierung ist kein grüner Abnahmestatus.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-21",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Die Simulator-Demo startet und führt ihren Fachprozess ohne EU Login, echte SRN, Modul-Keys oder Domibus aus. Nachgewiesen werden keine Domibus-/EUDAMED-Netzwerkaufrufe des Simulatorpfads, nicht nur fehlende sichtbare UI-Fehler.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-22",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Actor-Antrag, Korrektur, Ablehnung, erneute Einreichung und simulierte Freigabe sind persistent, versioniert und auditiert. Nur die freigeschaltete Testidentität ist im betreffenden Simulationsscope nutzbar; kein Ereignis behauptet eine echte Registrierung.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-23",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "UI und Server unterscheiden Konfigurationsentwurf, aktiven Modus und Versandbereitschaft. Fehlende Rechte, ungültige Konfiguration und konkurrierende Revisionen verhindern eine unbemerkte Aktivierung oder Überschreibung.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-24",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Umschalten Simulator/Domibus einschließlich laufender, eingereihter und ungeklärter Vorgänge bewirkt keinen kanalübergreifenden Nachversand. Bereits gestartete Versuche und verspätete Antworten behalten ihre ursprüngliche Zuordnung.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-25",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Historische Simulatoraufträge ohne neue Metadaten bleiben Legacy-Simulation und sind niemals durch einen neuen Default real versandfähig. Vorhandene Byte-/Scope-Hashes und Unterschriften bleiben gültig beziehungsweise unverändert historisch.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-26",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Derselbe fachliche Workflow prüft positive Verarbeitung, Business-Reject, technische Störung, unklare Zustellung, verzögerte/doppelte/umgeordnete Antworten und Korrespondenz. Neustart oder neuer Simulationslauf verlieren beziehungsweise löschen keine bestätigten Ereignisse.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-27",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Alle beauftragten Dossierarten besitzen ihre berichtsspezifischen Fachbindungen und nachvollziehbaren Simulatorabläufe; Simulator-only-Aktionen erscheinen nicht als verfügbare reale DTX-Operationen.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-28",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Die tatsächliche Domibus-Version und Backendverträge sind festgehalten. Backend-Stub, laufende Domibus-Instanz, lokaler AS4-Austausch und reale EUDAMED-Abnahme werden in Belegen und UI nicht verwechselt.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-29",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Der Simulator wird bei Domibus-Fehlern nicht automatisch aktiviert. Unzulässige Endpunkte/Weiterleitungen, unpassende Actor-/Umgebungsbindung und fehlende Secrets erzeugen sichtbare Fehler statt simulierter Erfolge.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    },
+    {
+      "id": "EU-30",
+      "title": "EUDAMED-Vertrag und Fachprozess",
+      "expectedEvidence": "Modus, Actorherkunft und Simulationskennzeichnung bleiben in Benutzerwechseln, Detailansichten und Exporten korrekt. Alte asynchrone Antworten stellen keinen vorherigen Kontozustand wieder her; Geheimnisse erscheinen weder im Browser-Rücklesemodell noch im Audit oder Export.",
+      "source": "EU §14, v1.1",
+      "state": "not_demonstrated"
+    }
+  ]
+}

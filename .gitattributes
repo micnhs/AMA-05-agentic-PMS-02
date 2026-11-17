@@ -24,6 +24,8 @@ contracts/eudamed/playground-3.0.36.1/data/Entity/Device/LegacyDevice/EUUDIDIDat
 tests/Cohors.Tests/Fixtures/cohors-*-references.json -text
 docs/requirements/coordinator-* -text
 docs/requirements/extract-cohors-terminology.py -text
+# Approved Fabric inputs and their reviewed distribution manifest are hash-bound bytes.
+docs/fabric/baseline/** -text whitespace=cr-at-eol
 src/Cohors.Api/ReportFonts/*.ttf binary
 src/Cohors.Api/ReportFonts/*LICENSE -text
 # Preserve the hash-pinned upstream license, including its trailing space.
