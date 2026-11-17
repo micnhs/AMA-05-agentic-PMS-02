@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -453,12 +454,12 @@ public sealed record FabricCommit
         {
             using var document = JsonDocument.Parse(block.DigestJson);
             var digest = document.RootElement;
-            Guard.Against(digest.ValueKind != JsonValueKind.Object ||
+            Guard.Against(digest.ValueKind != JsonValueKind.Object || DuplicateProperties(digest) ||
                 !digest.TryGetProperty("block_id", out var id) || !id.TryGetInt64(out var number) || number != block.BlockId ||
                 !digest.TryGetProperty("database_name", out var database) || database.GetString() != Topology.Primary.Database ||
-                !digest.TryGetProperty("hash", out var hash) || string.IsNullOrWhiteSpace(hash.GetString()) ||
-                !digest.TryGetProperty("digest_time", out var time) || time.GetDateTimeOffset() != block.ClosedAt ||
-                !digest.TryGetProperty("last_transaction_commit_time", out var committed) || committed.GetDateTimeOffset() > block.ClosedAt,
+                !digest.TryGetProperty("hash", out var hash) || !NativeHash(hash.GetString()) ||
+                !digest.TryGetProperty("digest_time", out var time) || SqlUtcTime(time) != block.ClosedAt ||
+                !digest.TryGetProperty("last_transaction_commit_time", out var committed) || SqlUtcTime(committed) > block.ClosedAt,
                 "fabric_native_digest", "The complete native digest must identify the expected closed block and journal database.");
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException)
@@ -479,12 +480,35 @@ public sealed record FabricCommit
         try
         {
             using var parsed = JsonDocument.Parse(json);
-            Guard.Against(parsed.RootElement.ValueKind != JsonValueKind.Object || Canonical.Serialize(parsed.RootElement) != json,
+            Guard.Against(parsed.RootElement.ValueKind != JsonValueKind.Object || DuplicateProperties(parsed.RootElement) ||
+                Canonical.Serialize(parsed.RootElement) != json,
                 "fabric_payload", "Replay state and effects must be complete canonical JSON objects.");
         }
         catch (JsonException error)
         {
             throw new DomainException("fabric_payload", "Replay state or effect JSON is invalid.", 422, error);
         }
+    }
+
+    private static bool NativeHash(string? value) => value is { Length: 66 } &&
+        value.StartsWith("0x", StringComparison.Ordinal) && value.AsSpan(2).ToArray().All(char.IsAsciiHexDigit);
+
+    private static DateTimeOffset SqlUtcTime(JsonElement value)
+    {
+        Guard.Against(!DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var time),
+            "fabric_native_digest", "SQL digest timestamps must be valid UTC instants.");
+        return time;
+    }
+
+    private static bool DuplicateProperties(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var properties = element.EnumerateObject().ToArray();
+            return properties.Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() != properties.Length ||
+                properties.Any(p => DuplicateProperties(p.Value));
+        }
+        return element.ValueKind == JsonValueKind.Array && element.EnumerateArray().Any(DuplicateProperties);
     }
 }

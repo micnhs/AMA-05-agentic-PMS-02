@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -52,6 +53,19 @@ public sealed class FabricCommitContractTests
         };
         foreach (var alternative in changed)
             Reject("fabric_command_conflict", () => state.ResolveRetry(alternative));
+    }
+
+    [Theory]
+    [InlineData("""{"value":{"x":1,"x":2}}""")]
+    [InlineData("""{"x": 1}""")]
+    [InlineData("null")]
+    public void AmbiguousOrNoncanonicalReplayStatesAreRejected(string json)
+    {
+        using var sample = new SyntheticCommit();
+        Reject("fabric_payload", () => sample.Start(sample.Request with
+        {
+            Writes = sample.Request.Writes.SetItem(0, sample.Request.Writes[0] with { StateJson = json })
+        }));
     }
 
     [Fact]
@@ -213,6 +227,26 @@ public sealed class FabricCommitContractTests
             geo with { SecondaryDigestHash = Canonical.HashText("old-block") }
         })
             Reject("fabric_geo_binding", () => closed.ProtectGeo(wrong, closed.Fence()));
+    }
+
+    [Fact]
+    public void NativeSqlDigestShapePreservesBytesAndAcceptsOffsetlessUtcTimestamps()
+    {
+        using var sample = new SyntheticCommit();
+        var state = sample.At(CommitPhase.Decided);
+        var block = sample.Block(state) with
+        {
+            DigestJson = Canonical.Serialize(new
+            {
+                database_name = state.Topology.Primary.Database, block_id = 7, hash = "0x" + new string('A', 64),
+                last_transaction_commit_time = SyntheticCommit.Time.AddSeconds(3).ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff", CultureInfo.InvariantCulture),
+                digest_time = SyntheticCommit.Time.AddSeconds(4).ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff", CultureInfo.InvariantCulture)
+            })
+        };
+        Assert.Equal(block.DigestJson, state.CloseBlock(block, state.Fence()).Block!.DigestJson);
+        Reject("fabric_native_digest", () => state.CloseBlock(
+            block with { DigestJson = block.DigestJson.Replace(new string('A', 64), "malformed-hash", StringComparison.Ordinal) },
+            state.Fence()));
     }
 
     [Fact]
