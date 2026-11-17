@@ -851,6 +851,7 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 await Execute(sourceConnection, $"ALTER DATABASE [{sourceDatabase}] SET READ_ONLY WITH NO_WAIT");
                 var beforeDeletion = await Script("Backup-Local.ps1", config, PreDeletionBackupDirectory, "-Quiesced");
                 RequireSuccess(beforeDeletion, "pre-deletion native backup");
+                await RecordSetupPhase("pre-deletion-backup-complete");
                 PreDeletionManifestHash = FileHash(Path.Combine(PreDeletionBackupDirectory, "manifest.json"));
                 await Execute(sourceConnection, $"ALTER DATABASE [{sourceDatabase}] SET READ_WRITE WITH NO_WAIT");
                 DeletedRaw = await retention.Authorize(DeletedRaw.Id, new(DeletedRaw.Version, true,
@@ -859,13 +860,18 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 DeletedRaw = await retention.Delete(DeletedRaw.Id, new(DeletedRaw.Version, retentionReason),
                     SqlFixture.Quality, CaseScenario.Key());
                 Assert.Equal("Deleted", DeletedRaw.Status);
+                await RecordSetupPhase("retention-deletion-complete");
                 foreach (var file in System.IO.Directory.EnumerateFiles(sourceObjects, "*", SearchOption.AllDirectories))
                     SourceBytes.Add(Path.GetRelativePath(sourceObjects, file), await File.ReadAllBytesAsync(file));
+                await RecordSetupPhase("source-objects-read");
+                await RecordSetupPhase("source-table-read-start");
                 SourceTables = await Tables(source.ConnectionString);
+                await RecordSetupPhase("source-table-read-complete");
                 SqlConnection.ClearAllPools();
                 await Execute(sourceConnection, $"ALTER DATABASE [{sourceDatabase}] SET READ_ONLY WITH NO_WAIT");
                 var backup = await Script("Backup-Local.ps1", config, BackupDirectory, "-Quiesced");
                 RequireSuccess(backup, "native backup");
+                await RecordSetupPhase("post-deletion-backup-complete");
                 ManifestHash = FileHash(Path.Combine(BackupDirectory, "manifest.json"));
                 Assert.Contains("RECOVERY_MANIFEST_SHA256=" + ManifestHash, backup.Output);
             }
@@ -1423,12 +1429,26 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
     public static async Task<SortedDictionary<string, string>> Tables(string connection)
     {
         var tables = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        await using var sql = new SqlConnection(connection);
+        await sql.OpenAsync();
         foreach (var (table, order) in new[] { ("Aggregates", "Kind,Id"), ("AggregateVersions", "Kind,Id,Version"),
             ("AuditEvents", "Sequence"), ("Commands", "IdempotencyKey"), ("Deadlines", "Id"), ("Inbox", "EventId,Consumer"),
             ("Outbox", "Id"), ("SchemaVersions", "Version") })
-            tables.Add(table, (string)(await Scalar(connection, $"SELECT (SELECT * FROM dbo.[{table}] ORDER BY {order} FOR JSON PATH,INCLUDE_NULL_VALUES)"))!);
+        {
+            using var command = new SqlCommand(
+                $"SELECT (SELECT * FROM dbo.[{table}] ORDER BY {order} FOR JSON PATH,INCLUDE_NULL_VALUES)", sql) { CommandTimeout = 30 };
+            // Preserve the complete oracle without asynchronous materialization of one multi-megabyte scalar.
+            using var reader = command.ExecuteReader(System.Data.CommandBehavior.SequentialAccess);
+            if (!reader.Read() || reader.IsDBNull(0)) throw new InvalidOperationException("Recovery table JSON is absent.");
+            using var text = reader.GetTextReader(0);
+            tables.Add(table, text.ReadToEnd());
+            if (reader.Read()) throw new InvalidOperationException("Recovery table JSON is not a single complete result.");
+        }
         return tables;
     }
+
+    private Task RecordSetupPhase(string phase) => File.AppendAllTextAsync(Path.Combine(Directory, "private", "setup-phases.jsonl"),
+        JsonSerializer.Serialize(new { phase, at = DateTimeOffset.UtcNow }, Canonical.Json) + Environment.NewLine);
 
     private static async Task<string> Event(string connectionString, string aggregate, string type, int version)
     {
