@@ -23,7 +23,7 @@ internal static class SearchBootstrap
     {
         IsKey = key, IsHidden = false, IsSearchable = searchable, IsFilterable = filterable,
         IsSortable = false, IsFacetable = false,
-        AnalyzerName = searchable ? LexicalAnalyzerName.StandardLucene : null
+        AnalyzerName = searchable ? LexicalAnalyzerName.StandardLucene : (LexicalAnalyzerName?)null
     };
 
     internal static void RequireCompatible(SearchIndex actual, string expectedName)
