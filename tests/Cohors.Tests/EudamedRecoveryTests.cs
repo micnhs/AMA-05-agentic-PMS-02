@@ -182,8 +182,11 @@ internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDoss
         foreach (var planned in view.Dossier.PlannedResponses.OrderBy(item => item.Sequence).ToArray())
             view = await service.AdvanceSimulator(first.Id, new(view.Dossier.Version, planned.Id, false, Reason),
                 SqlFixture.Ra, CaseScenario.Key());
-        var revised = await service.DraftDossier(first.Id, input with { ExpectedVersion = view.Dossier.Version,
-            Content = content with { Title = "SYNTHETISCH: Neue Recovery-PDF-Fassung", ClinicalRationale = Reason + " Neue Quellenkommentierung." } },
+        var revised = await service.DraftDossier(first.Id, input with
+        {
+            ExpectedVersion = view.Dossier.Version,
+            Content = content with { Title = "SYNTHETISCH: Neue Recovery-PDF-Fassung", ClinicalRationale = Reason + " Neue Quellenkommentierung." }
+        },
             SqlFixture.Pms, CaseScenario.Key());
         revised = await Approve(service, revised);
         var rendered = await new PsurExportService(source.Store, clock).Render(EudamedDossierKind.FSCA,
@@ -202,10 +205,13 @@ internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDoss
         Assert.NotEqual(document.OriginalHash, revised.Package.Attachments[0].Hash);
         var originals = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["certificate"] = references.Certificate.OriginalHash, ["document"] = document.OriginalHash,
-            ["historical-pdf"] = first.Package.Attachments[0].Hash, ["current-pdf"] = Assert.Single(revised.Package.Attachments).Hash,
+            ["certificate"] = references.Certificate.OriginalHash,
+            ["document"] = document.OriginalHash,
+            ["historical-pdf"] = first.Package.Attachments[0].Hash,
+            ["current-pdf"] = Assert.Single(revised.Package.Attachments).Hash,
             ["historical-package"] = first.FrozenPackageHash!,
-            ["current-package"] = revised.FrozenPackageHash!, ["approved-snapshot"] = entry.ApprovedDossier.Hash,
+            ["current-package"] = revised.FrozenPackageHash!,
+            ["approved-snapshot"] = entry.ApprovedDossier.Hash,
             ["transport-receipt"] = entry.Attempt.ReceiptHash!
         };
         foreach (var item in inbox) originals.Add("inbox-" + item.Original!.Kind, item.OriginalHash);
@@ -213,34 +219,70 @@ internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDoss
         return new(document, first, view.Dossier, view.Ledger, inbox, await Histories(source.Store), originals);
     }
 
-    [Trait("Category", "RecoveryEudamedContract")]
-    public sealed class EudamedRecoveryContractTests
+    private static async Task<EudamedDossier> Approve(EudamedService service, EudamedDossier dossier)
     {
-        [Fact]
-        public async Task TypedGraphIncludesHistoricalAndNestedOriginalsButNotInlineHashes()
-        {
-            var home = RecoveryFixture.RepositoryRoot();
-            var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh")
-            {
-                WorkingDirectory = home, UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true
-            };
-            start.Environment["COHORS_EUDAMED_RECOVERY_SCRIPT"] = Path.Combine(home, "scripts", "Backup-Local.ps1");
-            start.ArgumentList.Add("-NoProfile");
-            start.ArgumentList.Add("-EncodedCommand");
-            start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(
-                "$ErrorActionPreference = 'Stop'\n. $env:COHORS_EUDAMED_RECOVERY_SCRIPT\n" + GraphProbe)));
-            using var process = Process.Start(start) ?? throw new InvalidOperationException("Typed recovery contract probe could not start.");
-            var stdout = process.StandardOutput.ReadToEndAsync();
-            var stderr = process.StandardError.ReadToEndAsync();
-            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60)); }
-            finally { if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); } }
-            var output = await stdout + await stderr;
-            Assert.True(process.ExitCode == 0, "Typed EUDAMED recovery contract failed; unfiltered child output is not published.");
-            Assert.Contains("EUDAMED_RECOVERY_GRAPH=Verified", output);
-        }
+        dossier = await service.ApproveDossier(dossier.Id, new(dossier.Version, Reason, Reason), SqlFixture.Medical, CaseScenario.Key());
+        dossier = await service.ApproveDossier(dossier.Id, new(dossier.Version, Reason, null), SqlFixture.Ra, CaseScenario.Key());
+        EudamedRules.RequireFrozen(dossier);
+        return dossier;
+    }
 
-        internal const string GraphProbe = """
+    internal static async Task<SortedDictionary<string, string>> Histories(IStateStore store)
+    {
+        var values = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var kind in new[] { "eudamedActor", "eudamedReferences", "eudamedConfiguration", "eudamedChannel",
+            "eudamedDossier", "eudamedDocument", "eudamedDelivery", "eudamedInbox" })
+            values.Add(kind, Canonical.Serialize(await store.History<System.Text.Json.JsonElement>(kind, ["ortho", "cardio"])));
+        return values;
+    }
+
+    private sealed class NoNetwork : IDomibusGateway
+    {
+        public string[] AllowedEndpointReferences => [];
+        public DomibusReferenceCatalog ReferenceCatalog => new([], [], [], []);
+        public DomibusAvailability Availability(DomibusProfile profile) => new(false, ["No recovery network backend."], "None");
+        private static Exception Denied() => new InvalidOperationException("Recovery never invokes a real gateway.");
+        public Task Check(DomibusProfile profile, CancellationToken ct = default) => throw Denied();
+        public Task<DomibusSubmitReceipt> Submit(DomibusProfile profile, DomibusMessage message, CancellationToken ct = default) => throw Denied();
+        public Task<DomibusStatusResult> Status(DomibusProfile profile, string messageId, string accessPointRole, CancellationToken ct = default) => throw Denied();
+        public Task<DomibusErrorsResult> Errors(DomibusProfile profile, string messageId, string accessPointRole, CancellationToken ct = default) => throw Denied();
+        public Task<string[]> Pending(DomibusProfile profile, CancellationToken ct = default) => throw Denied();
+        public Task<DomibusRetrievedMessage> Retrieve(DomibusProfile profile, string messageId, CancellationToken ct = default) => throw Denied();
+        public Task<byte[]> ConfirmDownload(DomibusProfile profile, string messageId, CancellationToken ct = default) => throw Denied();
+    }
+}
+
+[Trait("Category", "RecoveryEudamedContract")]
+public sealed class EudamedRecoveryContractTests
+{
+    [Fact]
+    public async Task TypedGraphIncludesHistoricalAndNestedOriginalsButNotInlineHashes()
+    {
+        var home = RecoveryFixture.RepositoryRoot();
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh")
+        {
+            WorkingDirectory = home,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        start.Environment["COHORS_EUDAMED_RECOVERY_SCRIPT"] = Path.Combine(home, "scripts", "Backup-Local.ps1");
+        start.ArgumentList.Add("-NoProfile");
+        start.ArgumentList.Add("-EncodedCommand");
+        start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(
+            "$ErrorActionPreference = 'Stop'\n. $env:COHORS_EUDAMED_RECOVERY_SCRIPT\n" + GraphProbe)));
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Typed recovery contract probe could not start.");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60)); }
+        finally { if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); } }
+        var output = await stdout + await stderr;
+        Assert.True(process.ExitCode == 0, "Typed EUDAMED recovery contract failed; unfiltered child output is not published.");
+        Assert.Contains("EUDAMED_RECOVERY_GRAPH=Verified", output);
+    }
+
+    internal const string GraphProbe = """
             function Digest([string]$Text) {
                 return [Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Text)))
             }
@@ -337,37 +379,4 @@ internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDoss
             Write-Output ('EUDAMED_RECOVERY_GRAPH=Verified; required=' + $references.Count + '; missing=' + $references.Count +
                 '; inlineExcluded=' + $inline.Count + '; malformed=5; missingApprovedSql=1')
             """;
-    }
-
-    private static async Task<EudamedDossier> Approve(EudamedService service, EudamedDossier dossier)
-    {
-        dossier = await service.ApproveDossier(dossier.Id, new(dossier.Version, Reason, Reason), SqlFixture.Medical, CaseScenario.Key());
-        dossier = await service.ApproveDossier(dossier.Id, new(dossier.Version, Reason, null), SqlFixture.Ra, CaseScenario.Key());
-        EudamedRules.RequireFrozen(dossier);
-        return dossier;
-    }
-
-    internal static async Task<SortedDictionary<string, string>> Histories(IStateStore store)
-    {
-        var values = new SortedDictionary<string, string>(StringComparer.Ordinal);
-        foreach (var kind in new[] { "eudamedActor", "eudamedReferences", "eudamedConfiguration", "eudamedChannel",
-            "eudamedDossier", "eudamedDocument", "eudamedDelivery", "eudamedInbox" })
-            values.Add(kind, Canonical.Serialize(await store.History<System.Text.Json.JsonElement>(kind, ["ortho", "cardio"])));
-        return values;
-    }
-
-    private sealed class NoNetwork : IDomibusGateway
-    {
-        public string[] AllowedEndpointReferences => [];
-        public DomibusReferenceCatalog ReferenceCatalog => new([], [], [], []);
-        public DomibusAvailability Availability(DomibusProfile profile) => new(false, ["No recovery network backend."], "None");
-        private static Exception Denied() => new InvalidOperationException("Recovery never invokes a real gateway.");
-        public Task Check(DomibusProfile profile, CancellationToken ct = default) => throw Denied();
-        public Task<DomibusSubmitReceipt> Submit(DomibusProfile profile, DomibusMessage message, CancellationToken ct = default) => throw Denied();
-        public Task<DomibusStatusResult> Status(DomibusProfile profile, string messageId, string accessPointRole, CancellationToken ct = default) => throw Denied();
-        public Task<DomibusErrorsResult> Errors(DomibusProfile profile, string messageId, string accessPointRole, CancellationToken ct = default) => throw Denied();
-        public Task<string[]> Pending(DomibusProfile profile, CancellationToken ct = default) => throw Denied();
-        public Task<DomibusRetrievedMessage> Retrieve(DomibusProfile profile, string messageId, CancellationToken ct = default) => throw Denied();
-        public Task<byte[]> ConfirmDownload(DomibusProfile profile, string messageId, CancellationToken ct = default) => throw Denied();
-    }
 }
