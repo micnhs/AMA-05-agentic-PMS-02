@@ -98,13 +98,14 @@ public sealed class FabricC1PreparationTests
     public void DiscoveryDriftCannotSilentlyPickAnotherToolOrArgument(string problem)
     {
         var input = Bound();
+        var toolName = input.Target.ToolName ?? throw new InvalidOperationException("Synthetic tool binding is missing.");
         var actual = problem switch
         {
             "name" => Tools(name: "different-tool"),
             "schema" => Tools(schema: JsonSerializer.SerializeToElement(new { type = "object", properties = new { instruction = new { type = "string" } } })),
             "additional-tool" => JsonSerializer.SerializeToElement(new { tools = new[]
-                { new { name = input.Target.ToolName, inputSchema = Schema }, new { name = "other", inputSchema = Schema } } }),
-            _ => JsonSerializer.SerializeToElement(new { tools = new[] { new { name = input.Target.ToolName, inputSchema = Schema } }, nextCursor = "next" })
+                { new { name = toolName, inputSchema = Schema }, new { name = "other", inputSchema = Schema } } }),
+            _ => JsonSerializer.SerializeToElement(new { tools = new[] { new { name = toolName, inputSchema = Schema } }, nextCursor = "next" })
         };
         var error = Assert.Throws<DomainException>(() => FabricC1ProbeClient.Call(input, Fixture, "allowed", actual));
         Assert.Contains(error.Code, new[] { "c1_tools", "c1_tool_binding" });
