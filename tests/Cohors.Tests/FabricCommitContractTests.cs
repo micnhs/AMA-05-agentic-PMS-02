@@ -117,6 +117,84 @@ public sealed class FabricCommitContractTests
     }
 
     [Fact]
+    public void AzureIdentityCaseAliasesCannotCreateIndependentProtectionDomains()
+    {
+        using var sample = new SyntheticCommit();
+        var topology = sample.Topology;
+        const string subscription = "11111111-2222-4333-8444-abcdefabcdef";
+        foreach (var duplicate in new[]
+        {
+            topology with { Certifier = topology.Certifier with { PrincipalId = topology.WriterId.ToUpperInvariant() } },
+            topology with { Secondary = topology.Secondary with { Server = topology.Primary.Server.ToUpperInvariant() } },
+            topology with { Secondary = topology.Secondary with { Region = topology.Primary.Region.ToUpperInvariant() } },
+            topology with { Archives = topology.Archives.SetItem(1, topology.Archives[1] with { Id = topology.Archives[0].Id.ToLowerInvariant() }) },
+            topology with { Archives = topology.Archives.SetItem(1, topology.Archives[1] with { Region = topology.Archives[0].Region.ToUpperInvariant() }) },
+            topology with { Archives = topology.Archives.SetItem(1, topology.Archives[1] with { Administration = topology.Archives[0].Administration.ToUpperInvariant() }) },
+            topology with { Archives = [topology.Archives[0] with { Subscription = subscription },
+                topology.Archives[1] with { Subscription = subscription.ToUpperInvariant() }] }
+        })
+            Reject("fabric_protection_topology", () => sample.Start(topology: duplicate));
+        foreach (var administrator in new[] { topology.WriterId.ToUpperInvariant(), topology.Certifier.PrincipalId.ToUpperInvariant() })
+            Reject("fabric_separation_of_duties", () => sample.Start(topology: topology with
+            {
+                Archives = topology.Archives.SetItem(0, topology.Archives[0] with { Administration = administrator })
+            }));
+    }
+
+    [Fact]
+    public void GuidFormattingAndDnsRootNotationDoNotCreateNewServiceIdentities()
+    {
+        using var sample = new SyntheticCommit();
+        var id = Guid.Parse("11111111-2222-4333-8444-abcdefabcdef");
+        var topology = sample.Topology;
+        Reject("fabric_protection_topology", () => sample.Start(topology: topology with
+        {
+            WriterId = id.ToString("D"), Certifier = topology.Certifier with { PrincipalId = id.ToString("B").ToUpperInvariant() }
+        }));
+        Reject("fabric_protection_topology", () => sample.Start(topology: topology with
+        {
+            Archives = [topology.Archives[0] with { Subscription = id.ToString("D") },
+                topology.Archives[1] with { Subscription = id.ToString("N") }]
+        }));
+        Reject("fabric_protection_topology", () => sample.Start(topology: topology with
+        {
+            Primary = topology.Primary with { Server = "journal.example.test" },
+            Secondary = topology.Secondary with { Server = "JOURNAL.EXAMPLE.TEST." }
+        }));
+    }
+
+    [Theory]
+    [InlineData("region-a", "region-c")]
+    [InlineData("region-c", "region-d")]
+    public void ArchivesMustCoverExactlyTheTwoJournalProtectionRegions(string first, string second)
+    {
+        using var sample = new SyntheticCommit();
+        Reject("fabric_protection_regions", () => sample.Start(topology: sample.Topology with
+        {
+            Archives = [sample.Topology.Archives[0] with { Region = first }, sample.Topology.Archives[1] with { Region = second }]
+        }));
+    }
+
+    [Fact]
+    public void ServiceRegionComparisonDoesNotNormalizeOriginalKeysOrCommandBytes()
+    {
+        using var sample = new SyntheticCommit();
+        var request = sample.Request with
+        {
+            Originals = [sample.Request.Originals[0] with { Key = "Source.PDF" }, sample.Request.Originals[0] with { Key = "source.pdf" }]
+        };
+        var state = sample.Start(request, topology: sample.Topology with
+        {
+            Archives = [sample.Topology.Archives[0] with { Region = "REGION-B" }, sample.Topology.Archives[1] with { Region = "REGION-A" }]
+        });
+        Assert.Equal(CommitPhase.Reserved, state.Phase);
+        Reject("fabric_command_conflict", () => state.ResolveRetry(request with
+        {
+            Originals = request.Originals.SetItem(0, request.Originals[0] with { Key = "SOURCE.PDF" })
+        }));
+    }
+
+    [Fact]
     public void ReplacementProtectionMustCoverAllAcknowledgedHistoricalInventory()
     {
         using var sample = new SyntheticCommit();

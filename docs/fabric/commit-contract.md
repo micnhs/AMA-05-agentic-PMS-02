@@ -37,7 +37,11 @@ Every transition checks the bound writer identity, epoch, journal incarnation
 and topology. A change requires explicit recovery continuity; this model does
 not invent a new epoch, create a replacement region or merge histories.
 Both archive subscriptions/administrators and regions must differ as required
-by the approved concept. A missing second archive or an incomplete historical
+by the approved concept. Service identity comparisons treat GUID spellings,
+DNS case/root notation and programmatic region case appropriately; they never
+rewrite original bytes, object keys, business IDs or signed payloads. The archive
+region set must equal the two journal protection regions, so A/C or C/D archives
+cannot silently replace a complete A/B topology. A missing second archive or an incomplete historical
 highwatermark blocks normal reservations. Region C is not selected.
 
 Awareness uses the same final-acknowledgement barriers. The immutable request

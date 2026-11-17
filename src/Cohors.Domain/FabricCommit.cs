@@ -396,41 +396,72 @@ public sealed record FabricCommit
     private static void ValidateTopology(ProtectionTopology topology, ProtectionInventory inventory)
     {
         Text(topology.Environment, "Environment");
-        Text(topology.WriterId, "Writer");
+        AzureIdentityKey(topology.WriterId);
         Text(topology.JournalIncarnation, "Journal incarnation");
-        Text(topology.Certifier.PrincipalId, "Certifier");
+        AzureIdentityKey(topology.Certifier.PrincipalId);
         Text(topology.Certifier.KeyVersion, "Signing key version");
         Text(topology.Certifier.SubjectPublicKeyInfo, "Public signing key");
         foreach (var target in new[] { topology.Primary, topology.Secondary })
         {
-            Text(target.Server, "Journal server");
+            DnsIdentityKey(target.Server);
             Text(target.Database, "Journal database");
-            Text(target.Region, "Journal region");
+            RegionName(target.Region);
         }
-        Guard.Against(topology.WriterEpoch <= 0 || topology.Primary.Region == topology.Secondary.Region ||
-            topology.Primary.Server == topology.Secondary.Server || topology.Certifier.PrincipalId == topology.WriterId ||
+        Guard.Against(topology.WriterEpoch <= 0 || StringComparer.OrdinalIgnoreCase.Equals(topology.Primary.Region, topology.Secondary.Region) ||
+            StringComparer.OrdinalIgnoreCase.Equals(DnsIdentityKey(topology.Primary.Server), DnsIdentityKey(topology.Secondary.Server)) ||
+            SameAzureIdentity(topology.Certifier.PrincipalId, topology.WriterId) ||
             topology.Archives.IsDefault || topology.Archives.Length != 2,
             "fabric_protection_topology", "Two protection regions, one writer and an independent certifier are mandatory.");
         foreach (var archive in topology.Archives)
         {
-            Text(archive.Id, "Archive ID");
-            Text(archive.Region, "Archive region");
-            Text(archive.Subscription, "Archive subscription");
-            Text(archive.Administration, "Archive administration");
-            Guard.Against(archive.Administration == topology.WriterId || archive.Administration == topology.Certifier.PrincipalId,
+            AzureIdentityKey(archive.Id);
+            RegionName(archive.Region);
+            AzureIdentityKey(archive.Subscription);
+            AzureIdentityKey(archive.Administration);
+            Guard.Against(SameAzureIdentity(archive.Administration, topology.WriterId) ||
+                SameAzureIdentity(archive.Administration, topology.Certifier.PrincipalId),
                 "fabric_separation_of_duties", "Archive administration must be independent of writer and certifier.");
         }
-        Guard.Against(topology.Archives.Select(a => a.Id).Distinct().Count() != 2 ||
-            topology.Archives.Select(a => a.Region).Distinct().Count() != 2 ||
-            topology.Archives.Select(a => a.Subscription).Distinct().Count() != 2 ||
-            topology.Archives.Select(a => a.Administration).Distinct().Count() != 2,
+        Guard.Against(topology.Archives.Select(a => AzureIdentityKey(a.Id)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 2 ||
+            topology.Archives.Select(a => a.Region).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 2 ||
+            topology.Archives.Select(a => AzureIdentityKey(a.Subscription)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 2 ||
+            topology.Archives.Select(a => AzureIdentityKey(a.Administration)).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 2,
             "fabric_protection_topology", "Both archives require distinct regions, identities and administration boundaries.");
+        var journalRegions = new HashSet<string>([topology.Primary.Region, topology.Secondary.Region], StringComparer.OrdinalIgnoreCase);
+        Guard.Against(!journalRegions.SetEquals(topology.Archives.Select(a => a.Region)),
+            "fabric_protection_regions", "Each of the two journal protection regions must contain its complete archive path; extra regions require separate approval.");
         Hash(inventory.InventoryHash);
         Guard.Against(inventory.RequiredHighWatermark < 0 || inventory.JournalHighWatermark < inventory.RequiredHighWatermark ||
             inventory.ArchiveHighWatermarks.Count != 2 ||
             topology.Archives.Any(a => !inventory.ArchiveHighWatermarks.TryGetValue(a.Id, out var high) ||
                 high < inventory.RequiredHighWatermark),
             "fabric_history_unprotected", "A replacement topology must protect the complete acknowledged historical inventory before normal writes.");
+    }
+
+    private static string AzureIdentityKey(string value)
+    {
+        Text(value, "Azure service identity");
+        Guard.Against(value != value.Trim(), "fabric_service_identity", "Azure service identities cannot contain surrounding whitespace.");
+        return Guid.TryParse(value, out var id) ? id.ToString("D") : value;
+    }
+
+    private static bool SameAzureIdentity(string left, string right) =>
+        StringComparer.OrdinalIgnoreCase.Equals(AzureIdentityKey(left), AzureIdentityKey(right));
+
+    private static string DnsIdentityKey(string value)
+    {
+        Text(value, "Journal server");
+        var name = value.EndsWith(".", StringComparison.Ordinal) ? value[..^1] : value;
+        Guard.Against(Uri.CheckHostName(name) != UriHostNameType.Dns || name.EndsWith(".", StringComparison.Ordinal),
+            "fabric_service_identity", "Journal server must be an unambiguous logical server or DNS name.");
+        return name;
+    }
+
+    private static void RegionName(string value)
+    {
+        Text(value, "Azure region");
+        Guard.Against(value.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-'),
+            "fabric_service_identity", "Use programmatic Azure region names, not padded values or display labels.");
     }
 
     private static void ValidateHeads(ImmutableArray<RevisionHead> heads)
