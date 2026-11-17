@@ -1,8 +1,8 @@
 """Export every compiled ARM template for Checkov's legacy resource-list reader.
 
 These scan-only files are not deployment artifacts. Only source-proven SQL audit
-relationships and closed Storage name expressions are projected. Security values,
-conditions and copy loops are never evaluated or replaced.
+relationships are projected. Storage names, security values, conditions and copy
+loops are never evaluated or replaced.
 """
 
 import argparse
@@ -26,8 +26,8 @@ def digest(value):
                                      separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def name_expression(value):
-    """Parse only string literals, parameters(), variables() and plain format()."""
+def sql_name_expression(value):
+    """Compare SQL parent-name syntax without evaluating parameters or functions."""
     if not isinstance(value, str):
         raise ValueError("A resource name must be a string.")
     if not value.startswith("[") or not value.endswith("]"):
@@ -79,71 +79,8 @@ def name_expression(value):
     return result
 
 
-def exact_keys(mapping, key):
-    # ARM lookup is case-insensitive: a case alias is not an omitted parameter.
-    if not isinstance(mapping, dict) or any(not isinstance(name, str) for name in mapping):
-        raise ValueError("Unsupported ARM name definitions or bindings.")
-    if any(name != key and name.casefold() == key.casefold() for name in mapping):
-        raise ValueError("Ambiguous or case-variant ARM name binding; no default fallback.")
-    return mapping
-
-
-class NameContext:
-    def __init__(self, template, parent=None, bindings=None, inner=True):
-        if bindings is not None and not isinstance(bindings, dict):
-            raise ValueError("Unsupported ARM name parameter bindings.")
-        self.template, self.parent = template, parent
-        self.bindings, self.inner = {} if bindings is None else bindings, inner
-
-    def value(self, value, seen=()):
-        return self.evaluate(name_expression(value), seen)
-
-    def evaluate(self, node, seen):
-        kind, arguments = node
-        if kind == "literal":
-            return arguments
-        if kind == "format":
-            pattern, *values = [self.evaluate(arg, seen) for arg in arguments]
-            parts = re.split(r"(\{(?:0|[1-9][0-9]*)\})", pattern)
-            for index, part in enumerate(parts):
-                match = re.fullmatch(r"\{(0|[1-9][0-9]*)\}", part)
-                if match:
-                    slot = int(match[1])
-                    if slot >= len(values):
-                        raise ValueError("ARM naming format references a missing argument.")
-                    parts[index] = values[slot]
-                elif "{" in part or "}" in part:
-                    raise ValueError("Unsupported ARM naming format; no format-specifier fallback.")
-            return "".join(parts)
-        if not self.inner:
-            raise ValueError("Unsupported nested name scope; explicit inner scope is required.")
-        key = arguments[0][1]
-        marker = (id(self), kind, key)
-        if marker in seen or len(seen) >= 32:
-            raise ValueError("Cyclic or too-deep ARM name binding.")
-        seen = (*seen, marker)
-        definitions = exact_keys(self.template.get(kind, {}), key)
-        if kind == "variables":
-            if key not in definitions:
-                raise ValueError(f"Missing ARM name variable: {key}")
-            return self.value(definitions[key], seen)
-        definition = definitions.get(key)
-        if not isinstance(definition, dict) or definition.get("type") != "string":
-            raise ValueError(f"Unsupported or missing string name parameter: {key}")
-        if self.parent is not None:
-            bindings = exact_keys(self.bindings, key)
-            if key in bindings:
-                binding = bindings[key]
-                if not isinstance(binding, dict) or set(binding) != {"value"}:
-                    raise ValueError(f"Unsupported ARM name parameter binding: {key}")
-                return self.parent.value(binding["value"], seen)
-            if "defaultValue" in definition:
-                return self.value(definition["defaultValue"], seen)
-        raise ValueError(f"Unbound ARM name parameter: {key}; defaults alone do not bind root deployment inputs.")
-
-
 def audit_parent(name):
-    node = name_expression(name)
+    node = sql_name_expression(name)
     if node[0] == "literal":
         parts = node[1].split("/")
         if len(parts) == 2 and parts[1] == "default":
@@ -164,7 +101,7 @@ def project_sql_audit(entries, path, changes):
         if audit["type"].lower() != SQL_AUDIT:
             continue
         owner_name = audit_parent(audit.get("name"))
-        owners = [(key, server) for key, server in servers if name_expression(server.get("name")) == owner_name]
+        owners = [(key, server) for key, server in servers if sql_name_expression(server.get("name")) == owner_name]
         if len(owners) != 1:
             raise ValueError("SQL auditingSettings must match exactly one server in the same template.")
         owner, server = owners[0]
@@ -193,29 +130,17 @@ def scan_copy(document):
     result = copy.deepcopy(document)
     changes = []
 
-    def visit(template, path=(), parent=None, bindings=None, inner=True):
-        context = NameContext(template, parent, bindings, inner)
+    def visit(template, path=()):
         resources = template["resources"]
         entries = list(resources.items() if isinstance(resources, dict) else enumerate(resources))
         project_sql_audit(entries, path, changes)
         for symbol, resource in entries:
             kind = resource["type"].lower()
             if kind == STORAGE:
-                original_name = resource.get("name")
-                name = context.value(original_name)
-                if name.startswith("[") and name.endswith("]"):
-                    raise ValueError("Resolved Storage name would be reinterpreted as an ARM expression.")
-                if any(marker in name for marker in IGNORED_STORAGE_NAMES):
+                if any(marker in str(resource.get("name", "")) for marker in IGNORED_STORAGE_NAMES):
                     raise ValueError("Checkov may ignore this Storage name instead of checking it.")
-                if name != original_name:
-                    changes.append({"check": "CKV_AZURE_43", "templatePath": list(path),
-                                    "resource": str(symbol), "resourceSha256": digest(resource),
-                                    "originalName": original_name, "scanName": name})
-                    resource["name"] = name
             elif kind == "microsoft.resources/deployments":
-                properties = resource["properties"]
-                visit(properties["template"], path + (str(symbol),), context, properties.get("parameters"),
-                      properties.get("expressionEvaluationOptions", {}).get("scope") == "inner")
+                visit(resource["properties"]["template"], path + (str(symbol),))
         template["resources"] = [resource for _, resource in entries]
 
     visit(result)
@@ -238,23 +163,18 @@ def verify_projection(document, projected, changes):
         by_path[path] = {str(symbol): (source, target)
                          for (symbol, source), target in zip(entries, scan["resources"])}
     for change in reversed(changes):
+        if change["check"] != "CKV_AZURE_23":
+            raise ValueError("Unsupported scan normalization.")
         resources = by_path[tuple(change["templatePath"])]
-        original, scan = resources[change["resource"]]
+        original, _ = resources[change["resource"]]
         if digest(original) != change["resourceSha256"]:
             raise ValueError("Normalization is not bound to its original resource.")
-        if change["check"] == "CKV_AZURE_43":
-            if scan["name"] != change["scanName"] or original["name"] != change["originalName"]:
-                raise ValueError("Storage name projection binding changed.")
-            scan["name"] = original["name"]
-        elif change["check"] == "CKV_AZURE_23":
-            parent, scan_parent = resources[change["parent"]]
-            if digest(scan_parent["resources"][-1]) != change["resourceSha256"]:
-                raise ValueError("SQL auditingSettings projection changed the policy.")
-            scan_parent["resources"].pop()
-            if "resources" not in parent:
-                del scan_parent["resources"]
-        else:
-            raise ValueError("Unsupported scan normalization.")
+        parent, scan_parent = resources[change["parent"]]
+        if digest(scan_parent["resources"][-1]) != change["resourceSha256"]:
+            raise ValueError("SQL auditingSettings projection changed the policy.")
+        scan_parent["resources"].pop()
+        if "resources" not in parent:
+            del scan_parent["resources"]
     if digest(restored) != digest(resource_list(document)):
         raise ValueError("Scan normalization changed unapproved properties or resource coverage.")
 
@@ -322,7 +242,7 @@ def export(source, destination):
             ],
         })
         files.append((filename, contents))
-    # Do not publish partial scan input after a failed name/relationship proof.
+    # Do not publish partial scan input after a failed relationship/coverage proof.
     destination.mkdir(parents=True)
     for filename, contents in files:
         (destination / filename).write_bytes(contents)

@@ -472,27 +472,25 @@ Checkov 3.4.5 verwendet pycep-parser 0.5.1: Der direkte Bicep-Scan scheitert an
 `string[]` und `toObject`; ein unveraenderter ARM-v2-Scan sah sogar null Ressourcen.
 Beides wurde verworfen. `checkov_templates.py` exportiert deshalb **alle**
 eingebetteten kompilierten Templates, auch bedingte/standardmaessig inaktive
-Zweige, als Ressourcenlisten. Zwei eng begrenzte, quellengebundene Scan-Projektionen
-ergaenzen diese Darstellung; andere Eigenschaften, Bedingungen und Copy-Loops
-bleiben unveraendert:
+Zweige, als Ressourcenlisten. Die einzige zusaetzliche, quellengebundene
+Scan-Projektion ist die SQL-Server-Auditzuordnung. Storage-Namen, andere
+Eigenschaften, Bedingungen und Copy-Loops bleiben unveraendert.
 
-- **CKV_AZURE_23:** Eine eigenstaendige Server-`auditingSettings`-Ressource wird
-  zusaetzlich exakt unter dem nachweislich zugehoerigen SQL-Server sichtbar gemacht.
-  Originalressource und alle Policywerte bleiben erhalten, auch `Disabled`,
-  fehlender `state` und kurze Retention. Die Beziehung muss im selben Template
-  anhand identischer Namensausdruecke plus `/default` eindeutig sein. Mehrdeutige
-  Zuordnung, bestehende Ressourcen, abweichender Scope, Copy-Loops und nicht den
-  Server abdeckende Policybedingungen werden verweigert. **Keine** erfundene
-  Server-Policy-Vererbung in Datenbanken und keine weitere Policy-Korrektur.
-- **CKV_AZURE_43:** Nur geschlossene Stringausdruecke aus Literalen, Variablen,
-  expliziten inneren Modul-Parameterbindungen und einfachem `format('{0}...', ...)`
-  werden exakt aufgeloest. Ein ausgelassener innerer Modulparameter darf seinen
-  eigenen belegten Default nutzen; Root-Defaults/`allowedValues` ersetzen keine
-  konkreten Deploymentinputs. Ungueltige resultierende Namen bleiben ungueltig.
-  Ungebundene/case-mehrdeutige Parameter, Runtime-/Scope-Funktionen, andere Syntax,
-  Zyklen sowie erneut als Ausdruck oder von Checkov als `UNKNOWN` interpretierbare
-  Ergebnisse lassen den Export scheitern.
-  Es gibt keine Ersatznamen oder generellen Expression-Fallbacks.
+**CKV_AZURE_23:** Eine eigenstaendige Server-`auditingSettings`-Ressource wird
+zusaetzlich exakt unter dem nachweislich zugehoerigen SQL-Server sichtbar gemacht.
+Originalressource und alle Policywerte bleiben erhalten, auch `Disabled`,
+fehlender `state` und kurze Retention. Die Beziehung muss im selben Template
+anhand identischer Namensausdruecke plus `/default` eindeutig sein. Mehrdeutige
+Zuordnung, bestehende Ressourcen, abweichender Scope, Copy-Loops und nicht den
+Server abdeckende Policybedingungen werden verweigert. **Keine** erfundene
+Server-Policy-Vererbung in Datenbanken und keine weitere Policy-Korrektur.
+
+**CKV_AZURE_43 bleibt unbehoben/offen:** Saemtliche Storage-Namenswerte und ihre
+Typen bleiben unveraendert, auch unaufgeloeste `parameters`-, `format`-,
+`uniqueString`- und Scope-Ausdruecke. Der Konverter wertet weder Parameter,
+Variablen noch Defaults aus. Er benoetigt fuer den vollstaendigen Export keine
+realen Subscription-/Resource-Group-Eingaben. Es gibt keine Ersatznamen,
+symbolischen Musternamen, ARM-Runtime oder generellen Expression-Fallbacks.
 
 Eine inverse Pruefung entfernt nur diese aufgezeichneten Projektionen und muss
 danach den **gesamten** unveraenderten Ressourcenbaum als Listen rekonstruieren.
@@ -505,23 +503,36 @@ Die erzeugten `SCAN-ONLY-*.json` sind keine Deploy-Artefakte; Deploy nutzt
 ausschliesslich das unveraenderte Bicep-Kompilat. Aufgrund verschachtelter
 Modulpruefung sind Checkov-Zaehler **Befundvorkommen**, nicht Azure-Instanzzahlen.
 Funktionen, bei denen Checkov fehlgeschlagene ARM-Pruefungen still ausfiltern
-koennte, werden weiterhin vor dem Scan abgewiesen. Fuer spaetere Vollscans immer
-ein neues Ausgabeverzeichnis verwenden; bisherige Rohbefunde nicht ueberschreiben.
+koennte, und rohe Storage-Namenswerte mit den bekannten Checkov-`UNKNOWN`-Markern
+werden weiterhin vor dem Scan abgewiesen. Unaufgeloeste Ausdruecke werden nicht
+pauschal als still gefilterte Befunde behandelt; insbesondere bleibt der vorhandene
+`compactName`-/`take(uniqueString(...), 8)`-Pfad vollstaendig im Scan.
+Es gibt keine `UNKNOWN`-Freigabe. Fuer spaetere Vollscans immer ein neues
+Ausgabeverzeichnis verwenden; bisherige Rohbefunde nicht ueberschreiben.
 
-**Konkreter verbleibender CKV_AZURE_43-Blocker:** Der Blueprint bildet Storage-Namen
-ueber `compactName` und
-`take(uniqueString(subscription().subscriptionId, resourceGroup().id, namePrefix), 8)`.
-Es gibt hier weder einen gebundenen Root-Parameterstand noch konkrete, freigegebene
-Subscription-/Resource-Group-Eingaben und keinen verifizierten ARM-Runtime-Evaluator.
-Dieser Namenspfad wird deshalb jetzt vor dem Scan ausdruecklich blockiert, nicht
-durch ein erfundenes Azure-Ziel oder einen gueltig aussehenden Namen ersetzt.
-Die Korrektur beweist **keinen** erfolgreichen Vollscan des realen Blueprints.
-Der begrenzte Folgepatch wird nur mit synthetischen Konverter-Unittests geprueft;
-die bisherigen Rohbefunde und die uebrigen 15 Controls bleiben offen/unveraendert.
+**Realer Offline-Konverternachweis (kein Neu-Build/Checkov-Lauf):** Das unveraenderte
+historische `main.json` mit SHA256
+`e05e7592f193f8ab29b559257dfec9c4de6f4ffc13b25bf9350731edb02d340d`
+wurde vollstaendig exportiert: 36 Templates und alle 144 Originaldeklarationen
+stimmen mit dem historischen Manifest ueberein, einschliesslich vier bedingter,
+28 Copy- und zwei Existing-Deklarationen. Alle fuenf Storage-Deklarationen und
+ihre zehn Vorkommen in den exportierten Dateien behalten Namen und Typen.
+Eine belegte SQL-Server-Auditzuordnung erzeugt die erwartete zusaetzliche Kopie
+in zwei Dateiansichten. Alle 36 Dateien wurden gegen den erwarteten Gesamtbaum,
+ihre Hashes und die inverse Rekonstruktion geprueft; die Originalbytes sind
+gebunden. Die 144 Manifestdeklarationen bzw. 325 urspruenglichen Vorkommen in den
+verschachtelten Dateiansichten sind **nicht** der historische Checkov-Zaehler 246.
+Zusaetzlich bestanden 12 fokussierte Python-Unittests; Konverter, Readback und
+Unittests jeweils Exitcode 0.
 
-Nur diesen synthetischen Offline-Nachweis wiederholen:
+Dies ist kein neuer Security-Pass. CKV_AZURE_43, die SQL-Datenbank-Befunde, die
+bisherigen Rohbefunde und die uebrigen 15 Controls bleiben offen/unveraendert.
+Mit `$compiledTemplate` als bereits vorhandenem Kompilat und
+`$freshScanDirectory` als neuem eigenen Artefaktverzeichnis laesst sich der
+reine Offline-Weg ohne Build oder Ressourcenstart wiederholen:
 ```powershell
 python -m unittest discover -s infra\tests -p test_checkov_templates.py -v
+python infra\scripts\checkov_templates.py $compiledTemplate $freshScanDirectory
 ```
 
 Es gibt keine `skip-check`-Liste, Suppressions oder automatische Freigabe anhand
@@ -560,7 +571,7 @@ benoetigen einen kontrolliert korrigierten Pruefpfad statt unsicherer Azure-Wert
 | CKV_AZURE_26 | **Offener SecOps-Nachweis.** Gezielte Empfaenger und die spezialisierten Aktivierungsgates sind vorbereitet; keine reale Zustellung, Reaktion oder Empfaengerfreigabe ist erfolgt. |
 | CKV_AZURE_27 | **Explizite Need-to-know-Vorgabe.** Kein automatischer Versand an alle Account-Admins; kontrollierte SecOps-Empfaenger statt Aufweitung nur fuer den Scanner. Dies belegt noch keinen funktionierenden Alarmprozess. |
 | CKV_AZURE_36 | **Absichtlich engere Netzgrenze.** Storage verwendet `bypass=None`, private Endpunkte und MI statt pauschalem Trusted-Services-Bypass. Benotigte Pfade muessen positiv getestet werden; die Firewall wird nicht fuer die Regel geoeffnet. |
-| CKV_AZURE_43 | **Geschlossene Ausdruecke korrigierbar; Scope-abhaengiger Blueprintname bleibt blockiert.** Der Konverter kann nur exakt aus der Quelle gebundene Namen erzeugen. Root-Defaults und unbekannte `subscription()`/`resourceGroup()`-/`uniqueString()`-Ergebnisse werden nicht erfunden. Globale Namensverfuegbarkeit bleibt ein Provider-Gate. |
+| CKV_AZURE_43 | **Unbehoben; Namensausdruecke bleiben unveraendert im vollstaendigen Scan.** Keine Storage-Namensaufloesung, Ersatzwerte oder Regel-Ausnahmen. Die bekannten unaufgeloesten Root-/Scope-Ausdruecke blockieren nicht mehr den Konverter; sie sind weiterhin kein Nachweis gueltiger oder global verfuegbarer Azure-Namen. |
 | CKV_AZURE_78 | **Nachgewiesene Flex-Fehlzuordnung.** `ftpsState` ist in Flex nicht unterstuetzt. SCM-/FTP-Basic-Publishing ist explizit false; ein nicht unterstuetztes Legacy-Feld wird nicht hinzugefuegt. |
 
 Quellen: [Flex-Monitoring](https://learn.microsoft.com/azure/azure-functions/configure-monitoring#monitor-function-apps-using-health-check),
@@ -576,10 +587,8 @@ Der begrenzte Folgepatch ist zudem an die unveraenderten Checkov-3.4.5-Quellen
 [SQLServerAuditingEnabled](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/SQLServerAuditingEnabled.py)
 und [StorageAccountName](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/StorageAccountName.py)
 gebunden; er ersetzt oder unterdrueckt keine dieser Regeln.
-Der unterstuetzte Ausdrucksteil folgt den dokumentierten
-[ARM-Ausdrucks-/Escape- und Casing-Regeln](https://learn.microsoft.com/azure/azure-resource-manager/templates/template-expressions);
-abweichende Gross-/Kleinschreibung von Bezeichnern wird konservativ verweigert,
-nicht als fehlender Parameter mit Default ausgelegt.
+SQL-Elternnamen werden nur strukturell anhand ihrer Syntax verglichen, nicht
+ausgewertet; es werden keine Parameter-, Default- oder Runtimewerte eingesetzt.
 
 ## CI und die noch ausstehenden Integrationspruefungen
 

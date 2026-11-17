@@ -65,15 +65,14 @@ class CheckovTemplateTests(unittest.TestCase):
             source_bytes = source.read_bytes()
             export(source, destination)
             manifest = json.loads(destination.with_suffix(".manifest.json").read_text())
-            expected = copy.deepcopy(self.root)
-            expected["resources"]["runtime"]["properties"]["template"]["resources"]["storage"]["name"] = "syntheticstorage01"
             self.assertEqual(len(manifest["templates"]), 2)
+            self.assertEqual(manifest["normalizations"], [])
             self.assertEqual(manifest["sourceSha256"], hashlib.sha256(source_bytes).hexdigest())
             self.assertEqual(source.read_bytes(), source_bytes)
             self.assertEqual((destination.parent / manifest["originalFile"]).read_bytes(), source_bytes)
-            for record, (_, template), (_, original) in zip(manifest["templates"], templates(expected), templates(self.root)):
+            for record, (_, original) in zip(manifest["templates"], templates(self.root)):
                 actual = json.loads((destination / record["file"]).read_text())
-                self.assertEqual(actual, resource_list(template))
+                self.assertEqual(actual, resource_list(original))
                 self.assertEqual(record["scanSha256"], hashlib.sha256((destination / record["file"]).read_bytes()).hexdigest())
                 self.assertEqual([r["sourceSha256"] for r in record["resources"]],
                                  [digest(r) for r in original["resources"].values()])
@@ -186,80 +185,26 @@ class CheckovTemplateTests(unittest.TestCase):
         self.assertEqual(converted["resources"][0]["resources"][0], original["resources"][1])
         verify_projection(original, converted, changes)
 
-    def test_storage_names_follow_closed_module_bindings_not_defaults(self):
-        root = copy.deepcopy(self.root)
-        root["variables"] = {"prefix": "st", "suffix": "synthetic"}
-        properties = root["resources"]["runtime"]["properties"]
-        properties["parameters"]["name"]["value"] = "[format('{0}{1}', variables('prefix'), variables('suffix'))]"
-        leaf = properties["template"]
-        leaf["parameters"]["name"]["defaultValue"] = "wrongdefault"
-        leaf["variables"] = {"actual": "[format('{0}ev', parameters('name'))]"}
-        leaf["resources"]["storage"]["name"] = "[variables('actual')]"
-        converted, changes = scan_copy(root)
-        account = converted["resources"][0]["properties"]["template"]["resources"][0]
-        self.assertEqual(account["name"], "stsyntheticev")
-        self.assertEqual(account["condition"], leaf["resources"]["storage"]["condition"])
-        self.assertEqual(account["copy"], leaf["resources"]["storage"]["copy"])
-        self.assertEqual(changes[0]["templatePath"], ["runtime"])
-        self.assertEqual(changes[0]["originalName"], "[variables('actual')]")
-        self.assertEqual(changes[0]["scanName"], "stsyntheticev")
-        omitted = copy.deepcopy(root)
-        del omitted["resources"]["runtime"]["properties"]["parameters"]["name"]
-        converted, _ = scan_copy(omitted)
-        self.assertEqual(converted["resources"][0]["properties"]["template"]["resources"][0]["name"], "wrongdefaultev")
-        for invalid in ("UPPERCASE", "bad-name", "ab", "a" * 25,
-                        "[parameters('name')].unexpected", "[[literal]tail"):
-            with self.subTest(invalid=invalid):
-                properties["parameters"]["name"]["value"] = invalid
-                leaf["resources"]["storage"]["name"] = "[parameters('name')]"
-                converted, _ = scan_copy(root)
-                name = converted["resources"][0]["properties"]["template"]["resources"][0]["name"]
-                self.assertEqual(name, invalid)
-                self.assertNotRegex(name, r"^[a-z0-9]{3,24}$")
+    def test_storage_names_and_types_remain_unchanged(self):
+        for name in ("[parameters('name')]", "[uniqueString(resourceGroup().id)]",
+                     "[variables('cycle')]", "[concat('st', 'account')]", "[format('{0}', 'account')]",
+                     "[[literal]", "UPPERCASE", "bad-name", None, False, 123):
+            with self.subTest(name=name):
+                source = copy.deepcopy(self.root)
+                leaf = source["resources"]["runtime"]["properties"]["template"]
+                leaf["variables"] = {"cycle": "[variables('cycle')]"}
+                leaf["parameters"]["name"]["defaultValue"] = "not-a-substitute"
+                leaf["resources"]["storage"]["name"] = name
+                original = copy.deepcopy(source)
+                converted, changes = scan_copy(source)
+                actual = converted["resources"][0]["properties"]["template"]["resources"][0]["name"]
+                self.assertEqual(actual, name)
+                self.assertIs(type(actual), type(name))
+                self.assertEqual(digest(converted), digest(resource_list(original)))
+                self.assertEqual(source, original)
+                self.assertEqual(changes, [])
 
-    def test_unbound_scope_dependent_ambiguous_and_unsupported_names_are_errors(self):
-        cases = []
-        root = copy.deepcopy(self.leaf)
-        root["parameters"]["name"]["defaultValue"] = "gooddefault"
-        cases.append(root)
-        item = copy.deepcopy(root)
-        item["parameters"]["name"]["allowedValues"] = ["gooddefault"]
-        cases.append(item)
-        for expression in ("[uniqueString(resourceGroup().id)]", "[variables('missing')]",
-                           "[concat('st', 'account')]", "[format('{0:x}', 'account')]",
-                           "[format('{1}', 'account')]", "[format('[{0}]', 'name')]",
-                           "[[literal]", "[format('{0}', 'account') + 'extra']"):
-            item = copy.deepcopy(self.leaf)
-            item["resources"]["storage"]["name"] = expression
-            cases.append(item)
-        item = copy.deepcopy(self.leaf)
-        item["resources"]["storage"]["name"] = "[variables('cycle')]"
-        item["variables"] = {"cycle": "[variables('cycle')]"}
-        cases.append(item)
-        item = copy.deepcopy(self.root)
-        item["resources"]["runtime"]["properties"]["expressionEvaluationOptions"]["scope"] = "outer"
-        cases.append(item)
-        item = copy.deepcopy(self.root)
-        item["resources"]["runtime"]["properties"]["parameters"]["name"] = {"reference": {"secretName": "not-read"}}
-        cases.append(item)
-        item = copy.deepcopy(self.root)
-        item["resources"]["runtime"]["properties"]["parameters"] = []
-        cases.append(item)
-        item = copy.deepcopy(self.root)
-        properties = item["resources"]["runtime"]["properties"]
-        properties["parameters"] = {"NAME": {"value": "Invalid-Name"}}
-        properties["template"]["parameters"]["name"]["defaultValue"] = "validdefault"
-        cases.append(item)
-        item = copy.deepcopy(self.leaf)
-        item["resources"]["storage"]["name"] = "[variables('actual')]"
-        item["variables"] = {"actual": "validname", "ACTUAL": "Invalid-Name"}
-        cases.append(item)
-        for item in cases:
-            with self.subTest(source=cases.index(item)):
-                with self.assertRaises(ValueError):
-                    scan_copy(item)
-
-    def test_blueprint_style_scope_dependent_name_has_no_literal_substitute(self):
+    def test_blueprint_style_scope_dependent_names_do_not_block_export(self):
         source = copy.deepcopy(self.root)
         source["parameters"] = {"namePrefix": {"type": "string", "defaultValue": "cohors"}}
         source["variables"] = {
@@ -267,20 +212,32 @@ class CheckovTemplateTests(unittest.TestCase):
             "compactName": "[format('{0}{1}', parameters('namePrefix'), variables('suffix'))]",
         }
         source["resources"]["runtime"]["properties"]["parameters"]["name"]["value"] = "[format('st{0}ev', variables('compactName'))]"
-        with self.assertRaisesRegex(ValueError, "Unbound ARM name parameter: namePrefix"):
-            scan_copy(source)
-        source["variables"]["compactName"] = "[format('cohors{0}', variables('suffix'))]"
-        with self.assertRaisesRegex(ValueError, "Unsupported ARM naming function: take"):
-            scan_copy(source)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "main.json"
+            destination = Path(temporary) / "scan"
+            path.write_text(json.dumps(source), encoding="utf-8")
+            export(path, destination)
+            manifest = json.loads(destination.with_suffix(".manifest.json").read_text())
+            self.assertEqual(len(manifest["templates"]), 2)
+            self.assertEqual(manifest["normalizations"], [])
+            for record, (_, original) in zip(manifest["templates"], templates(source)):
+                scan = json.loads((destination / record["file"]).read_text())
+                self.assertEqual(digest(scan), digest(resource_list(original)))
 
     def test_failed_proof_writes_no_partial_artifacts_and_cannot_hide_unknown_names(self):
-        for name in ("[parameters('name')]", "var.unknown", "[format('{0}', 'random_id.hidden')]"):
-            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+        cases = []
+        for name in ("var.unknown", "[format('{0}', 'random_id.hidden')]", "[variables('substringName')]"):
+            source = copy.deepcopy(self.leaf)
+            source["resources"]["storage"]["name"] = name
+            cases.append(source)
+        source = self.sql_template()
+        source["resources"]["audit"]["name"] = "missing-server/default"
+        cases.append(source)
+        for case in cases:
+            with self.subTest(source=cases.index(case)), tempfile.TemporaryDirectory() as temporary:
                 source = Path(temporary) / "main.json"
                 destination = Path(temporary) / "scan"
-                leaf = copy.deepcopy(self.leaf)
-                leaf["resources"]["storage"]["name"] = name
-                contents = json.dumps(leaf).encode("utf-8")
+                contents = json.dumps(case).encode("utf-8")
                 source.write_bytes(contents)
                 with self.assertRaises(ValueError):
                     export(source, destination)
@@ -291,6 +248,7 @@ class CheckovTemplateTests(unittest.TestCase):
 
     def test_inverse_proof_detects_dropped_resources_changed_controls_and_unbound_evidence(self):
         source = self.sql_template()
+        source["resources"]["storage"] = copy.deepcopy(self.leaf["resources"]["storage"])
         converted, changes = scan_copy(source)
         for mutate in (
             lambda r: r["resources"].pop(),
@@ -299,6 +257,8 @@ class CheckovTemplateTests(unittest.TestCase):
             lambda r: r["resources"][3].update(condition=0),
             lambda r: r["resources"][0]["resources"][0]["properties"].update(state="Disabled"),
             lambda r: r["resources"][0]["resources"][0]["properties"].update(retentionDays=False),
+            lambda r: r["resources"][4].update(name="replacementname"),
+            lambda r: r["resources"][4].update(name=123),
         ):
             altered = copy.deepcopy(converted)
             mutate(altered)
@@ -308,6 +268,13 @@ class CheckovTemplateTests(unittest.TestCase):
         altered_changes[0]["resourceSha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "bound"):
             verify_projection(source, converted, altered_changes)
+        altered = copy.deepcopy(converted)
+        altered["resources"][4]["name"] = "replacementname"
+        storage_change = {"check": "CKV_AZURE_43", "templatePath": [], "resource": "storage",
+                          "resourceSha256": digest(source["resources"]["storage"]),
+                          "originalName": source["resources"]["storage"]["name"], "scanName": "replacementname"}
+        with self.assertRaisesRegex(ValueError, "Unsupported scan normalization"):
+            verify_projection(source, altered, [*changes, storage_change])
 
 
 if __name__ == "__main__":
