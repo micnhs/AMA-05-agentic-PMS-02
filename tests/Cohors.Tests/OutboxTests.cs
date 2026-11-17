@@ -97,7 +97,7 @@ public sealed class OutboxTests(SqlFixture fixture)
             "SyntheticLargePayload", "Synthetic multi-buffer outbox read and unchanged lease contract.",
             SqlFixture.Pms, new { id }, at);
         var value = await fixture.Store.Execute<LargePayload>(context, _ => new(id, 1, "ortho", text));
-        var pending = Assert.Single((await fixture.Store.PendingEvents(100)).Where(e => e.AggregateId == id));
+        var pending = Assert.Single(await fixture.Store.PendingEvents(100), e => e.AggregateId == id);
         Assert.Equal(Canonical.Hash(value), Canonical.HashText(pending.Payload));
         Assert.Equal(1, pending.Version);
         Assert.Equal(context.Action, pending.Type);
