@@ -520,8 +520,9 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
     expect(question.dueAt).toBeTruthy()
     async function calendarQuestion(page: Page) {
       await page.getByRole('button', { name: 'Fristen', exact: true }).click()
+      await page.getByRole('combobox', { name: 'Anzeigezeitzone', exact: true }).selectOption('UTC')
       await page.getByRole('combobox', { name: 'Fristtyp', exact: true }).selectOption('EudamedReply')
-      await page.getByLabel('Kalendermonat', { exact: true }).fill(question.dueAt!.slice(0, 7))
+      await page.getByLabel('Kalendermonat', { exact: true }).fill(new Date(question.dueAt!).toISOString().slice(0, 7))
       const event = page.locator(`[data-obligation-id$=":${question.id}"]`)
       await expect(event).toContainText('Regulatory Affairs')
       await expect(event).toContainText(`Originalrevision ${question.dossierRevision}`)
