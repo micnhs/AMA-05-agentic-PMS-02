@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
+import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
 import type { ActorApplication, IntegrationWorkspace } from '../src/EudamedWorkspace'
 import type { DossierView, EudamedDossier } from '../src/EudamedDossiers'
 
@@ -2025,13 +2025,40 @@ test('T16: grouped PSUR stays independently readable, editable and protected by 
   const initial = psur!
   expect(initial.mode).toBe('Replay')
   expect(initial.snapshot.group?.members.map(m => m.product.productId).sort()).toEqual(['cardio', 'ortho'])
-  await page.getByLabel('Basic-UDI-Einzelauswertung').selectOption('cardio')
-  await expect(page.getByText('Die folgenden Tabellen und Dokumente zeigen ausschließlich cardio.', { exact: false })).toBeVisible()
   const monthlyPanel = page.getByRole('region', { name: 'Gebundene PSUR-Monatssicht' })
-  await expect(monthlyPanel.getByRole('table', { name: 'PSUR-Monatsfallzahlen', exact: true })).toBeVisible()
-  await expect(monthlyPanel).toContainText(initial.snapshotHash)
-  await expect(monthlyPanel).toContainText(initial.snapshot.group!.members.find(m => m.product.productId === 'cardio')!.product.basicUdi)
-  await expect(monthlyPanel.getByRole('table', { name: 'PSUR-Monatsfallzahlen', exact: true }).locator('tbody > tr')).toHaveCount(13)
+  const monthDate = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  async function expectMemberMonths(productId: string, previous?: PsurMonthlyView) {
+    const response = await pms.get(`/api/psurs/${initial.id}/months?version=${initial.version}&productId=${productId}`)
+    expect(response.status()).toBe(200)
+    const expected = await response.json() as PsurMonthlyView
+    const member = initial.snapshot.group!.members.find(m => m.product.productId === productId)!
+    expect(expected).toMatchObject({ contract: 'cohors-psur-months-1', reportId: initial.id, reportVersion: initial.version,
+      snapshotHash: initial.snapshotHash, productId, basicUdi: member.product.basicUdi, status: 'Available' })
+    expect(expected.months).toHaveLength(13)
+    await page.getByLabel('Basic-UDI-Einzelauswertung').selectOption(productId)
+    await expect(page.getByText(`Die folgenden Tabellen und Dokumente zeigen ausschließlich ${productId}.`, { exact: false })).toBeVisible()
+    await expect(monthlyPanel).toContainText(initial.snapshotHash)
+    await expect(monthlyPanel).toContainText(member.product.basicUdi)
+    if (previous?.basicUdi) await expect(monthlyPanel).not.toContainText(previous.basicUdi)
+    const rows = monthlyPanel.getByRole('table', { name: 'PSUR-Monatsfallzahlen', exact: true }).locator('tbody > tr')
+    await expect(rows).toHaveCount(expected.months.length)
+    for (const [index, month] of expected.months.entries()) {
+      const cells = rows.nth(index).locator('td')
+      await expect(cells.nth(0)).toContainText(month.month)
+      await expect(cells.nth(0).locator('small')).toHaveText(`${monthDate.format(new Date(month.from))} – ${monthDate.format(new Date(month.through))}`)
+      await expect(cells.nth(1)).toHaveText(String(month.cases.length))
+      await expect(cells.nth(2)).toHaveText(String(month.openAtCutoff.length))
+      await expect(cells.nth(3)).toHaveText(String(month.unknownStatusAtCutoff.length))
+    }
+    const chart = monthlyPanel.getByRole('img', { name: 'Verlauf eindeutiger PSUR-Fälle nach Ereignismonat in UTC, keine Inzidenzrate' })
+    await expect(chart.locator('g > circle > title')).toHaveText(expected.months.map(m => `${m.from}–${m.through}: ${m.cases.length} Fälle`))
+    await expect(chart.locator('.chart-value')).toHaveText(expected.months.map(m => String(m.cases.length)))
+    await expect(chart.locator('.chart-label')).toHaveText(expected.months.map(m => m.month))
+    return expected
+  }
+  const orthoMonths = await expectMemberMonths('ortho')
+  const cardioMonths = await expectMemberMonths('cardio', orthoMonths)
+  expect([...orthoMonths.months, ...cardioMonths.months].some(month => month.cases.length > 0)).toBeTruthy()
   expect((await limited.get(`/api/psurs/${initial.id}/months?version=${initial.version}&productId=ortho`)).status()).toBe(403)
   for (const format of ['json', 'pdf', 'zip'] as const) {
     const download = page.waitForEvent('download')
