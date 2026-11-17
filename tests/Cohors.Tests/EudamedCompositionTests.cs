@@ -144,7 +144,8 @@ public sealed class EudamedCompositionTests(ITestOutputHelper output)
             else psr = psr with { BusinessResponses = psr.BusinessResponses.Select(r => r with { Status = "DraftCreated" }).ToArray() };
             var packageParent = parent.Package with { Sources = [fixture.Sources.Single(s => s.Kind == "summaryReport"),
                 Source("eudamedDossier", psr.Id, psr.Version, psr)] };
-            parent = parent with { Package = packageParent, ScopeHash = Canonical.Hash(packageParent) };
+            parent = parent with { Package = packageParent, ScopeHash = Canonical.Hash(packageParent),
+                Attempts = parent.Attempts.Select(a => a with { PackageHash = Canonical.Hash(packageParent) }).ToArray() };
         }
         var source = fixture.Sources.Single(s => s.Kind == "summaryReport");
         if (change == "Source")
@@ -160,6 +161,86 @@ public sealed class EudamedCompositionTests(ITestOutputHelper output)
             Sources = [source, Source("eudamedDossier", parent.Id, parent.Version, parent)]
         };
         Assert.Equal(code, Assert.Throws<DomainException>(() => Compose(reply)).Code);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public void RemoteCodesSelectOnlyTheCurrentOriginalEvenWhenOldSequencesAreEqualOrHigher(int oldSequence)
+    {
+        EudamedDossier Revised(EudamedDossier original)
+        {
+            var package = original.Package with { Revision = 2 };
+            var scope = Canonical.Hash(package);
+            var attempt = original.Attempts.Single() with { Id = "current-" + original.Kind,
+                DossierRevision = 2, PackageHash = scope, QueuedAt = Now.AddDays(1) };
+            return original with
+            {
+                Version = original.Version + 1, Revision = 2, Package = package, ScopeHash = scope,
+                Attempts = [.. original.Attempts, attempt],
+                BusinessResponses = [original.BusinessResponses.Single() with { Sequence = oldSequence },
+                    original.BusinessResponses.Single() with { AttemptId = attempt.Id, Sequence = 1,
+                        DossierCode = "DEMO-CURRENT-" + original.Kind, At = Now.AddDays(1) }]
+            };
+        }
+        var fixture = Create(EudamedDossierKind.PSRP);
+        var psr = Revised(EudamedRules.Source<EudamedDossier>(fixture.Sources, "eudamedDossier"));
+        fixture = fixture with { Content = fixture.Content with { ParentVersion = psr.Version },
+            Sources = [fixture.Sources.Single(s => s.Kind == "summaryReport"), Source("eudamedDossier", psr.Id, psr.Version, psr)] };
+        var psrp = Revised(Parent(EudamedDossierKind.PSRP, fixture));
+        var reply = fixture with { Content = fixture.Content with { IntendedAction = "Reply", ParentId = psrp.Id,
+                ParentVersion = psrp.Version, ReplyToCorrespondenceId = "original-correspondence" },
+            Sources = [fixture.Sources.Single(s => s.Kind == "summaryReport"), Source("eudamedDossier", psrp.Id, psrp.Version, psrp)] };
+        var originals = Canonical.Hash(reply.Sources);
+        var result = Compose(reply);
+        Assert.True(result.Validation.Errors.Length == 0, string.Join("\n", result.Validation.Errors));
+        var xml = XDocument.Parse(result.Xml);
+        Assert.Equal("DEMO-CURRENT-PSRP", xml.Root!.Element(Base + "DossierCode")!.Value);
+        Assert.Equal("DEMO-CURRENT-PSR", xml.Descendants(V1 + "psr_ref").Single().Value);
+        Assert.Equal(originals, Canonical.Hash(reply.Sources));
+        Assert.Equal(2, psr.BusinessResponses.Length);
+        Assert.Equal(2, psrp.BusinessResponses.Length);
+    }
+
+    [Theory]
+    [InlineData(false, "Revision")]
+    [InlineData(false, "Package")]
+    [InlineData(false, "Binding")]
+    [InlineData(false, "Attempt")]
+    [InlineData(true, "Revision")]
+    [InlineData(true, "Package")]
+    [InlineData(true, "Binding")]
+    [InlineData(true, "Attempt")]
+    public void RemoteCodeNeverBorrowsAnUncorrelatedResponse(bool agreement, string mismatch)
+    {
+        EudamedDossier Uncorrelated(EudamedDossier value)
+        {
+            var attempt = value.Attempts.Single();
+            attempt = mismatch switch
+            {
+                "Revision" => attempt with { DossierRevision = attempt.DossierRevision + 1 },
+                "Package" => attempt with { PackageHash = Canonical.HashText("different approved original") },
+                "Binding" => attempt with { Binding = attempt.Binding with { DispatchGeneration = attempt.Binding.DispatchGeneration + 1 } },
+                "Attempt" => attempt with { Id = "unrelated-attempt" },
+                _ => throw new ArgumentOutOfRangeException(nameof(mismatch))
+            };
+            return value with { Attempts = [attempt] };
+        }
+        var fixture = Create(EudamedDossierKind.PSRP);
+        var psrp = Parent(EudamedDossierKind.PSRP, fixture);
+        if (agreement)
+        {
+            var psr = Uncorrelated(EudamedRules.Source<EudamedDossier>(psrp.Package.Sources, "eudamedDossier"));
+            var package = psrp.Package with { Sources = [fixture.Sources.Single(s => s.Kind == "summaryReport"),
+                Source("eudamedDossier", psr.Id, psr.Version, psr)] };
+            psrp = psrp with { Package = package, ScopeHash = Canonical.Hash(package),
+                Attempts = psrp.Attempts.Select(a => a with { PackageHash = Canonical.Hash(package) }).ToArray() };
+        }
+        else psrp = Uncorrelated(psrp);
+        var reply = fixture with { Content = fixture.Content with { IntendedAction = "Reply", ParentId = psrp.Id,
+                ParentVersion = psrp.Version, ReplyToCorrespondenceId = "original-correspondence" },
+            Sources = [fixture.Sources.Single(s => s.Kind == "summaryReport"), Source("eudamedDossier", psrp.Id, psrp.Version, psrp)] };
+        Assert.Equal("eudamed_remote_reference", Assert.Throws<DomainException>(() => Compose(reply)).Code);
     }
 
     [Fact]
@@ -387,7 +468,10 @@ public sealed class EudamedCompositionTests(ITestOutputHelper output)
         var package = new EudamedPackage(EudamedContracts.Business, kind, id, 1, "ortho", value.Binding,
             value.References, value.Content, value.Calendar, value.Sources, projection.Xml, Canonical.HashText(projection.Xml),
             value.Attachments, projection.Validation, true);
-        return new(id, 4, "ortho", kind, 1, package, Canonical.Hash(package), "Draft", [], null, [], [],
+        var scope = Canonical.Hash(package);
+        var attempt = new EudamedAttempt("attempt-codec", "correlation-codec", "message-codec", 1, scope,
+            value.Binding, "Accept", EudamedContracts.Simulator, "TransportDelivered", 1, Now, Now, Now, null, null);
+        return new(id, 4, "ortho", kind, 1, package, scope, "Draft", [], null, [attempt], [],
             [new("inbox-codec", "message-codec", "attempt-codec", Canonical.HashText("original"), 1, "BusinessAccepted",
                 "DEMO-DTX-" + kind, 1, [], null, Now, true, true)], [], [], "codec-test", Now);
     }

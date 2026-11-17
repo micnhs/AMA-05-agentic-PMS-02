@@ -364,9 +364,7 @@ public sealed partial class EudamedService
             var agreement = EudamedRules.PsrAgreement(package.Content, package.Sources);
             EudamedRules.RequireFrozen(agreement);
             Guard.Against(agreement.Package.Binding.ProfileHash != package.Binding.ProfileHash ||
-                !agreement.BusinessResponses.Any(r => r.Applied && r.Status == "BusinessAccepted" &&
-                    agreement.Attempts.Any(a => a.Id == r.AttemptId && a.DossierRevision == agreement.Revision &&
-                        a.PackageHash == agreement.ScopeHash)),
+                !EudamedRules.CurrentResponses(agreement).Any(r => r.Applied && r.Status == "BusinessAccepted"),
                 "eudamed_psr_not_accepted", "Nur die originalgebundene fachlich angenommene PSR-Fassung traegt diese periodische Analyse.", 409);
         }
         if (reply)

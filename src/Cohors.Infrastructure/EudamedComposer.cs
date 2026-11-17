@@ -300,7 +300,7 @@ public sealed class EudamedComposer : IEudamedComposer
             new XElement(Base + "FileURI", "attachments/" + value.Hash + "/" + value.Name));
     }
 
-    private static string RemoteCode(EudamedDossier value, bool acceptedOnly = false) => value.BusinessResponses
+    private static string RemoteCode(EudamedDossier value, bool acceptedOnly = false) => EudamedRules.CurrentResponses(value)
         .Where(r => r.Applied && (r.Status == "BusinessAccepted" || !acceptedOnly && r.Status == "DraftCreated") &&
             !string.IsNullOrWhiteSpace(r.DossierCode))
         .OrderByDescending(r => r.Sequence).FirstOrDefault()?.DossierCode

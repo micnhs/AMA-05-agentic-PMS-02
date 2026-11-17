@@ -254,6 +254,15 @@ public static class EudamedRules
         throw new DomainException("eudamed_psrp_parent", "PSRP-Antwortkette ueberschreitet die begrenzte Originalaufloesung.", 409);
     }
 
+    public static IEnumerable<EudamedBusinessResponse> CurrentResponses(EudamedDossier value)
+    {
+        var binding = Canonical.Hash(value.Package.Binding);
+        var attempts = value.Attempts.Where(a => a.DossierRevision == value.Revision &&
+            a.PackageHash == value.ScopeHash && Canonical.Hash(a.Binding) == binding)
+            .Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
+        return value.BusinessResponses.Where(r => attempts.Contains(r.AttemptId));
+    }
+
     public static void RequireActorScope(EudamedDossier value, Actor actor)
     {
         actor.RequireProduct(value.ProductId);
