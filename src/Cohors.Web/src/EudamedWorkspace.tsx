@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import type { Actor, Device, ProductGovernance, VersionReference } from './types'
 import { ActionDialog, Badge, date, ErrorBanner, hash, Loading, SectionHead, type Dialog, type Field } from './ui'
+import EudamedDossiers, { type DossierSummary } from './EudamedDossiers'
 
 interface ActorDetails {
   organization: string; role: string; country: string; address: string; synthetic: boolean
@@ -39,6 +40,7 @@ export interface IntegrationWorkspace {
   draft: { id: string; version: number; profile: Profile; changedBy: string; changedAt: string } | null
   activeReadiness: Readiness; draftReadiness: Readiness | null
   actors: ActorApplication[]; references: ReferenceMapping[]
+  dossiers: DossierSummary[]
   referenceCatalog: { endpoints: string[]; credentials: ReferenceChoice[]; moduleKeys: ReferenceChoice[]; onboardingEvidence: string[] }
   contract: { business: string; gateway: string; wsdlSha256: string; schemaRuntime: string }
   boundary: string
@@ -236,7 +238,7 @@ function ProductIntegration({ actor, product }: { actor: Actor; product: Device 
   return <>
     {error && <ErrorBanner message={error} />}
     {!workspace ? <Loading /> : <>
-      <div className="callout">Actor- und Konfigurationsschnitt: keine reale EUDAMED-Registrierung, keine AS4- oder Behoerdenmeldung. Dossierversand wird in dieser Ansicht noch nicht ausgefuehrt.</div>
+      <div className="callout">Persistenter lokaler EUDAMED-Simulator: keine reale Registrierung, keine AS4- oder Behoerdenmeldung. Dossiers werden nur nach getrennten menschlichen Freigaben originalgebunden simuliert verarbeitet.</div>
       <div className="eudamed-status-grid">
         <section className="panel" aria-label="Tatsaechlich aktiver Modus"><span className="eyebrow">AKTIVER STAND</span>
           <h2>{workspace.effectiveMode}</h2><Badge tone="amber">{workspace.activeChannel?.enabled ? 'Ausdruecklich aktiviert' : workspace.activeChannel ? 'Deaktiviert' : 'Sichere Voreinstellung, nicht aktiviert'}</Badge>
@@ -302,6 +304,7 @@ function ProductIntegration({ actor, product }: { actor: Actor; product: Device 
           <button className="button secondary" disabled={busy} onClick={() => void load()}>Stand neu lesen</button>
         </div>
       </section>
+      <EudamedDossiers actor={actor} product={product} workspace={workspace} refresh={load} />
       {audit && <section className="panel"><SectionHead title={`Audit - ${audit.title}`}><button className="button secondary" onClick={() => setAudit(null)}>Audit schliessen</button></SectionHead>
         <pre className="eudamed-audit">{JSON.stringify(audit.value, null, 2)}</pre></section>}
     </>}

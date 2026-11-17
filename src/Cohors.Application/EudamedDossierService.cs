@@ -40,9 +40,63 @@ public sealed partial class EudamedService
                 if (kind == "eudamedDossier")
                     label = value.GetProperty("package").GetProperty("content").GetProperty("title").GetString();
                 if (kind == "eudamedDocument") label = value.GetProperty("name").GetString();
-                result.Add(new(kind, id, value.GetProperty("version").GetInt32(), product, label ?? id));
+                var option = new EudamedSourceOption(kind, id, value.GetProperty("version").GetInt32(), product, label ?? id);
+                switch (kind)
+                {
+                    case "case":
+                        var report = Canonical.Read<SafetyCase>(value.GetRawText()).CurrentReport;
+                        option = option with { Language = report?.Language, Jurisdiction = report?.Jurisdiction,
+                            Label = option.Label + (report is null ? " - MIR fehlt" : $" - MIR v{report.Version}, {report.State}, {report.Jurisdiction}/{report.Language}") };
+                        break;
+                    case "trend":
+                        var trend = Canonical.Read<TrendRun>(value.GetRawText());
+                        option = option with { Period = new(trend.Input.Start, trend.Input.End, "Unveraenderter Zeitraum der ausgewaehlten deterministischen Trendquelle.") };
+                        break;
+                    case "summaryAgreement":
+                        var agreement = Canonical.Read<SummaryAgreement>(value.GetRawText());
+                        option = option with { Language = agreement.Language, Jurisdiction = agreement.Calendar.Id };
+                        break;
+                    case "summaryReport":
+                        var periodic = Canonical.Read<PeriodicSummaryReport>(value.GetRawText());
+                        option = option with { Language = periodic.Agreement.Language, Jurisdiction = periodic.Agreement.Calendar.Id,
+                            Period = new(periodic.Start, periodic.End, "Unveraenderter Zeitraum des ausgewaehlten periodischen Analysepakets.") };
+                        break;
+                    case "psur":
+                        var psur = Canonical.Read<Psur>(value.GetRawText());
+                        option = option with { Period = new(psur.Snapshot.Start, psur.Snapshot.End, "Unveraenderter Berichtszeitraum des ausgewaehlten PSUR-Snapshots.") };
+                        break;
+                    case "eudamedDossier":
+                        var dossier = Canonical.Read<EudamedDossier>(value.GetRawText());
+                        option = option with { Language = dossier.Package.Content.Language, Jurisdiction = dossier.Package.Content.Jurisdiction,
+                            DossierKind = dossier.Kind, Period = dossier.Package.Content.Period };
+                        break;
+                    case "eudamedDocument":
+                        option = option with { OriginalHash = Canonical.Read<EudamedDocument>(value.GetRawText()).OriginalHash };
+                        break;
+                }
+                result.Add(option);
             }
         return result.OrderBy(r => r.Kind, StringComparer.Ordinal).ThenBy(r => r.Label, StringComparer.Ordinal).ToArray();
+    }
+
+    public async Task<EudamedRenderedDocument> ReadDossierOriginal(string id, int version, string hash,
+        Actor actor, CancellationToken ct = default)
+    {
+        var history = await DossierHistory(id, actor, ct);
+        var dossier = history.SingleOrDefault(d => d.Version == version)
+            ?? throw new DomainException("eudamed_version_missing", "Autorisierte Originalfassung fehlt.", 404);
+        var attachment = dossier.Package.Attachments.FirstOrDefault(a => a.Hash == hash);
+        var certificate = dossier.Package.References.Certificate.OriginalHash == hash;
+        Guard.Against(attachment is null && !certificate && dossier.FrozenPackageHash != hash &&
+            !dossier.Attempts.Any(a => a.ReceiptHash == hash) &&
+            !dossier.BusinessResponses.Any(r => r.OriginalHash == hash) &&
+            !dossier.Correspondence.Any(c => c.OriginalHash == hash),
+            "eudamed_original_scope", "Dieses Original ist nicht an die autorisierte Dossierfassung gebunden.", 404);
+        var bytes = await objects.ReadBytes(hash, ct);
+        Guard.Against(Convert.ToHexStringLower(SHA256.HashData(bytes)) != hash,
+            "eudamed_original_hash", "Gebundene Originalbytes sind nicht hashkonsistent.", 409);
+        return new(bytes, attachment?.MediaType ?? (certificate ? "text/plain" : "application/json"),
+            attachment?.Name ?? $"COHORS-DEMO-{dossier.Kind}-v{version}-{hash[..12]}{(certificate ? ".txt" : ".json")}");
     }
 
     public async Task<EudamedDocument> RecordDocument(EudamedDocumentCommand input, Actor actor, string key,
@@ -136,6 +190,7 @@ public sealed partial class EudamedService
         var ledger = await EnsureLedger(package, actor, ct);
         var previousLedger = current is null ? null : await GetLedger(current.Package, ct);
         RequireNoPending(ledger);
+        if (content.IntendedAction == "Reply") RequireOpenReplyTarget(package, ledger);
         if (previousLedger is not null) RequireNoPending(previousLedger);
         var dependencies = PackageDependencies(package, channel);
         dependencies.Add(LedgerDependency(ledger));
@@ -180,6 +235,7 @@ public sealed partial class EudamedService
         var channel = await CurrentChannel(value.Package.Binding, value.ProductId, ct);
         var ledger = await GetLedger(value.Package, ct);
         RequireNoPending(ledger);
+        if (value.Package.Content.IntendedAction == "Reply") RequireOpenReplyTarget(value.Package, ledger);
         var dependencies = PackageDependencies(value.Package, channel);
         dependencies.Add(LedgerDependency(ledger));
         if (role == Roles.Regulatory)
@@ -303,9 +359,10 @@ public sealed partial class EudamedService
             Guard.Against(EudamedRules.ObligationKey(package) != EudamedRules.ObligationKey(parent.Package),
                 "eudamed_parent_obligation", "Eine Vorfassung darf keine andere fachliche Meldepflicht oder Berichtsperiode umetikettieren.", 409);
         if (package.Content.IntendedAction == "Reply")
-            Guard.Against(!parent.Correspondence.Any(c => c.Id == package.Content.ReplyToCorrespondenceId &&
+            Guard.Against(package.DossierId == parent.Id ||
+                !parent.Correspondence.Any(c => c.Id == package.Content.ReplyToCorrespondenceId &&
                 c.Status == "Open" && c.DossierRevision == parent.Revision),
-                "eudamed_correspondence", "Die konkret adressierte offene Originalkorrespondenz fehlt.", 409);
+                "eudamed_correspondence", "Eine getrennte Antwortfassung braucht die konkret adressierte offene Originalkorrespondenz.", 409);
     }
 
     private void RequireProjection(EudamedPackage package)

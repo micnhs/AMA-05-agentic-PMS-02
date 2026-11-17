@@ -89,6 +89,38 @@ API/UI-Dossierversand, Korrespondenz, vollstaendiger Produktauditexport,
 Backup/Restore und externe Empfangs-/Betriebsabnahme sind durch diesen
 Kernnachweis noch nicht abgeschlossen. Keine Previewpromotion.
 
+### EUDAMED-Originale im Produktaudit
+
+Der Produktaudit-Erhaltungsschnitt auf `a13aa3771959a2a4a30b57e9625d173ad878b899`
+mit reiner Testreferenzkorrektur `22a955e77a2b6456cc47d5da9664e19ec269d86d`
+ist kompiliert und in **13 unterschiedlichen SQL-Faellen** nachgewiesen:
+zwei neue EUDAMED-Faelle sowie alle elf bestehenden Produktaudit-Gates,
+jeweils in begrenzten, sequenziellen Partitionen ohne Skips und mit
+abgeschlossener Testressourcenbereinigung.
+
+Actor, Referenzen, Konfiguration, Kanal, Dokument, Dossier, Versandledger
+und Inbox werden nicht mehr als unbekannte Aggregate verworfen.
+Ein real erstelltes, doppelt freigegebenes FSCA-Dossier bindet sein
+byteidentisches PDF, eingefrorenes Paket, freigegebenen Versandsnapshot,
+technischen Beleg, fachlichen Originaleingang und Zertifikatsoriginal im
+Export. Fehlende PDF-/Paket-/Snapshotbytes verhindern einen vollstaendigen
+Export. Eingebettete XML- oder kanonische SQL-Hashes werden nicht
+faelschlich als Blob-Adressen behandelt.
+
+Ein gruppierter PSUR mit Versand und Inbox bleibt auch nach spaeterer
+Verkleinerung der Gruppe fuer das historische nichtfuehrende Produkt
+auffindbar; alle historischen Mitgliedsberechtigungen bleiben erforderlich.
+Ein unbeteiligter Produktscope sowie bisherige Text-/XML-/JSON-Hashes und
+Archivpfade sind durch die bestehenden Gates abgesichert.
+Build09: `cf40f5488b1dcb67982f58b6dc8b96db99845abe5bafb7b56e51979f07d0daba`;
+Binaerfall Native14: `9f00b01f4a6d034ac5081cf933b60d6b67564191777bcb0155b49082adfdd406`;
+Gruppenfall Native21: `3f5fe37b213f687320a3e164a9367378931e0cbea028da87b20a69ddffd16acb`.
+Die bestehenden Faelle liegen in Native16/17/18/19/22. Der vorangegangene
+falsche Gruppenreferenz-Prefix und ein zu breiter Testfilter wurden
+offengelegt und korrigiert, nicht als bestandene Runner-Abnahme gewertet.
+Dies ist weiterhin **kein Backup-/Restore-Nachweis**, keine externe
+Ledgerverifikation und keine vollstaendige EUDAMED-Gesamtabnahme.
+
 ## Qualifizierter lokaler Preview-Schnitt
 
 Die aktuell veroeffentlichte **5187-Vorschau** verwendet

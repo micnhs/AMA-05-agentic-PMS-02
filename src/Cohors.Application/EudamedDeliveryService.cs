@@ -28,6 +28,7 @@ public sealed partial class EudamedService
         }
         Guard.Against(dossier.Version != input.ExpectedVersion, "version_conflict", "Dossier wurde geaendert.", 409);
         EudamedRules.RequireFrozen(dossier);
+        RequireLineage(dossier.Package);
         RequireProjection(dossier.Package);
         Guard.Against(!dossier.Package.Binding.Simulated, "eudamed_external_not_activated",
             "Reale Service-/Onboardingfreigabe fehlt. Kein externer Versand und kein Simulator-Fallback.", 409);
@@ -37,11 +38,12 @@ public sealed partial class EudamedService
         var ledger = await GetLedger(dossier.Package, ct);
         Guard.Against(ledger.Version != input.ExpectedLedgerVersion, "version_conflict", "Versandreservierung wurde geaendert.", 409);
         RequireNoPending(ledger);
+        if (dossier.Package.Content.IntendedAction == "Reply") RequireOpenReplyTarget(dossier.Package, ledger);
         Guard.Against(ledger.Entries.Any(e => e.Attempt.PackageHash == dossier.ScopeHash &&
             e.BusinessStatus is "BusinessAccepted" or "DraftCreated" or "BusinessRejected"), "already_submitted",
             "Diese Fassung hat bereits eine fachliche Antwort. Neue begruendete Fassung und Freigaben statt erneutem POST.", 409);
         EudamedCaseObligation? obligation = null;
-        if (dossier.Kind == EudamedDossierKind.MIR)
+        if (dossier.Kind == EudamedDossierKind.MIR && dossier.Package.Content.IntendedAction != "Reply")
         {
             var source = EudamedRules.Source<SafetyCase>(dossier.Package.Sources, "case");
             ReportRules.RequireSendable(source, actor);
@@ -227,7 +229,13 @@ public sealed partial class EudamedService
                 "Originalgebundene fachliche Antwort; alte Sequenzen bleiben sichtbar und setzen keinen neueren Stand zurueck.",
                 DossierWorker(dossier), new { inboxId, inbox.OriginalHash }) with { Dependencies =
                     [new("eudamedInbox", new(inbox.Id, inbox.Version, Canonical.Hash(inbox)))] },
-                value => Replace(value!, next), ct);
+                value =>
+                {
+                    var updated = Replace(value!, next);
+                    return next.IntendedAction == "Reply" && next.Responses.Any(r =>
+                        r.InboxId == inboxId && r.Applied && r.Status == "BusinessAccepted")
+                        ? CompleteReply(updated, dossier) : updated;
+                }, ct);
         }
         await ProjectDelivery(ledger.Id, ct);
         inbox = (await store.Get<EudamedInbox>("eudamedInbox", inboxId, ct))!;
@@ -359,6 +367,31 @@ public sealed partial class EudamedService
     private static EudamedDeliveryLedger Replace(EudamedDeliveryLedger ledger, EudamedDeliveryEntry entry) =>
         ledger with { Version = ledger.Version + 1,
             Entries = ledger.Entries.Select(e => e.Attempt.Id == entry.Attempt.Id ? entry : e).ToArray() };
+
+    private static EudamedCorrespondence RequireOpenReplyTarget(EudamedPackage package, EudamedDeliveryLedger ledger)
+    {
+        RequireLineage(package);
+        var parent = package.Sources.Where(s => s.Kind == "eudamedDossier" && s.Source.Id == package.Content.ParentId)
+            .Select(s => Canonical.Read<EudamedDossier>(s.Json)).Single();
+        var bound = parent.Correspondence.Single(c => c.Id == package.Content.ReplyToCorrespondenceId);
+        var matches = ledger.Entries.Where(e => e.DossierId == parent.Id && e.Attempt.DossierRevision == bound.DossierRevision &&
+            e.Attempt.PackageHash == parent.ScopeHash && Canonical.Hash(e.Attempt.Binding) == Canonical.Hash(parent.Package.Binding))
+            .SelectMany(e => e.Correspondence).Where(c => c.Id == bound.Id).ToArray();
+        Guard.Against(matches.Length != 1 || matches[0].Status != "Open" || matches[0].ReplyDossierId is not null ||
+            Canonical.Hash(matches[0]) != Canonical.Hash(bound),
+            "eudamed_correspondence", "Nur die unveraenderte offene Originalkorrespondenz des gebundenen Versandledgers darf beantwortet werden.", 409);
+        return matches[0];
+    }
+
+    private static EudamedDeliveryLedger CompleteReply(EudamedDeliveryLedger ledger, EudamedDossier reply)
+    {
+        var target = RequireOpenReplyTarget(reply.Package, ledger);
+        return ledger with { Entries = ledger.Entries.Select(e => e with
+        {
+            Correspondence = e.Correspondence.Select(c => c.Id == target.Id
+                ? c with { Status = "Replied", ReplyDossierId = reply.Id } : c).ToArray()
+        }).ToArray() };
+    }
 
     private async Task<EudamedDossier> ApprovedDossier(EudamedDeliveryEntry entry, CancellationToken ct)
     {

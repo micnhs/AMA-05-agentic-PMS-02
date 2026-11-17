@@ -26,6 +26,11 @@ public sealed partial class ProductAuditTests
         var view = await AcceptAuditDossier(service, dossier);
         var attachment = Assert.Single(view.Dossier.Package.Attachments);
         var pdf = await fixture.Objects.ReadBytes(attachment.Hash);
+        var download = await service.ReadDossierOriginal(view.Dossier.Id, view.Dossier.Version, attachment.Hash, Auditor);
+        Assert.Equal("application/pdf", download.MediaType);
+        Assert.Equal(pdf, download.Bytes);
+        Assert.Equal("eudamed_original_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            service.ReadDossierOriginal(view.Dossier.Id, view.Dossier.Version, new string('a', 64), Auditor))).Code);
         await service.RecordDocument(new("ortho", "synthetic-fsca-original.pdf", "application/pdf",
             Convert.ToBase64String(pdf), "SYNTHETISCH: " + Reason, Reason), SqlFixture.Pms, CaseScenario.Key());
         var before = Canonical.Hash(await fixture.Store.CaptureProductAudit("ortho", Auditor, clock.Now));
@@ -86,6 +91,15 @@ public sealed partial class ProductAuditTests
         var dossier = await service.DraftDossier(null, new(0, "ortho", EudamedDossierKind.PSUR, content,
             [new("psur", report.Id, report.Version)], Reason), SqlFixture.Pms, CaseScenario.Key());
         var view = await AcceptAuditDossier(service, dossier);
+        var limited = Auditor with { Products = ["ortho"] };
+        var originalHash = Assert.Single(view.Dossier.Package.Attachments).Hash;
+        Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+            service.ReadDossierOriginal(dossier.Id, view.Dossier.Version, originalHash, limited))).Status);
+        foreach (var (kind, id) in new[] { ("eudamedDossier", dossier.Id), ("eudamedDelivery", view.Ledger.Id),
+            ("eudamedInbox", view.Dossier.BusinessResponses[0].InboxId) })
+            Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>
+                service.IntegrationAudit(kind, id, limited))).Status);
+        Assert.DoesNotContain(await service.SourceOptions("ortho", limited), source => source.Id == dossier.Id || source.Id == report.Id);
         await Analytics().RecordGroup(input with { ExpectedVersion = group.Version, MemberProductIds = ["ortho"] },
             SqlFixture.Pms, CaseScenario.Key());
         Assert.Equal(403, (await Assert.ThrowsAsync<DomainException>(() =>

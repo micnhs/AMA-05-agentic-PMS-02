@@ -22,7 +22,14 @@ public sealed record EudamedDistributionCommand(int ExpectedVersion, string Audi
 public sealed record EudamedDocumentCommand(string ProductId, string Name, string MediaType,
     string ContentBase64, string Provenance, string Reason);
 public sealed record EudamedRenderedDocument(byte[] Bytes, string MediaType, string Name);
-public sealed record EudamedSourceOption(string Kind, string Id, int Version, string ProductId, string Label);
+public sealed record EudamedSourceOption(string Kind, string Id, int Version, string ProductId, string Label)
+{
+    public string? Language { get; init; }
+    public string? Jurisdiction { get; init; }
+    public EudamedPeriod? Period { get; init; }
+    public EudamedDossierKind? DossierKind { get; init; }
+    public string? OriginalHash { get; init; }
+}
 public sealed record EudamedDossierView(EudamedDossier Dossier, EudamedDeliveryLedger Ledger);
 public sealed record EudamedDossierSummary(string Id, int Version, string ProductId, EudamedDossierKind Kind,
     int Revision, string Title, string ReviewStatus, string ScopeHash, EudamedBinding Binding,

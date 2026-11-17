@@ -314,11 +314,19 @@ public sealed partial class EudamedService(IStateStore store, IObjectStore objec
     public async Task<AuditEvent[]> IntegrationAudit(string kind, string id, Actor actor, CancellationToken ct = default)
     {
         Reader(actor);
-        Guard.Against(kind is not ("eudamedActor" or "eudamedReferences" or "eudamedConfiguration" or "eudamedChannel"),
-            "eudamed_audit_kind", "Nur ein konkreter Integrations-/Actor-Auditstand ist hier zugelassen.");
+        Guard.Against(kind is not ("eudamedActor" or "eudamedReferences" or "eudamedConfiguration" or "eudamedChannel" or
+            "eudamedDossier" or "eudamedDelivery" or "eudamedInbox" or "eudamedDocument" or "domibusCheck"),
+            "eudamed_audit_kind", "Nur ein konkreter versionierter Integrationsvorgang ist hier zugelassen.");
         var value = await store.Get<System.Text.Json.JsonElement>(kind, id, ct);
         Guard.Against(value.ValueKind != System.Text.Json.JsonValueKind.Object, "eudamed_audit_missing", "Vorgang fehlt.", 404);
         actor.RequireProduct(value.GetProperty("productId").GetString()!);
+        if (kind == "eudamedDossier")
+            EudamedRules.RequireActorScope(Canonical.Read<EudamedDossier>(value.GetRawText()), actor);
+        if (kind == "eudamedDelivery")
+            foreach (var entry in Canonical.Read<EudamedDeliveryLedger>(value.GetRawText()).Entries)
+                EudamedRules.RequireActorScope(await ApprovedDossier(entry, ct), actor);
+        if (kind == "eudamedInbox" && Canonical.Read<EudamedInbox>(value.GetRawText()).Original is { } original)
+            _ = await GetDossier(original.DossierId, actor, ct);
         return await store.Audit(id, ct);
     }
 

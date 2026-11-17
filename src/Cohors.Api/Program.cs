@@ -205,6 +205,30 @@ api.MapGet("/deadline-calendar", (string? productId, DateOnly? month, string? ti
 api.MapGet("/products", (PolicyCatalog policies, HttpContext ctx) => policies.Devices.Where(d => Who(ctx).Products.Contains(d.Id)));
 api.MapGet("/eudamed/{product}/workspace", (string product, EudamedService service, HttpContext ctx, CancellationToken ct) =>
     service.Workspace(product, Who(ctx), ct));
+api.MapGet("/eudamed/{product}/sources", (string product, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.SourceOptions(product, Who(ctx), ct));
+api.MapGet("/eudamed/dossiers/{id}", (string id, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.DossierView(id, Who(ctx), ct));
+api.MapGet("/eudamed/dossiers/{id}/history", (string id, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.DossierHistory(id, Who(ctx), ct));
+api.MapGet("/eudamed/dossiers/{id}/originals/{hash}", async (string id, string hash, int version,
+    EudamedService service, HttpContext ctx, CancellationToken ct) =>
+{
+    var file = await service.ReadDossierOriginal(id, version, hash, Who(ctx), ct);
+    return Results.File(file.Bytes, file.MediaType, file.Name);
+});
+api.MapPost("/eudamed/dossiers", (DraftEudamedDossierCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.DraftDossier(null, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/dossiers/{id}", (string id, DraftEudamedDossierCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.DraftDossier(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/dossiers/{id}/approve", (string id, ApprovalCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.ApproveDossier(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/dossiers/{id}/submit", (string id, SubmitEudamedDossierCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.QueueDossier(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/dossiers/{id}/simulator", (string id, AdvanceEudamedSimulatorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.AdvanceSimulator(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/documents", (EudamedDocumentCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.RecordDocument(input, Who(ctx), Key(ctx), ct));
 api.MapPost("/eudamed/actors", (SaveEudamedActorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
     service.SaveActor(null, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/eudamed/actors/{id}", (string id, SaveEudamedActorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
