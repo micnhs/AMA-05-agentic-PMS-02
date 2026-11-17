@@ -457,6 +457,10 @@ Die vollstaendigen JSON-Spalten werden mit `SequentialAccess` und dem
 vorhandenen Textstream-Leser in Spaltenreihenfolge gelesen, nicht durch
 gepufferte asynchrone Zeilenabrufe. Der konsistente SQL-Leseschnitt und
 saemtliche Originalhash-/Versionspruefungen bleiben dabei erhalten.
+Dasselbe Lesemuster gilt im atomaren Command-Pfad fuer gespeicherte
+Idempotenzantworten, aktuelle Aggregatfassungen und gebundene Abhaengigkeiten.
+Die vollstaendigen Payloads, Produktscopes, Hashvergleiche, erwarteten Versionen,
+Transaktionsisolation und Anwendungs-/Zeilensperren werden nicht reduziert.
 Erst danach entstehen die kompakten Antworten. Keine neue Migration oder
 persistierte Summenquelle; insbesondere kein Nachweis fuer 250000 Faelle
 oder 90 gleichzeitige Nutzer.

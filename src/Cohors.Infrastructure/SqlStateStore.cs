@@ -309,12 +309,12 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         using (var existing = Command(connection, transaction,
             "SELECT RequestHash,Result FROM dbo.Commands WHERE IdempotencyKey=@key", ("key", commandKey)))
         {
-            await using var reader = await existing.ExecuteReaderAsync(ct);
+            await using var reader = await existing.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
             if (await reader.ReadAsync(ct))
             {
                 Guard.Against(reader.GetString(0) != requestHash, "idempotency_conflict",
                     "Idempotency-Key wurde fuer einen anderen Auftrag verwendet.", 409);
-                return Canonical.Read<T>(reader.GetString(1));
+                return Canonical.Read<T>(await ReadText(reader, 1, ct));
             }
         }
         T? current = default;
@@ -327,15 +327,17 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
             """,
             ("kind", c.Kind), ("id", c.Id)))
         {
-            await using var reader = await read.ExecuteReaderAsync(ct);
+            await using var reader = await read.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
             if (await reader.ReadAsync(ct))
             {
                 version = reader.GetInt32(0);
+                var currentJson = await ReadText(reader, 1, ct);
+                var currentProduct = reader.GetString(2);
                 if (c.Kind is "retention" or "productLifecycle")
-                    Guard.Against(reader.IsDBNull(3) || Canonical.HashText(reader.GetString(1)) != reader.GetString(3),
+                    Guard.Against(reader.IsDBNull(3) || Canonical.HashText(currentJson) != reader.GetString(3),
                         "retention_record_integrity", "Aufbewahrungs-/Lifecycle-Version ist nicht konsistent gebunden.", 409);
-                current = Canonical.Read<T>(reader.GetString(1));
-                Guard.Against(reader.GetString(2) != c.ProductId, "scope_conflict", "Produktscope stimmt nicht ueberein.", 403);
+                current = Canonical.Read<T>(currentJson);
+                Guard.Against(currentProduct != c.ProductId, "scope_conflict", "Produktscope stimmt nicht ueberein.", 403);
             }
         }
         Guard.Against(version != c.ExpectedVersion, "version_conflict",
@@ -345,15 +347,16 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
             using var read = Command(connection, transaction,
                 "SELECT Version,Json,ProductId FROM dbo.Aggregates WHERE Kind=@kind AND Id=@id",
                 ("kind", dependency.Kind), ("id", dependency.Source.Id));
-            await using var reader = await read.ExecuteReaderAsync(ct);
+            await using var reader = await read.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
             var exists = await reader.ReadAsync(ct);
             if (dependency.Source.Version == 0 && dependency.Source.Hash == "")
             {
                 Guard.Against(exists, "dependency_version", "Ein zuvor fehlender Reservierungsstand wurde inzwischen angelegt; neu lesen.", 409);
                 continue;
             }
-            Guard.Against(!exists || reader.GetInt32(0) != dependency.Source.Version ||
-                Canonical.HashText(reader.GetString(1)) != dependency.Source.Hash,
+            Guard.Against(!exists || reader.GetInt32(0) != dependency.Source.Version,
+                "dependency_version", "Gebundener Quell-/Massnahmenstand hat sich geaendert; neu laden und erneut begruendet pruefen.", 409);
+            Guard.Against(Canonical.HashText(await ReadText(reader, 1, ct)) != dependency.Source.Hash,
                 "dependency_version", "Gebundener Quell-/Massnahmenstand hat sich geaendert; neu laden und erneut begruendet pruefen.", 409);
             c.Actor.RequireProduct(reader.GetString(2));
         }
