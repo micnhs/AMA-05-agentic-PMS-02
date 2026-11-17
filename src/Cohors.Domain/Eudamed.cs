@@ -75,8 +75,17 @@ public sealed record EudamedAttempt(string Id, string CorrelationId, string Mess
     int DossierRevision, string PackageHash, EudamedBinding Binding, string Scenario, string ScenarioVersion,
     string Status, int QueuedVersion, DateTimeOffset QueuedAt, DateTimeOffset? StartedAt,
     DateTimeOffset? FinishedAt, string? ReceiptHash, string? ErrorCode);
+public sealed record EudamedCaseObligation(string CaseId, string ReportScopeHash, int ReportVersion,
+    string Jurisdiction, string[] ObligationIds, string[] FollowUpIds);
 public sealed record EudamedDeliveryEntry(string DossierId, VersionReference ApprovedDossier,
-    EudamedAttempt Attempt, string BusinessStatus, int LastBusinessSequence);
+    EudamedAttempt Attempt, string BusinessStatus, int LastBusinessSequence)
+{
+    public string IntendedAction { get; init; } = "Submit";
+    public EudamedCaseObligation? CaseObligation { get; init; }
+    public EudamedPlannedResponse[] PlannedResponses { get; init; } = [];
+    public EudamedBusinessResponse[] Responses { get; init; } = [];
+    public EudamedCorrespondence[] Correspondence { get; init; } = [];
+}
 public sealed record EudamedDeliveryLedger(string Id, int Version, string ProductId,
     string ObligationKey, EudamedDeliveryEntry[] Entries);
 public sealed record EudamedPlannedResponse(string Id, string AttemptId, int Sequence,
@@ -121,6 +130,9 @@ public static class EudamedContracts
     public const string PlaygroundSchema = "3.0.36.1";
     public const string ProductionSchema = "3.0.30";
     public const string SimulationOrigin = "Cohors local simulator; no official EUDAMED registration";
+    public static readonly string[] SimulatorScenarios =
+        ["Accept", "DraftOnly", "Reject", "TechnicalFailure", "Unknown", "Delayed", "OutOfOrder",
+            "Comment", "InformationRequest", "PeriodMismatch"];
     public static readonly EudamedCapability[] Capabilities =
     [
         new(EudamedDossierKind.MIR, ["GET", "POST", "PUT"], ["Submit", "FollowUp", "Reply"], "Produktive Vigilanz ist nicht aktiviert."),

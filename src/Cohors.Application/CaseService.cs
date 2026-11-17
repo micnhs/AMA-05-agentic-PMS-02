@@ -405,7 +405,14 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
         var c = await Get(id, actor, ct);
         var context = Context(c, input.ExpectedVersion, key, "SimulatedSubmission", input.Reason, actor, input);
         if (await store.Receipt<SafetyCase>(context, ct) is { } replay) return replay;
-        return await store.Execute<SafetyCase>(context with { Dependencies = await ReportDependencies(c.CurrentReport, ct) }, current =>
+        var jurisdiction = c.CurrentReport?.Jurisdiction ?? c.Jurisdiction;
+        var ledgerId = EudamedRules.MirDeliveryId(c.ProductId, c.Id, jurisdiction);
+        var ledger = await store.Get<EudamedDeliveryLedger>("eudamedDelivery", ledgerId, ct);
+        EudamedRules.RequireLegacySendAvailable(ledger, c);
+        var ledgerSource = ledger is null ? new VersionReference(ledgerId, 0, "") :
+            new VersionReference(ledger.Id, ledger.Version, Canonical.Hash(ledger));
+        return await store.Execute<SafetyCase>(context with { Dependencies =
+            [.. await ReportDependencies(c.CurrentReport, ct), new("eudamedDelivery", ledgerSource)] }, current =>
         {
             var value = Require(current);
             ReportRules.RequireSendable(value, actor);

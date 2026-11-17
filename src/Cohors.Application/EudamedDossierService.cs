@@ -346,7 +346,7 @@ public sealed partial class EudamedService
         return result;
     }
 
-    private static string LedgerId(EudamedPackage package) => "eu-delivery-" + EudamedRules.ObligationKey(package);
+    private static string LedgerId(EudamedPackage package) => EudamedRules.DeliveryId(EudamedRules.ObligationKey(package));
     private static StoreDependency LedgerDependency(EudamedDeliveryLedger ledger) =>
         new("eudamedDelivery", new(ledger.Id, ledger.Version, Canonical.Hash(ledger)));
 

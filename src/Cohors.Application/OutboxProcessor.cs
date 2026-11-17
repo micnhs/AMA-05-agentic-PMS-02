@@ -33,6 +33,19 @@ public sealed class OutboxProcessor(IStateStore store, CaseService cases, IKnowl
                 await (eudamed ?? throw new DomainException("eudamed_worker_missing", "Actor-Worker ist nicht registriert.", 503))
                     .ProcessActor(requested.Id, requested.Version, timeout.Token);
             }
+            if (e.Type == "EudamedDeliveryQueued")
+            {
+                var requested = Canonical.Read<EudamedDeliveryLedger>(e.Payload);
+                var attempt = requested.Entries.Single(value => value.Attempt.QueuedVersion == requested.Version).Attempt;
+                await (eudamed ?? throw new DomainException("eudamed_worker_missing", "Versand-Worker ist nicht registriert.", 503))
+                    .ProcessDelivery(requested.Id, attempt.Id, timeout.Token);
+            }
+            if (e.Type is "EudamedDeliveryClaimed" or "EudamedDeliveryFenced" or "EudamedTransportResultRecorded" or "EudamedBusinessResponseApplied")
+                await (eudamed ?? throw new DomainException("eudamed_worker_missing", "Projektions-Worker ist nicht registriert.", 503))
+                    .ProjectDelivery(e.AggregateId, timeout.Token);
+            if (e.Type == "EudamedInboxStored")
+                await (eudamed ?? throw new DomainException("eudamed_worker_missing", "Inbox-Worker ist nicht registriert.", 503))
+                    .ApplyInbox(e.AggregateId, timeout.Token);
             if (e.Type == "DomibusConnectionCheckRequested")
                 throw new DomainException("domibus_diagnostics_not_enabled",
                     "Die externe Backenddiagnose ist in diesem Auslieferungsschnitt noch nicht freigeschaltet.", 503);

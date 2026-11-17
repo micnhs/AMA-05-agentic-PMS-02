@@ -346,7 +346,13 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
                 "SELECT Version,Json,ProductId FROM dbo.Aggregates WHERE Kind=@kind AND Id=@id",
                 ("kind", dependency.Kind), ("id", dependency.Source.Id));
             await using var reader = await read.ExecuteReaderAsync(ct);
-            Guard.Against(!await reader.ReadAsync(ct) || reader.GetInt32(0) != dependency.Source.Version ||
+            var exists = await reader.ReadAsync(ct);
+            if (dependency.Source.Version == 0 && dependency.Source.Hash == "")
+            {
+                Guard.Against(exists, "dependency_version", "Ein zuvor fehlender Reservierungsstand wurde inzwischen angelegt; neu lesen.", 409);
+                continue;
+            }
+            Guard.Against(!exists || reader.GetInt32(0) != dependency.Source.Version ||
                 Canonical.HashText(reader.GetString(1)) != dependency.Source.Hash,
                 "dependency_version", "Gebundener Quell-/Massnahmenstand hat sich geaendert; neu laden und erneut begruendet pruefen.", 409);
             c.Actor.RequireProduct(reader.GetString(2));

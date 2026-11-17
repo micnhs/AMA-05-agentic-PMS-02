@@ -297,7 +297,25 @@ public static class EudamedRules
 
     public static bool Pending(EudamedDeliveryEntry value) =>
         value.Attempt.Status is "Queued" or "Started" or "TransmissionUnknown" ||
-        (value.Attempt.Status is "TransportAccepted" or "TransportDelivered" && value.BusinessStatus is "Pending" or "DraftCreated");
+        (value.Attempt.Status is "TransportAccepted" or "TransportDelivered" &&
+            value.BusinessStatus is "Pending" or "PeriodMismatch" or "ActionMismatch");
+
+    public static string DeliveryId(string obligationKey) => "eu-delivery-" + obligationKey;
+
+    public static string MirDeliveryId(string product, string caseId, string jurisdiction) =>
+        DeliveryId(Canonical.Hash(new { ProductId = product, Kind = EudamedDossierKind.MIR,
+            Environment = EudamedEnvironment.Simulation, identity = new { Id = caseId, Jurisdiction = jurisdiction } }));
+
+    public static void RequireLegacySendAvailable(EudamedDeliveryLedger? ledger, SafetyCase value)
+    {
+        if (ledger is null) return;
+        var report = value.CurrentReport ?? throw new DomainException("report_required", "Bericht fehlt.");
+        Guard.Against(ledger.Entries.Any(Pending), "eudamed_delivery_pending",
+            "Diese Meldepflicht hat einen laufenden oder ungeklaerten EUDAMED-Versuch. Erst originalgebunden abgleichen, kein Legacy-Zweitversand.", 409);
+        Guard.Against(ledger.Entries.Any(e => e.CaseObligation?.ReportScopeHash == report.ScopeHash &&
+            e.BusinessStatus is "BusinessAccepted" or "DraftCreated"), "already_submitted",
+            "Diese konkrete Fassung wurde bereits als EUDAMED-Dossier verarbeitet; keine zweite Legacy-Einreichung.", 409);
+    }
 
     private static void RequirePeriod(EudamedDossierContent content, DateOnly start, DateOnly end) =>
         Guard.Against(content.Period is null || content.Period.Start != start || content.Period.End != end,
