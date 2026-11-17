@@ -1,3 +1,4 @@
+using Cohors.Application;
 using Cohors.Domain;
 using Cohors.Infrastructure;
 
@@ -42,7 +43,12 @@ public sealed class RetentionObjectTests : IDisposable
         var store = new LocalObjectStore(directory.FullName);
         var value = Authorized(await store.CreateSyntheticRaw("SYNTHETIC MISSING RAW SAMPLE"));
         File.Delete(Path.Combine(directory.FullName, "raw-quarantine", value.Object.Hash));
-        await Assert.ThrowsAsync<FileNotFoundException>(() => store.DeleteRaw(value, now));
+        var failure = await Assert.ThrowsAsync<ObjectStoreIoException>(() => store.DeleteRaw(value, now));
+        var cause = Assert.IsType<FileNotFoundException>(failure.InnerException);
+        var detail = Assert.Single(failure.Failures);
+        Assert.Equal(RawDeletionIoStep.VerifyRawBeforePreparation, detail.Step);
+        Assert.Equal(nameof(FileNotFoundException), detail.ExceptionType);
+        Assert.Equal($"0x{cause.HResult:X8}", detail.HResult);
         Assert.False(Directory.Exists(Path.Combine(directory.FullName, ".deletion-receipts")));
     }
 

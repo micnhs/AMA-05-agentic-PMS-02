@@ -212,8 +212,148 @@ function Get-RecoveryRetentionCut($Aggregates) {
     return [ordered]@{ contract = 'cohors-retention-cut-1'; rows = $result }
 }
 
-function Get-RecoveryReferences([string[]]$Payloads, $RetentionCut) {
+function Get-RecoveryEudamedReferences($Revisions) {
     $hashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $pending = [Collections.Generic.Stack[object]]::new()
+    $dossiers = @{}
+    function Read-EudamedField($Value, [string]$Name) {
+        if ($Value -isnot [Collections.IDictionary] -or -not $Value.Contains($Name)) {
+            throw 'recovery_reference: Incomplete typed EUDAMED original binding.'
+        }
+        return ,$Value[$Name]
+    }
+    function Add-EudamedObject($Hash, [switch]$Nullable) {
+        if ($Nullable -and $null -eq $Hash) { return }
+        if ($Hash -isnot [string] -or $Hash -cnotmatch '^[a-f0-9]{64}$') {
+            throw 'recovery_reference: Invalid typed EUDAMED object address.'
+        }
+        $hashes.Add($Hash) | Out-Null
+    }
+    function Push-EudamedNode([string]$Kind, $Value) {
+        if ($Value -isnot [Collections.IDictionary]) {
+            throw 'recovery_reference: Missing typed EUDAMED object node.'
+        }
+        $pending.Push(@{ kind = $Kind; value = $Value })
+    }
+    function Push-EudamedArray($Value, [string]$Name, [string]$Kind) {
+        $items = Read-EudamedField $Value $Name
+        if ($items -isnot [array]) { throw 'recovery_reference: Incomplete typed EUDAMED original collection.' }
+        foreach ($item in $items) { Push-EudamedNode $Kind $item }
+    }
+    foreach ($revision in $Revisions) {
+        $kind = [string]$revision.Kind
+        if (-not $kind.StartsWith('eudamed', [StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($kind -cnotin @('eudamedActor', 'eudamedReferences', 'eudamedConfiguration', 'eudamedChannel',
+            'eudamedDocument', 'eudamedDossier', 'eudamedDelivery', 'eudamedInbox')) {
+            throw 'recovery_reference: Unsupported EUDAMED aggregate kind; original coverage is unknown.'
+        }
+        $json = $revision.Json
+        if ($json -isnot [string] -or [string]::IsNullOrWhiteSpace($json)) {
+            throw 'recovery_reference: Missing typed EUDAMED SQL snapshot.'
+        }
+        $digest = [Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($json)))
+        if (-not $seen.Add($kind + ':' + $digest)) { continue }
+        $value = ConvertFrom-Json -InputObject $json -AsHashtable -Depth 100 -DateKind String
+        Push-EudamedNode $kind $value
+        if ($kind -ceq 'eudamedDossier') { $dossiers[$digest] = $value }
+    }
+    while ($pending.Count) {
+        $item = $pending.Pop()
+        $node = $item.value
+        switch -CaseSensitive ($item.kind) {
+            { $_ -cin @('eudamedActor', 'eudamedConfiguration', 'eudamedChannel') } { break }
+            'eudamedReferences' { Push-EudamedNode 'certificate' (Read-EudamedField $node 'certificate'); break }
+            'certificate' { Add-EudamedObject (Read-EudamedField $node 'originalHash'); break }
+            'eudamedDocument' { Add-EudamedObject (Read-EudamedField $node 'originalHash'); break }
+            'eudamedDossier' {
+                $frozen = Read-EudamedField $node 'frozenPackageHash'
+                if ((Read-EudamedField $node 'reviewStatus') -ceq 'Frozen' -and $null -eq $frozen) {
+                    throw 'recovery_reference: Frozen EUDAMED dossier has no stored package binding.'
+                }
+                Add-EudamedObject $frozen -Nullable
+                Push-EudamedNode 'package' (Read-EudamedField $node 'package')
+                Push-EudamedArray $node 'attempts' 'attempt'
+                Push-EudamedArray $node 'businessResponses' 'original'
+                Push-EudamedArray $node 'correspondence' 'original'
+                Push-EudamedArray $node 'distributions' 'distribution'
+                break
+            }
+            'package' {
+                Push-EudamedNode 'eudamedReferences' (Read-EudamedField $node 'references')
+                Push-EudamedArray $node 'attachments' 'attachment'
+                Push-EudamedArray $node 'sources' 'source'
+                $fsn = Read-EudamedField (Read-EudamedField $node 'content') 'fsn'
+                if ($null -ne $fsn) { Add-EudamedObject (Read-EudamedField $fsn 'documentHash') }
+                # BusinessXmlHash, Source.Hash, ScopeHash and signature hashes bind inline data, not separate objects.
+                break
+            }
+            'source' {
+                $json = Read-EudamedField $node 'json'
+                $binding = Read-EudamedField $node 'source'
+                if ($json -isnot [string] -or [string]::IsNullOrWhiteSpace($json) -or
+                    [Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($json))) -cne
+                        (Read-EudamedField $binding 'hash')) {
+                    throw 'recovery_sql_integrity: Embedded EUDAMED source differs from its version binding.'
+                }
+                $source = ConvertFrom-Json -InputObject $json -AsHashtable -Depth 100 -DateKind String
+                if ((Read-EudamedField $source 'id') -cne (Read-EudamedField $binding 'id') -or
+                    (Read-EudamedField $source 'version') -ne (Read-EudamedField $binding 'version')) {
+                    throw 'recovery_sql_integrity: Embedded EUDAMED source identity/version differs.'
+                }
+                $kind = Read-EudamedField $node 'kind'
+                if ($kind -cin @('eudamedReferences', 'eudamedDossier', 'eudamedDocument')) {
+                    Push-EudamedNode $kind $source
+                } elseif ($kind -cnotin @('case', 'trend', 'summaryAgreement', 'summaryReport', 'psur', 'capa')) {
+                    throw 'recovery_reference: Unsupported embedded EUDAMED source kind.'
+                }
+                # Legacy case/PSUR sources are also traversed by Get-RecoveryReferences, including nested JSON.
+                break
+            }
+            'attachment' { Add-EudamedObject (Read-EudamedField $node 'hash'); break }
+            'eudamedDelivery' { Push-EudamedArray $node 'entries' 'deliveryEntry'; break }
+            'deliveryEntry' {
+                # Unlike an ordinary VersionReference, QueueDossier stores this approved snapshot as an object.
+                $binding = Read-EudamedField $node 'approvedDossier'
+                $hash = Read-EudamedField $binding 'hash'
+                Add-EudamedObject $hash
+                if (-not $dossiers.ContainsKey($hash) -or
+                    (Read-EudamedField $dossiers[$hash] 'id') -cne (Read-EudamedField $binding 'id') -or
+                    (Read-EudamedField $dossiers[$hash] 'version') -ne (Read-EudamedField $binding 'version')) {
+                    throw 'recovery_sql_integrity: Approved EUDAMED object snapshot is not the bound retained SQL version.'
+                }
+                Push-EudamedNode 'attempt' (Read-EudamedField $node 'attempt')
+                Push-EudamedArray $node 'responses' 'original'
+                Push-EudamedArray $node 'correspondence' 'original'
+                break
+            }
+            'attempt' {
+                Add-EudamedObject (Read-EudamedField $node 'packageHash')
+                Add-EudamedObject (Read-EudamedField $node 'receiptHash') -Nullable
+                break
+            }
+            'original' { Add-EudamedObject (Read-EudamedField $node 'originalHash'); break }
+            'distribution' {
+                Add-EudamedObject (Read-EudamedField $node 'packageHash')
+                Add-EudamedObject (Read-EudamedField $node 'evidenceHash')
+                break
+            }
+            'eudamedInbox' {
+                Add-EudamedObject (Read-EudamedField $node 'originalHash')
+                Add-EudamedObject (Read-EudamedField $node 'protectedTransportHash') -Nullable
+                $original = Read-EudamedField $node 'original'
+                if ($null -ne $original) { Add-EudamedObject (Read-EudamedField $original 'packageHash') }
+                break
+            }
+            default { throw 'recovery_reference: Unsupported typed EUDAMED original node.' }
+        }
+    }
+    return ,@($hashes | Sort-Object -CaseSensitive)
+}
+
+function Get-RecoveryReferences([string[]]$Payloads, $RetentionCut, $Revisions = @()) {
+    $hashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($hash in (Get-RecoveryEudamedReferences $Revisions)) { $hashes.Add($hash) | Out-Null }
     $parsed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $pending = [Collections.Generic.Stack[object]]::new()
     foreach ($payload in $Payloads) { $pending.Push($payload) }
@@ -396,7 +536,9 @@ function Get-RecoveryState($Connection, $Config) {
     }
     $payloads = @($rows.Aggregates.Json) + @($rows.AggregateVersions.Json) + @($rows.Commands.Result) + @($rows.Outbox.Payload)
     $retention = Get-RecoveryRetentionCut $rows.Aggregates
-    return @{ tables = $tables; references = (Get-RecoveryReferences $payloads $retention); retention = $retention }
+    # Commands and Outbox are checked above against these exact retained SQL revisions.
+    $revisions = @($rows.Aggregates) + @($rows.AggregateVersions)
+    return @{ tables = $tables; references = (Get-RecoveryReferences $payloads $retention $revisions); retention = $retention }
 }
 
 function Get-RecoveryObjectKey($Item) {

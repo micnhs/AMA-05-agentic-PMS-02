@@ -2,10 +2,12 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Cohors.Agents;
 using Cohors.Application;
@@ -21,8 +23,18 @@ public sealed class RecoveryCollection : ICollectionFixture<RecoveryFixture>;
 [Collection("Local recovery")]
 [Trait("Category", "Sql")]
 [Trait("Category", "Recovery")]
-public sealed class RecoveryTests(RecoveryFixture fixture)
+public sealed class RecoveryTests : IDisposable
 {
+    private readonly RecoveryFixture fixture;
+
+    public RecoveryTests(RecoveryFixture fixture, Xunit.Abstractions.ITestOutputHelper output)
+    {
+        this.fixture = fixture;
+        fixture.DiagnosticOutput = output;
+    }
+
+    public void Dispose() => fixture.DiagnosticOutput = null;
+
     [Fact]
     public async Task T20_RestoresHistoricalBytesFrozenPackageUnknownDeadlinesReceiptsAndLocalSearchWithoutSource()
     {
@@ -663,7 +675,7 @@ public sealed class RecoveryRetentionContractTests : IDisposable
     }
 }
 
-public sealed class RecoveryFixture : IAsyncLifetime
+public sealed partial class RecoveryFixture : IAsyncLifetime
 {
     public const string Consumer = "cohors-domain-events-v1";
     public const string SqlImage = "mcr.microsoft.com/mssql/server@sha256:4525e3efac9f3e241cb003bb2ff2a82818b502f37e12049d788b1a9fa7e13b7f";
@@ -721,6 +733,7 @@ public sealed class RecoveryFixture : IAsyncLifetime
     public string PsurReplyKey { get; private set; } = "";
     public SortedDictionary<string, string> SourcePsurHistory { get; private set; } = new(StringComparer.Ordinal);
     public bool PsurRecoveryVerified { get; set; }
+    internal Xunit.Abstractions.ITestOutputHelper? DiagnosticOutput { get; set; }
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
@@ -821,6 +834,8 @@ public sealed class RecoveryFixture : IAsyncLifetime
                 await source.Store.Manifest(SourceCase.Id);
                 await source.Store.Manifest(CurrentEvidence.Id, kind: "evidence");
                 await PreparePsurRecovery(source);
+                Eudamed = await EudamedRecoveryData.Prepare(source);
+                SourcePsurHistory = await PsurHistory(source.Store);
                 const string retentionReason = "Menschlich kontrollierter isolierter T18/T20-Rohdaten-Test ohne Patienten oder produktive Loeschung.";
                 var retention = new RetentionService(source.Store, source.Store, source.Objects, source.Policies,
                     new(true), new TestClock(CaptureTime));
@@ -1000,23 +1015,44 @@ public sealed class RecoveryFixture : IAsyncLifetime
         return new(this, targetHome, database, objects, connection, config);
     }
 
-    public async Task Restore(RecoveryTarget target)
+    public async Task Restore(RecoveryTarget target, [CallerMemberName] string test = "")
     {
-        var result = await RestoreResult(target, BackupDirectory, ManifestHash);
+        var result = await RestoreResult(target, BackupDirectory, ManifestHash, test);
         RequireSuccess(result, "isolated restore");
         target.OwnsDatabase = true;
         Assert.True(File.Exists(target.ReadyPath));
     }
 
-    public Task<RecoveryProcess> RestoreResult(RecoveryTarget target, string backup, string digest) =>
-        Script("Restore-Local.ps1", target.ConfigPath, backup, "-ManifestSha256", digest,
+    public Task<RecoveryProcess> RestoreResult(RecoveryTarget target, string backup, string digest,
+        [CallerMemberName] string test = "") =>
+        ScriptCore("Restore-Local.ps1", target.ConfigPath, backup, test, ["-ManifestSha256", digest,
             "-CurrentRetentionManifestPath", Path.Combine(BackupDirectory, "manifest.json"),
-            "-CurrentRetentionManifestSha256", ManifestHash, "-CurrentRetentionConfirmed");
+            "-CurrentRetentionManifestSha256", ManifestHash, "-CurrentRetentionConfirmed"]);
 
     public Task<RecoveryProcess> Script(string name, string configuration, string backup, params string[] extra) =>
-        Run("recovery-script", Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh",
-            ["-NoProfile", "-File", Path.Combine(home, "scripts", name), "-ConfigurationPath", configuration,
-                "-BackupDirectory", backup, "-ApplicationDirectory", applicationDirectory, .. extra]);
+        ScriptCore(name, configuration, backup, null, extra);
+
+    private Task<RecoveryProcess> ScriptCore(string name, string configuration, string backup, string? test, string[] extra)
+    {
+        var invocation = RecoveryDiagnostics.Invocation(name, test);
+        var parameters = new Dictionary<string, object> { ["ConfigurationPath"] = configuration,
+            ["BackupDirectory"] = backup, ["ApplicationDirectory"] = applicationDirectory };
+        for (var index = 0; index < extra.Length; index++)
+        {
+            var parameter = extra[index];
+            if (parameter is "-Quiesced" or "-CurrentRetentionConfirmed") parameters.Add(parameter[1..], true);
+            else if (parameter is "-ManifestSha256" or "-CurrentRetentionManifestPath" or "-CurrentRetentionManifestSha256")
+                parameters.Add(parameter[1..], extra[++index]);
+            else throw new InvalidOperationException("Unsupported recovery test parameter.");
+        }
+        return Run("recovery-script", Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh",
+            ["-NoProfile", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(RecoveryDiagnostics.Bootstrap))],
+            new() {
+                ["COHORS_RECOVERY_ENTRY"] = Path.Combine(home, "scripts", name),
+                ["COHORS_RECOVERY_PARAMETERS"] = JsonSerializer.Serialize(parameters),
+                ["COHORS_RECOVERY_INVOCATION"] = invocation.Id
+            }, invocation);
+    }
 
     public string CopyBackup(string label)
     {
@@ -1298,7 +1334,8 @@ public sealed class RecoveryFixture : IAsyncLifetime
         return result;
     }
 
-    private async Task<RecoveryProcess> Run(string step, string executable, string[] arguments, Dictionary<string, string>? environment = null)
+    private async Task<RecoveryProcess> Run(string step, string executable, string[] arguments,
+        Dictionary<string, string>? environment = null, RecoveryInvocation? invocation = null)
     {
         var start = new ProcessStartInfo(executable) { WorkingDirectory = home, UseShellExecute = false,
             RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
@@ -1313,16 +1350,24 @@ public sealed class RecoveryFixture : IAsyncLifetime
             if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
             throw new InvalidOperationException("Recovery step timed out; its exact process tree was stopped.");
         }
-        var output = await stdout + await stderr;
+        var standardOutput = await stdout;
+        var standardError = await stderr;
+        var output = standardOutput + standardError;
         await File.WriteAllTextAsync(Path.Combine(Directory, "private", $"{++logNumber:D3}-{step}.log"), output);
-        var codes = Regex.Matches(output, @"recovery_[a-z_]+").Select(m => m.Value).Distinct().ToArray();
-        return new(process.ExitCode, output, codes);
+        var diagnostic = invocation is not null && process.ExitCode != 0
+            ? RecoveryDiagnostics.Capture(standardError, invocation, process.ExitCode) : null;
+        if (diagnostic is not null) DiagnosticOutput?.WriteLine(diagnostic);
+        return new(process.ExitCode, output, RecoveryProcess.ReadCodes(output)) { Diagnostic = diagnostic };
     }
 
     private static void RequireSuccess(RecoveryProcess result, string step)
     {
         if (result.ExitCode != 0)
-            throw new InvalidOperationException($"Recovery {step} failed (exit {result.ExitCode}; {string.Join(",", result.Codes)}). Raw logs remain private.");
+        {
+            var codes = result.Codes.Length == 0 ? "no controlled recovery code" : string.Join(",", result.Codes);
+            throw new InvalidOperationException($"Recovery {step} failed (exit {result.ExitCode}; {codes}). Raw logs remain private." +
+                (result.Diagnostic is null ? "" : Environment.NewLine + result.Diagnostic));
+        }
     }
 
     private static int Port(string variable)
@@ -1411,7 +1456,365 @@ public sealed class RecoveryFixture : IAsyncLifetime
     }
 }
 
-public sealed record RecoveryProcess(int ExitCode, string Output, string[] Codes);
+public sealed record RecoveryProcess(int ExitCode, string Output, string[] Codes)
+{
+    public string? Diagnostic { get; init; }
+    private static readonly HashSet<string> ControlledCodes = new(StringComparer.Ordinal)
+    {
+        "recovery_configuration", "recovery_cut_changed", "recovery_database_hash", "recovery_database_shape",
+        "recovery_docker", "recovery_manifest", "recovery_manifest_hash", "recovery_object_hash",
+        "recovery_object_inventory", "recovery_object_missing", "recovery_object_shape", "recovery_ownership",
+        "recovery_path", "recovery_path_overlap", "recovery_quiescence", "recovery_reference",
+        "recovery_reference_coverage", "recovery_retention_authorization", "recovery_retention_binding",
+        "recovery_retention_checkpoint", "recovery_retention_contract", "recovery_retention_incomplete",
+        "recovery_retention_receipt", "recovery_retention_reference", "recovery_retention_resurrection",
+        "recovery_retention_sql_cut", "recovery_retention_stale_cut", "recovery_retention_untracked",
+        "recovery_runtime", "recovery_schema", "recovery_scope", "recovery_sql", "recovery_sql_changed",
+        "recovery_sql_cut", "recovery_sql_integrity", "recovery_target_exists"
+    };
+
+    internal static string[] ReadCodes(string output) =>
+        Regex.Matches(output, @"(?<![A-Za-z0-9_])recovery_[a-z_]+(?=:)")
+            .Select(m => m.Value).Where(ControlledCodes.Contains).Distinct(StringComparer.Ordinal).ToArray();
+}
+
+internal sealed record RecoveryInvocation(string Id, string Operation, string Script, string? Test);
+internal sealed record RecoverySqlFailure(int Number, byte State, byte Class);
+internal sealed record RecoveryExceptionFailure(int? Parent, string? Type, int HResult,
+    RecoverySqlFailure[]? SqlErrors, bool SqlTruncated, int? OsError);
+internal sealed record RecoveryChildFailure(string Invocation, string? Script, int? Line,
+    bool Truncated, RecoveryExceptionFailure[] Exceptions);
+
+internal static class RecoveryDiagnostics
+{
+    internal const string Frame = "COHORS_RECOVERY_DIAGNOSTIC_V1=";
+    internal const string EvidenceFrame = "COHORS_RECOVERY_FAILURE=";
+    private static readonly HashSet<string> KnownTypes = new(StringComparer.Ordinal)
+    {
+        "System.Exception", "System.AggregateException", "System.InvalidOperationException",
+        "System.ArgumentException", "System.ArgumentNullException", "System.TimeoutException",
+        "System.OperationCanceledException", "System.UnauthorizedAccessException", "System.IO.IOException",
+        "System.IO.FileNotFoundException", "System.IO.DirectoryNotFoundException",
+        "System.Text.Json.JsonException", "System.Text.DecoderFallbackException", "System.Text.EncoderFallbackException",
+        "System.Reflection.TargetInvocationException", "System.TypeInitializationException",
+        "System.ComponentModel.Win32Exception", "System.Net.Sockets.SocketException",
+        "System.Management.Automation.RuntimeException", "System.Management.Automation.MethodInvocationException",
+        "System.Management.Automation.ActionPreferenceStopException",
+        "System.Management.Automation.CmdletInvocationException",
+        "System.Management.Automation.ParameterBindingException", "Microsoft.Data.SqlClient.SqlException",
+        "Cohors.Domain.DomainException", "Cohors.Application.ObjectStoreIoException"
+    };
+    private static readonly JsonSerializerOptions WireJson = new()
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        RespectRequiredConstructorParameters = true,
+        MaxDepth = 12
+    };
+
+    internal static RecoveryInvocation Invocation(string script, string? test)
+    {
+        var operation = script switch
+        {
+            "Restore-Local.ps1" => "RestoreLocal",
+            "Backup-Local.ps1" => "BackupLocal",
+            _ => throw new InvalidOperationException("Unknown recovery test script.")
+        };
+        var method = test is null ? null : typeof(RecoveryTests).GetMethod(test);
+        return new(Guid.NewGuid().ToString("N"), operation, script,
+            method?.GetCustomAttribute<FactAttribute>() is not null ? test : null);
+    }
+
+    internal static string Capture(string output, RecoveryInvocation invocation, int exitCode)
+    {
+        var frames = output.Split('\n').Where(line => line.StartsWith(Frame, StringComparison.Ordinal)).Take(2).ToArray();
+        RecoveryChildFailure? failure = null;
+        var status = frames.Length == 0 ? "Missing" : "Rejected";
+        if (frames.Length == 1 && frames[0].Length <= 32768)
+        {
+            try
+            {
+                var candidate = JsonSerializer.Deserialize<RecoveryChildFailure>(frames[0][Frame.Length..], WireJson);
+                if (candidate is not null && Valid(candidate, invocation))
+                {
+                    failure = candidate with { Exceptions = candidate.Exceptions.Select(error =>
+                        error with { Type = error.Type is not null && KnownTypes.Contains(error.Type) ? error.Type : null }).ToArray() };
+                    status = "Captured";
+                }
+            }
+            catch (JsonException) { status = "Rejected"; }
+        }
+        return EvidenceFrame + JsonSerializer.Serialize(new
+        {
+            contract = "cohors-recovery-failure-1", invocation.Operation, invocation.Test,
+            testCorrelation = "enclosing-xunit-record", invocation = invocation.Id,
+            entryScript = invocation.Script, exitCode, capture = status,
+            errorScript = failure?.Script, line = failure?.Line, truncated = failure?.Truncated,
+            exceptions = failure?.Exceptions
+        });
+    }
+
+    private static bool Valid(RecoveryChildFailure failure, RecoveryInvocation invocation)
+    {
+        if (failure.Invocation != invocation.Id || failure.Script is not (null or "Restore-Local.ps1" or "Backup-Local.ps1") ||
+            (failure.Script is null ? failure.Line is not null : failure.Line is not > 0) ||
+            failure.Exceptions is not { Length: > 0 and <= 16 }) return false;
+        for (var index = 0; index < failure.Exceptions.Length; index++)
+        {
+            var error = failure.Exceptions[index];
+            if (error is null || (index == 0 ? error.Parent is not null : error.Parent is null || error.Parent < 0 || error.Parent >= index) ||
+                error.SqlErrors is { Length: > 16 } || error.SqlErrors?.Any(item => item is null) == true ||
+                (error.SqlTruncated && error.SqlErrors is null) ||
+                (error.Type != "Microsoft.Data.SqlClient.SqlException" && (error.SqlErrors is not null || error.SqlTruncated)) ||
+                (error.Type is not ("System.ComponentModel.Win32Exception" or "System.Net.Sockets.SocketException") && error.OsError is not null))
+                return false;
+        }
+        return true;
+    }
+
+    internal const string Projection = """
+        function Get-CohorsRecoveryFailure([Management.Automation.ErrorRecord]$Record, [string]$Invocation) {
+            $queue = [Collections.Generic.List[object]]::new()
+            $queue.Add(@{ value = $Record.Exception; parent = $null })
+            $nodes = [Collections.Generic.List[object]]::new()
+            $truncated = $false
+            $script = $null
+            $line = $null
+            for ($index = 0; $index -lt $queue.Count; $index++) {
+                $item = $queue[$index]
+                $exception = $item.value
+                $type = $exception.GetType().FullName
+                $records = @($Record)
+                if ($exception -is [Management.Automation.RuntimeException] -and $exception.ErrorRecord) {
+                    $records += $exception.ErrorRecord
+                }
+                foreach ($entry in $records) {
+                    if (-not $script -and $entry.InvocationInfo) {
+                        $name = [IO.Path]::GetFileName($entry.InvocationInfo.ScriptName)
+                        if ($name -cin @('Restore-Local.ps1', 'Backup-Local.ps1') -and $entry.InvocationInfo.ScriptLineNumber -gt 0) {
+                            $script = $name
+                            $line = [int]$entry.InvocationInfo.ScriptLineNumber
+                        }
+                    }
+                }
+                $sql = $null
+                $sqlTruncated = $false
+                if ($type -ceq 'Microsoft.Data.SqlClient.SqlException') {
+                    $sql = @($exception.Errors | Select-Object -First 16 | ForEach-Object {
+                        [ordered]@{ Number = [int]$_.Number; State = [int]$_.State; Class = [int]$_.Class }
+                    })
+                    $sqlTruncated = $exception.Errors.Count -gt 16
+                }
+                $os = if ($exception -is [ComponentModel.Win32Exception]) { [int]$exception.NativeErrorCode } else { $null }
+                $nodes.Add([ordered]@{ Parent = $item.parent; Type = $type; HResult = [int]$exception.HResult;
+                    SqlErrors = $sql; SqlTruncated = $sqlTruncated; OsError = $os })
+                $children = if ($exception -is [AggregateException]) { @($exception.InnerExceptions) }
+                    elseif ($exception.InnerException) { @($exception.InnerException) } else { @() }
+                foreach ($child in $children) {
+                    if ($queue.Count -lt 16) { $queue.Add(@{ value = $child; parent = $index }) }
+                    else { $truncated = $true }
+                }
+            }
+            return [ordered]@{ Invocation = $Invocation; Script = $script; Line = $line;
+                Truncated = $truncated; Exceptions = $nodes.ToArray() }
+        }
+        function Invoke-CohorsRecoveryChild([scriptblock]$Action, [string]$Invocation) {
+            try { & $Action }
+            catch {
+                $failure = $_
+                # Diagnostic or stream failures must not replace the script's original failure.
+                try {
+                    $projected = Get-CohorsRecoveryFailure $failure $Invocation
+                    [Console]::Error.WriteLine([Environment]::NewLine + 'COHORS_RECOVERY_DIAGNOSTIC_V1=' +
+                        (ConvertTo-Json -InputObject $projected -Depth 8 -Compress))
+                } finally { throw $failure }
+            }
+        }
+        """;
+
+    internal const string Bootstrap = Projection + """
+
+        $parameters = ConvertFrom-Json -InputObject $env:COHORS_RECOVERY_PARAMETERS -AsHashtable
+        Invoke-CohorsRecoveryChild { & $env:COHORS_RECOVERY_ENTRY @parameters } $env:COHORS_RECOVERY_INVOCATION
+        """;
+}
+
+[Trait("Category", "RecoveryDiagnostics")]
+public sealed class RecoveryDiagnosticTests
+{
+    [Theory]
+    [InlineData("f0123456789abcdef0123456789abcde")]
+    [InlineData("cd0123456789abcdef0123456789abcd")]
+    [InlineData("0123456789abcdef0123456789abcdef")]
+    public void T20_DiagnosticParserDoesNotTreatNativeBackupNamesAsCodes(string identifier)
+    {
+        var output = $"Native operation failed for /var/opt/mssql/data/cohors_recovery_{identifier}.bak.";
+        Assert.Empty(RecoveryProcess.ReadCodes(output));
+    }
+
+    [Fact]
+    public void T20_DiagnosticParserRetainsExactFailureCodesWithConsoleDecoration()
+    {
+        const string output = "\u001b[31;1mException: recovery_reference_coverage: SQL references absent bytes.\u001b[0m\n" +
+            "recovery_reference_coverage: SQL references absent bytes.\n" +
+            "recovery_object_hash: Object bytes differ from their address.\n" +
+            "cohors_recovery_f0123456789abcdef0123456789abcde.bak\n" +
+            "recovery_secret_token_do_not_publish: synthetic untrusted message";
+        Assert.Equal(new[] { "recovery_reference_coverage", "recovery_object_hash" }, RecoveryProcess.ReadCodes(output));
+    }
+
+    [Fact]
+    public async Task T20_DiagnosticsProjectNestedErrorsWithoutMessagesAndRethrowAfterCleanup()
+    {
+        var invocation = RecoveryDiagnostics.Invocation("Restore-Local.ps1",
+            nameof(RecoveryTests.T20_RestoresHistoricalBytesFrozenPackageUnknownDeadlinesReceiptsAndLocalSearchWithoutSource));
+        var output = await Probe(RecoveryDiagnostics.Projection + "\n" + NestedProbe, invocation.Id);
+        Assert.DoesNotContain("SYNTHETIC_SECRET_", output);
+        Assert.Contains("RECOVERY_PROBE_CLEANUP=1; ORIGINAL=True; SUCCESS=unchanged", output);
+        Assert.Contains("RECOVERY_PROBE_DIAGNOSTIC_FAILURE=preserved; BOUNDED=16", output);
+        var evidence = ReadEvidence(RecoveryDiagnostics.Capture(output, invocation, 1));
+        Assert.Equal("Captured", evidence["capture"]!.GetValue<string>());
+        Assert.Equal(invocation.Test, evidence["Test"]!.GetValue<string>());
+        Assert.Equal("Restore-Local.ps1", evidence["errorScript"]!.GetValue<string>());
+        Assert.True(evidence["line"]!.GetValue<int>() > 0);
+        var errors = evidence["exceptions"]!.AsArray();
+        Assert.Contains(errors, error => error!["Type"]!.GetValue<string>() == "System.AggregateException");
+        Assert.Contains(errors, error => error!["Type"]!.GetValue<string>() == "System.IO.IOException");
+        var native = Assert.Single(errors, error => error!["Type"]!.GetValue<string>() == "System.ComponentModel.Win32Exception");
+        Assert.Equal(13, native!["OsError"]!.GetValue<int>());
+        Assert.True(native["Parent"]!.GetValue<int>() >= 0);
+        Assert.All(errors, error => Assert.Null(error!["SqlErrors"]));
+    }
+
+    [Fact]
+    public void T20_DiagnosticsKeepTypedNumbersAndExplicitlyMarkUnavailableFields()
+    {
+        var invocation = RecoveryDiagnostics.Invocation("Restore-Local.ps1", "SYNTHETIC_SECRET_CALLER");
+        var evidence = ReadEvidence(RecoveryDiagnostics.Capture(SyntheticFrame(invocation), invocation, 1));
+        Assert.Equal("Captured", evidence["capture"]!.GetValue<string>());
+        Assert.Equal("RestoreLocal", evidence["Operation"]!.GetValue<string>());
+        Assert.Equal(invocation.Id, evidence["invocation"]!.GetValue<string>());
+        Assert.Null(evidence["Test"]);
+        Assert.Equal(138, evidence["line"]!.GetValue<int>());
+        Assert.Equal(-2146232060, evidence["exceptions"]![1]!["HResult"]!.GetValue<int>());
+        Assert.Equal(3201, evidence["exceptions"]![1]!["SqlErrors"]![0]!["Number"]!.GetValue<int>());
+        Assert.Equal(1, evidence["exceptions"]![1]!["SqlErrors"]![0]!["State"]!.GetValue<int>());
+        Assert.Equal(16, evidence["exceptions"]![1]!["SqlErrors"]![0]!["Class"]!.GetValue<int>());
+        Assert.Null(evidence["exceptions"]![1]!["OsError"]);
+        var missing = RecoveryDiagnostics.Capture("SYNTHETIC_SECRET_Password=x; no structured child frame", invocation, 1);
+        Assert.DoesNotContain("SYNTHETIC_SECRET_", missing);
+        evidence = ReadEvidence(missing);
+        Assert.Equal("Missing", evidence["capture"]!.GetValue<string>());
+        Assert.Null(evidence["errorScript"]);
+        Assert.Null(evidence["line"]);
+        Assert.Null(evidence["exceptions"]);
+        var frame = JsonNode.Parse(SyntheticFrame(invocation)[RecoveryDiagnostics.Frame.Length..])!;
+        frame["Exceptions"]![0]!["Type"] = "SYNTHETIC_SECRET_TYPE";
+        var filtered = RecoveryDiagnostics.Capture(RecoveryDiagnostics.Frame + frame.ToJsonString(), invocation, 1);
+        Assert.DoesNotContain("SYNTHETIC_SECRET_", filtered);
+        Assert.Null(ReadEvidence(filtered)["exceptions"]![0]!["Type"]);
+    }
+
+    [Fact]
+    public void T20_DiagnosticsRejectUncorrelatedMalformedAndSecretBearingFields()
+    {
+        var invocation = RecoveryDiagnostics.Invocation("Restore-Local.ps1", null);
+        foreach (var mutation in new[] { "correlation", "message", "sql-text", "numeric-string", "parent", "duplicate", "malformed" })
+        {
+            var body = JsonNode.Parse(SyntheticFrame(invocation)[RecoveryDiagnostics.Frame.Length..])!;
+            switch (mutation)
+            {
+                case "correlation": body["Invocation"] = new string('0', 32); break;
+                case "message": body["Message"] = "SYNTHETIC_SECRET_Password=outer"; break;
+                case "sql-text": body["Exceptions"]![1]!["SqlErrors"]![0]!["CommandText"] = "SYNTHETIC_SECRET_SQL"; break;
+                case "numeric-string": body["Exceptions"]![1]!["SqlErrors"]![0]!["Number"] = "SYNTHETIC_SECRET_TOKEN"; break;
+                case "parent": body["Exceptions"]![1]!["Parent"] = 1; break;
+            }
+            var frame = RecoveryDiagnostics.Frame + body.ToJsonString();
+            if (mutation == "duplicate") frame += "\n" + frame;
+            if (mutation == "malformed") frame = RecoveryDiagnostics.Frame + "{SYNTHETIC_SECRET_BROKEN";
+            var filtered = RecoveryDiagnostics.Capture(frame, invocation, 1);
+            Assert.DoesNotContain("SYNTHETIC_SECRET_", filtered);
+            var evidence = ReadEvidence(filtered);
+            Assert.Equal("Rejected", evidence["capture"]!.GetValue<string>());
+            Assert.Equal(1, evidence["exitCode"]!.GetValue<int>());
+            Assert.Null(evidence["exceptions"]);
+        }
+    }
+
+    private static JsonObject ReadEvidence(string value) =>
+        JsonNode.Parse(value[RecoveryDiagnostics.EvidenceFrame.Length..])!.AsObject();
+
+    private static string SyntheticFrame(RecoveryInvocation invocation) =>
+        RecoveryDiagnostics.Frame + JsonSerializer.Serialize(new RecoveryChildFailure(invocation.Id, "Backup-Local.ps1", 138, false,
+        [
+            new(null, "System.Management.Automation.MethodInvocationException", -2146233087, null, false, null),
+            new(0, "Microsoft.Data.SqlClient.SqlException", -2146232060, [new(3201, 1, 16)], false, null)
+        ]));
+
+    private static async Task<string> Probe(string script, string invocation)
+    {
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh")
+        {
+            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
+        };
+        foreach (var argument in new[] { "-NoProfile", "-EncodedCommand", Convert.ToBase64String(Encoding.Unicode.GetBytes(script)) })
+            start.ArgumentList.Add(argument);
+        start.Environment["COHORS_RECOVERY_INVOCATION"] = invocation;
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Synthetic diagnostic probe could not start.");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)); }
+        finally { if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); } }
+        var output = await stdout + await stderr;
+        Assert.True(process.ExitCode == 0, "Synthetic diagnostic probe failed; unfiltered child output is not published.");
+        return output;
+    }
+
+    internal const string NestedProbe = """
+        $script:cleanupCount = 0
+        $inner = [ComponentModel.Win32Exception]::new(13, 'SYNTHETIC_SECRET_NATIVE_PASSWORD')
+        $middle = [IO.IOException]::new('SYNTHETIC_SECRET_FULL_PATH_AND_SQL', $inner)
+        $script:original = [AggregateException]::new('SYNTHETIC_SECRET_OUTER_TOKEN',
+            [Exception[]]@($middle, [InvalidOperationException]::new('SYNTHETIC_SECRET_SIBLING')))
+        $script:original.Data['Password'] = 'SYNTHETIC_SECRET_DATA'
+        $tokens = $null
+        $errors = $null
+        $ast = [Management.Automation.Language.Parser]::ParseInput(
+            'try { throw $script:original } finally { $script:cleanupCount++ }',
+            [IO.Path]::Combine([IO.Path]::GetTempPath(), 'SYNTHETIC_SECRET_DIRECTORY', 'Restore-Local.ps1'),
+            [ref]$tokens, [ref]$errors)
+        if ($errors.Count) { throw 'Synthetic probe syntax failed.' }
+        $same = $false
+        try { Invoke-CohorsRecoveryChild $ast.GetScriptBlock() $env:COHORS_RECOVERY_INVOCATION }
+        catch { $same = [object]::ReferenceEquals($_.Exception, $script:original) }
+        if (-not $same -or $script:cleanupCount -ne 1) { throw 'Synthetic failure or cleanup was changed.' }
+        $success = Invoke-CohorsRecoveryChild { 'unchanged' } $env:COHORS_RECOVERY_INVOCATION
+        if ($success -cne 'unchanged') { throw 'Synthetic success output was changed.' }
+        Write-Output "RECOVERY_PROBE_CLEANUP=$script:cleanupCount; ORIGINAL=$same; SUCCESS=$success"
+        $writer = [Console]::Error
+        $closed = [IO.StringWriter]::new()
+        $closed.Dispose()
+        try {
+            [Console]::SetError($closed)
+            $preserved = $false
+            try { Invoke-CohorsRecoveryChild { throw $script:original } $env:COHORS_RECOVERY_INVOCATION }
+            catch { $preserved = [object]::ReferenceEquals($_.Exception, $script:original) }
+            if (-not $preserved) { throw 'Diagnostic emission masked the original exception.' }
+        } finally { [Console]::SetError($writer) }
+        $deep = [Exception]::new('SYNTHETIC_SECRET_DEEP')
+        for ($index = 0; $index -lt 20; $index++) { $deep = [Exception]::new('SYNTHETIC_SECRET_DEEP', $deep) }
+        $record = [Management.Automation.ErrorRecord]::new($deep, 'SYNTHETIC_SECRET_ERROR_ID',
+            [Management.Automation.ErrorCategory]::NotSpecified, 'SYNTHETIC_SECRET_TARGET')
+        $bounded = Get-CohorsRecoveryFailure $record $env:COHORS_RECOVERY_INVOCATION
+        if (-not $bounded.Truncated -or $bounded.Exceptions.Count -ne 16 -or $bounded.Script -or $bounded.Line) {
+            throw 'Synthetic chain limit or explicit missing source changed.'
+        }
+        if ((ConvertTo-Json -InputObject $bounded -Depth 8 -Compress).Contains('SYNTHETIC_SECRET_')) {
+            throw 'Synthetic metadata projection exposed forbidden fields.'
+        }
+        Write-Output 'RECOVERY_PROBE_DIAGNOSTIC_FAILURE=preserved; BOUNDED=16'
+        """;
+}
 
 public sealed class RecoveryTarget(RecoveryFixture fixture, string home, string database, string objectRoot,
     string connection, string configPath) : IAsyncDisposable

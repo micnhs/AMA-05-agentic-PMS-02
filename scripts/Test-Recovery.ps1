@@ -31,7 +31,7 @@ try {
     $env:COHORS_RECOVERY_TARGET_PORT = [string]$TargetSqlPort
     $env:COHORS_RECOVERY_PWSH = (Get-Process -Id $PID).Path
     & $dotnet test (Join-Path $root 'tests\Cohors.Tests\Cohors.Tests.csproj') --no-restore --disable-build-servers `
-        -m:1 -p:UseSharedCompilation=false --filter 'Category=Recovery' --verbosity quiet `
+        -m:1 -p:UseSharedCompilation=false --filter 'Category=Recovery|Category=RecoveryEudamed' --verbosity quiet `
         --logger 'trx;LogFileName=recovery.trx' --results-directory (Join-Path $run 'results') *> (Join-Path $run 'private-tests.log')
     if ($LASTEXITCODE -ne 0) {
         throw 'Local recovery failed. No public success evidence was created; diagnostics remain in the dedicated private recovery-run directory.'
@@ -40,8 +40,13 @@ try {
     & (Join-Path $root 'infra\scripts\Test-CohorsResults.ps1') -TrxPath $trxPath
     [xml]$trx = Get-Content -LiteralPath $trxPath -Raw
     $counters = $trx.SelectSingleNode("//*[local-name()='ResultSummary']/*[local-name()='Counters']")
+    $testResults = @($trx.SelectNodes("//*[local-name()='UnitTestResult']") | ForEach-Object {
+        @{ name = $_.testName; outcome = $_.outcome }
+    })
     $verified = Get-Content -LiteralPath (Join-Path $run 'fixture\verified.json') -Raw | ConvertFrom-Json -AsHashtable -Depth 30 -DateKind String
-    if ([int]$counters.total -ne 14 -or $verified.completedChecks.Count -ne 11 -or
+    if ([int]$counters.total -ne 17 -or $testResults.Count -ne 17 -or
+        @($testResults | Where-Object { $_.outcome -cne 'Passed' }).Count -ne 0 -or
+        $verified.completedChecks.Count -ne 11 -or
         -not $verified.sourceDatabaseRemoved -or -not $verified.sourceObjectsRemoved -or
         -not $verified.ownedContainersAndVolumesRemoved -or -not $verified.retention.deletedRawAbsent -or
         -not $verified.retention.exactDeletionJournalRestored -or -not $verified.retention.staleBackupRejected -or
@@ -53,14 +58,12 @@ try {
         throw 'Incomplete recovery execution or cleanup; no public success evidence was created.'
     }
     $implementation = @()
-    foreach ($file in @('scripts\Backup-Local.ps1', 'scripts\Restore-Local.ps1', 'scripts\Test-Recovery.ps1', 'tests\Cohors.Tests\RecoveryTests.cs')) {
+    foreach ($file in @('scripts\Backup-Local.ps1', 'scripts\Restore-Local.ps1', 'scripts\Test-Recovery.ps1',
+        'tests\Cohors.Tests\RecoveryTests.cs', 'tests\Cohors.Tests\EudamedRecoveryTests.cs', 'tests\Cohors.Tests\RetentionObjectTests.cs')) {
         $implementation += @{ path = $file; sha256 = (Get-FileHash -LiteralPath (Join-Path $root $file)).Hash.ToLowerInvariant() }
     }
-    $testResults = @($trx.SelectNodes("//*[local-name()='UnitTestResult']") | ForEach-Object {
-        @{ name = $_.testName; outcome = $_.outcome }
-    })
     $result = [ordered]@{
-        scope = 'Executed local isolated T20; not GitHub Actions, HTTP/browser, Azure DR, RPO/RTO or an external ledger witness'
+        scope = 'Executed local isolated T18/T20 with PSUR/BS and synthetic EUDAMED originals; Recovery + RecoveryEudamed only, excluding RecoveryDiagnostics and RecoveryEudamedContract; not GitHub Actions, HTTP/browser, Azure DR, RPO/RTO or an external ledger witness'
         capturedAt = [DateTimeOffset]::UtcNow.ToString('O'); sourceCommit = (& git -C $root rev-parse HEAD)
         sourceTreeDirty = @(& git -C $root status --porcelain --untracked-files=normal).Count -gt 0
         implementation = $implementation; dotnet = (& $dotnet --version); powershell = $PSVersionTable.PSVersion.ToString()
@@ -70,7 +73,7 @@ try {
     New-Item -ItemType Directory -Path $artifacts | Out-Null
     [IO.File]::WriteAllText((Join-Path $artifacts 'recovery-results.json'),
         (ConvertTo-Json -InputObject $result -Depth 30), [Text.UTF8Encoding]::new($false))
-    Write-Output 'T18/T20 local recovery including PSUR/BS: 14/14 passed, none skipped. Only allowlisted results were published; raw logs and backups remain private.'
+    Write-Output 'T18/T20 local recovery including PSUR/BS and synthetic EUDAMED originals: 17/17 passed, none skipped. Separate diagnostics and SQL-free EUDAMED contract tests are not included. Only allowlisted results were published; raw logs and backups remain private.'
 } finally {
     foreach ($name in $variables) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
 }
