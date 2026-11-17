@@ -30,7 +30,7 @@
     "ciEnvironment": "cohors-fabric-validation",
     "previewEnvironment": "cohors-fabric-preview",
     "deployEnvironment": "cohors-fabric-deploy",
-    "runnerGroup": "cohors-fabric-private-deployment"
+    "runnerGroup": null
   },
   "canonicalTerminologySource": {
     "path": "source/imdrf-2026-fda-mapping-source.xlsx",

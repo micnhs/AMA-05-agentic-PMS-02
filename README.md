@@ -1,5 +1,14 @@
 # Cohors
 
+> **Fabric-Variante in Umsetzung:** Dieser Branch gehoert zur unabhaengigen
+> Auslieferung `cohors-fabric`. Massgeblich sind [Fabric-Stand und Grenzen](docs/fabric/README.md).
+> Die nachfolgenden lokalen Start-/Deploymentanweisungen und alten Pruefergebnisse
+> sind geerbte Dokumentation des Forks, **keine freigegebenen Ausfuehrungspfade
+> oder Nachweise dieser Variante**. Keine ihrer Ports, Container, SQL-Instanzen,
+> `.local`-Dateien oder Azure-Ziele verwenden. Aktuell ist ausschliesslich der
+> eigene Standard-GitHub-hosted Build-/Vertragstestpfad ohne Cloud-Credentials
+> freigegeben; Adapterumschaltung und Deployment bleiben gesperrt.
+
 **Product safety, together.** Ein ausfuehrbarer, ausschliesslich synthetischer Pilot fuer einen agentenunterstuetzten Post-Market-Surveillance-Regelkreis.
 
 KI entwirft und begruendet. Medical Safety und Regulatory Affairs entscheiden mit **getrennten Konten**. Es gibt keine echten Patientenfaelle, Kliniknachfragen, Behoerdenmeldungen oder produktiven Zugangsdaten.

@@ -23,7 +23,7 @@ class WorkflowIsolationTests(unittest.TestCase):
         self.assertIn("${{ github.ref }}", group)
         for name in ("cohors-deploy.yml", "cohors-ci.yml"):
             inherited = (WORKFLOWS / name).read_text(encoding="utf-8")
-            self.assertNotRegex(inherited, r"^  (push|pull_request|schedule):")
+            self.assertNotRegex(inherited, r"(?m)^  (push|pull_request|schedule):")
             job_headers = re.findall(r"^  [A-Za-z][\w-]*:\n(.*?)(?=^  [A-Za-z][\w-]*:\n|\Z)",
                                      inherited.split("\njobs:\n", 1)[1], re.MULTILINE | re.DOTALL)
             self.assertTrue(job_headers)
@@ -32,7 +32,13 @@ class WorkflowIsolationTests(unittest.TestCase):
     def test_hosted_scope_cannot_silently_expand(self):
         source = (WORKFLOWS / "cohors-fabric-contracts.yml").read_text(encoding="utf-8")
         self.assertIn("branches: [micnhs-cohors-fabric-umsetzung]", source)
+        jobs = source.split("\njobs:\n", 1)[1]
+        self.assertEqual(["contracts"], re.findall(r"^  ([A-Za-z][\w-]*):\s*$", jobs, re.MULTILINE))
         self.assertEqual(1, len(re.findall(r"^    runs-on:", source, re.MULTILINE)))
+        permissions = re.search(r"^permissions:\n((?:  .*\n)+)", source, re.MULTILINE)
+        self.assertIsNotNone(permissions)
+        self.assertEqual("contents: read", permissions.group(1).strip())
+        self.assertNotRegex(jobs, r"(?m)^    permissions:")
         self.assertIn("runs-on: ubuntu-24.04", source)
         self.assertIn("ref: ${{ github.sha }}", source)
         self.assertIn("persist-credentials: false", source)

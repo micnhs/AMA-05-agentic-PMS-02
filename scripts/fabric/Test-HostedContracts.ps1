@@ -26,6 +26,8 @@ if ((node --version).Trim() -ne 'v24.10.0') { throw 'The exact approved Node ver
 
 python3 scripts/fabric/baseline.py
 if ($LASTEXITCODE -ne 0) { throw 'Bound baseline validation failed.' }
+python3 scripts/fabric/capabilities.py
+if ($LASTEXITCODE -ne 0) { throw 'Capability evidence-level validation failed.' }
 python3 -m unittest discover -s scripts/fabric -p 'test_*.py' -v
 if ($LASTEXITCODE -ne 0) { throw 'Fabric source contract tests failed.' }
 

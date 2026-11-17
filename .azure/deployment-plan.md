@@ -43,8 +43,10 @@ primary branch, branding or functional scope.
 
 ## Azure context and execution isolation
 
-Subscription(s), regions, Fabric tenant/workspaces/capacities, identities,
-resource groups, SKUs, budgets and actual processing geography are UNCONFIRMED.
+A read-only Azure subscription/tenant context was observed privately; it is not
+a chosen deployment destination or a grant of write access. Protection
+subscriptions, regions, Fabric workspaces/capacities, identities, resource
+groups, SKUs, budgets and actual processing geography remain UNAPPROVED.
 Existing primary resources, credentials, containers, SQL instances, volumes,
 ports, fixtures, processes and local directories must not be used.
 The source worktree is isolated; host/compute/quota isolation is not yet proven.
@@ -65,6 +67,27 @@ G02 remains a production conflict: B alone cannot finally acknowledge normal
 commands after loss of A. A second complete protection path including historical
 evidence within 60 minutes is unproven. Region C is an option, not an approved
 topology. No single-region exception or reduced RPO/RTO.
+
+The current [capability register](../docs/fabric/capability-gates.json) and
+[native probe preparation](../docs/fabric/capability-probes.md) preserve all
+G01-G11 blockers. G03 distinguishes direct ontology MCP (SP access currently
+unsupported), direct data-agent MCP (documented SP candidate), and delegated
+Foundry connections. G04 records conflicting path-specific private-link
+documentation; actual end-to-end app-only/private execution is still required.
+
+The conceptual resource inventory requires separately administered regional
+protection subscriptions for two WORM accounts, an Azure SQL Ledger primary
+and named geo-secondary, separate Core/Evidence and knowledge Fabric capacities,
+Core SQL/OneLake/IQ workspaces, own Foundry account/project and .NET agents,
+own Web/API/workflow/watchdog/Domibus, signer/key stores, private endpoints/DNS
+and independent monitoring/emergency resources. These are requirements, not
+approved resource names, quantities, SKUs or prices.
+
+Region-specific quota, price and capacity checks cannot be completed without
+selected destinations. Do not raise quotas or install Azure extensions to fill
+these gaps. This preparation is not a finalized deployment plan for approval.
+The dedicated network execution path for actual service probes is also not
+allocated; the credential-free standard hosted job is not that path.
 
 Specification, local tests, real-service evidence and functional/operational
 acceptance are separate evidence levels. Missing credentials/capacity or product
@@ -92,5 +115,10 @@ the protocol and must not be rolled back by an application/image rollback.
   checked. Only private source-path labels changed in the distributed manifest.
 - 118+45 IDs, 104/14 priorities, 326 distinct test specifications, 53 scenarios
   and nine scope clarifications checked; four local Python contract tests pass.
-- No .NET/Node build, Fabric service, recovery or deployment validation claimed
-  yet. Hosted build evidence will be separate from platform/acceptance evidence.
+- Hosted run 44117767152 on e6ba11f proves Web/Solution builds and 24 selected
+  in-process .NET tests. Run 44122134291 on 4e8d638 adds 27 commit-model tests
+  and seven Python checks. These exact commits remain distinct from later work.
+- Run 44123472283 on 4a5d38d passes the extended 31-case model suite
+  (55 selected .NET tests total) with native digest/JSON edge cases.
+- No Fabric/IQ/Hosted Agent, WORM/Ledger, recovery, functional/operational
+  acceptance or deployment validation has run. The state remains Planning.
