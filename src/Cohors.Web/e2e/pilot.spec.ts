@@ -138,7 +138,7 @@ function recordDossierResponses(page: Page, context: number) {
   })
 }
 async function openDossierUi(page: Page, baseURL: string, id?: string) {
-  await page.goto(baseURL)
+  if (page.url() === 'about:blank') await page.goto(baseURL)
   await page.getByRole('navigation').getByRole('button', { name: 'EUDAMED Integration', exact: true }).click()
   await page.getByRole('combobox', { name: 'Integrations-Produktscope', exact: true }).selectOption('ortho')
   await expect(page.getByRole('heading', { name: 'EUDAMED-Dossiers', exact: true })).toBeVisible()
@@ -509,6 +509,7 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
     expect(approvedReply.package.content.intendedAction).toBe('Reply')
     expect(approvedReply.package.content.replyToCorrespondenceId).toBe(question.id)
     expect(approvedReply.approvals.every(a => !frozen.approvals.some(old => old.id === a.id))).toBe(true)
+    await expect(regulator.getByRole('region', { name: 'Dossier-Workbench' }).getByText('Keine Antwort', { exact: true })).toBeVisible()
     await queueDossierUi(regulator, 'Accept')
     await expect.poll(async () => (await dossierView(ra, reply.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
     expect((await dossierView(ra, created.id)).dossier.correspondence[0].status).toBe('Open')

@@ -16,18 +16,24 @@ public sealed partial class EudamedService(IStateStore store, IObjectStore objec
         var channel = await store.Get<EudamedChannel>("eudamedChannel", EudamedContracts.ChannelId(product), ct);
         var draft = await store.Get<EudamedConfigurationDraft>("eudamedConfiguration", EudamedContracts.DraftId(product), ct);
         var connection = await store.Get<DomibusConnectionCheck>("domibusCheck", "domibus-check-" + product, ct);
+        var activeConnection = connection?.DraftSource == channel?.DraftSource ? connection : null;
+        var draftConnection = draft is not null && connection?.DraftSource == EudamedContracts.Bind(draft) ? connection : null;
         var activeReadiness = channel is null ? new EudamedReadiness("NotConfigured", "NotRequired", "Blocked",
             false, false, ["Sichere Simulator-Voreinstellung; Actor und Referenzen zuordnen und das Profil ausdruecklich aktivieren."], "None")
-            : await Readiness(channel.Profile, product, connection?.DraftSource == channel.DraftSource ? connection : null, ct);
+            : await Readiness(channel.Profile, product, activeConnection, ct);
+        var draftReadiness = draft is null ? null :
+            channel?.Profile == draft.Profile && activeConnection == draftConnection ? activeReadiness :
+            await Readiness(draft.Profile, product, draftConnection, ct);
         if (channel is { Enabled: false }) activeReadiness = activeReadiness with
         { CanActivate = false, CanDispatch = false, BusinessStatus = "Disabled", Blockers = [.. activeReadiness.Blockers, "Kanal ausdruecklich deaktiviert."] };
+        var dossiers = (await store.List<EudamedDossier>("eudamedDossier", [product], ct))
+            .Where(d => EudamedRules.CanRead(d, actor)).ToArray();
         return new(channel?.Profile.Mode ?? EudamedMode.Simulator, channel is not null, channel, draft, activeReadiness,
-            draft is null ? null : await Readiness(draft.Profile, product, connection?.DraftSource == EudamedContracts.Bind(draft) ? connection : null, ct), connection,
+            draftReadiness, connection,
             await store.List<EudamedActorApplication>("eudamedActor", actor.Products, ct),
             await store.List<EudamedReferences>("eudamedReferences", [product], ct),
-            (await store.List<EudamedDossier>("eudamedDossier", [product], ct)).Where(d => EudamedRules.CanRead(d, actor))
-                .Select(Summarize).ToArray(),
-            await VisibleInbox(product, actor, ct),
+            dossiers.Select(Summarize).ToArray(),
+            await VisibleInbox(product, dossiers, ct),
             EudamedContracts.Capabilities, gateway.ReferenceCatalog,
             new(EudamedContracts.Business, EudamedContracts.Gateway, EudamedContracts.WsdlSha256, EudamedContracts.SchemaRuntime),
             "Simulation ist kein Playground-/Behoerdennachweis. Bestehende Fall-, Nachforderungs- und PSUR-Simulatoren bleiben Legacy-Simulation; kein Moduswechsel leitet sie um.");

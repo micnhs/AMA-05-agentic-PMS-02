@@ -444,10 +444,9 @@ public sealed partial class EudamedService
         Guard.Against(ledger.Entries.Any(EudamedRules.Pending), "eudamed_delivery_pending",
             "Eine gebundene Meldung ist noch unterwegs oder unklar. Erst urspruenglichen Versuch abgleichen; kein neuer Versand.", 409);
 
-    private async Task<EudamedInbox[]> VisibleInbox(string product, Actor actor, CancellationToken ct)
+    private async Task<EudamedInbox[]> VisibleInbox(string product, EudamedDossier[] visibleDossiers, CancellationToken ct)
     {
-        var dossiers = (await store.List<EudamedDossier>("eudamedDossier", [product], ct))
-            .Where(d => EudamedRules.CanRead(d, actor)).Select(d => d.Id).ToHashSet(StringComparer.Ordinal);
+        var dossiers = visibleDossiers.Select(d => d.Id).ToHashSet(StringComparer.Ordinal);
         return (await store.List<EudamedInbox>("eudamedInbox", [product], ct))
             .Where(i => i.Original is not null && dossiers.Contains(i.Original.DossierId)).ToArray();
     }

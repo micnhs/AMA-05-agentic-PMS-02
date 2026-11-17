@@ -380,7 +380,8 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open }
   const medical = actor.isHuman && actor.roles.includes('MedicalSafetyReviewer')
   const regulatory = actor.isHuman && actor.roles.includes('RegulatoryAffairs')
   const author = actor.isHuman && (medical || regulatory || actor.roles.includes('PmsSpecialist'))
-  const ownEntries = view.ledger.entries.filter(e => e.attempt.dossierRevision === dossier.revision)
+  const ownEntries = view.ledger.entries.filter(e => e.dossierId === dossier.id &&
+    e.attempt.dossierRevision === dossier.revision && e.attempt.packageHash === dossier.scopeHash)
   const latest = ownEntries.at(-1)
   const lastAttempt = dossier.attempts.filter(a => a.dossierRevision === dossier.revision).at(-1)
   const historicalBusiness = dossier.businessResponses.filter(r => r.attemptId === lastAttempt?.id && (r.applied || r.status === 'ActionMismatch'))

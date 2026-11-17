@@ -83,6 +83,13 @@ public sealed partial class EudamedConfigurationTests(SqlFixture fixture)
         Assert.Equal(active.DispatchGeneration + 1, disabled.DispatchGeneration);
         Assert.Equal("version_conflict", (await Assert.ThrowsAsync<DomainException>(() =>
             service.Deactivate("ortho", new(active.Version, Reason), SqlFixture.Ra, CaseScenario.Key()))).Code);
+        await service.SaveConfiguration(new(domibus.Version, "ortho", profile, Reason), SqlFixture.Ra, CaseScenario.Key());
+        var sameProfile = await service.Workspace("ortho", SqlFixture.Ra);
+        Assert.False(sameProfile.ActiveReadiness.CanDispatch);
+        Assert.False(sameProfile.ActiveReadiness.CanActivate);
+        Assert.True(sameProfile.DraftReadiness!.CanActivate);
+        Assert.Equal("Disabled", sameProfile.ActiveReadiness.BusinessStatus);
+        Assert.Equal("SimulatorOnly", sameProfile.DraftReadiness.BusinessStatus);
         Assert.Equal(0, gateway.NetworkCalls);
     }
 

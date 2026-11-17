@@ -436,6 +436,15 @@ Identitaetswechsel behalten ihre bisherigen Generations-/Lebenszyklusgrenzen.
 Die Browserprobe verzoegert eine echte Workspace-Antwort ueber ein
 Pollintervall und verlangt weiterhin genau einen Leseaufruf.
 
+Grosse SQL-Originaltexte werden fuer Einzel-, Listen-, Historien- und
+Produktaudit-Lesungen mit `SequentialAccess` und `GetTextReader` vollstaendig
+eingelesen. Kanonisierung, Hashpruefungen, Produktscope und der transaktionale
+Auditschnitt bleiben unveraendert. Innerhalb eines Workspace-Requests wird
+dieselbe berechtigte Dossiermenge nicht nochmals fuer die Inbox gelesen;
+identische Profil-/Pruefstand-Eingaben teilen die Bereitschaftsberechnung,
+nicht jedoch den Deaktivierungsstatus des aktiven Kanals. Es gibt keinen
+requestuebergreifenden Berechtigungs- oder Datenfallback.
+
 ## Unveraenderte Originale
 
 `source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`, die freigegebenen Eingangsunterlagen sowie Logo und Animation werden nicht veraendert. Die unveraenderte `source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx` hat SHA256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`.

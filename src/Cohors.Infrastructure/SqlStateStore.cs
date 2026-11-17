@@ -71,7 +71,7 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         await using var connection = await Open(ct);
         using var query = Command(connection, null, "SELECT Json FROM dbo.Aggregates WHERE Kind=@kind AND Id=@id",
             ("kind", kind), ("id", id));
-        var json = await query.ExecuteScalarAsync(ct) as string;
+        var json = await ReadScalarText(query, ct);
         return json is null ? default : Canonical.Read<T>(json);
     }
 
@@ -83,8 +83,8 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
             "SELECT Json FROM dbo.Aggregates WHERE Kind=@kind AND ProductId IN (SELECT value FROM OPENJSON(@products)) ORDER BY UpdatedAt DESC, Id",
             ("kind", kind), ("products", Canonical.Serialize(products)));
         var items = new List<T>();
-        await using var reader = await query.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct)) items.Add(Canonical.Read<T>(reader.GetString(0)));
+        await using var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
+        while (await reader.ReadAsync(ct)) items.Add(Canonical.Read<T>(await ReadText(reader, 0, ct)));
         return items.ToArray();
     }
 
@@ -99,8 +99,8 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
             ORDER BY h.Id,h.Version
             """, ("kind", kind), ("products", Canonical.Serialize(products)));
         var items = new List<T>();
-        await using var reader = await query.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct)) items.Add(Canonical.Read<T>(reader.GetString(0)));
+        await using var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
+        while (await reader.ReadAsync(ct)) items.Add(Canonical.Read<T>(await ReadText(reader, 0, ct)));
         return items.ToArray();
     }
 
@@ -655,7 +655,7 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         {
             // An empty FOR JSON scalar subquery is SQL NULL, not a failed or truncated read.
             using var query = Command(connection, transaction, $"SELECT COALESCE(({select} FOR JSON PATH,INCLUDE_NULL_VALUES),N'[]')");
-            var json = await query.ExecuteScalarAsync(ct) as string
+            var json = await ReadScalarText(query, ct)
                 ?? throw new DomainException("audit_sql", "SQL-Auditschnitt konnte nicht vollstaendig gelesen werden.", 409);
             bytes += System.Text.Encoding.UTF8.GetByteCount(json);
             Guard.Against(bytes > ProductAuditRules.MaximumBytes, "audit_size",
@@ -796,5 +796,17 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         var command = new SqlCommand(sql, connection, transaction) { CommandTimeout = 30 };
         foreach (var (key, value) in values) command.Parameters.AddWithValue("@" + key, value ?? DBNull.Value);
         return command;
+    }
+
+    private static async Task<string?> ReadScalarText(SqlCommand command, CancellationToken ct)
+    {
+        await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess | CommandBehavior.SingleRow, ct);
+        return await reader.ReadAsync(ct) && !reader.IsDBNull(0) ? await ReadText(reader, 0, ct) : null;
+    }
+
+    private static async Task<string> ReadText(SqlDataReader reader, int ordinal, CancellationToken ct)
+    {
+        using var text = reader.GetTextReader(ordinal);
+        return await text.ReadToEndAsync(ct);
     }
 }
