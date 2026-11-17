@@ -76,7 +76,7 @@ public sealed partial class ProductAuditTests
         var (service, gateway) = await AuditSimulator();
         var actor = Assert.Single((await service.Workspace("ortho", SqlFixture.Ra)).Actors);
         await AuditReferences(service, "cardio", actor);
-        var input = new RecordPsurGroupCommand(0, "DEMO-PSUR-EU-AUDIT-" + CaseScenario.Key().ToUpperInvariant(),
+        var input = new RecordPsurGroupCommand(0, "DEMO-PSUR-GROUP-EU-AUDIT-" + CaseScenario.Key().ToUpperInvariant(),
             "ortho", ["ortho", "cardio"], new(2025, 11, 15), Reason, Reason);
         var group = await Analytics().RecordGroup(input, SqlFixture.Pms, CaseScenario.Key());
         var report = await Analytics().Freeze(new("ortho", "ortho", group.FirstPeriodStart,
