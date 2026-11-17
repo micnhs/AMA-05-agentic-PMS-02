@@ -42,6 +42,53 @@ Dossier-/Versand-/Empfangsabnahme folgt getrennt. Weder ein laufender
 Domibus noch eine AS4-Gegenstelle, Playground, echte Registrierung,
 Behoerdenmeldung oder Azure-Bereitstellung wurden damit nachgewiesen.
 
+### Gebundener Dossier-/Versandkern
+
+Auf `9efda9bddbd60c32fb6dc52caa14baac219a7a1b` sind Web-/C#-Build und
+privates Anwendungspaket sowie **22/22 SQL-Faelle ohne Skips** nachgewiesen.
+Die fuenf getrennten, nacheinander ausgefuehrten Partitionen behalten
+das jeweilige 180-Sekunden-Limit und die exakten Quellen-/Assemblybindungen:
+8 bestehende Actor-/Dossier-/PDF-Faelle und 14 neue Versandfaelle.
+Die vorherige Quellkompilation und 47 Offline-Vertragsfaelle waren
+ebenfalls erfolgreich; das ist keine Ausfuehrung eines Domibus-Gateways.
+
+Der Versandledger reserviert die native MIR-Pflicht auch gegen einen
+gleichzeitigen Legacy-Simulatorauftrag. Outbox-Claim, technischer Beleg
+und fachlicher Eingang sind getrennt. Nur eine passende fachliche
+Annahme eines expliziten Submit-/FollowUp-Auftrags quittiert genau
+die gebundenen nativen Pflichten; Fristtermine und Originalsignaturen
+werden nicht ersetzt. Ungeklaerte Versuche blockieren Zweitversand.
+Deaktivierung vor Claim sperrt; eine spaete Antwort nach Start bleibt
+am urspruenglichen Profil.
+
+DraftOnly bleibt auch bei beiden OutOfOrder-Reihenfolgen ein Entwurf.
+Ein widerspruechlicher spaeter BusinessAccepted-Eingang bleibt als
+Original erhalten und erzeugt einen sichtbaren, sperrenden
+ActionMismatch, keine Pflichtquittierung. Der normale Uebergang von
+DraftOnly zu Submit verlangt eine neue Paketfassung und neue getrennte
+Medical-/RA-Freigaben. Duplikate, verzoegerte Antworten, technische und
+fachliche Ablehnung sowie geaenderte Quellstaende sind separat geprueft.
+
+| Gebundener Beleg | SHA-256 |
+| --- | --- |
+| Build07 | `0e89c78c6a6c74795f5f77314b3ba1df06481cab0c9a33d555aeed7824c8a28b` |
+| Native09, 3/3 | `b616ff93eed5f0e7621f0700a67b429d38249e9fa9041a0383028c8a0aa9b313` |
+| Native10, 4/4 | `d8c38ed24f5f3e54a739d317ce23624434203f6e12b94b44892ede3e9bda68f3` |
+| Native11, 4/4 | `616d91d94a3e552b3f59721e0b136bf280ba9d7c0c83193880752588239556ca` |
+| Native12, 3/3 | `604a2dad19f623d64521cd1c859e61dd474f5ccd75ae17e703b6733101af92a4` |
+| Native13, 8/8 | `467061bf8e55dfc845ebf5dec9bc24737ff0617f401f64addb8dfe8f92997e31` |
+
+Die negativen Vorlaeufe bleiben erhalten: eine kanonische
+Id-Namenskollision wurde korrigiert, ein Test suchte faelschlich nur
+im begrenzten ersten Outbox-Batch. Zwei zeitlich begrenzte kombinierte
+SQL-Laeufe wurden beendet; ihre exakt protokollierten eigenen
+Datenbanken und Objekte wurden unabhaengig entfernt, ohne die
+Vorschau zu beruehren. Die erfolgreichen Einzelpartitionen belegen
+zusaetzlich ihr regulaeres vollstaendiges Cleanup.
+API/UI-Dossierversand, Korrespondenz, vollstaendiger Produktauditexport,
+Backup/Restore und externe Empfangs-/Betriebsabnahme sind durch diesen
+Kernnachweis noch nicht abgeschlossen. Keine Previewpromotion.
+
 ## Qualifizierter lokaler Preview-Schnitt
 
 Die aktuell veroeffentlichte **5187-Vorschau** verwendet

@@ -25,9 +25,11 @@ public static class ProductAuditRules
     [
         "case", "evidence", "exposure", "trend", "capa", "change", "productGovernance", "psur",
         "source", "psurGroup", "psurReview", "agentInvocation", "retention", "productLifecycle", "delivery-recovery",
-        "summaryAgreement", "summaryReport"
+        "summaryAgreement", "summaryReport", "eudamedActor", "eudamedReferences",
+        "eudamedConfiguration", "eudamedChannel", "domibusCheck", "eudamedDocument",
+        "eudamedDossier", "eudamedDelivery", "eudamedInbox"
     ];
-    private static readonly string[] JsonFields = ["Json", "Payload", "Result", "frozenJson", "inputJson", "outputJson"];
+    private static readonly string[] JsonFields = ["Json", "json", "Payload", "Result", "frozenJson", "inputJson", "outputJson"];
 
     public static void RequireReader(Actor actor, string product)
     {
@@ -48,6 +50,8 @@ public static class ProductAuditRules
             if (node.TryGetProperty("products", out value) && value.ValueKind == JsonValueKind.Array)
                 foreach (var member in value.EnumerateArray())
                     if (member.ValueKind == JsonValueKind.String) Add(member);
+            if (node.TryGetProperty("accessProducts", out value) && value.ValueKind == JsonValueKind.Array)
+                foreach (var member in value.EnumerateArray()) Add(member);
         });
         if (kind == "agentInvocation")
         {
@@ -71,6 +75,15 @@ public static class ProductAuditRules
         if (kind == "psurReview") products.UnionWith(PsurReviewRules.Products(Canonical.Read<PsurReview>(json)));
         if (kind == "summaryAgreement") SummaryReportingRules.RequireAgreement(Canonical.Read<SummaryAgreement>(json));
         if (kind == "summaryReport") SummaryReportingRules.RequireIntegrity(Canonical.Read<PeriodicSummaryReport>(json));
+        if (kind == "eudamedDossier")
+        {
+            var dossier = Canonical.Read<EudamedDossier>(json);
+            Guard.Against(dossier.ProductId != product || dossier.Package.ProductId != product ||
+                dossier.ScopeHash != Canonical.Hash(dossier.Package) ||
+                dossier.FrozenPackageHash is not null && dossier.FrozenPackageHash != dossier.ScopeHash,
+                "audit_eudamed_binding", "Historische Dossier-/Paketbindung stimmt nicht.", 409);
+            products.UnionWith(EudamedRules.AccessProducts(dossier.Package));
+        }
         if (kind == "case")
         {
             var c = Canonical.Read<SafetyCase>(json);
@@ -103,6 +116,7 @@ public static class ProductAuditRules
             foreach (var version in aggregate.Versions)
             {
                 var source = $"{aggregate.Kind}:{aggregate.Id}@{version.Version}";
+                EudamedObjects(aggregate.Kind, version.Json, hash => Add(hash, source));
                 using var document = JsonDocument.Parse(version.Json);
                 Walk(document.RootElement, node =>
                 {
@@ -158,6 +172,50 @@ public static class ProductAuditRules
                 hash != hash.ToLowerInvariant(), "audit_object_reference", "Kein gueltiger gebundener Objekt-Hash.", 409);
             if (!references.TryGetValue(hash, out var uses)) references.Add(hash, uses = new(StringComparer.Ordinal));
             uses.Add(source);
+        }
+    }
+
+    private static void EudamedObjects(string kind, string json, Action<string> add, int depth = 0)
+    {
+        Guard.Against(depth > 32, "audit_depth", "Verschachtelte Dossieroriginale ueberschreiten die Exportgrenze.", 409);
+        void Optional(string? hash) { if (hash is not null) add(hash); }
+        void Attempt(EudamedAttempt value) => Optional(value.ReceiptHash);
+        void Response(EudamedBusinessResponse value) => add(value.OriginalHash);
+        void Correspondence(EudamedCorrespondence value) => add(value.OriginalHash);
+        switch (kind)
+        {
+            case "eudamedReferences":
+                add(Canonical.Read<EudamedReferences>(json).Certificate.OriginalHash);
+                break;
+            case "eudamedDocument":
+                add(Canonical.Read<EudamedDocument>(json).OriginalHash);
+                break;
+            case "eudamedInbox":
+                var inbox = Canonical.Read<EudamedInbox>(json);
+                add(inbox.OriginalHash);
+                Optional(inbox.ProtectedTransportHash);
+                break;
+            case "eudamedDelivery":
+                foreach (var entry in Canonical.Read<EudamedDeliveryLedger>(json).Entries)
+                {
+                    add(entry.ApprovedDossier.Hash);
+                    Attempt(entry.Attempt);
+                    foreach (var response in entry.Responses) Response(response);
+                    foreach (var correspondence in entry.Correspondence) Correspondence(correspondence);
+                }
+                break;
+            case "eudamedDossier":
+                var dossier = Canonical.Read<EudamedDossier>(json);
+                Optional(dossier.FrozenPackageHash);
+                add(dossier.Package.References.Certificate.OriginalHash);
+                foreach (var attachment in dossier.Package.Attachments) add(attachment.Hash);
+                foreach (var attempt in dossier.Attempts) Attempt(attempt);
+                foreach (var response in dossier.BusinessResponses) Response(response);
+                foreach (var correspondence in dossier.Correspondence) Correspondence(correspondence);
+                foreach (var distribution in dossier.Distributions) add(distribution.EvidenceHash);
+                foreach (var source in dossier.Package.Sources)
+                    EudamedObjects(source.Kind, source.Json, add, depth + 1);
+                break;
         }
     }
 

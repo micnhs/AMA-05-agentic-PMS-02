@@ -158,7 +158,7 @@ public sealed partial class EudamedConfigurationTests(SqlFixture fixture)
         new(EudamedMode.Simulator, EudamedEnvironment.Simulation, application.Id, application.Version,
             references.Id, references.Version, "DEMO-CA-IE", EudamedContracts.Business, EudamedContracts.Gateway, null);
 
-    private sealed class NoNetworkGateway : IDomibusGateway
+    internal sealed class NoNetworkGateway : IDomibusGateway
     {
         public int NetworkCalls { get; private set; }
         public string[] AllowedEndpointReferences => [];

@@ -28,6 +28,7 @@ public sealed class ProductAuditService(SqlStateStore store, IObjectStore object
         var cutHash = Canonical.Hash(capture);
         var (references, exclusions) = ProductAuditRules.Objects(capture.Aggregates);
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var objectPaths = new Dictionary<string, string>(StringComparer.Ordinal);
         long bytes = 0;
         var index = capture.Aggregates.Select((aggregate, i) => new
         {
@@ -49,7 +50,7 @@ public sealed class ProductAuditService(SqlStateStore store, IObjectStore object
         foreach (var reference in references)
         {
             byte[] value;
-            try { value = Encoding.UTF8.GetBytes(await objects.Read(reference.Hash, ct)); }
+            try { value = await objects.ReadBytes(reference.Hash, ct); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Azure.RequestFailedException)
             {
                 throw new DomainException("audit_object_unavailable",
@@ -57,7 +58,9 @@ public sealed class ProductAuditService(SqlStateStore store, IObjectStore object
             }
             Guard.Against(Hash(value) != reference.Hash, "audit_object_bytes",
                 "Gebundene Objektbytes fehlen oder stimmen nicht; kein als vollstaendig bezeichnetes Auditpaket.", 409);
-            Add("objects/" + reference.Hash + ".txt", value);
+            var path = "objects/" + reference.Hash + ObjectExtension(value);
+            objectPaths.Add(reference.Hash, path);
+            Add(path, value);
         }
         AddJson("transport/outbox.json", capture.Transport.Outbox);
         AddJson("transport/inbox.json", capture.Transport.Inbox);
@@ -66,7 +69,7 @@ public sealed class ProductAuditService(SqlStateStore store, IObjectStore object
         AddJson("verification.json", new
         {
             state = "VerifiedLocalReadOnlyCut",
-            source = "SQL authoritative state and original UTF-8 object bytes; no Search-derived originals",
+            source = "SQL authoritative state and original text/binary object bytes; no Search-derived originals",
             checks = new[]
             {
                 "Complete contiguous historical versions, current payload, original version hashes and audited event times",
@@ -100,7 +103,7 @@ public sealed class ProductAuditService(SqlStateStore store, IObjectStore object
             scope = "Full retained history directly concerning the requested product, including historical/non-leading membership, plus explicitly version-referenced source aggregates. All retained member scopes are required; membership alone does not include unrelated co-member records.",
             boundary = "SYNTHETISCHER COHORS-PILOT. Lesekopie, keine reale BS-/Behoerdenuebermittlung, keine neue Freigabe, kein Backup oder produktiver WORM-Nachweis.",
             aggregates = index,
-            objects = references.Select(r => new { r.Hash, path = "objects/" + r.Hash + ".txt", r.Uses }),
+            objects = references.Select(r => new { r.Hash, path = objectPaths[r.Hash], r.Uses }),
             checksums = "checksums.json binds every other archive entry with SHA-256; it cannot hash itself and is not externally signed."
         });
         Add("READ-ME.txt", Encoding.UTF8.GetBytes(
@@ -108,7 +111,7 @@ public sealed class ProductAuditService(SqlStateStore store, IObjectStore object
             "manifest.json: Produktumfang, Versionspfade, Freigabe-/Quellen-Originale und Objektverwendungen.\n" +
             "verification.json: Ausgefuehrte lokale Pruefungen und ausdrueckliche Ausschluesse/Grenzen.\n" +
             "versions/: Unveraenderte SQL-Originaltexte als UTF-8; keine Korrektur oder Narrative-Kuerzung.\n" +
-            "audit/: Lokale Auditketten. objects/: Exakte gebundene Text-/XML-/JSON-Bytes mit SHA-256.\n" +
+            "audit/: Lokale Auditketten. objects/: Exakte gebundene Text-/XML-/JSON-/PDF-/Binaerbytes mit SHA-256, Pfade im Manifest.\n" +
             "transport/: Persistente Command-/Outbox-/Inbox-Zustaende und Fallfristprojektion desselben SQL-Cuts.\n" +
             "checksums.json: SHA-256 aller anderen Dateien. Keine unabhaengige Signatur, externe Ledgerpruefung oder neue fachliche Annahme.\n"));
         AddJson("checksums.json", files.ToDictionary(f => f.Key, f => Hash(f.Value), StringComparer.Ordinal));
@@ -129,10 +132,17 @@ public sealed class ProductAuditService(SqlStateStore store, IObjectStore object
         {
             bytes += value.Length;
             Guard.Against(bytes > ProductAuditRules.MaximumBytes, "audit_size",
-                "Das vollstaendige Auditpaket ueberschreitet 128 MiB UTF-8-Originalinhalt. Keine stille Kuerzung oder Teillieferung.", 409);
+                "Das vollstaendige Auditpaket ueberschreitet 128 MiB Originalbytes. Keine stille Kuerzung oder Teillieferung.", 409);
             files.Add(path, value);
         }
     }
 
     private static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+
+    private static string ObjectExtension(byte[] bytes)
+    {
+        if (bytes.AsSpan().StartsWith("%PDF-"u8)) return ".pdf";
+        try { _ = new UTF8Encoding(false, true).GetCharCount(bytes); return ".txt"; }
+        catch (DecoderFallbackException) { return ".bin"; }
+    }
 }

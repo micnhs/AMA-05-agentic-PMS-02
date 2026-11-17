@@ -12,7 +12,7 @@ namespace Cohors.Tests;
 
 [Collection("SQL pilot")]
 [Trait("Category", "Sql")]
-public sealed class ProductAuditTests : IAsyncLifetime
+public sealed partial class ProductAuditTests : IAsyncLifetime
 {
     private readonly SqlFixture fixture = new() { SeedCases = false };
     private readonly TestClock clock = new(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));

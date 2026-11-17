@@ -543,8 +543,36 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
                     products.UnionWith(EventProducts(Canonical.Read<OutboxRecovery>(Text(version, "Json")).EventId, []));
             }
             candidates.Add(Key(row), (row, versions!, products.Order(StringComparer.Ordinal).ToArray()));
-            if (products.Contains(productId) && included.Add(Key(row))) queue.Enqueue(Key(row));
         }
+        foreach (var (key, candidate) in candidates.Where(p => Text(p.Value.Row, "Kind") is "eudamedDelivery" or "eudamedInbox").ToArray())
+        {
+            var products = candidate.Products.ToHashSet(StringComparer.Ordinal);
+            foreach (var version in candidate.Versions)
+            {
+                var json = Text(version, "Json");
+                if (Text(candidate.Row, "Kind") == "eudamedDelivery")
+                    foreach (var reference in Canonical.Read<EudamedDeliveryLedger>(json).Entries.Select(e => e.ApprovedDossier))
+                    {
+                        Guard.Against(!byReference.TryGetValue(reference, out var sources) || sources.Length != 1 ||
+                            !sources[0].StartsWith("eudamedDossier|", StringComparison.Ordinal),
+                            "audit_source", "Versandreservierung hat keine eindeutige historische Dossierquelle.", 409);
+                        products.UnionWith(candidates[sources![0]].Products);
+                    }
+                else if (Canonical.Read<EudamedInbox>(json) is { Original: { } original } incoming)
+                {
+                    Guard.Against(!candidates.TryGetValue("eudamedDossier|" + original.DossierId, out var source),
+                        "audit_source", "Fachlicher Eingang hat keine historische Dossierquelle.", 409);
+                    Guard.Against(!source.Versions.Select(v => Canonical.Read<EudamedDossier>(Text(v, "Json"))).Any(d =>
+                        d.Revision == original.DossierRevision && d.ScopeHash == original.PackageHash &&
+                        Canonical.Hash(d.Package.Binding) == Canonical.Hash(incoming.Binding)),
+                        "audit_eudamed_binding", "Eingangsoriginal passt nicht zu seiner historischen Dossier-/Kanalbindung.", 409);
+                    products.UnionWith(source.Products);
+                }
+            }
+            candidates[key] = (candidate.Row, candidate.Versions, products.Order(StringComparer.Ordinal).ToArray());
+        }
+        foreach (var (key, candidate) in candidates)
+            if (candidate.Products.Contains(productId) && included.Add(key)) queue.Enqueue(key);
         var aggregates = new List<AuditAggregate>();
         while (queue.TryDequeue(out var aggregateKey))
         {
