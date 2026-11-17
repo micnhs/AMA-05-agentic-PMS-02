@@ -458,7 +458,7 @@ als Fehler; er meldet sie nicht als bestandene Sicherheitspruefung.
 python -m pip install -r infra\requirements-validation.txt
 docker pull bridgecrew/checkov@sha256:122602cf32cc72286155d39f1f234b7b594818f7b8d7fdf490701620e521368b
 pwsh -NoProfile -File infra\scripts\Validate-Infrastructure.ps1 `
-  -OutputDirectory (Join-Path $env:TEMP 'cohors-iac-validation')
+  -OutputDirectory (Join-Path $env:TEMP ("cohors-iac-validation-{0}" -f [Guid]::NewGuid().ToString('N')))
 ```
 
 Der Validator baut/lintet Bicep, kompiliert Parameter, prueft lokale Sicherheits-
@@ -472,14 +472,68 @@ Checkov 3.4.5 verwendet pycep-parser 0.5.1: Der direkte Bicep-Scan scheitert an
 `string[]` und `toObject`; ein unveraenderter ARM-v2-Scan sah sogar null Ressourcen.
 Beides wurde verworfen. `checkov_templates.py` exportiert deshalb **alle**
 eingebetteten kompilierten Templates, auch bedingte/standardmaessig inaktive
-Zweige, und ersetzt ausschliesslich symbolische Ressourcen-Dictionaries durch
-Ressourcenlisten. Eigenschaften, Ausdruecke, Bedingungen und Copy-Loops bleiben
-erhalten. Ein Manifest bindet den Quell-SHA256 und dokumentiert die Abdeckung.
+Zweige, als Ressourcenlisten. Die einzige zusaetzliche, quellengebundene
+Scan-Projektion ist die SQL-Server-Auditzuordnung. Storage-Namen, andere
+Eigenschaften, Bedingungen und Copy-Loops bleiben unveraendert.
+
+**CKV_AZURE_23:** Eine eigenstaendige Server-`auditingSettings`-Ressource wird
+zusaetzlich exakt unter dem nachweislich zugehoerigen SQL-Server sichtbar gemacht.
+Originalressource und alle Policywerte bleiben erhalten, auch `Disabled`,
+fehlender `state` und kurze Retention. Die Beziehung muss im selben Template
+anhand identischer Namensausdruecke plus `/default` eindeutig sein. Mehrdeutige
+Zuordnung, bestehende Ressourcen, abweichender Scope, Copy-Loops und nicht den
+Server abdeckende Policybedingungen werden verweigert. **Keine** erfundene
+Server-Policy-Vererbung in Datenbanken und keine weitere Policy-Korrektur.
+
+**CKV_AZURE_43 bleibt unbehoben/offen:** Saemtliche Storage-Namenswerte und ihre
+Typen bleiben unveraendert, auch unaufgeloeste `parameters`-, `format`-,
+`uniqueString`- und Scope-Ausdruecke. Der Konverter wertet weder Parameter,
+Variablen noch Defaults aus. Er benoetigt fuer den vollstaendigen Export keine
+realen Subscription-/Resource-Group-Eingaben. Es gibt keine Ersatznamen,
+symbolischen Musternamen, ARM-Runtime oder generellen Expression-Fallbacks.
+
+Eine inverse Pruefung entfernt nur diese aufgezeichneten Projektionen und muss
+danach den **gesamten** unveraenderten Ressourcenbaum als Listen rekonstruieren.
+Sie verweigert verlorene Ressourcen oder sonstige Aenderungen, nicht nur einen
+veraenderten Ressourcenzaehler. Das Manifest bindet die einmal gelesenen
+Quellbytes, jede Originalressource, alle Scan-Dateien und die Projektionsherkunft
+per SHA256. Eine bytegleiche `.original.json` liegt neben, nicht im Scanordner.
+Fehlgeschlagene Aequivalenzpruefungen publizieren keine Teil-Scanartefakte.
 Die erzeugten `SCAN-ONLY-*.json` sind keine Deploy-Artefakte; Deploy nutzt
 ausschliesslich das unveraenderte Bicep-Kompilat. Aufgrund verschachtelter
 Modulpruefung sind Checkov-Zaehler **Befundvorkommen**, nicht Azure-Instanzzahlen.
 Funktionen, bei denen Checkov fehlgeschlagene ARM-Pruefungen still ausfiltern
-koennte, werden vor dem Scan abgewiesen.
+koennte, und rohe Storage-Namenswerte mit den bekannten Checkov-`UNKNOWN`-Markern
+werden weiterhin vor dem Scan abgewiesen. Unaufgeloeste Ausdruecke werden nicht
+pauschal als still gefilterte Befunde behandelt; insbesondere bleibt der vorhandene
+`compactName`-/`take(uniqueString(...), 8)`-Pfad vollstaendig im Scan.
+Es gibt keine `UNKNOWN`-Freigabe. Fuer spaetere Vollscans immer ein neues
+Ausgabeverzeichnis verwenden; bisherige Rohbefunde nicht ueberschreiben.
+
+**Realer Offline-Konverternachweis (kein Neu-Build/Checkov-Lauf):** Das unveraenderte
+historische `main.json` mit SHA256
+`e05e7592f193f8ab29b559257dfec9c4de6f4ffc13b25bf9350731edb02d340d`
+wurde vollstaendig exportiert: 36 Templates und alle 144 Originaldeklarationen
+stimmen mit dem historischen Manifest ueberein, einschliesslich vier bedingter,
+28 Copy- und zwei Existing-Deklarationen. Alle fuenf Storage-Deklarationen und
+ihre zehn Vorkommen in den exportierten Dateien behalten Namen und Typen.
+Eine belegte SQL-Server-Auditzuordnung erzeugt die erwartete zusaetzliche Kopie
+in zwei Dateiansichten. Alle 36 Dateien wurden gegen den erwarteten Gesamtbaum,
+ihre Hashes und die inverse Rekonstruktion geprueft; die Originalbytes sind
+gebunden. Die 144 Manifestdeklarationen bzw. 325 urspruenglichen Vorkommen in den
+verschachtelten Dateiansichten sind **nicht** der historische Checkov-Zaehler 246.
+Zusaetzlich bestanden 12 fokussierte Python-Unittests; Konverter, Readback und
+Unittests jeweils Exitcode 0.
+
+Dies ist kein neuer Security-Pass. CKV_AZURE_43, die SQL-Datenbank-Befunde, die
+bisherigen Rohbefunde und die uebrigen 15 Controls bleiben offen/unveraendert.
+Mit `$compiledTemplate` als bereits vorhandenem Kompilat und
+`$freshScanDirectory` als neuem eigenen Artefaktverzeichnis laesst sich der
+reine Offline-Weg ohne Build oder Ressourcenstart wiederholen:
+```powershell
+python -m unittest discover -s infra\tests -p test_checkov_templates.py -v
+python infra\scripts\checkov_templates.py $compiledTemplate $freshScanDirectory
+```
 
 Es gibt keine `skip-check`-Liste, Suppressions oder automatische Freigabe anhand
 der folgenden Einordnung. Nullscans, Parserfehler, Skips und verbleibende Befunde
@@ -494,8 +548,9 @@ Anwendungsquellen nicht behauptet werden.
 
 ### Einzelklassifikation der 17 beobachteten Controls
 
-Diese Klassifikation erklaert die Befunde, hebt sie aber **nicht** technisch auf
-und ist keine Produktionsausnahme. Echte offene Controls benoetigen einen
+Diese Klassifikation bezieht sich auf die bisherigen Rohbefunde. Der oben
+begrenzte Scan-only-Pfad ist keine Freigabe und keine Produktionsausnahme.
+Echte offene Controls benoetigen einen
 Nachweis oder einen gesonderten formalen Risikoentscheid; Werkzeugfehler
 benoetigen einen kontrolliert korrigierten Pruefpfad statt unsicherer Azure-Werte.
 
@@ -510,13 +565,13 @@ benoetigen einen kontrolliert korrigierten Pruefpfad statt unsicherer Azure-Wert
 | CKV_AZURE_213 | **Nachgewiesene Flex-Fehlzuordnung.** App-Service-Health-Check ist laut Learn fuer Flex nicht verfuegbar. Eigene HTTP-Health-Routen und der unabhaengige Missing-Success-Alert werden separat abgenommen. |
 | CKV_AZURE_225 | **Genehmigte Pilotgrenze.** FC1-Zonenredundanz ist nicht bestaetigt/aktiviert. Region, Mindestzahl Always-ready-Instanzen, Kosten und Failover sind offene Zielbetriebsgates. |
 | CKV_AZURE_229 | **Genehmigte Pilotgrenze.** SQL-Zonenredundanz bleibt ein explizit zu pruefender Parameter, standardmaessig false. Kein HA-SLA wird aus privatem SQL oder PITR abgeleitet. |
-| CKV_AZURE_23 | **Nachgewiesene Beziehungsaufloesung des Werkzeugs; Betriebsnachweis offen.** Die Regel sucht eingebettete `resources`; Bicep erzeugt eigenstaendige `servers/auditingSettings`. Die Server-Policy ist im Original enthalten. Vererbung, master-Sink, Payloadklassifikation und tatsaechliche Ingestion sind dadurch noch nicht bewiesen. |
+| CKV_AZURE_23 | **Quellengebundene Server-Zuordnung im Scan-only-Konverter; Vollscan/Betriebsnachweis offen.** Die Regel sucht eingebettete `resources`; die exakt zugeordnete eigenstaendige `servers/auditingSettings` wird dort zusaetzlich sichtbar. Datenbank-Befunde werden nicht durch unterstellte Vererbung entfernt. Vererbung, master-Sink, Payloadklassifikation und tatsaechliche Ingestion bleiben unbewiesen. |
 | CKV_AZURE_24 | **Retention-Ziel/Pruefmodell und formale Bewertung offen.** Die Regel sucht eine verschachtelte SQL-Audit-Blob-Retention >=90 Tage; hier ist Azure Monitor mit 30 Tagen Pilot-Telemetrie vorgesehen. Das ist weder eine 90-Tage-CIS-Freigabe noch die fachliche L-01-Aufbewahrung. Die geeignete Security-/Audit-Retention ist gesondert festzulegen. |
 | CKV_AZURE_25 | **Offener Schutzcontrol.** Die optionale Threat-Detection-Policy wird standardmaessig nicht bereitgestellt. Ein vorhandener/ererbter Schutz ist unbekannt, nicht ausgeschaltet. Istzustand und formale Bewertung/Aktivierung bleiben Pflicht. |
 | CKV_AZURE_26 | **Offener SecOps-Nachweis.** Gezielte Empfaenger und die spezialisierten Aktivierungsgates sind vorbereitet; keine reale Zustellung, Reaktion oder Empfaengerfreigabe ist erfolgt. |
 | CKV_AZURE_27 | **Explizite Need-to-know-Vorgabe.** Kein automatischer Versand an alle Account-Admins; kontrollierte SecOps-Empfaenger statt Aufweitung nur fuer den Scanner. Dies belegt noch keinen funktionierenden Alarmprozess. |
 | CKV_AZURE_36 | **Absichtlich engere Netzgrenze.** Storage verwendet `bypass=None`, private Endpunkte und MI statt pauschalem Trusted-Services-Bypass. Benotigte Pfade muessen positiv getestet werden; die Firewall wird nicht fuer die Regel geoeffnet. |
-| CKV_AZURE_43 | **Werkzeug/unerledigte Namensausdruecke.** Checkov prueft unaufgeloeste ARM-Parameter/Format-Ausdruecke als Kontonamen. Der Blueprint verwendet begrenzte alphanumerische Praefixe/Suffixe; globale Namensverfuegbarkeit bleibt ein Provider-Gate, kein lokaler Nachweis. |
+| CKV_AZURE_43 | **Unbehoben; Namensausdruecke bleiben unveraendert im vollstaendigen Scan.** Keine Storage-Namensaufloesung, Ersatzwerte oder Regel-Ausnahmen. Die bekannten unaufgeloesten Root-/Scope-Ausdruecke blockieren nicht mehr den Konverter; sie sind weiterhin kein Nachweis gueltiger oder global verfuegbarer Azure-Namen. |
 | CKV_AZURE_78 | **Nachgewiesene Flex-Fehlzuordnung.** `ftpsState` ist in Flex nicht unterstuetzt. SCM-/FTP-Basic-Publishing ist explizit false; ein nicht unterstuetztes Legacy-Feld wird nicht hinzugefuegt. |
 
 Quellen: [Flex-Monitoring](https://learn.microsoft.com/azure/azure-functions/configure-monitoring#monitor-function-apps-using-health-check),
@@ -528,6 +583,12 @@ Quellen: [Flex-Monitoring](https://learn.microsoft.com/azure/azure-functions/con
 Die beschriebenen Regelbedingungen wurden in den lokalen Checkov-3.4.5-Klassen
 `StorageAccountsUseReplication`, `SQLServerAuditingEnabled`,
 `SQLServerAuditingRetention90Days` und `ACREnableImageQuarantine` gelesen.
+Der begrenzte Folgepatch ist zudem an die unveraenderten Checkov-3.4.5-Quellen
+[SQLServerAuditingEnabled](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/SQLServerAuditingEnabled.py)
+und [StorageAccountName](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/StorageAccountName.py)
+gebunden; er ersetzt oder unterdrueckt keine dieser Regeln.
+SQL-Elternnamen werden nur strukturell anhand ihrer Syntax verglichen, nicht
+ausgewertet; es werden keine Parameter-, Default- oder Runtimewerte eingesetzt.
 
 ## CI und die noch ausstehenden Integrationspruefungen
 
