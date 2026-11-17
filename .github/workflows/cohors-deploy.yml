@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: cohors-pilot-infrastructure
+  group: cohors-fabric-disabled-primary-deployment-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

@@ -18,15 +18,26 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      DOTNET_CLI_HOME: ${{ runner.temp }}/cohors-fabric-${{ github.run_id }}-${{ github.run_attempt }}/dotnet-home
-      DOTNET_INSTALL_DIR: ${{ runner.temp }}/cohors-fabric-${{ github.run_id }}-${{ github.run_attempt }}/dotnet
-      NUGET_PACKAGES: ${{ runner.temp }}/cohors-fabric-${{ github.run_id }}-${{ github.run_attempt }}/nuget
-      npm_config_cache: ${{ runner.temp }}/cohors-fabric-${{ github.run_id }}-${{ github.run_attempt }}/npm
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
+      - name: Allocate per-run tool and package directories
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "cohors-fabric-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $paths = @{
+            DOTNET_CLI_HOME = 'dotnet-home'
+            DOTNET_INSTALL_DIR = 'dotnet'
+            NUGET_PACKAGES = 'nuget'
+            npm_config_cache = 'npm'
+          }
+          foreach ($name in $paths.Keys) {
+            $path = Join-Path $root $paths[$name]
+            New-Item -ItemType Directory -Force -Path $path | Out-Null
+            "$name=$path" | Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8
+          }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
