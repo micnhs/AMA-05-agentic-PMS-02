@@ -57,8 +57,19 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $filter = 'FullyQualifiedName~Cohors.Tests.IndependentReferencesTests|FullyQualifiedName~Cohors.Tests.CaseProcessTests|FullyQualifiedName~Cohors.Tests.FabricCommitContractTests'
-dotnet test tests/Cohors.Tests/Cohors.Tests.csproj --configuration Release --no-build --no-restore --filter $filter --logger 'console;verbosity=minimal'
+$results = Join-Path $temporary 'test-results'
+dotnet test tests/Cohors.Tests/Cohors.Tests.csproj --configuration Release --no-build --no-restore --filter $filter --logger 'console;verbosity=minimal' --logger 'trx;LogFileName=contracts.trx' --results-directory $results
 if ($LASTEXITCODE -ne 0) { throw 'Selected in-process business/commit contract tests failed.' }
+[xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
+$testSummary = @()
+foreach ($class in @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests')) {
+    $ids = @($trx.TestRun.TestDefinitions.UnitTest | Where-Object { $_.TestMethod.className -eq "Cohors.Tests.$class" } | ForEach-Object { $_.id })
+    $executed = @($trx.TestRun.Results.UnitTestResult | Where-Object { $_.testId -in $ids })
+    if ($executed.Count -eq 0 -or @($executed | Where-Object { $_.outcome -ne 'Passed' }).Count -ne 0) {
+        throw "The selected contract class has missing or non-passing execution evidence: $class"
+    }
+    $testSummary += "- ${class}: $($executed.Count) passed; 0 skipped/failed."
+}
 
 $summary = @(
     '# Cohors Fabric: build and local contracts'
@@ -66,6 +77,7 @@ $summary = @(
     '- Standard isolated hosted runner; no SQL, Docker, browser, Azure login, secrets, shared caches or artifact uploads.'
     '- Evidence level: local contract execution only. NOT Fabric/IQ/Hosted Agents/WORM/Ledger/recovery or production acceptance.'
 )
+$summary += $testSummary
 foreach ($path in @('fabric/delivery.json', 'docs/fabric/requirement-register.json', 'src/Cohors.Domain/bin/Release/net10.0/Cohors.Domain.dll')) {
     $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
     $summary += "- SHA256 ${path}: $hash"
