@@ -10,14 +10,14 @@ namespace Cohors.Infrastructure;
 
 public sealed class LocalObjectStore(string directory) : IObjectStore, IRawQuarantineStore
 {
-    public Task<string> Put(string content, CancellationToken ct = default) => PutAt(directory, content, ct);
+    public Task<string> Put(string content, CancellationToken ct = default) => PutBytes(StoredObjectText.Encode(content), ct);
+    public Task<string> PutBytes(ReadOnlyMemory<byte> content, CancellationToken ct = default) => PutAt(directory, content, ct);
 
     private string JournalPath(string hash) => Path.Combine(directory, ".deletion-receipts", hash + ".json");
 
-    private async Task<string> PutAt(string targetDirectory, string content, CancellationToken ct)
+    private async Task<string> PutAt(string targetDirectory, ReadOnlyMemory<byte> bytes, CancellationToken ct)
     {
-        var bytes = StoredObjectText.Encode(content);
-        var hash = Canonical.HashText(content);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(bytes.Span));
         Guard.Against(File.Exists(JournalPath(hash)), "object_retired",
             "Ein Loeschbeleg/-versuch bindet diese Bytes; kein unbemerkter Wiederimport.", 409);
         Directory.CreateDirectory(targetDirectory);
@@ -28,10 +28,11 @@ public sealed class LocalObjectStore(string directory) : IObjectStore, IRawQuara
             await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, true);
             created = true;
             await stream.WriteAsync(bytes, ct);
+            stream.Flush(flushToDisk: true);
         }
         catch (IOException) when (File.Exists(path))
         {
-            StoredObjectText.Decode(await File.ReadAllBytesAsync(path, ct), hash);
+            StoredObjectBytes.Verify(await File.ReadAllBytesAsync(path, ct), hash);
         }
         if (File.Exists(JournalPath(hash)))
         {
@@ -41,17 +42,22 @@ public sealed class LocalObjectStore(string directory) : IObjectStore, IRawQuara
         return hash;
     }
 
-    public async Task<string> Read(string hash, CancellationToken ct = default)
+    public async Task<string> Read(string hash, CancellationToken ct = default) =>
+        StoredObjectText.Decode(await ReadBytes(hash, ct), hash);
+
+    public async Task<byte[]> ReadBytes(string hash, CancellationToken ct = default)
     {
         Guard.Against(hash.Length != 64 || hash.Any(ch => !char.IsAsciiHexDigit(ch)), "object_id", "Ungueltige Objekt-ID.");
         Guard.Against(File.Exists(JournalPath(hash)), "object_retired",
             "Loeschbeleg/-versuch sperrt das erneute Lesen dieser Rohbytes.", 409);
-        return StoredObjectText.Decode(await File.ReadAllBytesAsync(Path.Combine(directory, hash), ct), hash);
+        var bytes = await File.ReadAllBytesAsync(Path.Combine(directory, hash), ct);
+        StoredObjectBytes.Verify(bytes, hash);
+        return bytes;
     }
 
     public async Task<RetentionObjectBinding> CreateSyntheticRaw(string content, CancellationToken ct = default)
     {
-        var hash = await PutAt(Path.Combine(directory, "raw-quarantine"), content, ct);
+        var hash = await PutAt(Path.Combine(directory, "raw-quarantine"), StoredObjectText.Encode(content), ct);
         return new(RetentionRules.ObjectContract, RetentionRules.Raw, RetentionRules.RawPrefix + hash, hash);
     }
 
@@ -168,10 +174,11 @@ public sealed class LocalObjectStore(string directory) : IObjectStore, IRawQuara
 
 public sealed class AzureObjectStore(BlobContainerClient container) : IObjectStore
 {
-    public async Task<string> Put(string content, CancellationToken ct = default)
+    public Task<string> Put(string content, CancellationToken ct = default) => PutBytes(StoredObjectText.Encode(content), ct);
+
+    public async Task<string> PutBytes(ReadOnlyMemory<byte> bytes, CancellationToken ct = default)
     {
-        var bytes = StoredObjectText.Encode(content);
-        var hash = Canonical.HashText(content);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(bytes.Span));
         var blob = container.GetBlobClient(hash);
         try
         {
@@ -180,17 +187,29 @@ public sealed class AzureObjectStore(BlobContainerClient container) : IObjectSto
         }
         catch (RequestFailedException e) when (e.Status == 409 || e.Status == 412)
         {
-            await Read(hash, ct);
+            await ReadBytes(hash, ct);
         }
         return hash;
     }
 
-    public async Task<string> Read(string hash, CancellationToken ct = default)
+    public async Task<string> Read(string hash, CancellationToken ct = default) =>
+        StoredObjectText.Decode(await ReadBytes(hash, ct), hash);
+
+    public async Task<byte[]> ReadBytes(string hash, CancellationToken ct = default)
     {
         Guard.Against(hash.Length != 64 || hash.Any(ch => !char.IsAsciiHexDigit(ch)), "object_id", "Ungueltige Objekt-ID.");
         var response = await container.GetBlobClient(hash).DownloadContentAsync(ct);
-        return StoredObjectText.Decode(response.Value.Content.ToMemory().Span, hash);
+        var bytes = response.Value.Content.ToArray();
+        StoredObjectBytes.Verify(bytes, hash);
+        return bytes;
     }
+}
+
+internal static class StoredObjectBytes
+{
+    public static void Verify(ReadOnlySpan<byte> bytes, string hash) =>
+        Guard.Against(Convert.ToHexStringLower(SHA256.HashData(bytes)) != hash, "object_integrity",
+            "SHA-256 der gespeicherten Rohbytes stimmt nicht mit der Objekt-ID ueberein.", 409);
 }
 
 internal static class StoredObjectText
@@ -208,8 +227,7 @@ internal static class StoredObjectText
 
     public static string Decode(ReadOnlySpan<byte> bytes, string hash)
     {
-        Guard.Against(Convert.ToHexStringLower(SHA256.HashData(bytes)) != hash, "object_integrity",
-            "SHA-256 der gespeicherten Rohbytes stimmt nicht mit der Objekt-ID ueberein.", 409);
+        StoredObjectBytes.Verify(bytes, hash);
         try { return Utf8.GetString(bytes); }
         catch (DecoderFallbackException)
         {

@@ -1,0 +1,71 @@
+{
+  "version": "5.2.2-JEE10",
+  "sourcePage": "https://ec.europa.eu/digital-building-blocks/sites/spaces/DIGITAL/pages/991265649/Domibus+-+v5.2.2",
+  "archiveSha256": "ea946b94db22aa7b9157d34591695aa45a3f6a7771a59a4201487ea8ee3364a9",
+  "officialArchiveChecksumVerified": true,
+  "installedOrExecuted": false,
+  "files": [
+    {
+      "file": "WebServicePlugin.wsdl",
+      "archiveEntry": "conf/domibus/plugins/wsdl/web_service_plugin/WebServicePlugin.wsdl",
+      "bytes": 16917,
+      "sha256": "568ec6889572a9bd8c3256607de3d910b2a231f2b59f472b56a4682593d4b834",
+      "targetNamespace": "http://eu.domibus.wsplugin/"
+    },
+    {
+      "file": "webservicePlugin-body.xsd",
+      "archiveEntry": "conf/domibus/plugins/wsdl/web_service_plugin/webservicePlugin-body.xsd",
+      "bytes": 14552,
+      "sha256": "e7ff0750c4b7dca9d10fcbc63d96505ad643f26adf22a382b725de2d23958b59",
+      "targetNamespace": "http://eu.domibus.wsplugin/"
+    },
+    {
+      "file": "webservicePlugin-header.xsd",
+      "archiveEntry": "conf/domibus/plugins/wsdl/web_service_plugin/webservicePlugin-header.xsd",
+      "bytes": 7676,
+      "sha256": "5dbfdc89ab2202fa033560e3f7b8f457a1b12db6968f1f1944820d462e5ce98e",
+      "targetNamespace": "http://docs.oasis-open.org/ebxml-msg/ebms/v3.0/ns/core/200704/"
+    },
+    {
+      "file": "envelope.xsd",
+      "archiveEntry": "conf/domibus/plugins/wsdl/web_service_plugin/envelope.xsd",
+      "bytes": 3731,
+      "sha256": "2fdde4d831dc0636cf36ea57d5687cd89d3e4ed8a9d8663df5520e96321c0515",
+      "targetNamespace": "http://www.w3.org/2003/05/soap-envelope"
+    },
+    {
+      "file": "xmlmime.xsd",
+      "archiveEntry": "conf/domibus/plugins/wsdl/web_service_plugin/xmlmime.xsd",
+      "bytes": 1713,
+      "sha256": "1027e5a15d9a02b1d41c611ec09de1f067b5142e503acd63649c33ab6728a12a",
+      "targetNamespace": "http://www.w3.org/2005/05/xmlmime"
+    },
+    {
+      "file": "xml.xsd",
+      "archiveEntry": "conf/domibus/plugins/wsdl/web_service_plugin/xml.xsd",
+      "bytes": 1260,
+      "sha256": "58578b5ff8307e7f6d46a78239610df319c3c1a63bf57944081c6aa456923607",
+      "targetNamespace": "http://www.w3.org/XML/1998/namespace"
+    }
+  ],
+  "operations": [
+    "submitMessage",
+    "getStatus",
+    "getStatusWithAccessPointRole",
+    "listPendingMessages",
+    "listPushFailedMessages",
+    "rePushFailedMessages",
+    "getMessageErrors",
+    "getMessageErrorsWithAccessPointRole",
+    "retrieveMessage",
+    "markMessageAsDownloaded"
+  ],
+  "soap12BindingCount": 1,
+  "retrieveMessageAttributes": [
+    {
+      "name": "markAsDownloaded",
+      "type": "xsd:string",
+      "default": "true"
+    }
+  ]
+}

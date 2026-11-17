@@ -198,6 +198,8 @@ public sealed class SpecimenInvestigationTests(SqlFixture fixture)
     {
         public Task<string> Put(string content, CancellationToken ct = default) => original.Put(content, ct);
         public Task<string> Read(string hash, CancellationToken ct = default) => Task.FromResult("SYNTHETIC WRONG OBJECT BYTES");
+        public Task<string> PutBytes(ReadOnlyMemory<byte> content, CancellationToken ct = default) => original.PutBytes(content, ct);
+        public Task<byte[]> ReadBytes(string hash, CancellationToken ct = default) => Task.FromResult("SYNTHETIC WRONG OBJECT BYTES"u8.ToArray());
     }
 }
 

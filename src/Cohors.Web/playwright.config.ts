@@ -9,12 +9,13 @@ export default defineConfig({
   outputDir: process.env.COHORS_UI_ARTIFACT_DIR
     ? path.join(process.env.COHORS_UI_ARTIFACT_DIR, 'playwright-results') : './test-results',
   projects: [
-    { name: 'preview', grepInvert: /@physical-retention|D0[12]:|S0[1234]:|R01:/ },
+    { name: 'preview', grepInvert: /@physical-retention|D0[12]:|S0[1234]:|R01:|E0[12]:/ },
     { name: 'audit-export', grep: /L03:/ },
     { name: 'summary-report', grep: /C12:/ },
     { name: 'case-documents', grep: /UI0[12]:/ },
     { name: 'report-prefill', grep: /V01:/ },
     { name: 'information-lifecycle', grep: /R01:|V01:/ },
+    { name: 'eudamed-configuration', grep: /E0[12]:/ },
     { name: 'cockpit-calendar', grep: /D0[12]:|T10:|SQL-backed complaint/ },
     { name: 'signal-review', grep: /S0[1234]:/ },
     { name: 'physical-retention', grep: /@physical-retention/ },

@@ -97,6 +97,23 @@ builder.Services.AddSingleton<AnalyticsService>();
 builder.Services.AddSingleton<PsurReviewService>();
 builder.Services.AddSingleton<RetentionService>();
 builder.Services.AddSingleton<PsurExportService>();
+builder.Services.AddSingleton<IEudamedDocumentRenderer>(sp => sp.GetRequiredService<PsurExportService>());
+builder.Services.AddSingleton<IEudamedComposer, EudamedComposer>();
+builder.Services.AddHttpClient("domibus-backend", client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false });
+builder.Services.AddSingleton<IDomibusGateway>(sp =>
+{
+    var config = sp.GetRequiredService<IConfiguration>();
+    var local = builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing");
+    var options = config.GetSection("Domibus").Get<DomibusGatewayOptions>() ?? new([], [], local);
+    if (options.Endpoints is null || options.Secrets is null || options.ModuleKeys is null || options.OnboardingEvidence is null ||
+        options.Endpoints.Select(e => e.Id).Distinct(StringComparer.Ordinal).Count() != options.Endpoints.Length ||
+        options.Secrets.Select(s => (s.Id, s.Version)).Distinct().Count() != options.Secrets.Length)
+        throw new InvalidOperationException("Domibus reference catalog contains missing or duplicate definitions.");
+    return new DomibusGateway(sp.GetRequiredService<IHttpClientFactory>().CreateClient("domibus-backend"),
+        options with { LocalAllowed = local });
+});
+builder.Services.AddSingleton<EudamedService>();
 builder.Services.AddSingleton<ProductAuditService>();
 builder.Services.AddSingleton<IMirComposer, MirComposer>();
 builder.Services.AddSingleton<RegulatoryService>();
@@ -186,6 +203,24 @@ api.MapGet("/deadline-calendar", (string? productId, DateOnly? month, string? ti
     DateOnly? day, int? offset, WorkspaceReadService service, HttpContext ctx, CancellationToken ct) =>
     service.Calendar(Who(ctx), productId, month, timeZone, kind, status, day, offset ?? 0, ct));
 api.MapGet("/products", (PolicyCatalog policies, HttpContext ctx) => policies.Devices.Where(d => Who(ctx).Products.Contains(d.Id)));
+api.MapGet("/eudamed/{product}/workspace", (string product, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.Workspace(product, Who(ctx), ct));
+api.MapPost("/eudamed/actors", (SaveEudamedActorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.SaveActor(null, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/actors/{id}", (string id, SaveEudamedActorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.SaveActor(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/actors/{id}/submit", (string id, SubmitEudamedActorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.SubmitActor(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/references", (MapEudamedReferencesCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.MapReferences(input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/configuration", (SaveEudamedConfigurationCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.SaveConfiguration(input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/{product}/activate", (string product, ActivateEudamedConfigurationCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.Activate(product, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/{product}/deactivate", (string product, VersionCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.Deactivate(product, input, Who(ctx), Key(ctx), ct));
+api.MapGet("/eudamed/audit/{kind}/{id}", (string kind, string id, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.IntegrationAudit(kind, id, Who(ctx), ct));
 api.MapGet("/products/{id}/audit", async (string id, ProductAuditService exporter, HttpContext ctx, CancellationToken ct) =>
 {
     var result = await exporter.Export(id, Who(ctx), ct);

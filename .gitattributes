@@ -12,6 +12,15 @@
 *.pdf binary
 contracts/regulatory-schemas/** -text
 contracts/terminology/** -text
+# Hash-pinned downloads retain their original line endings.
+contracts/domibus/** -text whitespace=cr-at-eol
+contracts/eudamed/** -text whitespace=cr-at-eol
+# Preserve whitespace in these exact upstream originals rather than changing their hashes.
+contracts/domibus/5.2.2-jee10/xmlmime.xsd whitespace=cr-at-eol,-blank-at-eol
+contracts/eudamed/playground-3.0.36.1/data/Entity/Actor.xsd whitespace=cr-at-eol,-blank-at-eof
+contracts/eudamed/playground-3.0.36.1/data/Entity/Actor/ActorType.xsd whitespace=cr-at-eol,-blank-at-eof
+contracts/eudamed/playground-3.0.36.1/data/Entity/Device/LegacyDevice/EUDIType.xsd whitespace=cr-at-eol,-blank-at-eol
+contracts/eudamed/playground-3.0.36.1/data/Entity/Device/LegacyDevice/EUUDIDIDataType.xsd whitespace=cr-at-eol,-blank-at-eol
 tests/Cohors.Tests/Fixtures/cohors-*-references.json -text
 docs/requirements/coordinator-* -text
 docs/requirements/extract-cohors-terminology.py -text

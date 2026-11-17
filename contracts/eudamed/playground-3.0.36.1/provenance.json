@@ -1,0 +1,363 @@
+{
+  "label": "play-xsd",
+  "url": "https://webgate.ec.europa.eu/eudamed-play-help/en/files/XSD%20schemas.zip",
+  "resolvedUrl": "https://webgate.ec.europa.eu/eudamed-play-help/en/files/XSD%20schemas.zip",
+  "retrievedAt": "2026-11-16T17:12:14.162755+00:00",
+  "httpStatus": 200,
+  "lastModified": "Thu, 12 Nov 2026 10:20:05 GMT",
+  "contentType": "application/zip",
+  "bytes": 131669,
+  "sha256": "caeb50507b578078853ebb34430e1e075e43381f054e14c7ee6692166be4cf43",
+  "entries": [
+    {
+      "name": "data/Entity/Actor.xsd",
+      "bytes": 1199,
+      "sha256": "e16eaf4c71401568110c0143464614311815ce8351e7bcd87cb4ec44c005ee16"
+    },
+    {
+      "name": "data/Entity/ActorRegistration.xsd",
+      "bytes": 1399,
+      "sha256": "7edabb42b16625ccdc644f88d2c09eb58277d85c8d71d4d58c5b1fd4e314b222"
+    },
+    {
+      "name": "data/Entity/DI.xsd",
+      "bytes": 9205,
+      "sha256": "c0a7902e60468713cf2e3a8f78207400893668a4a45286f1f96ad6e7273bf882"
+    },
+    {
+      "name": "data/Entity/Entity.xsd",
+      "bytes": 1660,
+      "sha256": "5ee890a1d9d7c9b1d5f1278e9d393d3072a9f3a2de6a250e981b7109702983eb"
+    },
+    {
+      "name": "data/Entity/MarketInfo.xsd",
+      "bytes": 929,
+      "sha256": "40564ce2856bf20441d52a844a992ba945522d828a43c18c069a8db8aee3aae0"
+    },
+    {
+      "name": "data/Entity/OldCustomMadeDevice.xsd",
+      "bytes": 844,
+      "sha256": "3b40ae65a331822e3ef59a97443c5d11c9182f834e2d586364b9af81289c94e0"
+    },
+    {
+      "name": "data/Entity/ProductDesigner.xsd",
+      "bytes": 836,
+      "sha256": "2f48d8e744503c8b7662a2995832584e793324886b0ba41e329cf6fe0c81d3e7"
+    },
+    {
+      "name": "data/Entity/Actor/ActorType.xsd",
+      "bytes": 10936,
+      "sha256": "97ba3d70eaeaedd0877d5d6b89faa1f43361aa642b8b397018496232dca8585c"
+    },
+    {
+      "name": "data/Entity/Actor/RegistrationType.xsd",
+      "bytes": 15354,
+      "sha256": "60ca2005b52ae2b7a9e60661b97b0a17d4179a1d0e32d6f628a613a7d51a8888"
+    },
+    {
+      "name": "data/Entity/Actor/RelationshipType.xsd",
+      "bytes": 6806,
+      "sha256": "23db724d4d026334baffecb476200bacc08ff33c69bcae19d7a989813f55becf"
+    },
+    {
+      "name": "data/Entity/Certificate/ApplicationCertificateType.xsd",
+      "bytes": 8385,
+      "sha256": "df6e29ef18a9c01c866e6f2a8672f36c31abdddcf8074471d672efd0f4c6f7b6"
+    },
+    {
+      "name": "data/Entity/Certificate/CECPType.xsd",
+      "bytes": 16283,
+      "sha256": "6e8251bbfeb77035ec393df533b28f1c87bb2cc4414b28fbb93c208475d7ff26"
+    },
+    {
+      "name": "data/Entity/Certificate/CertificateDecisionUpdateType.xsd",
+      "bytes": 12318,
+      "sha256": "47d2425a944296dc65b48e826536a62fa7dc3ce7df2ae738ccab6df27c8a770e"
+    },
+    {
+      "name": "data/Entity/Certificate/CertificateType.xsd",
+      "bytes": 6260,
+      "sha256": "ccfbff70c2bcbe37efbe5befd9d2d415cf158b8d81bab73792c2d32a32cb3622"
+    },
+    {
+      "name": "data/Entity/Certificate/IssuedCertificateType.xsd",
+      "bytes": 8927,
+      "sha256": "8f5ae351a94fc0046ebd418e709816d0e74d7b849fd7b570bea91c2904d00d32"
+    },
+    {
+      "name": "data/Entity/Certificate/PostCertificateType.xsd",
+      "bytes": 16326,
+      "sha256": "677a54d96bfaa3d47b798f8a9ac78d4484ab66b70853402d71cde9d3618337dc"
+    },
+    {
+      "name": "data/Entity/Certificate/PutCertificateType.xsd",
+      "bytes": 1284,
+      "sha256": "1c92ba89a04f23af9b16f03e0e92a80daeac8ae709a4c415745df937311b9256"
+    },
+    {
+      "name": "data/Entity/Certificate/RefusedCertificateType.xsd",
+      "bytes": 9941,
+      "sha256": "7540a6b7ff4a8ec2bde4714d5e043ebf44e09142f8c4e649415892a01e0768ad"
+    },
+    {
+      "name": "data/Entity/Certificate/ScopeType.xsd",
+      "bytes": 58714,
+      "sha256": "5d585e937b1c27e43d089a68a3417ffe514fead77a62b119362ad4478bbf39a5"
+    },
+    {
+      "name": "data/Entity/CIPS/CIPSType.xsd",
+      "bytes": 1458,
+      "sha256": "ddf40725a4ae99b9d36c71f831790f8c3512d50e6eb2497557db382a201d318f"
+    },
+    {
+      "name": "data/Entity/Common/CommentType.xsd",
+      "bytes": 1191,
+      "sha256": "3b1ac0e0a7d8e3c3eee24cb8ca782a6b51983d7403137b6bbc169eec838a8161"
+    },
+    {
+      "name": "data/Entity/Common/CommonBasicType.xsd",
+      "bytes": 5471,
+      "sha256": "8579c8fd0941439eb1c28c496bd6ba01238b815641eddc7ce6f014dd750fcaf9"
+    },
+    {
+      "name": "data/Entity/Common/CountryEnum.xsd",
+      "bytes": 25324,
+      "sha256": "68cc96c48ac54aa6f5dd6c75d089e96a3965d8a8ce39051ba515d87fc17d42c2"
+    },
+    {
+      "name": "data/Entity/Common/DecisionType.xsd",
+      "bytes": 3148,
+      "sha256": "567a60e97d473ed1bfc51b660638d7c3c972d7b2f23ef53e2a03545b761ef581"
+    },
+    {
+      "name": "data/Entity/Common/DocumentType.xsd",
+      "bytes": 4243,
+      "sha256": "b79e7d9599a0a3a77f5a1da03bf6fd4588227d041e38a41b564bd1914d856dca"
+    },
+    {
+      "name": "data/Entity/Common/LanguageSpecificNameType.xsd",
+      "bytes": 8273,
+      "sha256": "84215808d7726c57d40e09fdc5a368bf1a1d1193b2a54ec331be02fd4865c822"
+    },
+    {
+      "name": "data/Entity/Common/LegislationType.xsd",
+      "bytes": 3239,
+      "sha256": "6639e540a10b6e8907d93f15f53016a057c60b81c629c1e399dab5b70adcea50"
+    },
+    {
+      "name": "data/Entity/Common/RiskClassEnum.xsd",
+      "bytes": 4207,
+      "sha256": "664bd19c5ba8062da0a4f07b940c0156392c6a179ed0f963f20138e2e61d6db8"
+    },
+    {
+      "name": "data/Entity/Device/CommonDeviceType.xsd",
+      "bytes": 173924,
+      "sha256": "8c284bcd73baca7f126a988f4bf42528dbbbb876b94b34615d120353a229c484"
+    },
+    {
+      "name": "data/Entity/Device/LegacyDevice/EUDIType.xsd",
+      "bytes": 3985,
+      "sha256": "13525db42435fc76aa0c524142a03cb6c094d21fa465c6adbcd4f57e143344d2"
+    },
+    {
+      "name": "data/Entity/Device/LegacyDevice/EUUDIDIDataType.xsd",
+      "bytes": 4632,
+      "sha256": "85694239c1051871b409863bc684048b4af0622416a89e12fd45b636b107a300"
+    },
+    {
+      "name": "data/Entity/Device/RegulationDevice/BasicUDIType.xsd",
+      "bytes": 23788,
+      "sha256": "412db31f0a10bfd7634427f481280ee488c5957ae152b37ba43a52d3f9cf3044"
+    },
+    {
+      "name": "data/Entity/Device/RegulationDevice/UDIDIType.xsd",
+      "bytes": 79700,
+      "sha256": "fbc47cebd40e4235f8d5de5596d46d4e29a831e8f2bc958808388e6e1a3401bb"
+    },
+    {
+      "name": "data/Entity/DICertificateDecision/DiCertificateDecisionType.xsd",
+      "bytes": 1894,
+      "sha256": "7d929fb541f5ad50fad4ef66bf49c9f1f46e836d38acc74fcd4838018c9de6bd"
+    },
+    {
+      "name": "data/Entity/Links/LinkType.xsd",
+      "bytes": 28050,
+      "sha256": "9937de24897ed18437e30eda40b4d115e8a41393cd6b400cebd54e324bba521c"
+    },
+    {
+      "name": "data/Entity/MarketInfo/MarketInfoType.xsd",
+      "bytes": 5876,
+      "sha256": "b0f468dbc2bebadf346614de3e6f44715944062ee75ff7436f87d9adb3dc8f7f"
+    },
+    {
+      "name": "data/Entity/Msu/EORoleEnum.xsd",
+      "bytes": 754,
+      "sha256": "87d7664ab44b22892076bcdc9f75033183f69d901788a429652d164fdc98da20"
+    },
+    {
+      "name": "data/Entity/Msu/MSUEconomicOperatorType.xsd",
+      "bytes": 3403,
+      "sha256": "269bdd61f1796188f52ab67b650376f1aed5c0fff964a9ab5d0d2bc18473b3df"
+    },
+    {
+      "name": "data/Entity/Msu/VersionDataType.xsd",
+      "bytes": 1007,
+      "sha256": "be1f5c583130f7ea19beafc6681a23b620332bc8eeee25e2eeb9dc45f5e03087"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/AffectedCountryType.xsd",
+      "bytes": 882,
+      "sha256": "99f388bdc43fee042a415326a2683b2e20ea96b8829b0e9080e7280deb9a7782"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuAdditionalInfoItemType.xsd",
+      "bytes": 2047,
+      "sha256": "5eec5838d531ea26a8cf4022bfc6610239f2bd1266193c5a7bfd38bcbaa823fa"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuCoaTypeItemType.xsd",
+      "bytes": 1570,
+      "sha256": "eafb4fda831649374ce75266bd505ca1af6e1185b0f8b032e1544530e9b43cd6"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuCorrectiveActionItemType.xsd",
+      "bytes": 4180,
+      "sha256": "68e80091886960b359b02a314c27708358b877905e117939c6774b775612f2de"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuMeasureItemType.xsd",
+      "bytes": 5261,
+      "sha256": "866b90230eed17c1ceabcddfc4a800e312a0bd1da9e147198f38db23405a2962"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuMeasureTypeItemType.xsd",
+      "bytes": 1500,
+      "sha256": "1e2c703e3ff74ec704859b6b1ce609f47872396c813078ade4b3fc888f64b687"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuObjectionItemType.xsd",
+      "bytes": 2593,
+      "sha256": "01bc901863646fbde78863d2145445df956bd69bb416135db38d0a0a246e1c56"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuPreconditionItemType.xsd",
+      "bytes": 1510,
+      "sha256": "26673e4a6e12e9bc2f0cc639cab6ee64b8c9d339c2349082c4819e28a21f83fe"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuProcedureData.xsd",
+      "bytes": 2586,
+      "sha256": "f7648603477ef30855743ec85d09d6a513a1c26546836cc5ebcbf209ac61534a"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuProcedureDeviceType.xsd",
+      "bytes": 7305,
+      "sha256": "3364a57fb21d6059db3b7c81c77b14e544f9497e35766bd36ca588826f94940d"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/MsuProcedureItemType.xsd",
+      "bytes": 7315,
+      "sha256": "f877a0b3982e1d4a2d82d1082873b9e3feca0717bb936870fb47b2f81adbc547"
+    },
+    {
+      "name": "data/Entity/Msu/Procedures/VigilanceReports.xsd",
+      "bytes": 1076,
+      "sha256": "a551d457603893758b3f894bb493e932501493b43d4b536ad944392fab0d3335"
+    },
+    {
+      "name": "data/Entity/Msu/Reports/AnnualSummaryReportType.xsd",
+      "bytes": 1801,
+      "sha256": "e2fa82910ad710b0b827c1238aef619260ba1764cd0d3d1bf1b408a1cd668f1c"
+    },
+    {
+      "name": "data/Entity/Msu/Reports/FIRVersionType.xsd",
+      "bytes": 2257,
+      "sha256": "e53d1c1fcbdaec8a4686a2b00ed471fd4d42b29f961037cbcd6a98f5680434b9"
+    },
+    {
+      "name": "data/Entity/Msu/Reports/FourYearReportType.xsd",
+      "bytes": 2361,
+      "sha256": "00113772ab8eb9a3df0049a707e909fc4fdcbf5c0b8a1a3a666b9f9ed2f4050e"
+    },
+    {
+      "name": "data/Entity/Msu/Reports/ReportDataType.xsd",
+      "bytes": 2735,
+      "sha256": "0aea981a02af59fd172155fd4315623338913365f0e366d74461e92fa4cbc9e4"
+    },
+    {
+      "name": "data/Entity/Msu/Reports/ReportDocumentType.xsd",
+      "bytes": 2281,
+      "sha256": "a6f419cdfb4d520da91270e78fccbb339b65d2bd08fbf6202727a3c970a3244a"
+    },
+    {
+      "name": "data/Entity/Msu/Reports/ReportTypeEnum.xsd",
+      "bytes": 1155,
+      "sha256": "1ecacf7ce98c3fdf72444f39ba32feb9fb652e500e9b050017395d1bb9491501"
+    },
+    {
+      "name": "data/Entity/OCM/OldCustomMadeDeviceType.xsd",
+      "bytes": 10147,
+      "sha256": "63bd498899ec4141797f11883e28baedd7ff6d64e926f90f7345efed415e668c"
+    },
+    {
+      "name": "data/Entity/Party/AddressType.xsd",
+      "bytes": 2817,
+      "sha256": "2669ebe634ec923794e6af55ff3fe6e6fa77414866d6eb4d18b2588aabe034b0"
+    },
+    {
+      "name": "data/Entity/Party/Party.xsd",
+      "bytes": 4610,
+      "sha256": "76925487d635f039fc0f29a2a03916d2b23aa15f20cc2f14a48aca6f9adb7d79"
+    },
+    {
+      "name": "data/Entity/ProductDesigner/ProductDesignerType.xsd",
+      "bytes": 1510,
+      "sha256": "b870a774ebae9ab0c819887e822d9f9d148b1ee5680ae8218c43c6fac2d85bb4"
+    },
+    {
+      "name": "data/Entity/SSCP/PostSSCPType.xsd",
+      "bytes": 4091,
+      "sha256": "e1058e1dd18805617d5f110269279f101c078be260fef0c5d47ae0a632ab9531"
+    },
+    {
+      "name": "data/Entity/SSCP/SSCPType.xsd",
+      "bytes": 8495,
+      "sha256": "e230d766cafd0f2adbeb627770d5fdef71faa193939dfffde7ea716e56ea1af9"
+    },
+    {
+      "name": "data/Entity/Vigilance/vigilance.xsd",
+      "bytes": 8676,
+      "sha256": "75d69ebb7b072c234857c69902759d358155d9f7941ebca4d2b61962bf79bb90"
+    },
+    {
+      "name": "data/Entity/Vigilance/v1/Dossier_Sample.xml",
+      "bytes": 6358,
+      "sha256": "a68eeff74b414f89870e39e92d3cda8f41ffbe42ff551e7164a40232d44d40c7"
+    },
+    {
+      "name": "data/Entity/Vigilance/v1/vigilance-commons.xsd",
+      "bytes": 164999,
+      "sha256": "93dae62707b7eaa3c33a8774af40f46012a2f55d156bf24c23ddb16a13777b0d"
+    },
+    {
+      "name": "data/Entity/Vigilance/v1/vigilance-elements.xsd",
+      "bytes": 220536,
+      "sha256": "da52b4d8145b65a441cb741ea86804ed1381e1a937a45edca7dc51cb55f5677c"
+    },
+    {
+      "name": "service/Message.xsd",
+      "bytes": 666,
+      "sha256": "6cbd95fe5175285d97f585178089399e415160950650d8ba847c7dc963d97d5f"
+    },
+    {
+      "name": "service/Message/MessageType.xsd",
+      "bytes": 20797,
+      "sha256": "f228a37693ba10c31203a14c056f9cb64ebc411d8e1c8502fd8bd231136f867a"
+    },
+    {
+      "name": "service/Service/ServiceType.xsd",
+      "bytes": 53607,
+      "sha256": "613de847fadb5f5cd4a6d7f99e8eaedaca5838497e6659dfbee8a7d03f8ca370"
+    }
+  ]
+}

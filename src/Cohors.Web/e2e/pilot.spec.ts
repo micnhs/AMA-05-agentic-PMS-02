@@ -5,6 +5,7 @@ import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
+import type { ActorApplication, IntegrationWorkspace } from '../src/EudamedWorkspace'
 
 const home = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const artifacts = process.env.COHORS_UI_ARTIFACT_DIR ?? path.join(home, '.local')
@@ -70,6 +71,216 @@ function requireWorkspaceIsolation(baseURL: string | undefined) {
   if (!baseURL || new URL(baseURL).port === '5187' || !process.env.COHORS_TEST_ACCESS_FILE || !process.env.COHORS_UI_ARTIFACT_DIR)
     throw new Error('Cockpit/calendar acceptance requires the private Test-Ui.ps1 fixture, never the user-active demo.')
 }
+
+const eudamedReason = 'SYNTHETISCH: Die konkrete Antragsrevision, Referenzzuordnung und Kanalwirkung werden menschlich begruendet geprueft. Keine amtliche SRN, externe Sendung oder reale Servicefreigabe.'
+async function integration(client: APIRequestContext, product = 'ortho'): Promise<IntegrationWorkspace> {
+  const response = await client.get(`/api/eudamed/${product}/workspace`)
+  expect(response.status()).toBe(200)
+  return response.json()
+}
+
+test('E01: persisted actor corrections and rejection, simulator activation and blocked Domibus draft', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(210_000)
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const ra = await playwright.request.newContext({ baseURL })
+  let pmsContext: BrowserContext | undefined
+  let raContext: BrowserContext | undefined
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    const raCsrf = await signIn(ra, 'ra.demo')
+    pmsContext = await browser.newContext({ storageState: await pms.storageState() })
+    raContext = await browser.newContext({ storageState: await ra.storageState() })
+    const author = await pmsContext.newPage()
+    const reviewer = await raContext.newPage()
+    const errors: string[] = []
+    const externalRequests: string[] = []
+    for (const page of [author, reviewer]) {
+      page.on('pageerror', failure => errors.push(failure.message))
+      page.on('request', request => { if (new URL(request.url()).origin !== new URL(baseURL!).origin) externalRequests.push(request.url()) })
+      await page.goto(baseURL!)
+      await page.getByRole('navigation').getByRole('button', { name: 'EUDAMED Integration', exact: true }).click()
+    }
+    const title = `DEMO Actor E01 ${Date.now()}`
+    await author.getByRole('button', { name: 'Neuer Actor-Antrag', exact: true }).click()
+    let dialog = author.getByRole('dialog')
+    await dialog.getByLabel('Synthetische Organisation (DEMO oder SYNTHETISCH)', { exact: true }).fill(title)
+    await dialog.getByLabel('Nachvollziehbare Begruendung', { exact: true }).fill(eudamedReason)
+    await submitDialog(dialog, 'Antragsfassung speichern')
+    let application = (await integration(pms)).actors.find(value => value.details.organization === title)
+    if (!application) throw new Error('The actor created in the UI is absent from the persisted workspace.')
+    const id = application.id
+    const authored = author.locator(`[data-actor-id="${id}"]`)
+    const reviewed = reviewer.locator(`[data-actor-id="${id}"]`)
+    expect(application.status).toBe('Draft')
+    await expect(authored.getByRole('button', { name: 'Lokal einreichen', exact: true })).toHaveCount(0)
+    const denied = await pms.post(`/api/eudamed/actors/${id}/submit`, { headers: { 'X-CSRF-Token': pmsCsrf, 'Idempotency-Key': crypto.randomUUID() },
+      data: { expectedVersion: application.version, scenario: 'Approve', reason: eudamedReason } })
+    expect(denied.status()).toBe(403)
+    for (const scenario of [
+      { input: 'Correction', status: 'CorrectionRequired', label: 'Korrektur erforderlich' },
+      { input: 'Reject', status: 'Rejected', label: 'Antrag abgelehnt' },
+      { input: 'Approve', status: 'SimulatedApproved', label: 'Nur Simulator freigeschaltet' },
+    ]) {
+      if (application.status !== 'Draft') {
+        await author.getByRole('button', { name: 'Stand neu lesen', exact: true }).click()
+        await expect(authored).toContainText(`v${application.version}`)
+        await authored.getByRole('button', { name: 'Antrag korrigieren', exact: true }).click()
+        dialog = author.getByRole('dialog')
+        await dialog.getByLabel('Synthetische Anschrift', { exact: true }).fill(`SYNTHETISCH: Teststrasse 0, Testort, Revision ${application.version}`)
+        await dialog.getByLabel('Nachvollziehbare Begruendung', { exact: true }).fill(eudamedReason)
+        await submitDialog(dialog, 'Antragsfassung speichern')
+      }
+      await reviewer.getByRole('button', { name: 'Stand neu lesen', exact: true }).click()
+      await expect(reviewed.getByText('Entwurf', { exact: true })).toBeVisible()
+      await reviewed.getByRole('button', { name: 'Lokal einreichen', exact: true }).click()
+      dialog = reviewer.getByRole('dialog')
+      await dialog.getByLabel('Explizites Registrierungsszenario', { exact: true }).selectOption(scenario.input)
+      await dialog.getByLabel('Nachvollziehbare Begruendung', { exact: true }).fill(eudamedReason)
+      await submitDialog(dialog, 'Antrag dem Simulator uebergeben')
+      await expect.poll(async () => {
+        application = (await integration(ra)).actors.find(value => value.id === id)!
+        return application.status
+      }).toBe(scenario.status)
+      await expect(reviewed.getByText(scenario.label, { exact: true })).toBeVisible()
+    }
+    if (!application) throw new Error('The final actor revision is missing.')
+    expect(application.rounds.map(round => round.status)).toEqual([
+      'Submitted', 'CorrectionRequired', 'Submitted', 'Rejected', 'Submitted', 'SimulatedApproved',
+    ])
+    expect(application.version).toBe(9)
+    expect(application.simulatedIdentity).toMatch(/^DEMO-EUDAMED-MF-/)
+    await reviewer.getByRole('button', { name: 'Referenzen zuordnen', exact: true }).click()
+    dialog = reviewer.getByRole('dialog')
+    await dialog.getByLabel('Freigeschalteter MF-Testactor', { exact: true }).selectOption(id)
+    await dialog.getByLabel('Explizite UDI Issuing Agency', { exact: true }).selectOption('GS1')
+    await dialog.getByLabel('Nachvollziehbare Begruendung', { exact: true }).fill(eudamedReason)
+    await submitDialog(dialog, 'Versionierte Zuordnung bestaetigen')
+    const references = (await integration(ra)).references.find(value => value.actorApplication.id === id)
+    if (!references) throw new Error('Explicit reference mapping was not persisted.')
+    expect(references.actorApplication.version).toBe(application.version)
+    expect(references.certificate.originalHash).toMatch(/^[a-f0-9]{64}$/)
+    await reviewer.getByRole('button', { name: 'Simulator konfigurieren', exact: true }).click()
+    dialog = reviewer.getByRole('dialog')
+    await dialog.getByLabel('Bestaetigte Actor-/Geraete-/Zertifikatszuordnung', { exact: true }).selectOption(references.id)
+    await dialog.getByLabel('Nachvollziehbare Begruendung', { exact: true }).fill(eudamedReason)
+    await submitDialog(dialog, 'Nur Konfigurationsentwurf speichern')
+    await reviewer.getByRole('button', { name: 'Entwurf aktivieren', exact: true }).click()
+    dialog = reviewer.getByRole('dialog')
+    await dialog.getByLabel('Auswirkung auf gebundene Auftraege', { exact: true }).selectOption('confirm')
+    await dialog.getByLabel('Nachvollziehbare Begruendung', { exact: true }).fill(eudamedReason)
+    await submitDialog(dialog, 'Profilwechsel bewusst bestaetigen')
+    const activated = (await integration(ra)).activeChannel
+    expect(activated?.enabled).toBe(true)
+    expect(activated?.profile.mode).toBe('Simulator')
+    await reviewer.reload()
+    await expect(reviewer.getByRole('heading', { name: 'Sicherheit im Blick.', exact: true })).toBeVisible()
+    await reviewer.getByRole('navigation').getByRole('button', { name: 'EUDAMED Integration', exact: true }).click()
+    await expect(reviewer.getByRole('region', { name: 'Tatsaechlich aktiver Modus' })).toContainText('Ausdruecklich aktiviert')
+    await reviewer.getByRole('button', { name: 'Domibus-Entwurf erfassen', exact: true }).click()
+    dialog = reviewer.getByRole('dialog')
+    await dialog.getByLabel('Nachvollziehbare Begruendung', { exact: true }).fill(eudamedReason)
+    await submitDialog(dialog, 'Nur Konfigurationsentwurf speichern')
+    await expect(reviewer.getByRole('region', { name: 'Tatsaechlich aktiver Modus' })).toContainText('Simulator')
+    await expect(reviewer.getByRole('region', { name: 'Gewuenschter Konfigurationsentwurf' })).toContainText('Domibus')
+    await expect(reviewer.getByRole('button', { name: 'Entwurf aktivieren', exact: true })).toBeDisabled()
+    const pending = await integration(ra)
+    expect(pending.activeChannel).toEqual(activated)
+    expect(pending.draftReadiness?.canActivate).toBe(false)
+    expect(pending.referenceCatalog.endpoints).toEqual([])
+    const refused = await ra.post('/api/eudamed/ortho/activate', { headers: { 'X-CSRF-Token': raCsrf, 'Idempotency-Key': crypto.randomUUID() },
+      data: { expectedVersion: activated!.version, draftVersion: pending.draft!.version, confirmImpact: true, reason: eudamedReason } })
+    expect(refused.status()).toBe(409)
+    expect((await refused.json()).code).toBe('eudamed_not_ready')
+    expect((await integration(ra)).activeChannel).toEqual(activated)
+    await reviewed.getByRole('button', { name: 'Actor-Audit', exact: true }).click()
+    await expect(reviewer.locator('.eudamed-audit')).toContainText('EudamedActorSimulationResponded')
+    expect(errors).toEqual([])
+    expect(externalRequests).toEqual([])
+    await reviewer.screenshot({ path: path.join(artifacts, 'cohors-eudamed-actor-configuration.png') })
+    writeFileSync(path.join(artifacts, 'eudamed-configuration-proof.json'), JSON.stringify({
+      success: true, actorId: id, actorVersion: application.version, actorStatuses: application.rounds.map(round => round.status),
+      humanPmsAndRaAccountsSeparated: true, persistedReload: true, activeChannel: activated, draftMode: pending.draft!.profile.mode,
+      blockedExternalActivation: true, browserExternalRequests: externalRequests, realGatewayOrAuthorityAcceptance: false,
+    }, null, 2))
+  } finally { await pmsContext?.close(); await raContext?.close(); await pms.dispose(); await ra.dispose() }
+})
+
+test('E02: integration role and product checks survive an account switch with a delayed old workspace', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(150_000)
+  requireWorkspaceIsolation(baseURL)
+  const ra = await playwright.request.newContext({ baseURL })
+  const limited = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  let context: BrowserContext | undefined
+  let release: (() => void) | undefined
+  try {
+    const csrf = await signIn(ra, 'ra.demo')
+    const limitedCsrf = await signIn(limited, 'ra-cardio.demo')
+    const medicalCsrf = await signIn(medical, 'medical.demo')
+    const title = `DEMO Orthopaedic scope E02 ${Date.now()}`
+    const input = { expectedVersion: 0, productId: 'ortho', reason: eudamedReason,
+      details: { organization: title, role: 'MF', country: 'IE', address: 'SYNTHETISCH: separate product scope',
+        contact: { firstName: 'Demo', familyName: 'Scoped', email: 'scoped@example.invalid', telephone: '000000' }, synthetic: true } }
+    const actor = await command<ActorApplication>(ra, csrf, '/eudamed/actors', input)
+    expect((await limited.get('/api/eudamed/ortho/workspace')).status()).toBe(403)
+    expect((await limited.get(`/api/eudamed/audit/eudamedActor/${actor.id}`)).status()).toBe(403)
+    expect((await integration(limited, 'cardio')).actors.some(value => value.id === actor.id)).toBe(false)
+    expect((await limited.post(`/api/eudamed/actors/${actor.id}`, { headers: { 'X-CSRF-Token': limitedCsrf, 'Idempotency-Key': crypto.randomUUID() },
+      data: { ...input, productId: 'cardio', expectedVersion: actor.version } })).status()).toBe(403)
+    expect((await medical.post('/api/eudamed/actors', { headers: { 'X-CSRF-Token': medicalCsrf, 'Idempotency-Key': crypto.randomUUID() }, data: input })).status()).toBe(403)
+    context = await browser.newContext({ storageState: await ra.storageState() })
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('pageerror', failure => errors.push(failure.message))
+    await page.goto(baseURL!)
+    await page.getByRole('navigation').getByRole('button', { name: 'EUDAMED Integration', exact: true }).click()
+    await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
+    let markHeld: (() => void) | undefined
+    let held = false
+    const pending = new Promise<void>(resolve => { markHeld = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    await page.route('**/api/eudamed/ortho/workspace', async route => {
+      if (held) { await route.continue(); return }
+      held = true
+      const response = await route.fetch()
+      markHeld!()
+      await gate
+      await route.fulfill({ response, headers: { ...response.headers(), 'x-cohors-delayed-eudamed': 'original' } })
+    })
+    await page.getByRole('button', { name: 'Stand neu lesen', exact: true }).click()
+    await pending
+    const logoutTitle = 'Abmelden und mit eigenem getrenntem Konto anmelden'
+    async function loginUi(username: string) {
+      await expect(page.getByRole('heading', { name: 'Willkommen bei Cohors', exact: true })).toBeVisible()
+      await page.getByLabel('Benutzername', { exact: true }).fill(username)
+      await page.getByLabel('Passwort', { exact: true }).fill(accounts[username])
+      await page.getByRole('button', { name: 'Sicher anmelden', exact: true }).click()
+      await expect(page.getByRole('navigation')).toBeVisible()
+    }
+    await page.getByTitle(logoutTitle, { exact: true }).click()
+    await loginUi('ra-cardio.demo')
+    await expect(page.getByRole('combobox', { name: 'Integrations-Produktscope', exact: true })).toHaveValue('cardio')
+    await expect(page.locator('body')).not.toContainText(title)
+    const delayed = page.waitForResponse(response => response.headers()['x-cohors-delayed-eudamed'] === 'original')
+    release!()
+    await (await delayed).finished()
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await expect(page.locator('body')).not.toContainText(title)
+    await expect(page.getByRole('combobox', { name: 'Integrations-Produktscope', exact: true }).locator('option[value="ortho"]')).toHaveCount(0)
+    await page.unroute('**/api/eudamed/ortho/workspace')
+    await page.getByTitle(logoutTitle, { exact: true }).click()
+    await loginUi('medical.demo')
+    await expect(page.getByRole('button', { name: 'Neuer Actor-Antrag', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Domibus-Entwurf erfassen', exact: true })).toHaveCount(0)
+    expect(errors).toEqual([])
+    await page.screenshot({ path: path.join(artifacts, 'cohors-eudamed-role-scope.png') })
+    writeFileSync(path.join(artifacts, 'eudamed-identity-proof.json'), JSON.stringify({
+      success: true, roleAndScopeDeniedServerSide: true, realUiLogoutAndLogin: true,
+      delayedOldWorkspaceIgnored: true, noForeignProductOption: true, medicalReadOnly: true,
+    }, null, 2))
+  } finally { release?.(); await context?.close(); await ra.dispose(); await limited.dispose(); await medical.dispose() }
+})
 
 const signalReason = 'SYNTHETISCH: Die Quellenrelevanz und fehlende Produktzuordnung werden begruendet menschlich geprueft. Keine Nichtmeldepflichtentscheidung, automatische Freigabe oder Fristaenderung.'
 function signalInput(stamp: string, agent = false) {

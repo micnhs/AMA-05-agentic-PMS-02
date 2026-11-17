@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Cohors.Application\Cohors.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
@@ -11,6 +12,10 @@
     <EmbeddedResource Include="Migrations\*.sql" />
     <EmbeddedResource Include="..\..\contracts\regulatory-schemas\mir\incident-*.xsd" LogicalName="Cohors.Mir.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\contracts\terminology\fda-imdrf-2026.json" LogicalName="Cohors.Terminology.Fda2026.json" />
+    <EmbeddedResource Include="..\..\contracts\domibus\5.2.2-jee10\*.*" LogicalName="Cohors.Domibus.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\contracts\eudamed\playground-3.0.36.1\**\*.xsd" LogicalName="Cohors.Eudamed/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\contracts\eudamed\playground-3.0.36.1\provenance.json" LogicalName="Cohors.Eudamed.Provenance.json" />
+    <EmbeddedResource Include="..\..\contracts\eudamed\playground-3.0.36.1\enumerations\*.json" LogicalName="Cohors.Eudamed.Enum.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <PropertyGroup>

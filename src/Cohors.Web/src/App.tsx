@@ -7,6 +7,7 @@ import Workbench from './Workbench'
 import { AuditWorkspace, EvidenceWorkspace, FeedbackWorkspace, PsurWorkspace, RetentionWorkspace, SourcesWorkspace, SummaryWorkspace } from './Workspaces'
 import { CockpitWorkspace, DeadlineCalendarWorkspace } from './WorkspaceViews'
 import SignalWorkspace, { signalPath } from './SignalWorkspace'
+import EudamedWorkspace from './EudamedWorkspace'
 
 const navigation = [
   { id: 'cockpit', title: 'PMS Cockpit', icon: LayoutDashboard },
@@ -15,6 +16,7 @@ const navigation = [
   { id: 'cases', title: 'Fallakten', icon: FileText },
   { id: 'reviews', title: 'Review Queue', icon: ClipboardCheck },
   { id: 'regulatory', title: 'Regulatory Desk', icon: ShieldCheck },
+  { id: 'eudamed', title: 'EUDAMED Integration', icon: Waypoints },
   { id: 'deadlines', title: 'Fristen', icon: CalendarClock },
   { id: 'feedback', title: 'Trends & CAPA', icon: Activity },
   { id: 'psur', title: 'PSUR Workspace', icon: BookOpen },
@@ -146,6 +148,7 @@ export default function App() {
           actor={actor} revision={revision} reviewItems={reviewSignals} openDialog={setDialog} mutate={mutate} reopen={reopenSignal} openCase={open} />}
         {page === 'workbench' && selected && <Workbench key={selected.id} value={selected} actor={actor} openDialog={setDialog} mutate={mutate} busy={working} back={() => setPage('cases')} />}
         {page === 'deadlines' && <DeadlineCalendarWorkspace products={products} revision={revision} open={openCalendarEvent} />}
+        {page === 'eudamed' && <EudamedWorkspace key={`${identity.current.key}:${identity.current.epoch}`} actor={actor} products={products} />}
         {page === 'feedback' && <FeedbackWorkspace actor={actor} cases={cases} revision={revision} openDialog={setDialog} mutate={mutate} />}
         {page === 'psur' && <PsurWorkspace key={psurFocus ? `${psurFocus.reportId}:${psurFocus.reviewId ?? ''}:${psurFocus.round ?? ''}` : 'manual'} actor={actor} revision={revision} openDialog={setDialog} mutate={mutate} initialFocus={psurFocus ?? undefined} />}
         {page === 'evidence' && <EvidenceWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}

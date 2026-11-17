@@ -42,5 +42,7 @@ public static class SignalReviewBrowserFixture
     {
         public Task<string> Put(string content, CancellationToken ct = default) => throw new InvalidOperationException("This metadata-only fixture must not create objects.");
         public Task<string> Read(string hash, CancellationToken ct = default) => throw new InvalidOperationException("This metadata-only fixture must not read objects.");
+        public Task<string> PutBytes(ReadOnlyMemory<byte> content, CancellationToken ct = default) => throw new InvalidOperationException("This metadata-only fixture must not create objects.");
+        public Task<byte[]> ReadBytes(string hash, CancellationToken ct = default) => throw new InvalidOperationException("This metadata-only fixture must not read objects.");
     }
 }

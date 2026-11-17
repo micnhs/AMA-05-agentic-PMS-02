@@ -109,6 +109,26 @@ public sealed class ObjectStoreIntegrityTests : IDisposable
     private static AzureObjectStore AzureStore(HttpClient http) => new(new BlobContainerClient(
         new Uri("https://cohors.invalid/evidence"), new BlobClientOptions { Transport = new HttpClientTransport(http) }));
 
+    [Fact]
+    public async Task BinaryOriginalsShareContentAddressingWithoutPretendingToBeText()
+    {
+        byte[] bytes = [0x00, 0xff, 0x80, 0x50, 0x4b, 0x01, 0x02];
+        var expected = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        var local = new LocalObjectStore(directory.FullName);
+        using var handler = new BlobResponseHandler();
+        using var http = new HttpClient(handler);
+        foreach (Cohors.Application.IObjectStore store in new Cohors.Application.IObjectStore[] { local, AzureStore(http) })
+        {
+            Assert.Equal(expected, await store.PutBytes(bytes));
+            Assert.Equal(bytes, await store.ReadBytes(expected));
+            Assert.Equal(expected, await store.PutBytes(bytes));
+            Assert.Equal("object_encoding", (await Assert.ThrowsAsync<DomainException>(() => store.Read(expected))).Code);
+        }
+        await File.WriteAllBytesAsync(Path.Combine(directory.FullName, expected), [0x00, 0x01]);
+        Assert.Equal("object_integrity", (await Assert.ThrowsAsync<DomainException>(() => local.ReadBytes(expected))).Code);
+        Assert.Equal("object_integrity", (await Assert.ThrowsAsync<DomainException>(() => local.PutBytes(bytes))).Code);
+    }
+
     private sealed class BlobResponseHandler : HttpMessageHandler
     {
         public byte[]? Stored { get; set; }

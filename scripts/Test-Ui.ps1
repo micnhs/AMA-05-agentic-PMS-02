@@ -3,7 +3,7 @@
 param(
     [Parameter(Mandatory)][string]$ApplicationDirectory,
     [Parameter(Mandatory)][string]$ArtifactDirectory,
-    [ValidateSet('Preview','AuditExport','SummaryReport','CaseDocuments','ReportPrefill','CockpitCalendar','SignalReview','PhysicalRetention')][string]$Profile = 'Preview',
+    [ValidateSet('Preview','AuditExport','SummaryReport','CaseDocuments','ReportPrefill','InformationLifecycle','EudamedConfiguration','CockpitCalendar','SignalReview','PhysicalRetention')][string]$Profile = 'Preview',
     [int]$Port = 5197
 )
 $ErrorActionPreference = 'Stop'
@@ -67,6 +67,9 @@ try {
     $config.Cohors.PublicSources = $false
     $config.Cohors.ObjectStore = 'Local'
     $config.Cohors.Search = 'Local'
+    if ($Profile -eq 'EudamedConfiguration') {
+        $config.Domibus = @{ Endpoints = @(); Secrets = @(); ModuleKeys = @(); OnboardingEvidence = @() }
+    }
     $physical = $Profile -eq 'PhysicalRetention'
     $config.Retention = @{ PhysicalMode = if ($physical) { 'SyntheticLocal' } else { 'Disabled' } }
     $access = [IO.File]::ReadAllText((Join-Path $root '.local\demo-access.txt'))
@@ -74,15 +77,21 @@ try {
         @{ Username = 'pms-ortho.demo'; Role = 'PmsSpecialist'; Product = 'ortho' },
         @{ Username = 'pms-cardio.demo'; Role = 'PmsSpecialist'; Product = 'cardio' }
     )
-    if ($Profile -eq 'SignalReview') {
+    if ($Profile -in @('SignalReview', 'EudamedConfiguration')) {
         $accountScopes += @{ Username = 'medical-cardio.demo'; Role = 'MedicalSafetyReviewer'; Product = 'cardio' }
         $accountScopes += @{ Username = 'ra-cardio.demo'; Role = 'RegulatoryAffairs'; Product = 'cardio' }
+    }
+    if ($Profile -eq 'InformationLifecycle') {
+        $accountScopes += @{ Username = 'rfi-cardio.demo'; Role = 'MedicalSafetyReviewer'; Product = 'cardio' }
     }
     foreach ($account in $accountScopes) {
         $secret = 'Pilot!' + [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(12))
         $salt = [Security.Cryptography.RandomNumberGenerator]::GetBytes(16)
         $hash = [Security.Cryptography.Rfc2898DeriveBytes]::Pbkdf2($secret, $salt, 210000, [Security.Cryptography.HashAlgorithmName]::SHA256, 32)
         $username = $account.Username
+        if (@($config.Authentication.Users | Where-Object { $_.Username -ceq $username }).Count) {
+            throw 'An isolated scoped test account already exists; do not overwrite or duplicate it.'
+        }
         $config.Authentication.Users = @($config.Authentication.Users) + @{
             Id = [Guid]::NewGuid().ToString(); Username = $username; Name = "Synthetic $($account.Product)-scoped reviewer"
             Role = $account.Role; Products = @($account.Product); Salt = [Convert]::ToBase64String($salt); Hash = [Convert]::ToBase64String($hash)
@@ -134,12 +143,12 @@ try {
     $env:COHORS_URL = "http://localhost:$Port"
     $env:COHORS_TEST_ACCESS_FILE = $accessPath
     $env:COHORS_UI_ARTIFACT_DIR = $artifacts
-    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } 'CaseDocuments' { 'case-documents' } 'ReportPrefill' { 'report-prefill' } 'CockpitCalendar' { 'cockpit-calendar' } 'SignalReview' { 'signal-review' } default { 'preview' } }
+    $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } 'CaseDocuments' { 'case-documents' } 'ReportPrefill' { 'report-prefill' } 'InformationLifecycle' { 'information-lifecycle' } 'EudamedConfiguration' { 'eudamed-configuration' } 'CockpitCalendar' { 'cockpit-calendar' } 'SignalReview' { 'signal-review' } default { 'preview' } }
     & npm --prefix (Join-Path $root 'src\Cohors.Web') run test:e2e -- "--project=$project" *> (Join-Path $artifacts 'private-browser.log')
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw
     $cases = $junit.SelectNodes('//testcase')
-    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar' -or $Profile -eq 'SignalReview') { 4 } elseif ($Profile -eq 'CaseDocuments') { 2 } else { 1 }
+    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar' -or $Profile -eq 'SignalReview') { 4 } elseif ($Profile -in @('CaseDocuments','InformationLifecycle','EudamedConfiguration')) { 2 } else { 1 }
     if ($cases.Count -ne $expected -or $junit.SelectNodes('//testcase/skipped | //testcase/failure | //testcase/error').Count) {
         throw 'Browser acceptance requires every named scenario of the explicitly selected profile, without failures or skips.'
     }

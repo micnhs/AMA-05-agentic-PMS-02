@@ -31,6 +31,8 @@ public interface IObjectStore
 {
     Task<string> Put(string content, CancellationToken ct = default);
     Task<string> Read(string hash, CancellationToken ct = default);
+    Task<string> PutBytes(ReadOnlyMemory<byte> content, CancellationToken ct = default);
+    Task<byte[]> ReadBytes(string hash, CancellationToken ct = default);
 }
 
 public interface IRawQuarantineStore

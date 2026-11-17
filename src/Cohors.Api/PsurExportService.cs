@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using Cohors.Application;
 using Cohors.Domain;
 using Cohors.Infrastructure;
 using MigraDoc.DocumentObjectModel;
@@ -13,7 +14,7 @@ public sealed record PsurExportData(string Format, DateTimeOffset ExportedAt, Ps
     QualityFinding[] CurrentFindings, string SnapshotCheckState, object Audit, string Boundary);
 public sealed record PsurExportFile(byte[] Bytes, string ContentType, string FileName);
 
-public sealed class PsurExportService(SqlStateStore store, TimeProvider clock)
+public sealed class PsurExportService(SqlStateStore store, TimeProvider clock) : IEudamedDocumentRenderer
 {
     private static readonly SemaphoreSlim Renderer = new(1);
     private static readonly Lazy<bool> Fonts = new(() =>
@@ -90,6 +91,63 @@ public sealed class PsurExportService(SqlStateStore store, TimeProvider clock)
                 output.Write(file.Value);
             }
         return new(buffer.ToArray(), "application/zip", name + ".zip");
+    }
+
+    public async Task<EudamedRenderedDocument> Render(EudamedDossierKind kind, string id, EudamedDossierContent content,
+        EudamedSource[] sources, Actor actor, CancellationToken ct = default)
+    {
+        actor.RequireHuman(Roles.Pms, Roles.Medical, Roles.Regulatory);
+        if (kind == EudamedDossierKind.PSUR)
+        {
+            var source = EudamedRules.Source<Psur>(sources, "psur");
+            var file = await Export(source.Id, source.Version, "pdf", actor, ct);
+            return new(file.Bytes, file.ContentType, file.FileName);
+        }
+        Guard.Against(kind != EudamedDossierKind.FSCA || content.Fsca is null,
+            "eudamed_document_kind", "Diese Projektion erstellt nur genaue PSUR- oder FSCA-PDF-Lesekopien.");
+        EudamedRules.RequireContent(kind, content);
+        foreach (var source in sources.Where(s => s.Kind == "capa"))
+            actor.RequireProduct(Canonical.Read<Capa>(source.Json).ProductId);
+        await Renderer.WaitAsync(ct);
+        try
+        {
+            _ = Fonts.Value;
+            var document = new Document();
+            document.Info.Title = "Cohors FSCA / " + content.Title;
+            document.Info.Author = "Cohors synthetic pilot";
+            document.Info.Subject = "Synthetic human-authored FSCA draft; no approval or authority transmission";
+            var normal = document.Styles[StyleNames.Normal]!;
+            normal.Font.Name = "Noto Sans";
+            normal.Font.Size = 9;
+            normal.ParagraphFormat.SpaceAfter = Unit.FromPoint(5);
+            var section = document.AddSection();
+            section.AddParagraph("SYNTHETISCHE DEMO - FSCA-Entwurf, keine reale Sicherheitsmassnahme.");
+            section.AddParagraph(content.Title, StyleNames.Heading1);
+            section.AddParagraph($"Dossier {id}; Sprache {content.Language}; Jurisdiktion {content.Jurisdiction}; Laender {string.Join(", ", content.Countries)}.");
+            var fsca = content.Fsca!;
+            foreach (var (heading, text) in new[]
+            {
+                ("Medizinisch-technische Einordnung", content.ClinicalRationale),
+                ("Regulatorische Einordnung", content.RegulatoryRationale),
+                ("Betroffener Umfang", $"Chargen: {string.Join(", ", fsca.Batches)}. Seriennummern: {string.Join(", ", fsca.SerialNumbers)}."),
+                ("Gesundheitsgefaehrdung und Unsicherheit", fsca.HealthHazard + "\n" + fsca.HazardProbability),
+                ("Ursachenstand", fsca.RootCauseStatus + "\n" + fsca.RootCauseRationale),
+                ("Herstellermassnahme", fsca.ManufacturerAction),
+                ("Anwenderhandlung", fsca.UserAction),
+                ("Patienten-Nachbeobachtung", fsca.PatientFollowUp),
+                ("Verantwortung und Wirksamkeit", $"{fsca.ResponsiblePerson}; faellig {fsca.DueAt:O}.\n{fsca.EffectivenessCriterion}")
+            })
+            {
+                section.AddParagraph(heading, StyleNames.Heading2);
+                section.AddParagraph(text);
+            }
+            section.AddParagraph("Unveraenderte Quellen", StyleNames.Heading2);
+            foreach (var source in sources)
+                section.AddParagraph($"{source.Kind}:{source.Source.Id}@{source.Source.Version}; SHA-256 {source.Source.Hash}.");
+            section.AddParagraph("Diese Lesekopie erteilt keine Freigabe. Erst zwei getrennte menschliche Signaturen binden den gesamten Dossierinhalt und die konkreten PDF-Bytes.");
+            return new(RenderDocument(document), "application/pdf", $"cohors-fsca-{Canonical.Hash(new { id, content, sources })[..16]}.pdf");
+        }
+        finally { Renderer.Release(); }
     }
 
     private static byte[] Render(PsurExportData data)
@@ -179,6 +237,11 @@ public sealed class PsurExportService(SqlStateStore store, TimeProvider clock)
                 }
             }
         }
+        return RenderDocument(document);
+    }
+
+    private static byte[] RenderDocument(Document document)
+    {
         var renderer = new PdfDocumentRenderer { Document = document };
         renderer.RenderDocument();
         using var stream = new MemoryStream();

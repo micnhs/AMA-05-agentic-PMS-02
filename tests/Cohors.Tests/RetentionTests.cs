@@ -247,6 +247,8 @@ public sealed class RetentionTests(Xunit.Abstractions.ITestOutputHelper output) 
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task<string> Put(string content, CancellationToken ct = default) => inner.Put(content, ct);
         public Task<string> Read(string hash, CancellationToken ct = default) => inner.Read(hash, ct);
+        public Task<string> PutBytes(ReadOnlyMemory<byte> content, CancellationToken ct = default) => inner.PutBytes(content, ct);
+        public Task<byte[]> ReadBytes(string hash, CancellationToken ct = default) => inner.ReadBytes(hash, ct);
         public Task<RetentionObjectBinding> CreateSyntheticRaw(string content, CancellationToken ct = default) =>
             ((IRawQuarantineStore)inner).CreateSyntheticRaw(content, ct);
         public Task<string> ReadRaw(RetentionObjectBinding value, CancellationToken ct = default) =>

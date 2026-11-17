@@ -1,0 +1,98 @@
+{
+  "success": true,
+  "operation": "Anonymous GET of official public enumeration definitions only",
+  "documentedBase": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/",
+  "schemaArchiveSha256": "caeb50507b578078853ebb34430e1e075e43381f054e14c7ee6692166be4cf43",
+  "startedUtc": "2026-11-16T23:08:37.0397742+00:00",
+  "files": [
+    {
+      "bytes": 528,
+      "responseDate": "11/16/2026 23:08:37 +00:00",
+      "lastModified": "",
+      "sha256": "ab353bd3497efd3cf14c4fcc9786cbe0797d8cf4e3c36b30928de1351bef1903",
+      "retrievedAt": "2026-11-16T23:08:37.7554969+00:00",
+      "count": 7,
+      "name": "ENUM_MIR_APPLICABLE_LEGISLATION",
+      "url": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/ENUM_MIR_APPLICABLE_LEGISLATION",
+      "file": "ENUM_MIR_APPLICABLE_LEGISLATION.json"
+    },
+    {
+      "bytes": 1038,
+      "responseDate": "11/16/2026 23:08:37 +00:00",
+      "lastModified": "",
+      "sha256": "8b0afa5c584c03913312ab1249240ae4d5244581a4e5fa0e5fb2fce3233ee062",
+      "retrievedAt": "2026-11-16T23:08:37.8234639+00:00",
+      "count": 13,
+      "name": "ENUM_RISK_CLASS",
+      "url": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/ENUM_RISK_CLASS",
+      "file": "ENUM_RISK_CLASS.json"
+    },
+    {
+      "bytes": 1426,
+      "responseDate": "11/16/2026 23:08:37 +00:00",
+      "lastModified": "",
+      "sha256": "33c4fc505e241d63beaaf80ca1531d2249589f1ce00c59d8090a9d989f789e89",
+      "retrievedAt": "2026-11-16T23:08:37.8532367+00:00",
+      "count": 17,
+      "name": "ENUM_MIR_DEVICE_TYPE",
+      "url": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/ENUM_MIR_DEVICE_TYPE",
+      "file": "ENUM_MIR_DEVICE_TYPE.json"
+    },
+    {
+      "bytes": 223,
+      "responseDate": "11/16/2026 23:08:37 +00:00",
+      "lastModified": "",
+      "sha256": "ef2a6fc4b98bb795f530829d500f167992f2f5de9e7a23b24095a6cd0da391e5",
+      "retrievedAt": "2026-11-16T23:08:37.8783695+00:00",
+      "count": 3,
+      "name": "ENUM_REGULATORY_SCOPE_TYPE",
+      "url": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/ENUM_REGULATORY_SCOPE_TYPE",
+      "file": "ENUM_REGULATORY_SCOPE_TYPE.json"
+    },
+    {
+      "bytes": 390,
+      "responseDate": "11/16/2026 23:08:37 +00:00",
+      "lastModified": "",
+      "sha256": "624320107b23ecc268e74c4151cf534619748eb92911f586b113230c496b7bbd",
+      "retrievedAt": "2026-11-16T23:08:37.9002832+00:00",
+      "count": 5,
+      "name": "ENUM_MIR_BASIS_SIMILAR_INCIDENTS",
+      "url": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/ENUM_MIR_BASIS_SIMILAR_INCIDENTS",
+      "file": "ENUM_MIR_BASIS_SIMILAR_INCIDENTS.json"
+    },
+    {
+      "bytes": 695,
+      "responseDate": "11/16/2026 23:08:37 +00:00",
+      "lastModified": "",
+      "sha256": "107cd77e143cd2f50473ef422b00434540ae9990ace4907494824d14364f9966",
+      "retrievedAt": "2026-11-16T23:08:37.9266629+00:00",
+      "count": 8,
+      "name": "ENUM_MIR_BASIS_DEVICE_DENOMINATOR",
+      "url": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/ENUM_MIR_BASIS_DEVICE_DENOMINATOR",
+      "file": "ENUM_MIR_BASIS_DEVICE_DENOMINATOR.json"
+    },
+    {
+      "bytes": 157,
+      "responseDate": "11/16/2026 23:08:37 +00:00",
+      "lastModified": "",
+      "sha256": "50c142c72a484faef143754c138607fa7238a28a4d442e4cb2753252d67358f6",
+      "retrievedAt": "2026-11-16T23:08:37.9524149+00:00",
+      "count": 2,
+      "name": "ENUM_SIMILAR_INC_IDENTIFICATION",
+      "url": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/ENUM_SIMILAR_INC_IDENTIFICATION",
+      "file": "ENUM_SIMILAR_INC_IDENTIFICATION.json"
+    },
+    {
+      "bytes": 150,
+      "responseDate": "11/16/2026 23:08:37 +00:00",
+      "lastModified": "",
+      "sha256": "e352bb03b572bae1cb6b1ef054cda5f3cb9a4850ad45622e6f98ebfb0cd7cbd1",
+      "retrievedAt": "2026-11-16T23:08:37.9776779+00:00",
+      "count": 2,
+      "name": "ENUM_MTR_SUBMITTER_CONTACT_DETAILS_EU_MF",
+      "url": "https://webgate.training.ec.europa.eu/eudamed-play/vig-data-ws/public/enumerations/ENUM_MTR_SUBMITTER_CONTACT_DETAILS_EU_MF",
+      "file": "ENUM_MTR_SUBMITTER_CONTACT_DETAILS_EU_MF.json"
+    }
+  ],
+  "boundary": "Read-only public snapshot, not an authenticated M2M or service-activation test. No enum request is performed by the simulator at runtime."
+}

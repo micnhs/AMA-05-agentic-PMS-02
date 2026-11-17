@@ -2,7 +2,7 @@ using Cohors.Domain;
 
 namespace Cohors.Application;
 
-public sealed class OutboxProcessor(IStateStore store, CaseService cases, IKnowledgeSearch search)
+public sealed class OutboxProcessor(IStateStore store, CaseService cases, IKnowledgeSearch search, EudamedService? eudamed = null)
 {
     public async Task<OutboxDispatchResult> Process(string id, CancellationToken ct = default)
     {
@@ -27,6 +27,15 @@ public sealed class OutboxProcessor(IStateStore store, CaseService cases, IKnowl
                     .Where(d => d.QueuedCaseVersion == requested.Version).Select(d => new { RequestId = r.Id, Dispatch = d })).Single();
                 await cases.ProcessInformationDispatch(requested.Id, dispatch.RequestId, dispatch.Dispatch.Id, timeout.Token);
             }
+            if (e.Type == "EudamedActorSubmitted")
+            {
+                var requested = Canonical.Read<EudamedActorApplication>(e.Payload);
+                await (eudamed ?? throw new DomainException("eudamed_worker_missing", "Actor-Worker ist nicht registriert.", 503))
+                    .ProcessActor(requested.Id, requested.Version, timeout.Token);
+            }
+            if (e.Type == "DomibusConnectionCheckRequested")
+                throw new DomainException("domibus_diagnostics_not_enabled",
+                    "Die externe Backenddiagnose ist in diesem Auslieferungsschnitt noch nicht freigeschaltet.", 503);
             if (e.Type is "EvidenceSeeded" or "PublicSourceApproved" or "EvidenceVersionPublished")
                 await search.Rebuild(timeout.Token);
             await store.CompleteEvent(id, consumer, owner, null, timeout.Token);
