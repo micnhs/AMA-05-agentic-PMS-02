@@ -2,6 +2,46 @@
 
 **Arbeitsstand, kein Abschluss der Gesamt- oder Fachabnahme.** Dieser Nachweis wird mit den tatsaechlich ausgefuehrten Paketen fortgeschrieben.
 
+## Lokaler EUDAMED-Actor-/Konfigurationsschnitt
+
+Anwendungsstand `7335caec08ea9f32c2d6cf768b5b2202e650f3eb` und
+Browserquelle `5b0c39223bd05af7581be7769d49de56d7e687cb` wurden in einer
+eigenen SQL-/API-/Browserinstanz geprueft: **45/45 Offline-Vertragsfaelle,
+4/4 SQL-/Outboxfaelle und 2/2 E01-/E02-Browserfaelle**, keine Skips.
+Dieser Schnitt ist nicht in die weiterhin unveraenderte 5187-Vorschau
+promoviert und nicht als Gesamtintegration abgenommen.
+
+Der persistente Actor-Antrag durchlaeuft Korrektur, Ablehnung und
+Testfreischaltung mit sechs korrelierten Runden in neun Versionen.
+Explizite Geraete-/Zertifikatsreferenzen, Simulatoraktivierung, ein davon
+getrennt gespeicherter blockierter Domibusentwurf, Reload, serverseitige
+Rollen-/Produktpruefungen und echte Kontenwechsel mit verspaeteter
+Altantwort sind nachgewiesen. Der Simulatorpfad hat keinen Gateway
+aufgerufen; der Browser keine fremde Origin angefordert.
+
+Der erste echte Hostlauf fand einen Fehler in der Bindung leerer
+Domibus-Konfigurationskataloge. Ein reproduzierender JSON-Bindungstest
+und ein sicherer parameterloser Optionskonstruktor beheben ihn, ohne
+lokale Netzwerkrechte aus Benutzerkonfiguration zu uebernehmen.
+Ein anschliessender Browserfehler war ein zu enger Selektor fuer
+implizite Select-Labels. Beide negativen Versuche bleiben erhalten.
+Der abschliessende Browserlauf und sein unabhaengiges Cleanup sind
+terminal erfolgreich: eigene Prozesse, Testdatenbank, Browserprofile
+und temporaere Zugangsdaten entfernt; Nutzerbrowser nicht beruehrt.
+
+| Gebundener Beleg | SHA-256 |
+| --- | --- |
+| Build02 | `6eee5556e41ca9a1448af42d9a9a458747b81050723e5a81e594a18cf20216dc` |
+| Native03, 4/4 | `c1f6b30e73cdc150ba6039b94c5ecdf9ca37f13256bad3fe0b123ad4d141a6b0` |
+| Browser03, 2/2 | `3352248ed4a11a7bee5b4b61a2e196f175c0d1e2c83b7f8f337fe8fd73eb6452` |
+| Unabhaengiges Cleanup03 | `8d8560a5e79b2771f0cd9a62fc1e1c0c16a972fba1dcddaafb4a99e22a9f95f3` |
+
+Die Quellen und Testprofile liegen im Repository; private Laufzeitlogs,
+Zugangsdaten und Testartefakte sind keine oeffentlichen Repositorydateien.
+Dossier-/Versand-/Empfangsabnahme folgt getrennt. Weder ein laufender
+Domibus noch eine AS4-Gegenstelle, Playground, echte Registrierung,
+Behoerdenmeldung oder Azure-Bereitstellung wurden damit nachgewiesen.
+
 ## Qualifizierter lokaler Preview-Schnitt
 
 Die aktuell veroeffentlichte **5187-Vorschau** verwendet

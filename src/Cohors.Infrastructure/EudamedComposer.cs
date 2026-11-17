@@ -16,6 +16,10 @@ public sealed class EudamedComposer : IEudamedComposer
     {
         EudamedRules.RequireContent(kind, content);
         EudamedContracts.RequireBinding(binding);
+        Guard.Against(references.RegulatoryDevice.Legacy ||
+            references.RegulatoryDevice.RiskClass != "III" || !references.RegulatoryDevice.Implantable,
+            "eudamed_unsupported_device_regime",
+            "Diese Projektion unterstuetzt nur ausdruecklich bestaetigte MDR-Klasse-III-Implantate. Ein Legacy-Kennzeichen belegt weder MDD noch AIMDD.");
         Guard.Against(calendar.Id != content.Jurisdiction || references.ActorIdentity != binding.ActorIdentity ||
             references.ActorApplication != binding.ActorSource || EudamedContracts.Bind(references) != binding.ReferencesSource,
             "eudamed_mapping_scope", "Kalender, Actor und Referenzen muessen der ausdruecklichen Paketbindung entsprechen.", 409);
@@ -100,7 +104,7 @@ public sealed class EudamedComposer : IEudamedComposer
             facts.NextReportDate is { } next ? D("reportNextDate", next) : null, E("eventClassification", classification));
         var device = E("mirDeviceInformation", E("deviceInformation", E("deviceInformationSubHead",
             E("deviceKnownIdentifier", false),
-            E("applicableLegislation", references.RegulatoryDevice.Legacy ? "MDD" : "MDR"),
+            E("applicableLegislation", "MDR"),
             E("deviceRiskClass", "CLASS_III"),
             E("deviceIDnotInEUDAMED_MasterUDI", E("deviceIDnotInEUDAMED_UDI_Code", references.RegulatoryDevice.UdiDi),
                 E("deviceIDnotInEUDAMED_IssuingEnt", references.UdiIssuingAgency)),

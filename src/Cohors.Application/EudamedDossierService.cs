@@ -92,6 +92,7 @@ public sealed partial class EudamedService
                 string.IsNullOrWhiteSpace(s.Id) || s.Version < 1) ||
             input.Sources.Select(s => (s.Kind, s.Id)).Distinct().Count() != input.Sources.Length,
             "eudamed_sources", "Eindeutige ausdruecklich versionierte Originalquellen sind erforderlich.");
+        var editing = id is not null;
         id ??= "eudamed-dossier-" + Canonical.Hash(new { actor.Id, key, input.ProductId })[..32];
         var context = Context(id, "eudamedDossier", input.ProductId, input.ExpectedVersion, key,
             "EudamedDossierDrafted", input.Reason, actor, input);
@@ -101,6 +102,7 @@ public sealed partial class EudamedService
             return replay;
         }
         var current = await store.Get<EudamedDossier>("eudamedDossier", id, ct);
+        Guard.Against(editing && current is null, "eudamed_dossier_missing", "Zu bearbeitendes Dossier fehlt.", 404);
         if (current is not null) EudamedRules.RequireActorScope(current, actor);
         Guard.Against((current?.Version ?? 0) != input.ExpectedVersion, "version_conflict", "Dossierfassung hat sich geaendert.", 409);
         Guard.Against(current is not null && (current.ProductId != input.ProductId || current.Kind != input.Kind),

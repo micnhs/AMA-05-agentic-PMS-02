@@ -75,6 +75,18 @@ public sealed class EudamedCompositionTests(ITestOutputHelper output)
         Assert.Equal("ALL_OTHER", xml.Descendants(V1 + "eventClassification").Single().Value);
     }
 
+    [Theory]
+    [InlineData(EudamedDossierKind.MIR)]
+    [InlineData(EudamedDossierKind.MTR)]
+    public void LegacyFlagDoesNotInventMddOrMdrLegislation(EudamedDossierKind kind)
+    {
+        var fixture = Create(kind);
+        var references = fixture.References with { RegulatoryDevice = fixture.References.RegulatoryDevice with { Legacy = true } };
+        fixture = fixture with { References = references,
+            Binding = fixture.Binding with { ReferencesSource = EudamedContracts.Bind(references) } };
+        Assert.Equal("eudamed_unsupported_device_regime", Assert.Throws<DomainException>(() => Compose(fixture)).Code);
+    }
+
     [Fact]
     public void PsrNeedsExplicitCalendarTermsAndDoesNotConvertLegacyDays()
     {

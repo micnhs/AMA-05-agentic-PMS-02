@@ -6,7 +6,7 @@ using Cohors.Infrastructure;
 namespace Cohors.Tests;
 
 [Collection("SQL pilot")]
-public sealed class EudamedConfigurationTests(SqlFixture fixture)
+public sealed partial class EudamedConfigurationTests(SqlFixture fixture)
 {
     private const string Reason = "SYNTHETISCH: Der konkrete Teststand wird mit Originalbezug und getrennter menschlicher Verantwortung geprueft. Keine amtliche Registrierung, reale Uebermittlung oder implizite Risikoakzeptanz.";
     private readonly TestClock clock = new(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
