@@ -743,10 +743,11 @@ function signalInput(stamp: string, agent = false) {
 }
 async function blockReviewPolling(context: BrowserContext) {
   await context.addInitScript(() => {
-    const original = window.setInterval.bind(window)
+    const browserWindow: Window = window
+    const original = browserWindow.setInterval.bind(browserWindow)
     let blocked = 0
     Reflect.set(window, '__cohorsBlockedIntervals', 0)
-    window.setInterval = (handler, delay, ...args) => {
+    browserWindow.setInterval = (handler, delay, ...args) => {
       if (delay === 10_000) { Reflect.set(window, '__cohorsBlockedIntervals', ++blocked); return -blocked }
       return original(handler, delay, ...args)
     }
@@ -2040,7 +2041,9 @@ test('T16: grouped PSUR stays independently readable, editable and protected by 
     await expect(monthlyPanel).toContainText(initial.snapshotHash)
     await expect(monthlyPanel).toContainText(member.product.basicUdi)
     if (previous?.basicUdi) await expect(monthlyPanel).not.toContainText(previous.basicUdi)
-    const rows = monthlyPanel.getByRole('table', { name: 'PSUR-Monatsfallzahlen', exact: true }).locator('tbody > tr')
+    const table = monthlyPanel.getByRole('table', { name: 'PSUR-Monatsfallzahlen', exact: true })
+    await expect(table).toBeVisible()
+    const rows = table.locator('tbody > tr')
     await expect(rows).toHaveCount(expected.months.length)
     for (const [index, month] of expected.months.entries()) {
       const cells = rows.nth(index).locator('td')
@@ -2051,6 +2054,7 @@ test('T16: grouped PSUR stays independently readable, editable and protected by 
       await expect(cells.nth(3)).toHaveText(String(month.unknownStatusAtCutoff.length))
     }
     const chart = monthlyPanel.getByRole('img', { name: 'Verlauf eindeutiger PSUR-Fälle nach Ereignismonat in UTC, keine Inzidenzrate' })
+    await expect(chart).toBeVisible()
     await expect(chart.locator('g > circle > title')).toHaveText(expected.months.map(m => `${m.from}–${m.through}: ${m.cases.length} Fälle`))
     await expect(chart.locator('.chart-value')).toHaveText(expected.months.map(m => String(m.cases.length)))
     await expect(chart.locator('.chart-label')).toHaveText(expected.months.map(m => m.month))
