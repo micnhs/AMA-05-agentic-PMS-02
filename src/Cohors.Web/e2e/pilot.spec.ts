@@ -495,7 +495,7 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
       await expect(regulator.getByRole('dialog')).not.toBeVisible()
     } finally {
       releaseRefresh()
-      await regulator.unroute(workspaceRoute)
+      await regulator.unrouteAll({ behavior: 'wait' })
     }
     await expect.poll(async () => (await dossierView(ra, created.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
     view = await dossierView(ra, created.id)
