@@ -86,4 +86,35 @@ public sealed class OutboxTests(SqlFixture fixture)
         await fixture.Store.CompleteEvent(id, "recovered-consumer", second, null);
         Assert.True(await fixture.Store.HasReceipt(id, "recovered-consumer"));
     }
+
+    [Fact]
+    public async Task T12_LargeOutboxPayloadPreservesEveryColumnAndExclusiveLease()
+    {
+        var id = "outbox-stream-" + CaseScenario.Key();
+        var at = new DateTimeOffset(2000, 1, 1, 5, 30, 0, TimeSpan.FromMinutes(330));
+        var text = string.Concat(Enumerable.Repeat(new string('x', 32767) + "\u03a9\ud83d\ude00\\\"", 64));
+        var context = new CommandContext(id, "outboxStreamTest", "ortho", 0, CaseScenario.Key(),
+            "SyntheticLargePayload", "Synthetic multi-buffer outbox read and unchanged lease contract.",
+            SqlFixture.Pms, new { id }, at);
+        var value = await fixture.Store.Execute<LargePayload>(context, _ => new(id, 1, "ortho", text));
+        var pending = Assert.Single((await fixture.Store.PendingEvents(100)).Where(e => e.AggregateId == id));
+        Assert.Equal(Canonical.Hash(value), Canonical.HashText(pending.Payload));
+        Assert.Equal(1, pending.Version);
+        Assert.Equal(context.Action, pending.Type);
+        Assert.True(pending.CreatedAt.EqualsExact(at));
+        Assert.Equal(0, pending.Attempts);
+        Assert.Null(pending.Error);
+        Assert.Equal(0, pending.RecoveryVersion);
+
+        var owner = CaseScenario.Key();
+        var claimed = await fixture.Store.ClaimEvent(pending.Id, owner);
+        Assert.NotNull(claimed);
+        Assert.Equal(Canonical.Hash(pending with { Attempts = 1 }), Canonical.Hash(claimed));
+        Assert.Null(await fixture.Store.ClaimEvent(pending.Id, CaseScenario.Key()));
+        await fixture.Store.CompleteEvent(pending.Id, "stream-consumer", owner, null);
+        Assert.True(await fixture.Store.HasReceipt(pending.Id, "stream-consumer"));
+        Assert.Null(await fixture.Store.ClaimEvent(pending.Id, owner));
+    }
+
+    private sealed record LargePayload(string Id, int Version, string ProductId, string Text);
 }

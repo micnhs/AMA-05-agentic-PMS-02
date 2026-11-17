@@ -735,11 +735,11 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
                 AND (NextAttemptAt IS NULL OR NextAttemptAt<=SYSUTCDATETIME()) ORDER BY CreatedAt,Id
             """,
             ("limit", Math.Clamp(limit, 1, 100)));
-        await using var reader = await query.ExecuteReaderAsync(ct);
+        await using var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
         var events = new List<OutboxEvent>();
         while (await reader.ReadAsync(ct))
             events.Add(new(reader.GetString(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3),
-                reader.GetString(4), reader.GetFieldValue<DateTimeOffset>(5), reader.GetInt32(6),
+                await ReadText(reader, 4, ct), reader.GetFieldValue<DateTimeOffset>(5), reader.GetInt32(6),
                 reader.IsDBNull(7) ? null : reader.GetString(7), reader.GetInt32(8)));
         return events.ToArray();
     }
@@ -755,9 +755,9 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
                 AND (LeaseUntil IS NULL OR LeaseUntil<SYSUTCDATETIME())
                 AND (NextAttemptAt IS NULL OR NextAttemptAt<=SYSUTCDATETIME());
             """, ("id", eventId), ("owner", owner));
-        await using var reader = await command.ExecuteReaderAsync(ct);
+        await using var reader = await command.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
         return await reader.ReadAsync(ct) ? new(reader.GetString(0), reader.GetString(1), reader.GetInt32(2), reader.GetString(3),
-            reader.GetString(4), reader.GetFieldValue<DateTimeOffset>(5), reader.GetInt32(6),
+            await ReadText(reader, 4, ct), reader.GetFieldValue<DateTimeOffset>(5), reader.GetInt32(6),
             reader.IsDBNull(7) ? null : reader.GetString(7), reader.GetInt32(8)) : null;
     }
 
