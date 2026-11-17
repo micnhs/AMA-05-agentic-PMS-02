@@ -181,6 +181,15 @@ G01-G04 and all deployment/adapter gates remain open.
 
 ## Execution and deployment
 
+The bounded [C1 preparation](c1-preparation.md) supplies a synthetic source,
+null-bound input template and network-free .NET MCP request-preparation kernel
+for the direct/Hosted app-only candidate. General cost approval is recorded;
+concrete targets, quantified budget, identity/grants, private path, retention
+and the actual C1 run remain unapproved. No cloud transport is wired or run.
+App-only is authenticated service access: Entra user login and Medical/RA
+approvals through the Cohors API remain unchanged. Its in-process checks are
+not G03/G04 evidence or full pilot acceptance.
+
 The [deployment plan](../../.azure/deployment-plan.md) records approval
 boundaries. The Fabric-only push workflow runs one allocated standard hosted
 build/contract job against the exact commit, with private temporary package/cache

@@ -21,6 +21,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Cohors.Api\Cohors.Api.csproj" />
     <None Include="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\fabric\c1\inputs.template.json" Link="Fixtures\c1-inputs.template.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\fabric\c1\synthetic-source.json" Link="Fixtures\c1-synthetic-source.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

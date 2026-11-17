@@ -1,7 +1,9 @@
 # Cohors Fabric deployment preparation
 
-Status: Planning; isolated source implementation approved, deployment target
-and resource/cost approval outstanding. NOT Ready for Validation or Validated.
+Status: Planning; isolated source implementation and bounded offline C1
+preparation approved. General cost approval received; concrete targets,
+quantified budget, resource/role/network/retention decisions and a C1 cloud run
+remain outstanding. NOT Ready for Validation or Validated.
 
 ## Approval and immutable baseline
 
@@ -58,7 +60,7 @@ Fabric branch: .NET 10.0.404, Node 24.10.0, own temporary package/cache paths,
 no SQL/Docker/browser, credentials, Azure login, OIDC, shared caches or uploads.
 The branch-only workflow does not modify the primary/default branch. Inherited
 primary workflows are disabled in this checkout. Azure context was observed
-privately by the coordinator, but no resource target/cost/region is approved;
+privately by the coordinator, but no concrete resource target/budget/region is approved;
 identity/subscription/host details must not enter this public repository.
 
 ## Hard gates and fail-closed boundary
@@ -100,8 +102,16 @@ Awareness starts deadlines immediately; a local observation is not an RPO0 ACK.
 Recipe decision pending inspection of the inherited Bicep deployment contracts.
 Do not invoke inherited deployment scripts against their old defaults.
 Use synthetic pilot data only. Real authority communication and medical
-production operation are not authorized. Resource/cost/retention approvals
-remain separate from the approval to implement source changes.
+production operation are not authorized. Concrete resource/budget/retention
+approvals remain separate from general cost approval and source implementation.
+
+The [C1 preparation contract](../docs/fabric/c1-preparation.md) and
+[null-bound input template](../fabric/c1/inputs.template.json) record the exact
+missing IDs, private execution path, credential/audience/source grants, bounded
+cost/runtime limits and cleanup evidence. Its .NET preparation kernel has no
+HTTP/credential/Foundry runtime registration; only the existing credential-free
+hosted build/in-process path is used. The existing infrastructure owner supplies
+the private bindings; no second resource plan or cloud allocation is created.
 
 Before any deployment: finalize the isolated target plan and obtain target/cost
 approval; invoke azure-validate, then azure-deploy. Do not claim readiness until

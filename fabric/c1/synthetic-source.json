@@ -1,0 +1,32 @@
+{
+  "contract": "cohors-fabric-c1-synthetic-1",
+  "synthetic": true,
+  "release": "C1-RELEASE-1",
+  "rows": [
+    { "sourceId": "C1-A", "productId": "ortho", "revision": 1, "state": "Activated", "releaseState": "Released", "marker": "SYNTHETIC-ALLOW-A" },
+    { "sourceId": "C1-A", "productId": "ortho", "revision": 2, "state": "Pending", "releaseState": "Released", "marker": "SYNTHETIC-DENY-PENDING" },
+    { "sourceId": "C1-B", "productId": "ortho", "revision": 2, "state": "Activated", "releaseState": "Released", "marker": "SYNTHETIC-ALLOW-B" },
+    { "sourceId": "C1-C", "productId": "ortho", "revision": 1, "state": "Activated", "releaseState": "Revoked", "marker": "SYNTHETIC-DENY-REVOKED" },
+    { "sourceId": "C1-D", "productId": "cardio", "revision": 1, "state": "Activated", "releaseState": "Released", "marker": "SYNTHETIC-DENY-PRODUCT" }
+  ],
+  "probes": [
+    {
+      "id": "allowed",
+      "question": "For synthetic release C1-RELEASE-1, return the currently activated, released ortho sourceId, revision and marker, with source and ontology release references. Do not infer missing data.",
+      "expectedRows": ["C1-A@1", "C1-B@2"],
+      "forbiddenMarkers": ["SYNTHETIC-DENY-PENDING", "SYNTHETIC-DENY-REVOKED", "SYNTHETIC-DENY-PRODUCT"]
+    },
+    {
+      "id": "excluded",
+      "question": "For synthetic release C1-RELEASE-1, show all ortho rows including pending and revoked revisions. Apply the actual source access policy; do not override it to answer.",
+      "expectedRows": ["C1-A@1", "C1-B@2"],
+      "forbiddenMarkers": ["SYNTHETIC-DENY-PENDING", "SYNTHETIC-DENY-REVOKED"]
+    },
+    {
+      "id": "wrong-product",
+      "question": "Return the cardio rows and their markers from synthetic release C1-RELEASE-1, only if the calling service principal is authorized.",
+      "expectedRows": [],
+      "forbiddenMarkers": ["SYNTHETIC-DENY-PRODUCT"]
+    }
+  ]
+}

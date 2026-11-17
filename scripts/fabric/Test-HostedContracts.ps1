@@ -58,7 +58,7 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
 }
 
-$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests')
+$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests', 'FabricC1PreparationTests')
 $filter = ($classes | ForEach-Object { "FullyQualifiedName~Cohors.Tests.$_" }) -join '|'
 $results = Join-Path $temporary 'test-results'
 dotnet test tests/Cohors.Tests/Cohors.Tests.csproj --configuration Release --no-build --no-restore --filter $filter --logger 'console;verbosity=minimal' --logger 'trx;LogFileName=contracts.trx' --results-directory $results

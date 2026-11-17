@@ -151,7 +151,10 @@ transport reconciliation, without real authority communication in this scope.
 G11 requires ID-exact completion of the 163 requirements and all 53 scenarios;
 the current register is a specification, not 326 passing functional tests.
 
-No Azure/Fabric target, capacity, role, region, retention or price has been
-approved. No cloud writes, actual probes, SDK installation or repository
-settings changes are performed by this document. The existing credential-free
-standard hosted job remains only the build/in-process execution path.
+General cost approval has now been received. No concrete
+Azure/Fabric target, capacity, role, region, retention, quantified budget or
+actual C1 run has been approved. The bounded [C1 preparation](c1-preparation.md)
+records the input/identity/source/private-path and abort/cleanup contract.
+No cloud writes, actual probes, SDK installation or repository settings changes
+are performed by this document. The existing credential-free standard hosted
+job remains only the build/in-process execution path.

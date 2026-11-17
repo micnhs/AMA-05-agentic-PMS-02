@@ -1,0 +1,62 @@
+{
+  "contract": "cohors-fabric-c1-preparation-1",
+  "deliveryId": "cohors-fabric",
+  "mode": "PreparationOnly",
+  "generalCostApprovalReceived": true,
+  "tokenScope": "https://api.fabric.microsoft.com/.default",
+  "identity": {
+    "tenantId": null,
+    "clientId": null,
+    "principalObjectId": null,
+    "credentialKind": null,
+    "credentialReference": null,
+    "expectedIssuer": null,
+    "expectedAudience": null
+  },
+  "target": {
+    "capacityResourceId": null,
+    "region": null,
+    "workspaceId": null,
+    "dataAgentId": null,
+    "sourceItemId": null,
+    "ontologyId": null,
+    "publishedMcpEndpoint": null,
+    "protocolVersion": null,
+    "toolName": null,
+    "questionArgument": null,
+    "inputSchemaSha256": null,
+    "taskProtocolReview": null
+  },
+  "source": {
+    "productScope": "ortho",
+    "releaseId": "C1-RELEASE-1",
+    "materializationSha256": null,
+    "ontologyBindingsSha256": null,
+    "sourceGrantReviewSha256": null,
+    "fixtureSha256": "169ff384d66c5e954985b06fc930634d43d0666aaec4ce9886b6d343e05e7b59"
+  },
+  "runtime": {
+    "privateRunnerResourceId": null,
+    "hostedProjectEndpoint": null,
+    "hostedAgentVersion": null,
+    "hostedImageDigest": null,
+    "modelDeployment": null,
+    "modelVersion": null
+  },
+  "controls": {
+    "resourcePlanSha256": null,
+    "privatePathReviewSha256": null,
+    "dnsAndEgressPlanSha256": null,
+    "publicDenyPlanSha256": null,
+    "dataHandlingAndRetentionSha256": null,
+    "budgetPlanSha256": null,
+    "cleanupPlanSha256": null,
+    "runApprovalReference": null
+  },
+  "limits": {
+    "maxRequests": null,
+    "maxDurationSeconds": null,
+    "maxResponseBytes": null,
+    "cleanupTimeoutSeconds": null
+  }
+}
