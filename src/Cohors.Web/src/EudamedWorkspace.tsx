@@ -81,11 +81,13 @@ function ProductIntegration({ actor, product }: { actor: Actor; product: Device 
   const [busy, setBusy] = useState(false)
   const live = useRef(true)
   const generation = useRef(0)
+  const loadsInFlight = useRef(0)
   const auditGeneration = useRef(0)
   const administrative = actor.isHuman && actor.roles.includes('RegulatoryAffairs')
   const author = actor.isHuman && (administrative || actor.roles.includes('PmsSpecialist'))
   const load = useCallback(async () => {
     const request = ++generation.current
+    loadsInFlight.current++
     try {
       const [data, profiles] = await Promise.all([
         api<IntegrationWorkspace>(`/eudamed/${encodeURIComponent(product.id)}/workspace`),
@@ -95,12 +97,12 @@ function ProductIntegration({ actor, product }: { actor: Actor; product: Device 
       setWorkspace(data); setGovernance(profiles.find(p => p.productId === product.id) ?? null); setError('')
     } catch (failure) {
       if (live.current && request === generation.current) setError(failure instanceof Error ? failure.message : 'Integrationsstand nicht geladen.')
-    }
+    } finally { loadsInFlight.current-- }
   }, [product.id])
   useEffect(() => {
     live.current = true
     void load()
-    const timer = window.setInterval(() => { void load() }, 5000)
+    const timer = window.setInterval(() => { if (loadsInFlight.current === 0) void load() }, 5000)
     return () => { live.current = false; generation.current++; auditGeneration.current++; window.clearInterval(timer) }
   }, [load])
   async function change(path: string, body: unknown) {

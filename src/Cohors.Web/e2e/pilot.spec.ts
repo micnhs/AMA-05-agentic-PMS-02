@@ -1,5 +1,5 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test'
-import { mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
@@ -125,6 +125,17 @@ async function dossierView(client: APIRequestContext, id: string): Promise<Dossi
   const response = await client.get(`/api/eudamed/dossiers/${id}`)
   expect(response.status()).toBe(200)
   return response.json()
+}
+function recordDossierResponses(page: Page, context: number) {
+  const scenario = test.info().title
+  page.on('response', response => {
+    const endpoint = new URL(response.url()).pathname
+    if (!endpoint.startsWith('/api/')) return
+    const timing = response.request().timing()
+    appendFileSync(path.join(artifacts, 'eudamed-request-timings.jsonl'), JSON.stringify({
+      scenario, context, endpoint, status: response.status(), requestAt: timing.startTime, responseMs: timing.responseStart,
+    }) + '\n')
+  })
 }
 async function openDossierUi(page: Page, baseURL: string, id?: string) {
   await page.goto(baseURL)
@@ -408,6 +419,7 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
       contexts.push(context)
       const page = await context.newPage()
       page.setDefaultTimeout(25_000)
+      recordDossierResponses(page, contexts.length)
       page.on('pageerror', failure => errors.push(failure.message))
       page.on('request', request => { if (new URL(request.url()).origin !== new URL(baseURL!).origin) externalRequests.push(request.url()) })
       return page
@@ -415,7 +427,18 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
     const author = await pageFor(pms)
     const clinician = await pageFor(medical)
     const regulator = await pageFor(ra)
+    const workspaceRoute = '**/api/eudamed/ortho/workspace'
+    let workspaceReads = 0
+    await author.route(workspaceRoute, async route => {
+      workspaceReads++
+      const response = await route.fetch()
+      expect(response.status()).toBe(200)
+      await new Promise(resolve => setTimeout(resolve, 6000))
+      await route.fulfill({ response })
+    })
     await openDossierUi(author, baseURL!)
+    expect(workspaceReads, 'Background polling must not invalidate an unfinished workspace response.').toBe(1)
+    await author.unroute(workspaceRoute)
     await author.getByRole('combobox', { name: 'Dossiertyp', exact: true }).selectOption('MIR')
     await author.getByRole('combobox', { name: 'Primaere versionierte Dossierquelle', exact: true }).selectOption(c.id)
     await author.getByRole('button', { name: 'Neues Dossier entwerfen', exact: true }).click()
@@ -515,7 +538,7 @@ test('E03: source-bound MIR dossier, separate approvals, business receipt and ne
       channelBinding: frozen.package.binding, originalHash: question.originalHash,
       nativeSubmissions: acceptedNative.submissions.length, nativeUnchangedByReply: true, originalDeadlinesAndApprovalsPreserved: true,
       technicalAckDidNotCompleteObligations: true, onlyAddressedCorrespondenceClosed: true, newReplyApprovals: approvedReply.approvals.map(a => a.id),
-      oldChannelNotRetargeted: true, browserExternalRequests: externalRequests, realAuthorityAcceptance: false,
+      oldChannelNotRetargeted: true, delayedWorkspaceReads: workspaceReads, browserExternalRequests: externalRequests, realAuthorityAcceptance: false,
     }, null, 2))
   } finally { for (const context of contexts) await context.close(); await pms.dispose(); await medical.dispose(); await ra.dispose() }
 })
@@ -547,6 +570,7 @@ test('E04: byte-exact dossier PDF and audit originals, historical scope and canc
       contexts.push(context)
       const page = await context.newPage()
       page.setDefaultTimeout(25_000)
+      recordDossierResponses(page, contexts.length)
       page.on('pageerror', failure => errors.push(failure.message))
       return page
     }

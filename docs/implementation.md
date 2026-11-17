@@ -427,6 +427,15 @@ Erst danach entstehen die kompakten Antworten. Keine neue Migration oder
 persistierte Summenquelle; insbesondere kein Nachweis fuer 250000 Faelle
 oder 90 gleichzeitige Nutzer.
 
+Die EUDAMED-Integrationsansicht prueft alle fuenf Sekunden, ob ein neuer
+Lesezyklus moeglich ist. Solange eine Workspace-Antwort oder ein explizites
+Nachladen laeuft, startet der Hintergrundtimer keinen weiteren Request.
+Langsame Antworten werden dadurch nicht fortlaufend von juengeren
+Pollgenerationen entwertet. Explizite Aenderungen sowie Produkt- und
+Identitaetswechsel behalten ihre bisherigen Generations-/Lebenszyklusgrenzen.
+Die Browserprobe verzoegert eine echte Workspace-Antwort ueber ein
+Pollintervall und verlangt weiterhin genau einen Leseaufruf.
+
 ## Unveraenderte Originale
 
 `source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`, die freigegebenen Eingangsunterlagen sowie Logo und Animation werden nicht veraendert. Die unveraenderte `source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx` hat SHA256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`.
