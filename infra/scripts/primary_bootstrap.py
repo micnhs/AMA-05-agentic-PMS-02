@@ -71,7 +71,8 @@ def load_manifest(path):
     for key, pattern in patterns.items():
         if not isinstance(release.get(key), str) or not re.fullmatch(pattern, release[key]):
             raise GateError(f"Invalid hosted package {key}; placeholders and script syntax are prohibited.")
-    if any(type(release.get(key)) is not int or release[key] <= 0 for key in ("runId", "artifactId")):
+    if any(type(release.get(key)) is not int or release[key] <= 0
+           for key in ("runId", "artifactId", "validationRunId", "applicationValidationRunId")):
         raise GateError("Hosted run and artifact IDs must come from actual completed outputs.")
     require_guid(manifest["deploymentId"], "deploymentId")
     for key in ("tenantId", "subscriptionId", "principalObjectId", "oauthClientId"):
@@ -200,7 +201,7 @@ def approval_check(approval, plan, manifest, now=None):
         contract = manifest.get("operationsSqlContract")
         if not contract or contract.get("applicationCommit") != manifest["releaseBundle"]["applicationCommit"]:
             raise GateError("A built, source-bound restricted Operations SQL contract is required. The b7 generic JSON writer is not eligible and cannot be accepted by a risk waiver.")
-        raise GateError("No restricted Operations grant adapter is bound to this installer revision yet. A metadata claim or failed/unbuilt primary package cannot activate the host.")
+        raise GateError("The restricted Operations grant adapter is not yet hosted-qualified. The Entra/runtime activation executor remains closed; metadata cannot waive it.")
 
 
 def app_body(manifest, role):
@@ -598,6 +599,9 @@ def main(argv=None):
             if file_hash(args.approval.parent / relative) != approval[key]:
                 raise GateError("A reviewed evidence file is missing or its bytes changed.")
         phase = plan["phase"]
+        if phase not in ("stop", "cleanup"):
+            from primary_release import require_hosted_qualification
+            require_hosted_qualification(manifest["releaseBundle"])
         with bound_client(manifest["binding"], manifest["controlTokenBindings"], allow_writes=True) as client:
             engine = Bootstrap(manifest, journal, client)
             if model_acceptance:

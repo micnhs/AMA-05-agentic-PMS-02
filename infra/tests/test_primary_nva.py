@@ -6,6 +6,9 @@ import ssl
 import tempfile
 from types import SimpleNamespace
 import unittest
+import json
+
+from nva_native import namespace_names
 
 from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
@@ -18,6 +21,14 @@ SPEC.loader.exec_module(nva)
 
 
 class PrimaryNvaTests(unittest.IsolatedAsyncioTestCase):
+    def test_native_empty_inventory_is_distinct_from_malformed_inventory(self):
+        self.assertEqual(namespace_names(b""), set())
+        self.assertEqual(namespace_names(b"[]\n"), set())
+        self.assertEqual(namespace_names(b'[{"name":"foreign-namespace"}]'), {"foreign-namespace"})
+        for value in (b"not-json", b"{}", b"[{}]", b'[{"name":null}]'):
+            with self.subTest(value=value), self.assertRaises((RuntimeError, json.JSONDecodeError)):
+                namespace_names(value)
+
     def setUp(self):
         self.now = dt.datetime(2026, 11, 18, tzinfo=dt.timezone.utc)
         self.policy = {"contract": "cohors-nva-policy-1", "expiresAtUtc": "2026-11-19T00:00:00Z",

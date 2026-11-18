@@ -27,6 +27,17 @@ def command(*args):
     return result.stdout
 
 
+def namespace_names(output):
+    # iproute2 prints no JSON bytes when the namespace set is empty.
+    if not output.strip():
+        return set()
+    value = json.loads(output)
+    if not isinstance(value, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"] for item in value):
+        raise RuntimeError("The prospective namespace inventory is malformed.")
+    return {item["name"] for item in value}
+
+
 def server(folder):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(str(folder / "cert.pem"), str(folder / "key.pem"))
@@ -82,7 +93,7 @@ def main():
     suffix = uuid.uuid4().hex[:12]
     appliance, source, destination = "cohorsn" + suffix, "cohorsc" + suffix, "cohorst" + suffix
     names = (appliance, source, destination)
-    existing = {item["name"] for item in json.loads(command("ip", "-j", "netns", "list"))}
+    existing = namespace_names(command("ip", "-j", "netns", "list"))
     if any(name in existing or (Path("/etc/netns") / name).exists() for name in names):
         raise RuntimeError("Fixture namespace already exists.")
     processes = []
@@ -186,8 +197,6 @@ def main():
             if not all(counters.get(reason, 0) > 0 for reason in
                        ("allowed-encrypted-passthrough", "sni", "sni-destination-mismatch")):
                 raise RuntimeError("Negative outcomes were not produced by the actual proxy policy.")
-            print(json.dumps({"dnsConfigurationParsed": True, "nativeKernelCasesPassed": 6,
-                              "endToEndCertificateValidation": True, "azureAcaFlexAcceptance": False}))
         finally:
             for process in reversed(processes):
                 if process.poll() is None:
@@ -200,6 +209,13 @@ def main():
             for config in reversed(created_configs):
                 (config / "hosts").unlink(missing_ok=True)
                 config.rmdir()
+    if namespace_names(command("ip", "-j", "netns", "list")) != existing:
+        raise RuntimeError("Terminal namespace inventory differs from the prospective foreign set.")
+    if any(process.poll() is None for process in processes):
+        raise RuntimeError("An owned native-fixture process remains alive.")
+    print(json.dumps({"dnsConfigurationParsed": True, "nativeKernelCasesPassed": 6,
+                      "endToEndCertificateValidation": True, "ownedResourcesRemoved": True,
+                      "foreignNamespaceInventoryUnchanged": True, "azureAcaFlexAcceptance": False}))
 
 
 if __name__ == "__main__":

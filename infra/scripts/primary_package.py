@@ -83,7 +83,8 @@ def operations_contract(application_root, bundle, app):
     if app != OPERATIONS_APPLICATION:
         raise GateError("The chosen source has no reviewed restricted SQL adapter; no b7/schema3 mixing.")
     source = Path(application_root)
-    paths = ["docs/sql-runtime-contract.md", "src/Cohors.Infrastructure/SqlOperationsStore.cs",
+    paths = ["docs/sql-runtime-contract.md", "src/Cohors.Infrastructure/SqlStateStore.cs",
+             "src/Cohors.Infrastructure/SqlOperationsStore.cs",
              "src/Cohors.Operations/OperationsFunctions.cs", "src/Cohors.Bootstrap/Program.cs",
              "src/Cohors.Bootstrap/BootstrapRequest.cs"]
     migrations = sorted((source / "src/Cohors.Infrastructure/Migrations").glob("*.sql"))
@@ -101,13 +102,20 @@ def operations_contract(application_root, bundle, app):
     if bound["docs/sql-runtime-contract.md"] != OPERATIONS_DOCUMENT_SHA256:
         raise GateError("The original restricted SQL source document changed.")
     compiled = read_json(bundle / "sql-contract-build.json")
-    if compiled.get("hasRestrictedPrincipalGuard") is not True:
+    if compiled.get("hasRestrictedPrincipalGuard") is not True or compiled.get("schemaVersion") != 3:
         raise GateError("Compiled application lacks the original restricted-principal guard.")
     resources = compiled["migrationResources"]
     if len(resources) != len(migrations) or any(
             [value for name, value in resources.items() if name.endswith("." + path.name)]
             != [bound[path.relative_to(source).as_posix()]] for path in migrations):
         raise GateError("Compiled embedded migrations are not the exact original application migration bytes.")
+    modules = {}
+    for filename, name in (("003a_operations_quote.sql", "dbo.CohorsOperationsQuote"),
+                           ("003b_operations_write.sql", "dbo.CohorsOperationsWrite")):
+        raw = (source / "src/Cohors.Infrastructure/Migrations" / filename).read_bytes().decode("utf-8-sig")
+        modules[name] = hashlib.sha256(raw.encode("utf-16le")).hexdigest()
+    if compiled.get("moduleDefinitionSha256") != modules:
+        raise GateError("Compiled SQL module-definition hashes differ from the original migration text.")
     for host in ("api", "bootstrap"):
         if file_hash(bundle / host / "Cohors.Infrastructure.dll") != compiled["assemblySha256"]:
             raise GateError("Private tool/API/Bootstrap packages use different infrastructure assemblies.")
@@ -117,6 +125,7 @@ def operations_contract(application_root, bundle, app):
     return {"contract": "cohors-operations-write-v1", "schemaVersion": 3,
             "role": "cohors_operations_runtime", "procedure": "dbo.CohorsOperationsWrite",
             "applicationCommit": app, "sourceFiles": bound, "compiledAssemblySha256": compiled["assemblySha256"],
+            "moduleDefinitionSha256": modules,
             "entraAuthenticationProven": False, "azurePrincipalGrantsProven": False}
 
 

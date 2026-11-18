@@ -41,6 +41,18 @@ Die separaten privaten CLI-Ausgaben enthalten die tatsaechlichen SDK-Runtimes,
 kein zweites Fachprogramm und keine erfundenen ACR-/ZIP-URLs.
 Ein solcher Rebuild ist **nicht** das unveraenderte lokale Build49-Binaerpaket.
 
+Die Remotequelle dd112 ist inzwischen abrufbar. Ihr natuerlicher
+[CI-Lauf44355710367](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44355710367)
+ist jedoch **negativ**: 395 .NET-Faelle, 385 bestanden, zehn fehlgeschlagen,
+keiner uebersprungen. Recovery/Referenzabdeckung, FSN-Auditschnitt und die
+integrierte T12-/Operations-Historybindung bleiben beim Primaerowner offen.
+Das nimmt den gezielten lokalen Restricted-Principal-Nachweis nicht pauschal
+zurueck, qualifiziert aber auch keinen integrierten Applicationrelease.
+Der Infrabranch liest deshalb genau diesen vorhandenen Lauf, statt die gleiche
+dd112-Suite erneut zu starten. Der Readback bleibt negativ; Paketbau und
+Manifest-Hashes koennen ihn nicht ersetzen. `releaseBundle` bindet getrennt
+`validationRunId` fuer Infra und `applicationValidationRunId` fuer die Anwendung.
+
 Die eigene NVA ist eine **zusaetzliche kostenpflichtige Filterkomponente** mit
 eigenem Betrieb: Linux-VM, Disk, Public IP, Updates, Ausfall- und Messverfahren.
 Der gepinnte mitmproxy-Parser/TCP-Mechanismus leitet TLS verschluesselt weiter;
@@ -75,8 +87,11 @@ Evaluator; Replay, fehlende Werte und Nullfehler-/klinische-Validierungsversprec
 werden nicht als Qualitaetsnachweis akzeptiert. Billigere Nebenprofile brauchen
 einen kuenftigen versionierten Appvertrag und eigenen Eignungsnachweis.
 
-Noch offen sind insbesondere der fertige eingeschraenkte Operations-Grantadapter,
-echter Entra-Grantreadback, native Plattform-/Ausfallpruefungen, vollstaendiger
+`primary_sql.py` und `Cohors.InfraSql` enthalten einen noch nicht gehostet
+qualifizierten Principal-/Grantadapter: Originalmodulhashes, Schema3 und exakte
+Rollenrechte werden gegengelesen; die Anwendungsmigrationen werden nicht kopiert.
+Ein Metadatenreadback meldet ausdruecklich noch keinen Runtime-Entra-Login.
+Noch offen sind dessen echter SQL-/Entra-Nachweis, native Plattform-/Ausfallpruefungen, vollstaendiger
 Deadline-/Aktivierungs-/Cleanupabschluss, reale Personen-/Alarm-/Lizenzbindungen,
 vollstaendige aktuelle Kosten und gehostete Sicherheits-/Paketnachweise.
 Runtimephasen bleiben geschlossen; ein bloss passender Manifest-SHA oeffnet sie
@@ -348,7 +363,7 @@ Production. Die eigentliche SQL-/Search-Schemaanlage ist ein gesonderter Bootstr
 | API | AcrPull, Blob Data Contributor nur Container `evidence`, Search Index Data Contributor, Telemetrie-Publisher | SQL-Anwendungsrechte; Agent-App-Rolle |
 | Agents | AcrPull, Cognitive Services OpenAI User, Telemetrie-Publisher | Keine SQL-/Blob-Rechte; API-Callerbindung |
 | Workflows | Blob Data Owner sowie Queue/Table Data Contributor nur am eigenen Hostkonto; Contributor eigener Paketcontainer; Telemetrie | API-App-Rolle Workflow |
-| Operations | Entsprechende Rechte nur am separaten Hostkonto/Paketcontainer; Telemetrie | Eng begrenzte SQL-Watchdog-/Lease-/Outbox-Rechte, kein medizinischer/regulatorischer Freigabepfad |
+| Operations | Entsprechende Rechte nur am separaten Hostkonto/Paketcontainer; Telemetrie | Eigener Entra-Principal ausschliesslich in `cohors_operations_runtime`; SQL-direktes `IOperationsStore`/`dbo.CohorsOperationsWrite`, keine breite Tabellen-DML |
 | Digest-Publisher | Standardmaessig keine Datenrechte; optional Contributor nur am Digestcontainer | Separater gepruefter Publisher, SQL GENERATE LEDGER DIGEST, kein medizinischer Runtimehost |
 | Digest-Verifier | Blob Data Reader nur am Digestcontainer | Unabhaengige SQL-/Digest-Verifikation nach eigenem Betriebskonzept |
 | Alerts | Log Analytics Reader nur am Pilotworkspace | Externe Action-Group-Zustellung und On-call-Prozess |
@@ -356,9 +371,18 @@ Production. Die eigentliche SQL-/Search-Schemaanlage ist ein gesonderter Bootstr
 Kein Runtimehost bekommt Search Service Contributor, SQL-Administrator oder
 standardmaessig Key-Vault-Secretrechte. App-Registrierungen, App-Role-Assignments,
 SQL-contained users/grants und Migrationen fehlen nicht versehentlich: sie sind
-bewusste Bootstrap-Gates. Die genaue SQL-Objekt-/Prozedur-Grantliste muss aus den
-fertigen Anwendungsmigrationen abgeleitet und als negative Berechtigungsprobe
-getestet werden; generische `db_owner`-Rechte sind kein Ersatz.
+bewusste Bootstrap-Gates. Fuer dd112/Schema3 liefert ausschliesslich die originale
+Migration `003c_operations_permissions.sql` die dbo-eigene Operationsrolle:
+SELECT auf Aggregates/AggregateVersions/SchemaVersions, EXECUTE nur auf
+`dbo.CohorsOperationsWrite`, I/U/D-DENYs auf allen neun Anwendungstabellen,
+UPDATE-DENYs je Spalte sowie DDL-/User-/Role-/Schema-/Ownership-DENYs.
+Der Infraadapter ordnet den exakt gebundenen Client-ID-SID-Principal dieser Rolle
+zu und erteilt CONNECT; keine zweite Prozedur-/Rollen-DDL, keine pauschalen
+EXECUTE-, Owner- oder Securityrechte. Dbo-Ownershipchaining ist kein API-HTTP-Umweg.
+API behaelt die quellgebundene Objektmatrix ohne History-/Audit-UPDATE/DELETE.
+Bootstrap-Migrationsrechte sind temporaer und nicht Operations-Adminrechte.
+Echte Entra-Anmeldung, effektive Rechte und negative Berechtigungsproben am
+Ziel bleiben erforderlich; lokale SQL-Principals beweisen diese nicht.
 
 Die vorhandene Blob-Schnittstelle bindet aktuell den Container `evidence`.
 `quarantine` und `approved-packages` sind vorbereitete getrennte Container,
@@ -548,9 +572,24 @@ Checkov 3.4.5 verwendet pycep-parser 0.5.1: Der direkte Bicep-Scan scheitert an
 `string[]` und `toObject`; ein unveraenderter ARM-v2-Scan sah sogar null Ressourcen.
 Beides wurde verworfen. `checkov_templates.py` exportiert deshalb **alle**
 eingebetteten kompilierten Templates, auch bedingte/standardmaessig inaktive
-Zweige, als Ressourcenlisten. Die einzige zusaetzliche, quellengebundene
-Scan-Projektion ist die SQL-Server-Auditzuordnung. Storage-Namen, andere
-Eigenschaften, Bedingungen und Copy-Loops bleiben unveraendert.
+Zweige, als Ressourcenlisten. Die zusaetzlichen quellengebundenen Projektionen
+sind die SQL-Server-Auditzuordnung und beide Zweige des eng unterstuetzten
+DHCP-Objektausdrucks. Storage-Namen, uebrige Eigenschaften,
+Ressourcenbedingungen und Copy-Loops bleiben unveraendert.
+
+**CKV_AZURE_182/183:** Checkov3.4.5 behandelte das kompilierte
+`if(..., createObject('dnsServers', ...), createObject())` als String und
+warf vier TypeErrors, obwohl `parsing_errors=0` war. Die Scanansichten enthalten
+nun fuer jede betroffene Template-Scope beide Booleanzweige vollstaendig,
+auch wenn ein Parameterdefault nur einen davon waehlt. Der DNS-Parameter bleibt
+symbolisch; keine erfundene IP, kein Ersatz-DNS und kein impliziter Default.
+Eine inverse Vollbaumpruefung bindet jede Auswahl an den Originalausdruck.
+Ein einzelner DNS-Server bleibt ein echter CKV_AZURE_182-Befund; ein nicht
+aufgeloester Adressvergleich bleibt unbewertet, nicht bestanden.
+`checkov_observe.py` beobachtet die unveraenderten Python-Checkrueckgaben und
+erneut geworfenen Exceptions. UNKNOWN, SKIPPED, Ausfuehrungsfehler und sonstige
+Scannerdiagnostik schliessen den Gate auch bei null Parsingfehlern.
+Dieser Beobachter ist keine eigene Implementierung der Checkov-Kontrollen.
 
 **CKV_AZURE_23:** Eine eigenstaendige Server-`auditingSettings`-Ressource wird
 zusaetzlich exakt unter dem nachweislich zugehoerigen SQL-Server sichtbar gemacht.
@@ -668,9 +707,15 @@ ausgewertet; es werden keine Parameter-, Default- oder Runtimewerte eingesetzt.
 
 ## CI und die noch ausstehenden Integrationspruefungen
 
-CI: Ubuntu 24.04, Node 22 LTS (Vite benoetigt mindestens 22.12), SDK aus
+CI: Ubuntu 24.04, Node 24 LTS, SDK aus
 `global.json`, PowerShell 7, Docker Linux. Actions sind auf volle Commit-SHAs
 fixiert. Keine Azure-Credentials und kein OIDC-Recht im normalen CI.
+Auf dem isolierten Infrabranch ersetzt ausschliesslich ein lesender,
+versuchsgebundener Verweis auf den vorhandenen Primaer-App-CI den erneuten
+App-Testjob. Fehlgeschlagene, fehlende oder uebersprungene Originaltests bleiben
+negativ. Andere Appbranches behalten den echten SQL-/Browser-Harness.
+Infra- und Readbackartefakte haben eigene explizite Upload-Allowlists; sie
+duerfen nicht als die nachfolgend beschriebenen Fachtestartefakte gelten.
 
 Der Harness verlangt einen frischen Checkout ohne `.local/settings.json`, fuehrt
 `npm ci`, `Initialize-Local.ps1`, `Build-Local.ps1`, `Test-Local.ps1 -SkipBrowser`

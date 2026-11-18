@@ -72,7 +72,7 @@ class PrimaryBootstrapTests(unittest.TestCase):
         self.manifest["operationsSqlContract"] = {"applicationCommit": "a" * 40, "accepted": True}
         self.approval.update(phase="runtime", planHash=digest(self.plan),
                              acknowledgedEffects=bootstrap.EFFECTS["runtime"], whatIfSha256="4" * 64)
-        with self.assertRaisesRegex(GateError, "No restricted Operations grant adapter"):
+        with self.assertRaisesRegex(GateError, "not yet hosted-qualified"):
             bootstrap.approval_check(self.approval, self.plan, self.manifest, self.now)
 
     def test_consumption_is_not_mislabelled_as_strict_dns_dedicated(self):

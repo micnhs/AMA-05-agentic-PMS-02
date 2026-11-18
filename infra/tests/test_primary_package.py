@@ -58,7 +58,8 @@ class PrimaryPackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source"
             bundle = Path(directory) / "bundle"
-            paths = ("docs/sql-runtime-contract.md", "src/Cohors.Infrastructure/SqlOperationsStore.cs",
+            paths = ("docs/sql-runtime-contract.md", "src/Cohors.Infrastructure/SqlStateStore.cs",
+                     "src/Cohors.Infrastructure/SqlOperationsStore.cs",
                      "src/Cohors.Operations/OperationsFunctions.cs", "src/Cohors.Bootstrap/Program.cs",
                      "src/Cohors.Bootstrap/BootstrapRequest.cs") + tuple(
                          "src/Cohors.Infrastructure/Migrations/" + name for name in package.OPERATIONS_MIGRATIONS)
@@ -76,9 +77,12 @@ class PrimaryPackageTests(unittest.TestCase):
             with zipfile.ZipFile(bundle / "functions/cohors-operations.zip", "w") as archive:
                 archive.writestr("Cohors.Infrastructure.dll", fixture)
             resource = "Cohors.Infrastructure.Migrations.003c_operations_permissions.sql"
-            compiled = {"hasRestrictedPrincipalGuard": True, "assemblySha256": fixture_hash,
+            compiled = {"hasRestrictedPrincipalGuard": True, "schemaVersion": 3, "assemblySha256": fixture_hash,
                         "migrationResources": {"Cohors.Infrastructure.Migrations." + name: fixture_hash
-                                               for name in package.OPERATIONS_MIGRATIONS}}
+                                               for name in package.OPERATIONS_MIGRATIONS},
+                        "moduleDefinitionSha256": {
+                            name: hashlib.sha256(fixture.decode().encode("utf-16le")).hexdigest()
+                            for name in ("dbo.CohorsOperationsQuote", "dbo.CohorsOperationsWrite")}}
             result = subprocess.CompletedProcess(args=[], returncode=0, stdout=fixture, stderr=b"")
             with patch.object(package.subprocess, "run", return_value=result), \
                     patch.object(package, "OPERATIONS_DOCUMENT_SHA256", fixture_hash):

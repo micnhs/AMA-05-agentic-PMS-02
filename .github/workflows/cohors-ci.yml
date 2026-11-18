@@ -61,12 +61,56 @@ jobs:
             ${{ runner.temp }}/cohors-iac/main.json
             ${{ runner.temp }}/cohors-iac/primary-network.json
             ${{ runner.temp }}/cohors-iac/primary.json
-            ${{ runner.temp }}/cohors-iac/checkov-*.json
+            ${{ runner.temp }}/cohors-iac/checkov-main.json
+            ${{ runner.temp }}/cohors-iac/checkov-primary-network.json
+            ${{ runner.temp }}/cohors-iac/checkov-primary.json
+            ${{ runner.temp }}/cohors-iac/checkov-main.stderr.log
+            ${{ runner.temp }}/cohors-iac/checkov-primary-network.stderr.log
+            ${{ runner.temp }}/cohors-iac/checkov-primary.stderr.log
+            ${{ runner.temp }}/cohors-iac/checkov-main.executions.json
+            ${{ runner.temp }}/cohors-iac/checkov-primary-network.executions.json
+            ${{ runner.temp }}/cohors-iac/checkov-primary.executions.json
+            ${{ runner.temp }}/cohors-iac/checkov-main-input.manifest.json
+            ${{ runner.temp }}/cohors-iac/checkov-primary-network-input.manifest.json
+            ${{ runner.temp }}/cohors-iac/checkov-primary-input.manifest.json
+            ${{ runner.temp }}/cohors-iac/security-gate.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  application-source-binding:
+    name: Bound application acceptance (existing run)
+    if: ${{ (github.head_ref || github.ref_name) == 'micnhs-cohors-azure-infrastruktur' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Bind the existing application result without repeating its tests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -B infra/scripts/primary_acceptance.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --commit dd112705af2baf6c4e7787794b782f4f8937b1e8 \
+            --run-id 44355710367 \
+            --output "$RUNNER_TEMP/cohors-application-acceptance.json"
+      - name: Preserve the bound application result, including failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cohors-existing-application-acceptance
+          path: ${{ runner.temp }}/cohors-application-acceptance.json
           if-no-files-found: warn
           retention-days: 7
 
   acceptance:
     name: SQL, .NET and Chromium acceptance
+    if: ${{ (github.head_ref || github.ref_name) != 'micnhs-cohors-azure-infrastruktur' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -75,7 +119,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ (github.head_ref || github.ref_name) == 'micnhs-cohors-azure-infrastruktur' && 'dd112705af2baf6c4e7787794b782f4f8937b1e8' || github.sha }}
+          ref: ${{ github.sha }}
           path: application
           persist-credentials: false
       - name: Record actual application source, not a cloud release approval

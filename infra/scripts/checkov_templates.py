@@ -1,13 +1,14 @@
 """Export every compiled ARM template for Checkov's legacy resource-list reader.
 
-These scan-only files are not deployment artifacts. Only source-proven SQL audit
-relationships are projected. Storage names, security values, conditions and copy
-loops are never evaluated or replaced.
+These scan-only files are not deployment artifacts. Source-proven SQL audit
+relationships and both branches of a narrowly supported DHCP object expression
+are projected. Resource conditions, copies and unresolved DNS addresses remain.
 """
 
 import argparse
 import copy
 import hashlib
+import itertools
 import json
 import re
 from pathlib import Path
@@ -205,6 +206,79 @@ def resource_list(document):
     return result
 
 
+DHCP_EXPRESSION = re.compile(
+    r"\[if\(parameters\('(?P<condition>[A-Za-z][A-Za-z0-9_]*)'\), "
+    r"createObject\('dnsServers', createArray\(parameters\('(?P<dns>[A-Za-z][A-Za-z0-9_]*)'\)\)\), "
+    r"createObject\(\)\)\]"
+)
+
+
+def dhcp_sites(template, path=()):
+    for index, resource in enumerate(template["resources"]):
+        resource_path = path + ("resources", index)
+        properties = resource.get("properties", {})
+        if resource["type"].lower() == "microsoft.network/virtualnetworks":
+            expression = properties.get("dhcpOptions")
+            if isinstance(expression, str):
+                match = DHCP_EXPRESSION.fullmatch(expression)
+                parameters = template.get("parameters", {})
+                if (match is None or parameters.get(match["condition"], {}).get("type") != "bool"
+                        or parameters.get(match["dns"], {}).get("type") != "string"):
+                    raise ValueError("Unsupported DHCP object expression; no partial or default-only scan.")
+                yield {"path": list(resource_path + ("properties", "dhcpOptions")),
+                       "scope": list(path), "conditionParameter": match["condition"],
+                       "dnsParameter": match["dns"], "sourceExpressionSha256": digest(expression)}
+        elif resource["type"].lower() == "microsoft.resources/deployments":
+            yield from dhcp_sites(properties["template"], resource_path + ("properties", "template"))
+
+
+def at_path(document, path):
+    value = document
+    for key in path:
+        value = value[key]
+    return value
+
+
+def verify_dhcp_projection(source, projected, bindings):
+    sites = list(dhcp_sites(source))
+    if len(sites) != len(bindings):
+        raise ValueError("DHCP projection omitted or added a conditional site.")
+    restored = copy.deepcopy(projected)
+    assignments = {}
+    for site, binding in zip(sites, bindings):
+        if any(binding.get(key) != value for key, value in site.items()) or type(binding.get("branch")) is not bool:
+            raise ValueError("DHCP branch is not bound to its exact source expression.")
+        condition = (tuple(site["scope"]), site["conditionParameter"])
+        if condition in assignments and assignments[condition] != binding["branch"]:
+            raise ValueError("One parameter cannot take conflicting values in the same template scope.")
+        assignments[condition] = binding["branch"]
+        expected = {"dnsServers": ["[parameters('" + site["dnsParameter"] + "')]"]} if binding["branch"] else {}
+        if digest(at_path(projected, site["path"])) != digest(expected):
+            raise ValueError("DHCP branch changed the source-derived DNS expression.")
+        parent = at_path(restored, site["path"][:-1])
+        parent[site["path"][-1]] = at_path(source, site["path"])
+    if digest(restored) != digest(source):
+        raise ValueError("DHCP projection changed another property, resource, condition or copy.")
+
+
+def dhcp_variants(template):
+    sites = list(dhcp_sites(template))
+    conditions = list(dict.fromkeys((tuple(site["scope"]), site["conditionParameter"]) for site in sites))
+    if len(conditions) > 8:
+        raise ValueError("Too many DHCP branch combinations; explicit scanner support is required.")
+    for values in itertools.product((False, True), repeat=len(conditions)):
+        assignments = dict(zip(conditions, values))
+        projected = copy.deepcopy(template)
+        bindings = []
+        for site in sites:
+            branch = assignments[(tuple(site["scope"]), site["conditionParameter"])]
+            value = {"dnsServers": ["[parameters('" + site["dnsParameter"] + "')]"]} if branch else {}
+            at_path(projected, site["path"][:-1])[site["path"][-1]] = value
+            bindings.append({**site, "branch": branch})
+        verify_dhcp_projection(template, projected, bindings)
+        yield projected, bindings
+
+
 def export(source, destination):
     manifest_path = destination.with_suffix(".manifest.json")
     original_path = destination.with_suffix(".original.json")
@@ -227,21 +301,26 @@ def export(source, destination):
     manifest = []
     files = []
     for index, ((path, template), (_, scan_template)) in enumerate(zip(inventory, projected)):
-        filename = f"SCAN-ONLY-{index:03}.json"
         resources = template["resources"]
-        entries = resources.items() if isinstance(resources, dict) else enumerate(resources)
-        contents = (json.dumps(scan_template, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
-        manifest.append({
-            "file": filename,
-            "templatePath": list(path),
-            "scanSha256": hashlib.sha256(contents).hexdigest(),
-            "resources": [
-                {"symbol": str(symbol), "type": resource["type"], "existing": resource.get("existing", False),
-                 "sourceSha256": digest(resource)}
-                for symbol, resource in entries
-            ],
-        })
-        files.append((filename, contents))
+        entries = list(resources.items() if isinstance(resources, dict) else enumerate(resources))
+        variants = list(dhcp_variants(scan_template))
+        for variant_index, (variant, bindings) in enumerate(variants):
+            suffix = f"-DHCP-{variant_index:03}" if bindings else ""
+            filename = f"SCAN-ONLY-{index:03}{suffix}.json"
+            contents = (json.dumps(variant, indent=2, ensure_ascii=True) + "\n").encode("utf-8")
+            manifest.append({
+                "file": filename,
+                "templatePath": list(path),
+                "scanSha256": hashlib.sha256(contents).hexdigest(),
+                "preDhcpScanSha256": digest(scan_template),
+                "dhcpBranchBindings": bindings,
+                "resources": [
+                    {"symbol": str(symbol), "type": resource["type"], "existing": resource.get("existing", False),
+                     "sourceSha256": digest(resource)}
+                    for symbol, resource in entries
+                ],
+            })
+            files.append((filename, contents))
     # Do not publish partial scan input after a failed relationship/coverage proof.
     destination.mkdir(parents=True)
     for filename, contents in files:
@@ -250,10 +329,12 @@ def export(source, destination):
     manifest_path.write_text(json.dumps({
         "sourceSha256": hashlib.sha256(source_bytes).hexdigest(),
         "originalFile": original_path.name,
+        "sourceTemplateCount": len(inventory),
+        "scanVariantCount": len(manifest),
         "normalizations": changes,
         "templates": manifest,
     }, indent=2) + "\n", encoding="utf-8")
-    print(f"Exported all {len(manifest)} compiled templates; manifest: {manifest_path}")
+    print(f"Exported all {len(inventory)} compiled templates in {len(manifest)} exhaustive scan views; manifest: {manifest_path}")
 
 
 if __name__ == "__main__":

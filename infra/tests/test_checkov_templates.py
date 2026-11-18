@@ -7,7 +7,8 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from checkov_templates import digest, export, resource_list, scan_copy, templates, verify_projection
+from checkov_templates import (digest, dhcp_variants, export, resource_list, scan_copy,
+                               templates, verify_dhcp_projection, verify_projection)
 
 
 class CheckovTemplateTests(unittest.TestCase):
@@ -275,6 +276,67 @@ class CheckovTemplateTests(unittest.TestCase):
                           "originalName": source["resources"]["storage"]["name"], "scanName": "replacementname"}
         with self.assertRaisesRegex(ValueError, "Unsupported scan normalization"):
             verify_projection(source, altered, [*changes, storage_change])
+
+
+    def dhcp_template(self):
+        return {"parameters": {"owned": {"type": "bool", "defaultValue": False},
+                               "dns": {"type": "string", "defaultValue": "10.0.0.4"}},
+                "resources": [{"type": "Microsoft.Network/virtualNetworks", "name": "[parameters('name')]",
+                               "condition": False, "copy": {"count": "[parameters('count')]"},
+                               "properties": {"dhcpOptions": "[if(parameters('owned'), createObject('dnsServers', createArray(parameters('dns'))), createObject())]",
+                                              "addressSpace": {"addressPrefixes": ["[parameters('network')]"]}}}]}
+
+    def test_dhcp_projects_both_branches_without_default_ip_or_condition_replacement(self):
+        source = self.dhcp_template()
+        original = copy.deepcopy(source)
+        variants = list(dhcp_variants(source))
+        self.assertEqual(len(variants), 2)
+        self.assertEqual([bindings[0]["branch"] for _, bindings in variants], [False, True])
+        self.assertEqual([view["resources"][0]["properties"]["dhcpOptions"] for view, _ in variants],
+                         [{}, {"dnsServers": ["[parameters('dns')]"]}])
+        for view, bindings in variants:
+            self.assertIs(view["resources"][0]["condition"], False)
+            self.assertEqual(view["resources"][0]["copy"], original["resources"][0]["copy"])
+            verify_dhcp_projection(source, view, bindings)
+        self.assertEqual(source, original)
+        with tempfile.TemporaryDirectory() as temporary:
+            path, target = Path(temporary) / "main.json", Path(temporary) / "scan"
+            path.write_text(json.dumps(source), encoding="utf-8")
+            export(path, target)
+            manifest = json.loads(target.with_suffix(".manifest.json").read_text())
+            self.assertEqual(manifest["sourceTemplateCount"], 1)
+            self.assertEqual(manifest["scanVariantCount"], 2)
+            self.assertEqual({row["dhcpBranchBindings"][0]["branch"] for row in manifest["templates"]}, {False, True})
+
+    def test_dhcp_rejects_unsupported_expressions_unbound_branches_and_extra_mutation(self):
+        source = self.dhcp_template()
+        view, bindings = list(dhcp_variants(source))[1]
+        for mutate in (
+            lambda value: value["resources"][0]["properties"]["dhcpOptions"].update(dnsServers=["10.0.0.4"]),
+            lambda value: value["resources"][0].update(condition=True),
+            lambda value: value["resources"].clear(),
+        ):
+            changed = copy.deepcopy(view)
+            mutate(changed)
+            with self.assertRaises((ValueError, IndexError)):
+                verify_dhcp_projection(source, changed, bindings)
+        changed = copy.deepcopy(bindings)
+        changed[0]["sourceExpressionSha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "bound"):
+            verify_dhcp_projection(source, view, changed)
+        source["resources"][0]["properties"]["dhcpOptions"] = "[variables('unresolvedDhcp')]"
+        with self.assertRaisesRegex(ValueError, "Unsupported DHCP"):
+            list(dhcp_variants(source))
+
+    def test_nested_dhcp_scope_gets_all_combinations_and_no_missing_branch(self):
+        source = self.dhcp_template()
+        source["resources"].append({"type": "Microsoft.Resources/deployments",
+                                    "properties": {"template": self.dhcp_template()}})
+        variants = list(dhcp_variants(source))
+        self.assertEqual({tuple(item["branch"] for item in bindings) for _, bindings in variants},
+                         {(False, False), (False, True), (True, False), (True, True)})
+        with self.assertRaisesRegex(ValueError, "omitted"):
+            verify_dhcp_projection(source, variants[0][0], variants[0][1][:-1])
 
 
 if __name__ == "__main__":

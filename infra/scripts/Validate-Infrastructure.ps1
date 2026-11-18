@@ -33,8 +33,10 @@ Write-Output "$bicepVersion; Checkov $checkovVersion; Actionlint $($actionlintVe
 
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 if ($output -eq $root) { throw 'Validation output must not be the repository root.' }
-New-Item -ItemType Directory -Path $output -Force | Out-Null
+if (Test-Path -LiteralPath $output) { throw 'Use a fresh validation directory; never overwrite earlier evidence.' }
+New-Item -ItemType Directory -Path $output | Out-Null
 $templates = @('main', 'primary-network', 'primary')
+$checks = @()
 foreach ($name in $templates) {
     & az bicep build --file (Join-Path $root "infra/$name.bicep") --outfile (Join-Path $output "$name.json")
     if ($LASTEXITCODE -ne 0) { throw "Bicep build failed: $name." }
@@ -62,25 +64,57 @@ $env:PYTHONDONTWRITEBYTECODE = '1'
 if ($LASTEXITCODE -ne 0) { throw 'Offline gate and report tests failed.' }
 
 foreach ($name in $templates) {
-    $scanInput = Join-Path $output "checkov-$name-$([Guid]::NewGuid().ToString('N'))"
+    $scanInput = Join-Path $output "checkov-$name-input"
     & python (Join-Path $PSScriptRoot 'checkov_templates.py') (Join-Path $output "$name.json") $scanInput
     if ($LASTEXITCODE -ne 0) { throw 'Checkov input preparation failed; no partial/zero-resource scan is accepted.' }
     $reportPath = Join-Path $output "checkov-$name.json"
+    $diagnosticPath = Join-Path $output "checkov-$name.stderr.log"
+    $observationPath = Join-Path $output "checkov-$name.executions.json"
     $scanDirectory = $scanInput
+    $scanCommand = 'python'
+    $scanArguments = @('-B', (Join-Path $PSScriptRoot 'checkov_observe.py'))
     if ($SecurityScanner -eq 'Container') {
-        $scannerArguments = @($dockerOptions) + @('--mount', "type=bind,source=$scanInput,target=/compiled,readonly", $checkovImage)
+        $scanCommand = 'docker'
+        $scanArguments = @($dockerOptions) + @('--mount', "type=bind,source=$scanInput,target=/compiled,readonly",
+            '--mount', "type=bind,source=$(Join-Path $PSScriptRoot 'checkov_observe.py'),target=/checkov_observe.py,readonly",
+            '--entrypoint', 'python', $checkovImage, '-B', '/checkov_observe.py')
         $scanDirectory = '/compiled'
     }
-    & $scannerCommand @scannerArguments -d $scanDirectory --framework arm --skip-download `
-        --skip-results-upload --download-external-modules false --output json |
+    & $scanCommand @scanArguments -d $scanDirectory --framework arm --skip-download `
+        --skip-results-upload --download-external-modules false --output json 2> $diagnosticPath |
         Set-Content -LiteralPath $reportPath -Encoding utf8NoBOM
     $exitCode = $LASTEXITCODE
     $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
     $summary = $report.summary
     Write-Output "Checkov $name compiled ARM: $($summary | ConvertTo-Json -Compress); exit $exitCode."
-    if ($exitCode -ne 0 -or $summary.failed -ne 0 -or $summary.parsing_errors -ne 0 -or
-        $summary.skipped -ne 0 -or [int]$summary.passed -le 0 -or [int]$summary.resource_count -le 0) {
-        throw "Security gate is NOT passed. Review $reportPath and the per-control classification in docs/azure-infrastructure.md; no findings are automatically waived."
+    $diagnosticLines = @(Get-Content -LiteralPath $diagnosticPath)
+    $marker = 'COHORS_CHECKOV_EXECUTION_OBSERVATION:'
+    $observations = @($diagnosticLines | Where-Object { $_.StartsWith($marker) })
+    if ($observations.Count -ne 1) { throw 'Missing or duplicate check-execution observation; no scanner pass.' }
+    $observation = $observations[0].Substring($marker.Length) | ConvertFrom-Json
+    $observation | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $observationPath -Encoding utf8NoBOM
+    $diagnostics = ($diagnosticLines | Where-Object { -not $_.StartsWith($marker) }) -join "`n"
+    Write-Output "Checkov $name Python executions: $($observation.counts | ConvertTo-Json -Compress)."
+    $passed = $exitCode -eq 0 -and $summary.failed -eq 0 -and $summary.parsing_errors -eq 0 -and
+        $summary.skipped -eq 0 -and [int]$summary.passed -gt 0 -and [int]$summary.resource_count -gt 0 -and
+        $observation.contract -eq 'cohors-checkov-python-execution-1' -and
+        $observation.completeWithoutUnknownSkippedOrErrors -eq $true -and
+        [string]::IsNullOrWhiteSpace($diagnostics)
+    $checks += @{
+        template = $name; passed = $passed; exitCode = $exitCode; summary = $summary
+        hasScannerDiagnostics = -not [string]::IsNullOrWhiteSpace($diagnostics)
+        reportSha256 = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        diagnosticsSha256 = (Get-FileHash -LiteralPath $diagnosticPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        executionObservationSha256 = (Get-FileHash -LiteralPath $observationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        executionCounts = $observation.counts
+        scanInputManifestSha256 = (Get-FileHash -LiteralPath "$scanInput.manifest.json" -Algorithm SHA256).Hash.ToLowerInvariant()
     }
+    if (-not [string]::IsNullOrWhiteSpace($diagnostics)) { Write-Output $diagnostics }
+}
+$gatePassed = @($checks | Where-Object { -not $_.passed }).Count -eq 0
+@{ contract = 'cohors-infrastructure-security-gate-1'; passed = $gatePassed; checks = $checks } |
+    ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $output 'security-gate.json') -Encoding utf8NoBOM
+if (-not $gatePassed) {
+    throw "Security gate is NOT passed. Review all three reports and stderr logs in $output. Zero parsing_errors never waives failed check execution or unresolved controls."
 }
 Write-Output 'Local infrastructure gate passed. No Azure login, deployment, what-if, application integration or restore was executed.'

@@ -11,27 +11,21 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
-from primary_control import ARM, GRAPH, GateError, NoRedirect, canonical, digest, read_json, file_hash, timestamp
+from primary_control import ARM, GRAPH, GateError, NoRedirect, canonical, digest, read_json, file_hash, parse_time, timestamp
+from primary_acceptance import github_json, require_application_acceptance
 
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPUTE_VERSION = "2024-11-01"
 
 
-def github_json(path):
-    result = subprocess.run(["gh", "api", path], stdin=subprocess.DEVNULL, capture_output=True,
-                            timeout=90, check=False)
-    if result.returncode:
-        raise GateError("Existing GitHub context cannot read the bound package; no login or token fallback.")
-    return json.loads(result.stdout)
-
-
-def artifact_url(binding):
+def qualified_artifact(binding):
     repo = binding["repository"]
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
         raise GateError("Invalid bound GitHub repository.")
     artifact = github_json(f"repos/{repo}/actions/artifacts/{int(binding['artifactId'])}")
     if (artifact.get("expired") or artifact.get("digest") != binding["artifactDigest"]
+            or artifact.get("name") != "cohors-primary-release"
             or artifact.get("workflow_run", {}).get("id") != binding["runId"]
             or artifact.get("workflow_run", {}).get("head_sha") != binding["infrastructureCommit"]):
         raise GateError("The exact built artifact expired or its digest/run/source binding differs.")
@@ -42,6 +36,35 @@ def artifact_url(binding):
             or run.get("repository", {}).get("full_name") != repo
             or run.get("event") not in ("push", "workflow_dispatch")):
         raise GateError("A failed, foreign or unrecognized workflow cannot supply a deployable package.")
+    if parse_time(artifact["created_at"]) < parse_time(run["run_started_at"]):
+        raise GateError("An artifact from an earlier failed run attempt cannot inherit a later success.")
+    return artifact
+
+
+def require_hosted_qualification(binding):
+    qualified_artifact(binding)
+    run = github_json(f"repos/{binding['repository']}/actions/runs/{binding['validationRunId']}")
+    if (run.get("status") != "completed" or run.get("conclusion") != "success"
+            or run.get("head_sha") != binding["infrastructureCommit"]
+            or run.get("path") != ".github/workflows/cohors-ci.yml"
+            or run.get("head_branch") != "micnhs-cohors-azure-infrastruktur"
+            or run.get("repository", {}).get("full_name") != binding["repository"]
+            or run.get("event") not in ("push", "workflow_dispatch")):
+        raise GateError("The exact candidate lacks a completed successful security/native/application CI run.")
+    jobs = github_json(f"repos/{binding['repository']}/actions/runs/{binding['validationRunId']}/jobs?per_page=100")
+    expected = {"Bicep and local security gates": "success",
+                "Bound application acceptance (existing run)": "success",
+                "SQL, .NET and Chromium acceptance": "skipped"}
+    if (jobs.get("total_count") != len(expected) or len(jobs.get("jobs", [])) != len(expected)
+            or {job.get("name"): job.get("conclusion") for job in jobs["jobs"]} != expected):
+        raise GateError("Skipped, missing or failed qualification jobs cannot authorize provisioning.")
+    require_application_acceptance(binding["repository"], binding["applicationValidationRunId"],
+                                   binding["applicationCommit"], github_json)
+
+
+def artifact_url(binding):
+    artifact = qualified_artifact(binding)
+    repo = binding["repository"]
     result = subprocess.run(["gh", "auth", "token", "--hostname", "github.com"],
                             stdin=subprocess.DEVNULL, capture_output=True, timeout=90, check=False)
     if result.returncode:

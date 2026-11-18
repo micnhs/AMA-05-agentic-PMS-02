@@ -17,20 +17,11 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import uuid
 
 from primary_control import (ARM, GateError, NoRedirect, canonical, digest, file_hash, jwt_metadata,
                              parse_time, read_json, timestamp, write_json)
 from primary_package import verify_bundle
-
-
-API_GRANTS = {
-    "Aggregates": ("SELECT", "INSERT", "UPDATE"), "AggregateVersions": ("SELECT", "INSERT"),
-    "Commands": ("SELECT", "INSERT"), "AuditEvents": ("SELECT", "INSERT"),
-    "Outbox": ("SELECT", "INSERT", "UPDATE"), "Inbox": ("SELECT", "INSERT"),
-    "Deadlines": ("SELECT", "INSERT", "UPDATE"), "SearchProjection": ("SELECT", "INSERT", "UPDATE"),
-    "SchemaVersions": ("SELECT",),
-}
+from primary_sql import sql_grants, verify_receipt
 
 
 class TransportError(GateError):
@@ -91,30 +82,17 @@ def require_private(host, network):
     return sorted(addresses)
 
 
-def sql_grants(role, client_id):
-    if role != "api":
-        raise GateError("Generic Operations JSON grants are prohibited. Use the primary owner's built restricted SQL contract.")
-    sid = uuid.UUID(client_id).bytes_le.hex()
-    name = "cohors_" + role
-    grants = API_GRANTS
-    lines = ["SET XACT_ABORT ON; BEGIN TRANSACTION;",
-             f"IF EXISTS(SELECT 1 FROM sys.database_principals WHERE name=N'{name}' AND (sid<>0x{sid} OR type<>'E')) THROW 51000,'Runtime identity mismatch',1;",
-             f"IF NOT EXISTS(SELECT 1 FROM sys.database_principals WHERE name=N'{name}') CREATE USER [{name}] WITH SID=0x{sid}, TYPE=E;",
-             f"GRANT CONNECT TO [{name}];"]
-    lines += [f"GRANT {','.join(permissions)} ON OBJECT::dbo.[{table}] TO [{name}];"
-              for table, permissions in grants.items()]
-    lines += [f"DENY DELETE ON SCHEMA::dbo TO [{name}];", f"DENY ALTER ON SCHEMA::dbo TO [{name}];",
-              f"DENY INSERT,UPDATE,DELETE ON OBJECT::dbo.SchemaVersions TO [{name}];", "COMMIT;"]
-    return "\n".join(lines)
-
-
-def sql_run(bundle, request, sql):
+def sql_run(bundle, request, role, release):
     platform = request["platform"]
     executable = bundle / "tools/sql/Cohors.InfraSql"
     executable.chmod(0o700)
-    execute([str(executable), platform["endpoints"]["sqlServer"], platform["databaseName"],
-             request["identities"]["bootstrap"]["clientId"]],
-            env=runtime_environment(request, request["identities"]["bootstrap"], bundle), input_bytes=sql.encode(), timeout=300)
+    client_id = request["runtimeIdentities"][role]["clientId"]
+    sql = sql_grants(role, client_id, release["operationsSqlContract"]["moduleDefinitionSha256"])
+    raw = execute([str(executable), platform["endpoints"]["sqlServer"], platform["databaseName"],
+                   request["identities"]["bootstrap"]["clientId"]],
+                  env=runtime_environment(request, request["identities"]["bootstrap"], bundle),
+                  input_bytes=sql.encode(), timeout=300)
+    return verify_receipt(json.loads(raw), role, client_id, sql)
 
 
 def dotnet_environment(bundle):
@@ -144,7 +122,7 @@ def runtime_environment(request, identity, bundle):
     return environment
 
 
-def initialize_schema(bundle, request):
+def initialize_schema(bundle, request, release):
     env = runtime_environment(request, request["identities"]["bootstrap"], bundle)
     executable = bundle / "bootstrap/Cohors.Bootstrap"
     executable.chmod(0o700)
@@ -154,9 +132,7 @@ def initialize_schema(bundle, request):
     execute([str(executable), "search", "--expect-endpoint", endpoints["search"],
              "--expect-index", "cohors-evidence", "--apply"], env=env)
     # These are identity/object permissions only. Application migrations above remain authoritative.
-    sql_run(bundle, request, sql_grants("api", request["runtimeIdentities"]["api"]["clientId"]))
-    return {"apiPermissionsApplied": True, "operationsPermissionsApplied": False,
-            "operationsRequiresBuiltRestrictedContract": True}
+    return {role: sql_run(bundle, request, role, release) for role in ("api", "operations")}
 
 
 def seed(bundle, request):
@@ -320,7 +296,7 @@ def main():
                 execute(["apt-get", "update", "-qq"])
                 execute(["apt-get", "install", "-y", "-qq", "skopeo"])
             images = push_images(args.bundle, request, release)
-            permissions = initialize_schema(args.bundle, request)
+            permissions = initialize_schema(args.bundle, request, release)
             receipt["result"] = {"release": {**images, "boundaryReview": boundary_hash(args.bundle, request)},
                                  "sqlPermissions": permissions}
         elif phase == "seed":
