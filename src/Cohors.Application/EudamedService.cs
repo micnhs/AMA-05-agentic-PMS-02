@@ -327,13 +327,26 @@ public sealed partial class EudamedService(IStateStore store, IObjectStore objec
         Guard.Against(value.ValueKind != System.Text.Json.JsonValueKind.Object, "eudamed_audit_missing", "Vorgang fehlt.", 404);
         actor.RequireProduct(value.GetProperty("productId").GetString()!);
         if (kind == "eudamedDossier")
-            EudamedRules.RequireActorScope(Canonical.Read<EudamedDossier>(value.GetRawText()), actor);
+        {
+            var dossier = Canonical.Read<EudamedDossier>(value.GetRawText());
+            EudamedRules.RequireActorScope(dossier, actor);
+            await RequireFsnPublicationAccess(dossier, actor, ct);
+        }
         if (kind == "eudamedDelivery")
             foreach (var entry in Canonical.Read<EudamedDeliveryLedger>(value.GetRawText()).Entries)
                 EudamedRules.RequireActorScope(await ApprovedDossier(entry, ct), actor);
         if (kind == "eudamedInbox" && Canonical.Read<EudamedInbox>(value.GetRawText()).Original is { } original)
             _ = await GetDossier(original.DossierId, actor, ct);
-        return await store.Audit(id, ct);
+        var audit = await store.Audit(id, ct);
+        if (kind == "eudamedDossier")
+            foreach (var entry in audit.Where(a => a.Action is "FsnPublicationDrafted" or "FsnPublicationApproved" or "FsnPublicationSimulated"))
+            {
+                var revision = await store.GetVersion<EudamedDossier>(kind, id, entry.Version, ct)
+                    ?? throw new DomainException("fsn_audit_version", "Originalfassung der gesonderten Veroeffentlichungsentscheidung fehlt.", 409);
+                EudamedRules.RequireActorScope(revision, actor);
+                await RequireFsnPublicationAccess(revision, actor, ct);
+            }
+        return audit;
     }
 
     private async Task<EudamedReferences> GetReferences(string id, Actor actor, CancellationToken ct)

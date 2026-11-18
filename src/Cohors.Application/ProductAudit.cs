@@ -212,7 +212,17 @@ public static class ProductAuditRules
                 foreach (var attempt in dossier.Attempts) Attempt(attempt);
                 foreach (var response in dossier.BusinessResponses) Response(response);
                 foreach (var correspondence in dossier.Correspondence) Correspondence(correspondence);
-                foreach (var distribution in dossier.Distributions) add(distribution.EvidenceHash);
+                foreach (var distribution in dossier.Distributions)
+                {
+                    add(distribution.PackageHash);
+                    add(distribution.EvidenceHash);
+                }
+                if (dossier.FsnPublication is { } publication)
+                {
+                    add(publication.Plan.DocumentHash);
+                    add(publication.Plan.PackageHash);
+                    foreach (var feedback in publication.Plan.Feedback) Correspondence(feedback.Original);
+                }
                 foreach (var source in dossier.Package.Sources)
                     EudamedObjects(source.Kind, source.Json, add, depth + 1);
                 break;

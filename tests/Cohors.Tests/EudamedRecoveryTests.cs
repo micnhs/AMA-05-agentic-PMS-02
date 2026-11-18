@@ -63,6 +63,22 @@ public sealed class EudamedRecoveryTests : IDisposable
         }
         var history = await service.DossierHistory(data.Current.Id, SqlFixture.Ra);
         Assert.Contains(history, item => Canonical.Hash(item) == Canonical.Hash(data.Approved));
+        var fsn = await service.GetDossier(data.CurrentFsn.Id, SqlFixture.Ra);
+        Assert.Equal(Canonical.Serialize(data.CurrentFsn), Canonical.Serialize(fsn));
+        Assert.Null(fsn.FsnPublication);
+        Assert.Contains(await service.DossierHistory(fsn.Id, SqlFixture.Ra),
+            item => Canonical.Hash(item) == Canonical.Hash(data.PublishedFsn));
+        var distribution = Assert.Single(fsn.Distributions);
+        Assert.NotNull(distribution.PublicationSource);
+        var communication = await service.ReadDossierOriginal(fsn.Id, fsn.Version, distribution.EvidenceHash, SqlFixture.Ra);
+        Assert.Equal(fixture.SourceBytes[distribution.EvidenceHash], communication.Bytes);
+        var publication = Canonical.Read<FsnDistributionEvidence>(Encoding.UTF8.GetString(communication.Bytes));
+        Assert.Equal(Canonical.Hash(data.PublishedFsn.FsnPublication), Canonical.Hash(publication.Publication));
+        Assert.Equal(distribution.PublicationScopeHash, Canonical.Hash(publication.Publication.Plan));
+        Assert.Equal(data.Document.OriginalHash, publication.Publication.Plan.DocumentHash);
+        Assert.Equal(2, publication.Publication.Approvals.Select(a => a.ActorId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Single(publication.Publication.Plan.Feedback);
+        Assert.Equal("simulator://fsn/DEMO-IE-RECOVERY", Assert.Single(publication.Recipients).TechnicalRecipient);
         Assert.Equal(fixture.SourceTables, await RecoveryFixture.Tables(target.Connection));
         await fixture.RequireSentinel();
     }
@@ -134,7 +150,8 @@ public sealed partial class RecoveryFixture
 
 internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDossier Approved,
     EudamedDossier Current, EudamedDeliveryLedger Ledger, EudamedInbox[] Inbox,
-    SortedDictionary<string, string> History, Dictionary<string, string> Originals)
+    SortedDictionary<string, string> History, Dictionary<string, string> Originals,
+    EudamedDossier PublishedFsn, EudamedDossier CurrentFsn)
 {
     private const string Reason = "SYNTHETISCH: Der isolierte Wiederherstellungsschnitt erhaelt Originalbytes, historische Quellen und getrennte menschliche Freigaben. Keine reale Patientenhandlung, externe Uebermittlung oder implizite Sicherheitsfreigabe.";
 
@@ -215,8 +232,39 @@ internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDoss
             ["transport-receipt"] = entry.Attempt.ReceiptHash!
         };
         foreach (var item in inbox) originals.Add("inbox-" + item.Original!.Kind, item.OriginalHash);
+        var fsnContent = new EudamedDossierContent("SYNTHETISCH: FSN-Recovery-Originalbindung", Reason, Reason, "de", "EU-IE",
+            ["IE"], "Submit", null, null, null, null, new(revised.Id, revised.Version,
+                "SYNTHETISCH: Isolierter Testempfaenger, keine reale Einrichtung", Reason, document.OriginalHash,
+                document.Name, "1", "Draft", false, "FINAL", new(2026, 11, 16)));
+        var fsnInput = new DraftEudamedDossierCommand(0, "ortho", EudamedDossierKind.FSN, fsnContent,
+            [new("eudamedDossier", revised.Id, revised.Version), new("eudamedDocument", document.Id, document.Version)], Reason);
+        var fsn = await Approve(service, await service.DraftDossier(null, fsnInput, SqlFixture.Pms, CaseScenario.Key()));
+        var fsnView = await service.DossierView(fsn.Id, SqlFixture.Ra);
+        fsnView = await service.QueueDossier(fsn.Id, new(fsn.Version, fsnView.Ledger.Version, "Comment", Reason), SqlFixture.Ra, CaseScenario.Key());
+        await service.ProcessDelivery(fsnView.Ledger.Id, Assert.Single(fsnView.Ledger.Entries).Attempt.Id);
+        fsnView = await service.DossierView(fsn.Id, SqlFixture.Ra);
+        clock.Now = clock.Now.AddSeconds(2);
+        foreach (var planned in fsnView.Dossier.PlannedResponses.OrderBy(item => item.Sequence).ToArray())
+            fsnView = await service.AdvanceSimulator(fsn.Id, new(fsnView.Dossier.Version, planned.Id, false, Reason),
+                SqlFixture.Ra, CaseScenario.Key());
+        var feedback = await service.FsnFeedback(fsn.Id, SqlFixture.Pms);
+        fsn = await service.DraftFsnPublication(fsn.Id, new(fsnView.Dossier.Version, feedback.Ledger.Version,
+            [new("DEMO-IE-RECOVERY", "IE", "SYNTHETISCH: Isolierter Recovery-Testempfaenger")],
+            "SimulatedPortal", "AfterAuthorityFeedback",
+            feedback.Feedback.Select(item => new FsnFeedbackDecision(item.Id, item.OriginalHash, "NoChangeJustified", Reason)).ToArray(),
+            Reason, Reason, Reason), SqlFixture.Pms, CaseScenario.Key());
+        fsn = await service.ApproveFsnPublication(fsn.Id, new(fsn.Version, Reason, null), SqlFixture.Medical, CaseScenario.Key());
+        fsn = await service.ApproveFsnPublication(fsn.Id, new(fsn.Version, Reason, null), SqlFixture.Ra, CaseScenario.Key());
+        var publishedFsn = await service.PublishFsnDistribution(fsn.Id,
+            new(fsn.Version, feedback.Ledger.Version, fsn.FsnPublication!.ScopeHash, true, Reason), SqlFixture.Ra, CaseScenario.Key());
+        var currentFsn = await service.DraftDossier(fsn.Id, fsnInput with
+        {
+            ExpectedVersion = publishedFsn.Version,
+            Content = fsnContent with { Title = "SYNTHETISCH: Spaetere FSN-Dokumentfassung nach simulierter Verteilung" }
+        }, SqlFixture.Pms, CaseScenario.Key());
+        originals.Add("fsn-distribution", Assert.Single(publishedFsn.Distributions).EvidenceHash);
         Assert.All(originals.Values, hash => Assert.Matches("^[a-f0-9]{64}$", hash));
-        return new(document, first, view.Dossier, view.Ledger, inbox, await Histories(source.Store), originals);
+        return new(document, first, view.Dossier, view.Ledger, inbox, await Histories(source.Store), originals, publishedFsn, currentFsn);
     }
 
     private static async Task<EudamedDossier> Approve(EudamedService service, EudamedDossier dossier)
@@ -263,6 +311,10 @@ public sealed class EudamedRecoveryContractTests
     public Task PresencePreflightRejectsMissingHistoricalAndNestedOriginalsWithoutReplacingByteVerification() =>
         Probe(GraphProbe + "\n" + PresenceProbe, "EUDAMED_RECOVERY_PRESENCE=Verified");
 
+    [Fact]
+    public Task FsnPublicationOriginalsRequireTheirRetainedDossierAndLedgerVersionsWithoutInventedBlobReferences() =>
+        Probe(GraphProbe + "\n" + FsnPublicationProbe, "EUDAMED_RECOVERY_FSN=Verified");
+
     private static async Task Probe(string body, string expectedMarker)
     {
         var home = RecoveryFixture.RepositoryRoot();
@@ -288,6 +340,52 @@ public sealed class EudamedRecoveryContractTests
         Assert.True(process.ExitCode == 0, "Typed EUDAMED recovery contract failed; unfiltered child output is not published.");
         Assert.Contains(expectedMarker, output);
     }
+
+    private const string FsnPublicationProbe = """
+            $package = Package $stored['certificate-current'] $stored['pdf-current'] @()
+            $package.content.fsn = @{ documentHash = $stored['pdf-document'] }
+            $fsnSource = Dossier 'fsn' 3 $package $stored['package-old']
+            $fsnLedger = @{ id = 'fsn-ledger'; version = 1; entries = @() }
+            $comment = Digest 'SYNTHETIC FSN feedback original'
+            $communication = Digest 'SYNTHETIC FSN communication original'
+            $review = @{ id = 'publication'; scopeHash = (Digest 'Inline publication scope'); reviewStatus = 'Frozen';
+                plan = @{ contract = 'cohors-fsn-publication-simulator-v1';
+                    dossierSource = (Source 'eudamedDossier' $fsnSource).source;
+                    deliveryLedger = (Source 'eudamedDelivery' $fsnLedger).source;
+                    documentHash = $stored['pdf-document']; packageHash = $stored['package-old'];
+                    feedback = @(@{ original = @{ originalHash = $comment } }) } }
+            $publication = Dossier 'fsn' 4 $package $stored['package-old']
+            $publication.fsnPublication = $review
+            $published = Dossier 'fsn' 5 $package $stored['package-old']
+            $published.fsnPublication = ConvertFrom-Json (Json $review) -AsHashtable
+            $published.fsnPublication.reviewStatus = 'Published'
+            $published.distributions = @(@{ packageHash = $stored['package-old']; evidenceHash = $communication;
+                publicationId = $review.id; publicationScopeHash = $review.scopeHash;
+                publicationSource = (Source 'eudamedDossier' $publication).source })
+            $fsnRows = @(
+                @{ Kind = 'eudamedDossier'; Json = (Json $fsnSource) },
+                @{ Kind = 'eudamedDelivery'; Json = (Json $fsnLedger) },
+                @{ Kind = 'eudamedDossier'; Json = (Json $publication) },
+                @{ Kind = 'eudamedDossier'; Json = (Json $published) })
+            $actual = Get-RecoveryEudamedReferences @($revisions + $fsnRows)
+            if ($actual -cnotcontains $comment -or $actual -cnotcontains $communication) {
+                throw 'FSN publication lost its comment or communication original.'
+            }
+            foreach ($binding in @($review.plan.dossierSource, $review.plan.deliveryLedger, $published.distributions[0].publicationSource)) {
+                if ($actual -ccontains $binding.hash) { throw 'A retained SQL-only FSN version was invented as a blob.' }
+            }
+            foreach ($missing in @(0,1,2)) {
+                $rows = @(for($i=0;$i-lt$fsnRows.Count;$i++){if($i-ne$missing){$fsnRows[$i]}})
+                Reject { Get-RecoveryEudamedReferences @($revisions + $rows) } 'recovery_sql_integrity'
+            }
+            $published.distributions[0].publicationScopeHash = Digest 'Changed publication scope'
+            $bad = @{ Kind = 'eudamedDossier'; Json = (Json $published) }
+            Reject { Get-RecoveryEudamedReferences @($revisions + $fsnRows[0..2] + @($bad)) } 'recovery_sql_integrity'
+            $published.distributions[0].Remove('publicationSource')
+            $bad = @{ Kind = 'eudamedDossier'; Json = (Json $published) }
+            Reject { Get-RecoveryEudamedReferences @($revisions + $fsnRows[0..2] + @($bad)) } 'recovery_reference'
+            Write-Output 'EUDAMED_RECOVERY_FSN=Verified'
+            """;
 
     private const string PresenceProbe = """
             $script:presenceRows = $revisions

@@ -255,6 +255,7 @@ function Get-RecoveryEudamedReferences($Revisions) {
     $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $pending = [Collections.Generic.Stack[object]]::new()
     $dossiers = @{}
+    $ledgers = @{}
     function Read-EudamedField($Value, [string]$Name) {
         if ($Value -isnot [Collections.IDictionary] -or -not $Value.Contains($Name)) {
             throw 'recovery_reference: Incomplete typed EUDAMED original binding.'
@@ -279,6 +280,16 @@ function Get-RecoveryEudamedReferences($Revisions) {
         if ($items -isnot [array]) { throw 'recovery_reference: Incomplete typed EUDAMED original collection.' }
         foreach ($item in $items) { Push-EudamedNode $Kind $item }
     }
+    function Read-EudamedSqlVersion($Binding, $Versions) {
+        $hash = Read-EudamedField $Binding 'hash'
+        if ($hash -isnot [string] -or $hash -cnotmatch '^[a-f0-9]{64}$' -or
+            -not $Versions.ContainsKey($hash) -or
+            (Read-EudamedField $Versions[$hash] 'id') -cne (Read-EudamedField $Binding 'id') -or
+            (Read-EudamedField $Versions[$hash] 'version') -ne (Read-EudamedField $Binding 'version')) {
+            throw 'recovery_sql_integrity: EUDAMED reference is not the bound retained SQL version.'
+        }
+        return $Versions[$hash]
+    }
     foreach ($revision in $Revisions) {
         $kind = [string]$revision.Kind
         if (-not $kind.StartsWith('eudamed', [StringComparison]::OrdinalIgnoreCase)) { continue }
@@ -295,6 +306,7 @@ function Get-RecoveryEudamedReferences($Revisions) {
         $value = ConvertFrom-Json -InputObject $json -AsHashtable -Depth 100 -DateKind String
         Push-EudamedNode $kind $value
         if ($kind -ceq 'eudamedDossier') { $dossiers[$digest] = $value }
+        if ($kind -ceq 'eudamedDelivery') { $ledgers[$digest] = $value }
     }
     while ($pending.Count) {
         $item = $pending.Pop()
@@ -315,6 +327,13 @@ function Get-RecoveryEudamedReferences($Revisions) {
                 Push-EudamedArray $node 'businessResponses' 'original'
                 Push-EudamedArray $node 'correspondence' 'original'
                 Push-EudamedArray $node 'distributions' 'distribution'
+                if ($node.Contains('fsnPublication') -and $null -ne $node.fsnPublication) {
+                    $plan = Read-EudamedField $node.fsnPublication 'plan'
+                    if ((Read-EudamedField (Read-EudamedField $plan 'dossierSource') 'id') -cne (Read-EudamedField $node 'id')) {
+                        throw 'recovery_sql_integrity: FSN publication refers to another dossier.'
+                    }
+                    Push-EudamedNode 'fsnPublication' $node.fsnPublication
+                }
                 break
             }
             'package' {
@@ -355,11 +374,7 @@ function Get-RecoveryEudamedReferences($Revisions) {
                 $binding = Read-EudamedField $node 'approvedDossier'
                 $hash = Read-EudamedField $binding 'hash'
                 Add-EudamedObject $hash
-                if (-not $dossiers.ContainsKey($hash) -or
-                    (Read-EudamedField $dossiers[$hash] 'id') -cne (Read-EudamedField $binding 'id') -or
-                    (Read-EudamedField $dossiers[$hash] 'version') -ne (Read-EudamedField $binding 'version')) {
-                    throw 'recovery_sql_integrity: Approved EUDAMED object snapshot is not the bound retained SQL version.'
-                }
+                $null = Read-EudamedSqlVersion $binding $dossiers
                 Push-EudamedNode 'attempt' (Read-EudamedField $node 'attempt')
                 Push-EudamedArray $node 'responses' 'original'
                 Push-EudamedArray $node 'correspondence' 'original'
@@ -374,6 +389,31 @@ function Get-RecoveryEudamedReferences($Revisions) {
             'distribution' {
                 Add-EudamedObject (Read-EudamedField $node 'packageHash')
                 Add-EudamedObject (Read-EudamedField $node 'evidenceHash')
+                if ($null -ne $node['publicationId'] -or $null -ne $node['publicationScopeHash'] -or $null -ne $node['publicationSource']) {
+                    $source = Read-EudamedSqlVersion (Read-EudamedField $node 'publicationSource') $dossiers
+                    $review = Read-EudamedField $source 'fsnPublication'
+                    if ((Read-EudamedField $review 'id') -cne (Read-EudamedField $node 'publicationId') -or
+                        (Read-EudamedField $review 'scopeHash') -cne (Read-EudamedField $node 'publicationScopeHash') -or
+                        (Read-EudamedField $review 'reviewStatus') -cne 'Frozen') {
+                        throw 'recovery_sql_integrity: FSN distribution differs from its retained publication approval.'
+                    }
+                }
+                break
+            }
+            'fsnPublication' {
+                $plan = Read-EudamedField $node 'plan'
+                if ((Read-EudamedField $plan 'contract') -cne 'cohors-fsn-publication-simulator-v1') {
+                    throw 'recovery_reference: Unsupported FSN publication contract.'
+                }
+                $null = Read-EudamedSqlVersion (Read-EudamedField $plan 'dossierSource') $dossiers
+                $null = Read-EudamedSqlVersion (Read-EudamedField $plan 'deliveryLedger') $ledgers
+                Add-EudamedObject (Read-EudamedField $plan 'documentHash')
+                Add-EudamedObject (Read-EudamedField $plan 'packageHash')
+                Push-EudamedArray $plan 'feedback' 'fsnFeedback'
+                break
+            }
+            'fsnFeedback' {
+                Push-EudamedNode 'original' (Read-EudamedField $node 'original')
                 break
             }
             'eudamedInbox' {

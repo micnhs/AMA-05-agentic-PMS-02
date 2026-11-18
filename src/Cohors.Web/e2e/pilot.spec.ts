@@ -734,6 +734,193 @@ test('E04: byte-exact dossier PDF and audit originals, historical scope and canc
   } finally { release?.(); for (const context of contexts) await context.close(); await pms.dispose(); await medical.dispose(); await ra.dispose(); await limited.dispose() }
 })
 
+test('E05: separate FSN publication reviews include shared-ledger feedback and preserve simulated recipient evidence', async ({ playwright, browser, baseURL }) => {
+  test.setTimeout(240_000)
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  const ra = await playwright.request.newContext({ baseURL })
+  const contexts: BrowserContext[] = []
+  const errors: string[] = []
+  try {
+    const pmsCsrf = await signIn(pms, 'pms.demo')
+    const medicalCsrf = await signIn(medical, 'medical.demo')
+    const raCsrf = await signIn(ra, 'ra.demo')
+    await activateDossierSimulator(pms, pmsCsrf, ra, raCsrf)
+    const c = await dossierCase(pms, pmsCsrf, 'E05')
+    const actor = (await (await pms.get('/api/auth/session')).json()).actor
+    const due = new Date(Date.now() + 7 * 86_400_000).toISOString()
+    const today = new Date().toISOString().slice(0, 10)
+    const capa = await command<Capa>(pms, pmsCsrf, '/capas', { caseId: c.id, productId: 'ortho',
+      title: 'SYNTHETISCH: FSCA-Voraussetzung fuer E05', action: dossierRationale, rationale: dossierRationale,
+      ownerId: actor.id, effectivenessCriterion: dossierRationale, dueAt: due })
+    async function freeze(dossier: EudamedDossier) {
+      dossier = await command<EudamedDossier>(medical, medicalCsrf, `/eudamed/dossiers/${dossier.id}/approve`,
+        { expectedVersion: dossier.version, reason: dossierRationale, findingDisposition: dossierRationale })
+      return command<EudamedDossier>(ra, raCsrf, `/eudamed/dossiers/${dossier.id}/approve`,
+        { expectedVersion: dossier.version, reason: dossierRationale, findingDisposition: null })
+    }
+    const fsca = await freeze(await command<EudamedDossier>(pms, pmsCsrf, '/eudamed/dossiers', {
+      expectedVersion: 0, productId: 'ortho', kind: 'FSCA', reason: dossierRationale,
+      sources: [{ kind: 'capa', id: capa.id, version: capa.version }],
+      content: { title: 'SYNTHETISCH: FSCA-Original fuer FSN-Browserfall', clinicalRationale: dossierRationale,
+        regulatoryRationale: dossierRationale, language: 'de', jurisdiction: 'EU-IE', countries: ['IE'],
+        intendedAction: 'Submit', parentId: null, parentVersion: null, period: null, fsn: null,
+        fsca: { batches: ['DEMO-EUDAMED-LOT'], serialNumbers: [], measureType: 'Synthetische Feldkorrektur',
+          manufacturerAction: dossierRationale, userAction: dossierRationale, responsiblePerson: 'Synthetic Quality role',
+          effectivenessCriterion: dossierRationale, dueAt: due, capaIds: [capa.id], decisionDate: today,
+          healthHazard: dossierRationale, hazardProbability: dossierRationale, rootCauseStatus: 'NO_INV_ONGOING',
+          rootCauseRationale: dossierRationale, manufacturerActionTypes: ['CUSTOMER_INFORMATION_ONLY'],
+          userActionTypes: ['IDENTIFY_DEVICE'], patientFollowUp: dossierRationale } },
+    }))
+    const governance = (await (await ra.get('/api/products/profiles')).json() as ProductGovernance[]).find(p => p.productId === 'ortho')!
+    function originalPdf(version: number) {
+      const lines = [
+        'COHORS - SYNTHETISCHE SICHERHEITSINFORMATION (FSN)',
+        `UI-Testfassung ${version}, ${today}; kein klinisch freigegebenes FSN-Muster.`,
+        `FSCA-Original: ${fsca.id}`, `Synthetische Basic-UDI: ${governance.device.basicUdi}`,
+        'Adressaten: ausschliesslich synthetische Testeinrichtungen in IE.',
+        'Anlass: synthetisch gemeldeter Funktionsverlust mit Revisionsbedarf.',
+        'Technische Einordnung: mechanischer Befund und Kausalitaet sind getrennt zu pruefen.',
+        'Klinische Alternativursachen und fehlende Befunde bleiben ausdruecklich offen.',
+        'Testhandlung: nur den zugeordneten Demo-Datensatz und seine Version kennzeichnen.',
+        'Keine reale Patientenhandlung, Risikoakzeptanz oder externe Kommunikation.',
+        'Alle Entscheidungen bleiben den getrennten Medical- und RA-Testkonten vorbehalten.',
+        'Zweck: nachvollziehbare Byte-, Freigabe- und Verteilungsbindung im Browserfall.',
+      ]
+      const content = `BT /F1 10 Tf 14 TL 40 800 Td ${lines.map(line => `(${line.replace(/[\\()]/g, '\\$&')}) Tj T*`).join('\n')} ET`
+      const objects = [
+        '<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+        '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+        `<< /Length ${Buffer.byteLength(content, 'ascii')} >>\nstream\n${content}\nendstream`,
+      ]
+      let text = '%PDF-1.4\n'
+      const offsets = [0]
+      objects.forEach((value, index) => { offsets.push(Buffer.byteLength(text, 'ascii')); text += `${index + 1} 0 obj\n${value}\nendobj\n` })
+      const xref = Buffer.byteLength(text, 'ascii')
+      return Buffer.from(`${text}xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${offset.toString().padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`, 'ascii')
+    }
+    async function preparedFsn(version: number, scenario: string) {
+      const bytes = originalPdf(version)
+      const document = await command<{ id: string; version: number; originalHash: string; name: string }>(pms, pmsCsrf, '/eudamed/documents',
+        { productId: 'ortho', name: `SYNTHETISCH-FSN-E05-${version}.pdf`, mediaType: 'application/pdf', contentBase64: bytes.toString('base64'),
+          provenance: 'SYNTHETISCH: Lesbarer Browser-Ablauftest, kein klinisch vollstaendiges oder amtliches FSN-Muster. ' + dossierRationale, reason: dossierRationale })
+      expect(document.originalHash).toBe(createHash('sha256').update(bytes).digest('hex'))
+      const dossier = await freeze(await command<EudamedDossier>(pms, pmsCsrf, '/eudamed/dossiers', {
+        expectedVersion: 0, productId: 'ortho', kind: 'FSN', reason: dossierRationale,
+        sources: [{ kind: 'eudamedDossier', id: fsca.id, version: fsca.version }, { kind: 'eudamedDocument', id: document.id, version: document.version }],
+        content: { ...fsca.package.content, title: `SYNTHETISCH: FSN E05 Fassung ${version}`, fsca: null,
+          fsn: { fscaId: fsca.id, fscaVersion: fsca.version, audience: 'SYNTHETISCH: Testeinrichtungen im freigegebenen Laenderscope IE',
+            instructions: dossierRationale, documentHash: document.originalHash, documentName: document.name,
+            documentVersion: version.toString(), publicationState: 'Draft', urgent: false, reportType: 'FINAL', documentDate: today } },
+      }))
+      let view = await dossierView(ra, dossier.id)
+      await command(ra, raCsrf, `/eudamed/dossiers/${dossier.id}/submit`,
+        { expectedVersion: view.dossier.version, expectedLedgerVersion: view.ledger.version, scenario, reason: dossierRationale })
+      await expect.poll(async () => (await dossierView(ra, dossier.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
+      view = await dossierView(ra, dossier.id)
+      for (const planned of [...view.dossier.plannedResponses].sort((a, b) => a.sequence - b.sequence)) {
+        await expect.poll(() => Date.now() >= Date.parse(planned.dueAt)).toBe(true)
+        view = await command<DossierView>(ra, raCsrf, `/eudamed/dossiers/${dossier.id}/simulator`,
+          { expectedVersion: view.dossier.version, eventId: planned.id, duplicate: false, reason: dossierRationale })
+      }
+      return { view, bytes }
+    }
+    const predecessor = await preparedFsn(1, 'Comment')
+    const prepared = await preparedFsn(2, 'Accept')
+    const dossier = prepared.view.dossier
+    expect(prepared.view.ledger.entries.flatMap(entry => entry.correspondence)).toEqual([])
+    const response = await pms.get(`/api/eudamed/dossiers/${dossier.id}/fsn-publication/feedback`)
+    expect(response.status()).toBe(200)
+    const expected = await response.json() as { ledger: { id: string; version: number; hash: string }; feedback: EudamedDossier['correspondence'] }
+    expect(expected.feedback).toEqual(predecessor.view.dossier.correspondence)
+    expect(expected.feedback).toHaveLength(1)
+    async function pageFor(client: APIRequestContext) {
+      const context = await browser.newContext({ storageState: await client.storageState(), timezoneId: 'UTC' })
+      contexts.push(context)
+      const page = await context.newPage()
+      recordDossierResponses(page, contexts.length)
+      page.on('pageerror', failure => errors.push(failure.message))
+      return page
+    }
+    const author = await pageFor(pms)
+    const clinician = await pageFor(medical)
+    const regulator = await pageFor(ra)
+    await openDossierUi(author, baseURL!, dossier.id)
+    await author.getByRole('button', { name: 'FSN-Verteilung vorbereiten', exact: true }).click()
+    let dialog = author.getByRole('dialog')
+    await expect(dialog).toContainText(expected.ledger.hash)
+    for (const [index, feedback] of expected.feedback.entries()) {
+      await expect(dialog).toContainText(feedback.content)
+      await expect(dialog).toContainText(feedback.originalHash)
+      await dialog.locator(`[name="disposition-${index}"]`).selectOption('NoChangeJustified')
+      await dialog.locator(`[name="rationale-${index}"]`).fill(dossierRationale)
+    }
+    await dialog.locator('[name=recipients]').fill('DEMO-IE-E05 | IE | SYNTHETISCH: Testeinrichtung fuer E05')
+    await dialog.locator('[name=channel]').selectOption('SimulatedPortal')
+    await dialog.locator('[name=route]').selectOption('AfterAuthorityFeedback')
+    for (const field of ['changeAssessment', 'regulatoryDecision', 'reason']) await dialog.locator(`[name=${field}]`).fill(dossierRationale)
+    await submitDialog(dialog, 'Neuen Verteilungsentwurf speichern')
+    for (const [page, medicalReview] of [[clinician, true], [regulator, false]] as const) {
+      await openDossierUi(page, baseURL!, dossier.id)
+      await page.getByRole('button', { name: medicalReview ? 'Medical-Verteilungsfreigabe' : 'RA-Verteilungsfreigabe', exact: true }).click()
+      dialog = page.getByRole('dialog')
+      await expect(dialog).toContainText(expected.feedback[0].originalHash)
+      await dialog.locator('[name=reason]').fill(dossierRationale)
+      await submitDialog(dialog, 'Genau diesen Verteilungsscope freigeben')
+    }
+    const reviewed = (await dossierView(ra, dossier.id)).dossier
+    expect(reviewed.distributions).toEqual([])
+    expect(reviewed.fsnPublication!.reviewStatus).toBe('Frozen')
+    expect(new Set(reviewed.fsnPublication!.approvals.map(approval => approval.actorId)).size).toBe(2)
+    await regulator.getByRole('button', { name: 'FSN nur simuliert veroeffentlichen und verteilen', exact: true }).click()
+    dialog = regulator.getByRole('dialog')
+    await expect(dialog.locator('[name=confirmation]')).toHaveValue('')
+    await expect(dialog).toContainText(reviewed.fsnPublication!.scopeHash)
+    await dialog.locator('[name=confirmation]').selectOption('simulate')
+    await dialog.locator('[name=reason]').fill(dossierRationale)
+    await submitDialog(dialog, 'Nur simuliert veroeffentlichen und verteilen')
+    const final = await dossierView(ra, dossier.id)
+    expect(final.ledger).toEqual(prepared.view.ledger)
+    expect(final.dossier.package.content.fsn!.publicationState).toBe('Draft')
+    expect(final.dossier.fsnPublication!.reviewStatus).toBe('Published')
+    expect(final.dossier.distributions).toHaveLength(1)
+    const distribution = final.dossier.distributions[0]
+    expect(distribution.publicationSource!.version).toBe(reviewed.version)
+    const downloaded = regulator.waitForEvent('download')
+    await regulator.getByRole('button', { name: 'Unveraenderten Empfaenger-/Kommunikationsbeleg lesen', exact: true }).click()
+    const file = await (await downloaded).path()
+    expect(file).toBeTruthy()
+    const communication = readFileSync(file!)
+    expect(createHash('sha256').update(communication).digest('hex')).toBe(distribution.evidenceHash)
+    const evidence = JSON.parse(communication.toString('utf8'))
+    expect(evidence.simulated).toBe(true)
+    expect(evidence.publication).toEqual(final.dossier.fsnPublication)
+    expect(evidence.recipients[0].technicalRecipient).toBe('simulator://fsn/DEMO-IE-E05')
+    expect(evidence.recipients[0].status).toBe('SimulatedDelivered')
+    const pdf = await ra.get(`/api/eudamed/dossiers/${dossier.id}/originals/${dossier.package.content.fsn!.documentHash}?version=${final.dossier.version}`)
+    expect(pdf.status()).toBe(200)
+    expect(await pdf.body()).toEqual(prepared.bytes)
+    const archive = await ra.get('/api/products/ortho/audit')
+    expect(archive.status()).toBe(200)
+    const entries = readSmallAuditZip(await archive.body())
+    const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8')) as { objects: { hash: string; path: string }[] }
+    expect(entries.get(manifest.objects.find(item => item.hash === distribution.evidenceHash)!.path)).toEqual(communication)
+    expect((await dossierView(ra, predecessor.view.dossier.id)).dossier.correspondence[0].status).toBe('Open')
+    expect(errors).toEqual([])
+    await regulator.screenshot({ path: path.join(artifacts, 'cohors-fsn-publication.png') })
+    writeFileSync(path.join(artifacts, 'eudamed-fsn-publication-proof.json'), JSON.stringify({
+      success: true, dossierId: dossier.id, prerequisiteSetup: 'Real authenticated synthetic API commands, not UI acceptance of prerequisite creation.',
+      pdfBoundary: 'Readable synthetic workflow fixture, not a clinically complete or official FSN specimen.',
+      fullSharedFeedback: expected.feedback.map(item => ({ id: item.id, originalHash: item.originalHash })),
+      publicationScope: reviewed.fsnPublication!.scopeHash, distinctHumanReviewers: 2, explicitFinalUiConfirmation: true,
+      communicationHash: distribution.evidenceHash, archiveByteIdentical: true, originalPdfUnchanged: true,
+      deliveryLedgerUnchanged: true, authorityCommentRemainsOpen: true, simulatorProfileBound: true,
+    }, null, 2))
+  } finally { for (const context of contexts) await context.close(); await pms.dispose(); await medical.dispose(); await ra.dispose() }
+})
+
 const signalReason = 'SYNTHETISCH: Die Quellenrelevanz und fehlende Produktzuordnung werden begruendet menschlich geprueft. Keine Nichtmeldepflichtentscheidung, automatische Freigabe oder Fristaenderung.'
 function signalInput(stamp: string, agent = false) {
   return { incidentKey: stamp, sourceId: crypto.randomUUID(), productId: 'ortho', title: `Synthetischer Signalreview ${stamp}`,

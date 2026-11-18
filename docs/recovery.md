@@ -11,6 +11,17 @@ getrennte Functions-Host-/Neustartnachweis bleiben separate Pruefungen.
 
 ## Aktueller Integrations- und Ausfuehrungsstand
 
+**Recovery07 aufb7ced182/Build42 ist vollstaendig bestanden:**17/17
+Originalfaelle, keine Skips und alle11 originalen Fixturegates in
+1644,7144765s/2700. Der eigenstaendige read-only Abschluss bestand
+in59,0038541s/60; normale eigene Bereinigung, exakter fremder Before-Satz,
+aktuelle Source-/Assembly-/Package-/SDK-Bindung und Prozess-/Streamende
+sind nachgewiesen. Die60s wurden nicht erhoeht; eine Zeitreserve wird
+nicht behauptet. Kein ausserordentlicher Cleanup war erforderlich.
+[Einzelbelege](validation.md#recovery07-vollstaendiger-lokaler-nachweis)
+grenzen den neuen Erfolg gegen alle negativen historischen Versuche ab.
+Neuere FSN-Quellergaenzungen sind nicht Bestandteil dieses Build42-Belegs.
+
 Der vollstaendige EUDAMED-Folgepatch und sein Runner sind in `874bffc`
 integriert. Der aktuelle Runner selektiert `Recovery|RecoveryEudamed` und
 verlangt **17 echte Passed-Ergebnisse** (14 plus 3), keine Skips sowie
@@ -37,7 +48,7 @@ die acht separaten Diagnostik-/SQL-freien Vertragstests ohne Skips in
 Die [Build- und Prozessbelege](validation.md#build36-und-getrennte-recovery-voraussetzungen)
 halten auch die SDK-internen WorkerExtensions-Restores getrennt vom
 wiederverwendeten Hauptprojekt-Restore fest.
-**Ein erfolgreicher aktueller 17er-Gesamtlauf bleibt offen.**
+**Zu diesem damaligen Build36-Stand blieb der 17er-Gesamtlauf offen.**
 Die nachfolgenden historischen Nachweise gelten jeweils nur fuer ihren
 ausdruecklichen damaligen Umfang.
 
@@ -142,8 +153,8 @@ unveraendert. Dieser Folgefix ist alsb7ced182/Build42 separat gebaut. Offline89
 bestaetigt14/14 Vertraege; Native90 bestaetigt den leeren sowie aktuellen
 und historischen SQL-Originalstand, Native91 die vier unveraenderten
 Integritaets-/Outbox-/PSUR-Stichtagsregressionen. Alle eigenen nativen
-Fixtures wurden regulaer entfernt. Ein Recovery17-Erfolg wird noch
-nicht behauptet.
+Fixtures wurden regulaer entfernt. Erst der anschliessende, oben separat
+ausgewiesene Recovery07 erbrachte den vollstaendigen Recovery17-Nachweis.
 
 Die neue private Vorbereitung fuer Recovery07 bindet diese Ergebnisse
 an den2700s-Supervisorv7. Der unveraenderte Ausfuehrungsteil fordert

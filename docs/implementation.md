@@ -564,6 +564,56 @@ weiterhin nur als eingereiht angezeigt, nicht als fachlich angenommen.
 Die Browserregression haelt eine echte nachgelagerte Workspace-Antwort
 zurueck und verlangt trotzdem den Abschluss des bereits bestaetigten Dialogs.
 
+## Gesonderte FSN-Veroeffentlichung im Simulator
+
+Die FSN-Paketfassung bleibt unveraendert als `Draft` gebunden. Eine
+fachliche EUDAMED-Annahme ist weder eine Sicherheitsfreigabe noch ein
+Empfaengernachweis. Die neue gesonderte Veroeffentlichungsfassung bindet
+die genaue Dossier-/Dokumentversion, FSCA-Quelle, Paket-, Kommentar- und
+Versandstand, Sprache/Jurisdiktion/Laender sowie ausdrueckliche
+synthetische Empfaenger und Kommunikationskanal.
+
+`GET /api/eudamed/dossiers/{id}/fsn-publication/feedback` liest dafuer
+die **vollstaendige gemeinsame** Korrespondenz, nicht nur den auf das
+angezeigte Dossier gefilterten Versandledger. Jeder bekannte Kommentar
+erhaelt eine originalgebundene Bewertung mit medizinisch-technischer
+Begruendung. Aktuelle und freigegebene historische Produkt-/Gruppenscopes
+aller beteiligten Dossiers sind erforderlich; unberechtigte Daten werden
+nicht als leere Kommentarliste ausgegeben. Dieselbe Pruefung gilt fuer
+Schreibvorgaenge, historische Verteilungsfassungen und Idempotenzantworten.
+Die aktuellen beteiligten Dossiers sind transaktionale Abhaengigkeiten.
+Gespeicherte AccessProducts erhalten den gesamten erfassten Scope.
+
+Medical und RA geben genau diesen separaten Verteilungsscope mit
+getrennten menschlichen Konten frei. Fehlende Kommentare ersetzen
+keine der beiden Entscheidungen. Der regulaere Weg erfordert die
+fachliche Annahme der eigenen finalen FSN-Fassung und bearbeitete
+Antwortpflichten. Ein dringlicher Alternativweg verlangt die bereits
+gebundene Dringlichkeit und eine explizite regulatorische Begruendung;
+er schliesst weder offene Nachforderungen noch einen unklaren
+Uebermittlungsversuch und startet keinen erneuten Behoerdenversand.
+
+Erst eine weitere ausdrueckliche RA-Bestaetigung erzeugt einen lokal
+simulierten Kommunikationsbeleg fuer jeden `DEMO-`-Empfaenger.
+Dieser bindet beide Freigaben, die Dokument- und Paketfassung, den
+gesonderten Scope sowie die genaue vorherige SQL-Freigabeversion.
+Spaetere Dossierfassungen behalten diesen Nachweis. Seine
+Originalbytes bleiben ueber versionsgebundene Autorisierung lesbar;
+Audit und Outbox werden atomar mit der Domaenenspeicherung geschrieben.
+Archiv- und Recoveryreferenzen unterscheiden echte Dokument-/Kommentar-/
+Kommunikationsobjekte von SQL-only-Dossier-/Ledger-Versionen.
+
+Es gibt keinen externen Versand, keine reale Empfaengerannahme und
+keine erfundene `FSN.PUT`-Operation. Der neue BrowserfallE05 verwendet
+echte authentifizierte synthetische API-Voraussetzungen und prueft
+die gesonderten Veroeffentlichungsaktionen in getrennten UI-Kontexten.
+Sein lesbares PDF ist ein Ablauf-/Bytebindungsfixture, kein amtliches
+oder klinisch vollstaendiges FSN-Muster. Der native Recoveryfall behaelt
+die Original17-/11-Auswahl und ergaenzt die konkrete historische
+FSN-Verteilungsfassung; das ist erst nach eigenem Lauf ein Nachweis.
+Die beschriebenen neuen FSN-Ergaenzungen sind noch nicht Bestandteil
+des separat bestandenen Recovery07/Build42.
+
 ## Unveraenderte Originale
 
 `source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`, die freigegebenen Eingangsunterlagen sowie Logo und Animation werden nicht veraendert. Die unveraenderte `source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx` hat SHA256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`.

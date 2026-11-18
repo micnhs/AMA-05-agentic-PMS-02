@@ -18,7 +18,10 @@ public sealed record DraftEudamedDossierCommand(int ExpectedVersion, string Prod
     EudamedDossierContent Content, EudamedSourceSelection[] Sources, string Reason);
 public sealed record SubmitEudamedDossierCommand(int ExpectedVersion, int ExpectedLedgerVersion, string Scenario, string Reason);
 public sealed record AdvanceEudamedSimulatorCommand(int ExpectedVersion, string EventId, bool Duplicate, string Reason);
-public sealed record EudamedDistributionCommand(int ExpectedVersion, string Audience, string Channel, string Evidence, string Reason);
+public sealed record DraftFsnPublicationCommand(int ExpectedVersion, int ExpectedLedgerVersion, FsnRecipient[] Recipients,
+    string Channel, string Route, FsnFeedbackDecision[] Feedback, string ChangeAssessment, string RegulatoryDecision, string Reason);
+public sealed record EudamedDistributionCommand(int ExpectedVersion, int ExpectedLedgerVersion,
+    string PublicationScopeHash, bool ConfirmSimulation, string Reason);
 public sealed record EudamedDocumentCommand(string ProductId, string Name, string MediaType,
     string ContentBase64, string Provenance, string Reason);
 public sealed record EudamedRenderedDocument(byte[] Bytes, string MediaType, string Name);
@@ -31,6 +34,7 @@ public sealed record EudamedSourceOption(string Kind, string Id, int Version, st
     public string? OriginalHash { get; init; }
 }
 public sealed record EudamedDossierView(EudamedDossier Dossier, EudamedDeliveryLedger Ledger);
+public sealed record FsnFeedbackView(VersionReference Dossier, VersionReference Ledger, EudamedCorrespondence[] Feedback);
 public sealed record EudamedDossierSummary(string Id, int Version, string ProductId, EudamedDossierKind Kind,
     int Revision, string Title, string ReviewStatus, string ScopeHash, EudamedBinding Binding,
     Approval[] Approvals, EudamedAttempt[] Attempts, EudamedBusinessResponse[] BusinessResponses,

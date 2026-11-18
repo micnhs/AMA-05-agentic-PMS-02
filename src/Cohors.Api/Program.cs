@@ -227,6 +227,14 @@ api.MapPost("/eudamed/dossiers/{id}/submit", (string id, SubmitEudamedDossierCom
     service.QueueDossier(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/eudamed/dossiers/{id}/simulator", (string id, AdvanceEudamedSimulatorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
     service.AdvanceSimulator(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/dossiers/{id}/fsn-publication", (string id, DraftFsnPublicationCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.DraftFsnPublication(id, input, Who(ctx), Key(ctx), ct));
+api.MapGet("/eudamed/dossiers/{id}/fsn-publication/feedback", (string id, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.FsnFeedback(id, Who(ctx), ct));
+api.MapPost("/eudamed/dossiers/{id}/fsn-publication/approve", (string id, ApprovalCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.ApproveFsnPublication(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/eudamed/dossiers/{id}/fsn-publication/publish", (string id, EudamedDistributionCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
+    service.PublishFsnDistribution(id, input, Who(ctx), Key(ctx), ct));
 api.MapPost("/eudamed/documents", (EudamedDocumentCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>
     service.RecordDocument(input, Who(ctx), Key(ctx), ct));
 api.MapPost("/eudamed/actors", (SaveEudamedActorCommand input, EudamedService service, HttpContext ctx, CancellationToken ct) =>

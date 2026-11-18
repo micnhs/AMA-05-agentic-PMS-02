@@ -2839,6 +2839,65 @@ Post-exit-Eingabebeleg wurde noch nicht erzeugt.
 Bis hier wurde noch kein Recovery07-Vollprozess gestartet und nichts
 auf die alte Vorschau oder nach Azure promoviert.
 
+### Recovery07: vollstaendiger lokaler Nachweis
+
+Der anschliessende **einmalige Recovery07 aufb7ced182/Build42** bestand
+saemtliche17 urspruenglichen Faelle mit17 Passed/0 Failed/0 Skipped,
+einschliesslich aller elf urspruenglichen Fixturegates. Die Testnamen und
+Gateinhalte wurden einzeln gelesen; keine Addition vorheriger Partitionen.
+Quelle und oeffentliches Ergebnis sind `sourceTreeDirty=false`.
+
+Der oeffentliche Prozess lief laut OS von
+`2026-11-18T11:59:34.5904161Z` bis
+`2026-11-18T12:26:59.3048926Z`: **1644,7144765s/2700**.
+Der unabhaengige read-only Abschluss lief von
+`2026-11-18T12:26:59.5128411Z` bis
+`2026-11-18T12:27:58.5166952Z`: **59,0038541s/60**.
+Beide Exitcodes sind0; Streams und Jobhandles sind geschlossen,
+keine eigenen Nachkommen verblieben. Die getrennten Stopzeiten
+betrugen23ms beziehungsweise0ms; Stop10s/Stream15s blieben unveraendert.
+Die Abschlussgrenze wurde knapp eingehalten, nicht erweitert.
+
+Die persistierten monotonen Controllerphasen ergeben gesondert
+**1736,9298176s** von `preflight-start` bis
+`independent-cleanup-finished`. Das ist keine Messung des vollstaendigen
+aeusseren Shell-Prozesslebens einschliesslich der davor geprueften
+Voraussetzungen. Der Abschnitt ab gespeicherter Laufbindung bis zum
+Ergebniszeitpunkt ist separat1709,4291058s.
+
+Die Abschlusspruefung bestaetigt den unveraenderten exakten fremden
+Containersatz und beide fremden Volumes, die Entfernung aller eigenen
+SQL-/Docker-/privaten Konfigurationsressourcen, das vollstaendige
+Sourcejournal `CreateRequested` bis `Disposed` und die Abwesenheit seines
+Elternverzeichnisses.414 Quellen, sechs Testassemblies,116 Paketdateien
+und die SDK-Executable wurden erneut gebunden. Die Source war waehrend
+der Wiederherstellung nicht verfuegbar. PSUR-/Gruppen-/BS-Historie,
+Stichtags-/Addendum-Snapshots, offene Rueckfragen, historische
+EUDAMED-Originale, native SQL-/Objektintegritaet und idempotente
+Wiederaufnahme bleiben in diesem gemeinsamen Schnitt erhalten.
+
+Run: `.local\v10\.local\recovery-run-3fb22dfb077e4dddb04d537ff13a48a9`.
+Die erste Zeile der folgenden Tabelle liegt im oeffentlichen
+`.local\v10\.local\recovery-07-public`; die weiteren privaten Belege
+liegen in `.local\eudamed-integration-01`.
+
+| Datei | SHA256 |
+|---|---|
+| `recovery-results.json` | `078b940d575657e7c39e73d1fe72048d8e4ef03ad1e717427708010ce7eb590f` |
+| `recovery-07-bounded-result.json` | `6350aa75c45a3b25811bb7289c16ef1fca2f8aae9ec421c0bcea79c4824150e5` |
+| `recovery-07-execution-owned.json` | `b60d930b2b443f800e78e57eb44cc7e73d6d4e7501d7b06c67d959d0df22529d` |
+| `recovery-07-cleanup.json` | `e56ad98504ea84ced259583f75af15a871a70b93ef9157439176da630cffc650` |
+| `recovery-07-binding.json` | `2ba05722ad43b8cfb0a5649ad5bf189be04935c68502f6d299a17b52385e69b6` |
+| `recovery-07-owned-sql.json.journal.jsonl` | `5c8ce7193c404222748b62016e1425cd87257c247fe4c1a4dfa0b1c28ff27575` |
+
+Es gab keinen Sondercleanup und keinen konkreten Sondercleanup-
+Eingabebeleg. Recovery06 einschliesslich seines verlorenen585-Dateien-
+Vorhervergleichs bleibt unveraendert negativ. `azureRecovery=false`
+und `externalLedgerWitness=false` bleiben ausdruecklich. Es erfolgte
+keine Vorschau-/Cloudpromotion. Die gleichzeitig nur im Primaercheckout
+bearbeitete FSN-Publikation ist **nicht** Teil dieses Build42-Erfolgs;
+ihre neue Native-/Browser-/Recoveryevidenz ist gesondert zu erbringen.
+
 Der eigene Datei-only-Integrationsvertrag
 `preservation-binding-01.json` bestand in38,4495698s/60. Die Einfuegung
 erhaelt reversibel alle bestehenden Ownership-/Pfad-/Prozess-/Fremdsatz-

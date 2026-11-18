@@ -106,7 +106,15 @@ public sealed record EudamedCorrespondence(string Id, string InboxId, string Ori
     string Issuer, string Kind, string Content, int DossierRevision, DateTimeOffset ReceivedAt,
     DateTimeOffset? DueAt, string OwnerRole, string Status, string? ReplyDossierId, bool Simulated);
 public sealed record FsnDistribution(string Id, int DossierRevision, string PackageHash,
-    string Audience, string Channel, string EvidenceHash, DateTimeOffset At, string ActorId, bool Simulated);
+    string Audience, string Channel, string EvidenceHash, DateTimeOffset At, string ActorId, bool Simulated)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PublicationId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PublicationScopeHash { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public VersionReference? PublicationSource { get; init; }
+}
 public sealed record EudamedDossier(string Id, int Version, string ProductId, EudamedDossierKind Kind,
     int Revision, EudamedPackage Package, string ScopeHash, string ReviewStatus, Approval[] Approvals,
     string? FrozenPackageHash, EudamedAttempt[] Attempts, EudamedPlannedResponse[] PlannedResponses,
@@ -114,6 +122,8 @@ public sealed record EudamedDossier(string Id, int Version, string ProductId, Eu
     FsnDistribution[] Distributions, string CreatedBy, DateTimeOffset CreatedAt)
 {
     public string[] AccessProducts { get; init; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FsnPublicationReview? FsnPublication { get; init; }
 }
 
 public sealed record EudamedInboxOriginal(string MessageId, string CorrelationId, string AttemptId,
@@ -150,7 +160,7 @@ public static class EudamedContracts
         new(EudamedDossierKind.PSRP, ["POST"], ["Submit", "Reply"], "PSR Periodic Analysis Update; keine PSRP.GET/PUT-Faehigkeit."),
         new(EudamedDossierKind.PSUR, ["GET", "POST", "PUT"], ["Submit", "Reply"], "Reale Schreibrechte verlangen MF-Confirmer und gesonderte Serviceabnahme."),
         new(EudamedDossierKind.FSCA, ["GET", "POST", "PUT"], ["Submit", "FollowUp", "Reply"], "Dokumentierter Vorschlagsumfang ist keine reale Aktivierungsfreigabe."),
-        new(EudamedDossierKind.FSN, ["GET", "POST"], ["Submit", "Revision", "Reply"], "FSN.PUT ist nicht implementiert; Revision und Verteilung sind Simulator-only.")
+        new(EudamedDossierKind.FSN, ["GET", "POST"], ["Submit", "Revision", "Reply"], "FSN.PUT ist nicht implementiert; gesondert freigegebene Veroeffentlichung und Empfaengerbelege sind Simulator-only.")
     ];
 
     public static string ChannelId(string product) => "eudamed-channel-" + product;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, downloadApi } from './api'
 import type { Actor, Approval, AuditEvent, Device, EudamedFocus, VersionReference } from './types'
 import type { IntegrationWorkspace } from './EudamedWorkspace'
+import FsnPublication, { type FsnDistribution, type FsnPublicationReview } from './FsnPublication'
 import { ActionDialog, Badge, date, ErrorBanner, hash, label, Loading, roleNames, SectionHead, type Dialog, type Field } from './ui'
 
 export type DossierKind = 'MIR' | 'MTR' | 'PSR' | 'PSRP' | 'PSUR' | 'FSCA' | 'FSN'
@@ -21,7 +22,7 @@ interface BusinessResponse {
   inboxId: string; attemptId: string; originalHash: string; sequence: number; status: string; applied: boolean
   dossierCode: string | null; dossierVersion: number | null; errors: string[]; returnedPeriod: Period | null; at: string
 }
-interface Correspondence {
+export interface Correspondence {
   id: string; inboxId: string; originalHash: string; issuer: string; kind: string; content: string; dossierRevision: number
   receivedAt: string; dueAt: string | null; status: string; replyDossierId: string | null; ownerRole: string
 }
@@ -51,6 +52,8 @@ export interface EudamedDossier {
   id: string; version: number; productId: string; kind: DossierKind; revision: number; reviewStatus: string; scopeHash: string
   approvals: Approval[]; frozenPackageHash: string | null; attempts: Attempt[]; businessResponses: BusinessResponse[]
   correspondence: Correspondence[]
+  distributions: FsnDistribution[]
+  fsnPublication?: FsnPublicationReview | null
   plannedResponses: { id: string; attemptId: string; sequence: number; kind: string; dueAt: string; status: string; publishedInboxId: string | null }[]
   package: {
     content: DossierContent; binding: Binding; validation: Validation; attachments: Attachment[]; businessXml: string; businessXmlHash: string
@@ -61,7 +64,7 @@ export interface EudamedDossier {
 }
 export interface DossierView {
   dossier: EudamedDossier
-  ledger: { id: string; version: number; entries: { dossierId: string; attempt: Attempt; intendedAction: string; businessStatus: string }[] }
+  ledger: { id: string; version: number; entries: { dossierId: string; attempt: Attempt; intendedAction: string; businessStatus: string; correspondence: Correspondence[] }[] }
 }
 interface SourceOption {
   kind: string; id: string; version: number; productId: string; label: string
@@ -443,13 +446,13 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open, 
       onSubmit: async v => change(`/eudamed/dossiers/${dossier.id}/simulator`,
         { expectedVersion: dossier.version, eventId, duplicate, reason: v.reason }) })
   }
-  async function original(originalHash: string, filename: string) {
+  async function original(originalHash: string, filename: string, version = dossier.version) {
     const request = ++downloadGeneration.current
     downloadController.current?.abort()
     const controller = new AbortController()
     downloadController.current = controller
     try {
-      await downloadApi(`/eudamed/dossiers/${dossier.id}/originals/${originalHash}?version=${dossier.version}`, filename,
+      await downloadApi(`/eudamed/dossiers/${dossier.id}/originals/${originalHash}?version=${version}`, filename,
         { signal: controller.signal, isCurrent: () => live.current && request === downloadGeneration.current })
     } catch (failure) {
       if (live.current && request === downloadGeneration.current)
@@ -525,6 +528,10 @@ function DossierDetail({ actor, summary, workspace, refresh, edit, close, open, 
     <div className="eudamed-actions">{dossier.package.attachments.map(attachment =>
       <button key={attachment.hash} className="button secondary" onClick={() => void original(attachment.hash, attachment.name)}>
         PDF-Original: {attachment.name} · {hash(attachment.hash)}</button>)}</div>
+    {dossier.kind === 'FSN' && <FsnPublication
+      key={`${dossier.id}:${dossier.version}:${currentView.ledger.version}:${actor.id}:${actor.roles.join(',')}:${actor.products.join(',')}:${profileCurrent}:${historical}`}
+      actor={actor} dossier={dossier} ledger={currentView.ledger} historical={historical} profileCurrent={!!profileCurrent}
+      change={(path, body) => change(path, body, 'dossier')} original={original} />}
     <h3>Versuche und persistierte Simulatorereignisse</h3>
     {dossier.attempts.map(attempt => <article className="eudamed-record" key={attempt.id} data-attempt-id={attempt.id}>
       <b>{state(attempt.status)} · Paketrevision {attempt.dossierRevision} · {scenarios[attempt.scenario] ?? attempt.scenario}</b>

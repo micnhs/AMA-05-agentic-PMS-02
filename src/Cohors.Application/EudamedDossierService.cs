@@ -16,14 +16,18 @@ public sealed partial class EudamedService
         var value = await store.Get<EudamedDossier>("eudamedDossier", id, ct)
             ?? throw new DomainException("eudamed_dossier_missing", "Dossier fehlt.", 404);
         EudamedRules.RequireActorScope(value, actor);
+        await RequireFsnPublicationAccess(value, actor, ct);
         return value;
     }
 
     public async Task<EudamedDossier[]> DossierHistory(string id, Actor actor, CancellationToken ct = default)
     {
         var value = await GetDossier(id, actor, ct);
-        return (await store.History<EudamedDossier>("eudamedDossier", [value.ProductId], ct))
-            .Where(d => d.Id == id && EudamedRules.CanRead(d, actor)).OrderByDescending(d => d.Version).ToArray();
+        var result = new List<EudamedDossier>();
+        foreach (var revision in (await store.History<EudamedDossier>("eudamedDossier", [value.ProductId], ct))
+            .Where(d => d.Id == id && EudamedRules.CanRead(d, actor)).OrderByDescending(d => d.Version))
+            if (await CanReadFsnPublication(revision, actor, ct)) result.Add(revision);
+        return result.ToArray();
     }
 
     public async Task<EudamedSourceOption[]> SourceOptions(string product, Actor actor, CancellationToken ct = default)
@@ -82,15 +86,23 @@ public sealed partial class EudamedService
     public async Task<EudamedRenderedDocument> ReadDossierOriginal(string id, int version, string hash,
         Actor actor, CancellationToken ct = default)
     {
-        var history = await DossierHistory(id, actor, ct);
-        var dossier = history.SingleOrDefault(d => d.Version == version)
+        var current = await GetDossier(id, actor, ct);
+        Guard.Against(version < 1, "eudamed_version_missing", "Autorisierte Originalfassung fehlt.", 404);
+        var dossier = await store.GetVersion<EudamedDossier>("eudamedDossier", id, version, ct)
             ?? throw new DomainException("eudamed_version_missing", "Autorisierte Originalfassung fehlt.", 404);
+        Guard.Against(dossier.Id != id || dossier.Version != version || dossier.ProductId != current.ProductId ||
+            !EudamedRules.CanRead(dossier, actor),
+            "eudamed_version_missing", "Autorisierte Originalfassung fehlt.", 404);
+        await RequireFsnPublicationAccess(dossier, actor, ct);
+        if (dossier.Distributions.SingleOrDefault(d => d.EvidenceHash == hash) is { } distribution)
+            await RequireFsnDistributionAccess(dossier, distribution, actor, ct);
         var attachment = dossier.Package.Attachments.FirstOrDefault(a => a.Hash == hash);
         var certificate = dossier.Package.References.Certificate.OriginalHash == hash;
         Guard.Against(attachment is null && !certificate && dossier.FrozenPackageHash != hash &&
             !dossier.Attempts.Any(a => a.ReceiptHash == hash) &&
             !dossier.BusinessResponses.Any(r => r.OriginalHash == hash) &&
-            !dossier.Correspondence.Any(c => c.OriginalHash == hash),
+            !dossier.Correspondence.Any(c => c.OriginalHash == hash) &&
+            !dossier.Distributions.Any(d => d.EvidenceHash == hash),
             "eudamed_original_scope", "Dieses Original ist nicht an die autorisierte Dossierfassung gebunden.", 404);
         var bytes = await objects.ReadBytes(hash, ct);
         Guard.Against(Convert.ToHexStringLower(SHA256.HashData(bytes)) != hash,
@@ -153,11 +165,16 @@ public sealed partial class EudamedService
         if (await store.Receipt<EudamedDossier>(context, ct) is { } replay)
         {
             EudamedRules.RequireActorScope(replay, actor);
+            await RequireFsnPublicationAccess(replay, actor, ct);
             return replay;
         }
         var current = await store.Get<EudamedDossier>("eudamedDossier", id, ct);
         Guard.Against(editing && current is null, "eudamed_dossier_missing", "Zu bearbeitendes Dossier fehlt.", 404);
-        if (current is not null) EudamedRules.RequireActorScope(current, actor);
+        if (current is not null)
+        {
+            EudamedRules.RequireActorScope(current, actor);
+            await RequireFsnPublicationAccess(current, actor, ct);
+        }
         Guard.Against((current?.Version ?? 0) != input.ExpectedVersion, "version_conflict", "Dossierfassung hat sich geaendert.", 409);
         Guard.Against(current is not null && (current.ProductId != input.ProductId || current.Kind != input.Kind),
             "eudamed_dossier_identity", "Produkt und Dossiertyp duerfen nicht umetikettiert werden.", 409);
@@ -215,6 +232,7 @@ public sealed partial class EudamedService
         if (await store.Receipt<EudamedDossier>(context, ct) is { } replay)
         {
             EudamedRules.RequireActorScope(replay, actor);
+            await RequireFsnPublicationAccess(replay, actor, ct);
             return replay;
         }
         Guard.Against(value.Version != input.ExpectedVersion, "version_conflict", "Dossier wurde geaendert.", 409);
