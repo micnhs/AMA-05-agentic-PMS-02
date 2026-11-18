@@ -929,11 +929,18 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         FreezePsurCommand Initial(PsurGroupDefinition group) => new(group.ProductId, group.ProductId,
             group.FirstPeriodStart, group.FirstPeriodStart.AddYears(1).AddDays(-1), "Worldwide",
             Mode: AgentMode.Replay, GroupId: group.Id, GroupVersion: group.Version);
-        async Task<Psur> ApproveReport(Psur report)
+        async Task<Psur> FreezeAndApproveReport(FreezePsurCommand input, string phase)
         {
+            await RecordSetupPhase(phase + "-freeze-start");
+            var report = await analytics.Freeze(input, SqlFixture.Pms, CaseScenario.Key());
+            await RecordSetupPhase(phase + "-frozen");
             report = await analytics.Approve(report.Id, new(report.Version, reason), SqlFixture.Medical, CaseScenario.Key());
+            await RecordSetupPhase(phase + "-medical-approved");
             report = await analytics.Approve(report.Id, new(report.Version, reason), SqlFixture.Ra, CaseScenario.Key());
-            return await analytics.Simulate(report.Id, new(report.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+            await RecordSetupPhase(phase + "-ra-approved");
+            report = await analytics.Simulate(report.Id, new(report.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+            await RecordSetupPhase(phase + "-submitted");
+            return report;
         }
         OpenPsurReviewCommand Question(string suffix, bool action) => new(InitialPsur.Id, InitialPsur.Version,
             "DEMO-BS-RECOVERY-" + suffix + "-" + owner,
@@ -946,15 +953,18 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 e.Kind == "evidence" && e.Selection == "CurrentAtFreeze"))
                 .Select(e => new PsurReviewSelection(e.Kind, e.Source.Id, e.Source.Version)).ToArray(), actions,
             "Keine neue Massnahme fuer diese Klarstellung erfinden; bereits verknuepfte Massnahmen frueherer Runden bleiben gesondert nachweispflichtig.", reason);
-        async Task<PsurReview> ApproveReply(PsurReview review)
+        async Task<PsurReview> ApproveReply(PsurReview review, string phase)
         {
             review = await reviews.Approve(review.Id, new(review.Version, reason), SqlFixture.Medical, CaseScenario.Key());
-            return await reviews.Approve(review.Id, new(review.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+            await RecordSetupPhase(phase + "-medical-approved");
+            review = await reviews.Approve(review.Id, new(review.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+            await RecordSetupPhase(phase + "-ra-approved");
+            return review;
         }
 
         var definition = Definition("ortho");
         CurrentPsurGroup = await analytics.RecordGroup(definition, SqlFixture.Pms, CaseScenario.Key());
-        InitialPsur = await ApproveReport(await analytics.Freeze(Initial(CurrentPsurGroup), SqlFixture.Pms, CaseScenario.Key()));
+        InitialPsur = await FreezeAndApproveReport(Initial(CurrentPsurGroup), "source-psur-initial");
         await RecordSetupPhase("source-psur-initial-ready");
         clock.Now = DateTimeOffset.Parse("2027-11-13T15:00:00Z");
         var cardioCase = await source.Service(clock).Register(new CaseScenario(source).Input with {
@@ -966,23 +976,28 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
             SqlFixture.Pms.Id, "Alle drei Vergleiche erfuellen das vorher dokumentierte Kriterium ohne die beanstandete Abweichung.",
             clock.Now.AddDays(10)), SqlFixture.Pms, CaseScenario.Key());
         var review = await reviews.Open(Question("CUTOFF", true), SqlFixture.Ra, CaseScenario.Key());
+        await RecordSetupPhase("source-psur-first-question-opened");
         review = await reviews.Draft(review.Id, Draft(review, new PsurReviewSelection("capa", PsurCapaAtCutoff.Id, PsurCapaAtCutoff.Version)),
             SqlFixture.Pms, CaseScenario.Key());
-        review = await ApproveReply(review);
+        await RecordSetupPhase("source-psur-first-reply-drafted");
+        review = await ApproveReply(review, "source-psur-first-reply");
         review = await reviews.Simulate(review.Id, new(review.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+        await RecordSetupPhase("source-psur-first-reply-submitted");
         review = await reviews.Assess(review.Id, new(review.Version, "FurtherResponseRequired", reason,
             "Die synthetische BS verlangt eine weitere Dokumentation der begruendeten Quellenausschluesse; die fruehere CAPA bleibt bestehen.",
             clock.Now.AddDays(6), NextScheduleBasis: "Gesonderter vereinbarter UTC-Termin ausschliesslich fuer die zweite synthetische Rueckfragerunde."),
             SqlFixture.Ra, CaseScenario.Key());
+        await RecordSetupPhase("source-psur-second-question-opened");
         review = await reviews.Draft(review.Id, Draft(review), SqlFixture.Pms, CaseScenario.Key());
-        review = await ApproveReply(review);
+        await RecordSetupPhase("source-psur-second-reply-drafted");
+        review = await ApproveReply(review, "source-psur-second-reply");
         PsurReplyCommand = new(review.Version, reason);
         PsurReplyKey = CaseScenario.Key();
         PsurReviewAtCutoff = await reviews.Simulate(review.Id, PsurReplyCommand, SqlFixture.Ra, PsurReplyKey);
         await RecordSetupPhase("source-psur-cutoff-reply-ready");
 
         var otherGroup = await analytics.RecordGroup(Definition("cardio"), SqlFixture.Pms, CaseScenario.Key());
-        OtherSeriesPsur = await ApproveReport(await analytics.Freeze(Initial(otherGroup), SqlFixture.Pms, CaseScenario.Key()));
+        OtherSeriesPsur = await FreezeAndApproveReport(Initial(otherGroup), "source-psur-other-series");
         Assert.Equal(Canonical.Serialize(PsurReviewAtCutoff),
             Canonical.Serialize(Assert.Single(OtherSeriesPsur.Snapshot.Group!.RegulatoryHistory!.Reviews).CurrentAtFreeze));
         await RecordSetupPhase("source-psur-other-series-ready");
@@ -994,9 +1009,12 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         ClosedPsurReview = await reviews.Assess(PsurReviewAtCutoff.Id, new(PsurReviewAtCutoff.Version, "NoFurtherQuestion", reason),
             SqlFixture.Ra, CaseScenario.Key());
         PendingPsurReview = await reviews.Open(Question("POST-CUTOFF", false), SqlFixture.Ra, CaseScenario.Key());
+        await RecordSetupPhase("source-psur-post-cutoff-question-opened");
         PendingPsurReview = await reviews.Draft(PendingPsurReview.Id, Draft(PendingPsurReview), SqlFixture.Pms, CaseScenario.Key());
+        await RecordSetupPhase("source-psur-post-cutoff-reply-drafted");
         PendingPsurReview = await reviews.Approve(PendingPsurReview.Id, new(PendingPsurReview.Version, reason),
             SqlFixture.Medical, CaseScenario.Key());
+        await RecordSetupPhase("source-psur-post-cutoff-reply-medical-approved");
         CurrentPsurGroup = await analytics.RecordGroup(definition with { ExpectedVersion = CurrentPsurGroup.Version,
             Rationale = reason + " Neue kontrollierte Gruppierungsbegruendung bei identischen getrennten Mitgliedern; die alte Version bleibt erhalten." },
             SqlFixture.Pms, CaseScenario.Key());
@@ -1010,11 +1028,11 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
             await source.Store.Execute<Exposure>(new(exposure.Id, "exposure", product, 0, CaseScenario.Key(),
                 "SyntheticExposureRecorded", reason, SqlFixture.Quality, exposure, clock.Now), _ => exposure);
         }
-        NextPsur = await ApproveReport(await analytics.Freeze(new("ortho", "ortho", start, end, "Worldwide",
+        NextPsur = await FreezeAndApproveReport(new("ortho", "ortho", start, end, "Worldwide",
             Mode: AgentMode.Replay, PreviousReportId: InitialPsur.Id, PreviousReportVersion: InitialPsur.Version,
             SubmissionDate: new(2028, 1, 10), ScheduleAgreement: "DEMO-RECOVERY-EXPLICIT-NEXT-PERIOD-AGREEMENT",
             RevisionReason: reason, GroupId: CurrentPsurGroup.Id, GroupVersion: CurrentPsurGroup.Version),
-            SqlFixture.Pms, CaseScenario.Key()));
+            "source-psur-next-period");
         Assert.Equal("ReplySubmitted", NextPsur.Snapshot.Group!.RegulatoryHistory!.Reviews
             .Single(r => r.CurrentSource.Id == ClosedPsurReview.Id).StatusAtCutoff);
         Assert.Equal("MedicalApproved", PendingPsurReview.Status);
@@ -1065,6 +1083,8 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         var invocation = RecoveryDiagnostics.Invocation(name, test);
         var parameters = new Dictionary<string, object> { ["ConfigurationPath"] = configuration,
             ["BackupDirectory"] = backup, ["ApplicationDirectory"] = applicationDirectory };
+        if (name == "Backup-Local.ps1")
+            parameters.Add("TimingPath", Path.Combine(Directory, "private", invocation.Id + "-backup-phases.jsonl"));
         for (var index = 0; index < extra.Length; index++)
         {
             var parameter = extra[index];

@@ -114,6 +114,10 @@ public sealed class OutboxTests(SqlFixture fixture)
         await fixture.Store.CompleteEvent(pending.Id, "stream-consumer", owner, null);
         Assert.True(await fixture.Store.HasReceipt(pending.Id, "stream-consumer"));
         Assert.Null(await fixture.Store.ClaimEvent(pending.Id, owner));
+        var manifest = await fixture.Store.Manifest(value.Id, kind: context.Kind);
+        Assert.Equal(value.Version, manifest.CurrentVersion);
+        Assert.True(manifest.HashChainVerified);
+        Assert.True(manifest.CurrentStateVerified);
     }
 
     private sealed record LargePayload(string Id, int Version, string ProductId, string Text);

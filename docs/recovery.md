@@ -18,7 +18,7 @@ unveraendert alle elf Fixture-Abschlusspruefungen. Sieben
 `RecoveryDiagnostics`-Faelle und ein SQL-freier `RecoveryEudamedContract`
 gehoeren nicht zu diesem Gesamtnachweis.
 
-Zwei begrenzte Windows-Gesamtversuche am integrierten Stand endeten nach
+Die ersten zwei begrenzten Windows-Gesamtversuche am integrierten Stand endeten nach
 900 Sekunden ohne abgeschlossenen 17er-TRX. Sie sind **Timeouts, keine
 Teilpaesse**. Ihre genau zugeordneten Ressourcen wurden anschliessend
 unabhaengig bereinigt; das ist kein Restore-Erfolg. Im zweiten Versuch
@@ -26,12 +26,35 @@ dauerte das vollstaendige Acht-Tabellen-Lesen 4,08 Sekunden, waehrend
 Quellvorbereitung, Backups und Nachprozessabschluss weiter untersucht werden
 muessen. Eine separate Prozessgrenzenprobe ersetzt keinen Recoverylauf.
 
-Build34 mit Anwendungsquelle `19961ee9a1d662b6ec98b12d9fb92e85135ab773`
-ist vollstaendig gebaut. Die frueheren acht separaten Diagnostik-/SQL-freien
-Vertragstests behalten ihre jeweiligen Quellbindungen; sie werden nicht als
-Recovery17 ausgegeben. **Ein erfolgreicher aktueller 17er-Gesamtlauf bleibt
-offen.** Die nachfolgenden historischen Nachweise gelten jeweils nur fuer
-ihren ausdruecklichen damaligen Umfang.
+Build36 mit Quelle `6ec9c37f1487a0e315eef09e85ad2ff375b86dfb` ist
+vollstaendig gebaut: elf frische Projekte480,7241584s/600, frisches Web,
+Solution, beide Publishes und39/39 Bootstrap-Tests. Der vorherige
+Build35-Timeout bleibt negativ. Offline80 bestand auf genau diesem Build
+die acht separaten Diagnostik-/SQL-freien Vertragstests ohne Skips in
+19,6859332s/180; sie werden nicht als Recovery17 ausgegeben.
+Die [Build- und Prozessbelege](validation.md#build36-und-getrennte-recovery-voraussetzungen)
+halten auch die SDK-internen WorkerExtensions-Restores getrennt vom
+wiederverwendeten Hauptprojekt-Restore fest.
+**Ein erfolgreicher aktueller 17er-Gesamtlauf bleibt offen.**
+Die nachfolgenden historischen Nachweise gelten jeweils nur fuer ihren
+ausdruecklichen damaligen Umfang.
+
+Auch **Recovery03 auf6ec9c37/Build36** endete negativ: tatsaechlicher
+Gesamtprozess900,4241368s/900. Die PSUR-Vorbereitung beanspruchte
+460,9817339s; nach dem Start des ersten Backups bei584,6439284s ab
+Fixturekonstruktion fehlt dessen Abschluss. Ein natives Backup und
+Objektkopien liegen vor, aber kein vollstaendiges Backupmanifest und
+kein17er-TRX-Erfolg. Das ist keine Diagnose einer einzelnen SQL-Operation.
+Die normale Abschlusspruefung scheiterte nach25,6300026s/60 an der noch
+unvollstaendigen Fixturebereinigung.
+Die genau identifizierten eigenen Reste wurden danach separat
+in41,8397878s/60 bereinigt; eine weitere unabhaengige, rein lesende
+Abwesenheits-/Quell-/Assembly-/Paketpruefung bestand in48,5615119s/60.
+Alle65 Run-Artefakte, der Timeout und das urspruengliche vierphasige
+Ressourcenjournal blieben unveraendert. Diese zwei nachtraeglichen
+Pruefungen sind **kein nachtraeglich bestandenes normales Cleanupgate**.
+[Einzelbelege](validation.md#recovery03-timeout-und-separate-bereinigung)
+trennen die drei Prozesse und ihre Grenzen.
 
 Die aktuelle Recovery-Quellpraezisierung protokolliert die vorhandenen
 Aufbauschritte einschliesslich PSUR-/EUDAMED-Vorbereitung und beider Backups
@@ -42,7 +65,21 @@ Prozessstart; `frequency` erlaubt ihre Umrechnung. Jede Zeile wird mit
 WriteThrough/Flush-to-disk geschrieben. Der UTC-Wert `at` dient nur der
 Korrelation, nicht der Laufzeitberechnung. Das ist getrennt von den
 sechs Ressourcenphasen und den tatsaechlichen Prozessstart/-endwerten.
-Dieser neue Quellteil hat noch keinen ausgefuehrten Recovery17-Nachweis.
+Die weitere Quellkorrektur verwendet auch in Portfolio-Capture und
+Auditmanifest das bestehende sequenzielle SQL-Textlesen; Abfrageumfang,
+Transaktionen, Hash-/Versions-/Zeitpruefungen bleiben erhalten.
+Feinere Setupmarken unterscheiden Freeze, getrennte Freigaben,
+simuliertes Senden und die beiden BS-Antwortrunden.
+`Backup-Local.ps1 -TimingPath <neue-datei-unter-.local>` ist optional
+und schreibt im Recoverytest eine eigene
+`private\<invocation>-backup-phases.jsonl`: nur konstante Phasenlabels,
+monotone Zeiten sowie Anzahlen/JSON-Zeichenlaengen. Keine SQL-Parameter,
+Originaltexte oder Zugangsdaten. Die Uhr beginnt erst bei
+`script-timing-initialization`, nicht beim Prozessstart; WriteThrough
+und Flush-to-disk erhalten Fortschritt auch bei hartem Testprozessende.
+Weder diese Metazeiten noch eine erfolgreiche Typpruefung belegen
+bereits eine Laufzeitverbesserung oder Recovery17. Dieser neue Quellteil
+hat noch keinen ausgefuehrten Gesamtnachweis.
 
 ## Historische PSUR-/BS-Fixture-Uebergabe und Typpruefung
 

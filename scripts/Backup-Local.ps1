@@ -4,11 +4,39 @@ param(
     [string]$ConfigurationPath,
     [string]$BackupDirectory,
     [switch]$Quiesced,
-    [string]$ApplicationDirectory
+    [string]$ApplicationDirectory,
+    [string]$TimingPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:recoveryTiming = $null
+
+function Initialize-RecoveryTiming([string]$Path) {
+    if (-not $Path) { return }
+    $path = Assert-RecoveryPath $Path -New
+    $stream = [IO.FileStream]::new($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    $stream.Dispose()
+    $script:recoveryTiming = @{ path = $path; started = [Diagnostics.Stopwatch]::GetTimestamp(); sequence = 0 }
+    Write-RecoveryPhase 'timing-start'
+}
+
+function Write-RecoveryPhase([string]$Phase, [long]$Count = -1, [long]$Characters = -1) {
+    if ($null -eq $script:recoveryTiming) { return }
+    $timestamp = [Diagnostics.Stopwatch]::GetTimestamp()
+    $record = [ordered]@{
+        variant = 'RecoveryBackup'; phase = $Phase; sequence = ++$script:recoveryTiming.sequence
+        timestampTicks = $timestamp; frequency = [Diagnostics.Stopwatch]::Frequency
+        elapsedTicks = $timestamp - $script:recoveryTiming.started; clockScope = 'script-timing-initialization'
+        at = [DateTimeOffset]::UtcNow.ToString('O')
+    }
+    if ($Count -ge 0) { $record['count'] = $Count }
+    if ($Characters -ge 0) { $record['jsonCharacters'] = $Characters }
+    $bytes = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $record -Compress) + "`n")
+    $stream = [IO.FileStream]::new($script:recoveryTiming.path, [IO.FileMode]::Append, [IO.FileAccess]::Write,
+        [IO.FileShare]::Read, 4096, [IO.FileOptions]::WriteThrough)
+    try { $stream.Write($bytes); $stream.Flush($true) } finally { $stream.Dispose() }
+}
 
 # Restore-Local dot-sources these recovery-specific checks; dot-sourcing never starts a backup.
 function Initialize-RecoveryRuntime([string]$Directory) {
@@ -435,6 +463,7 @@ function New-RecoveryStore($Config, [string]$Database) {
 }
 
 function Get-RecoveryState($Connection, $Config) {
+    Write-RecoveryPhase 'state-schema-start'
     $orders = [ordered]@{
         Aggregates = 'Kind,Id'; AggregateVersions = 'Kind,Id,Version'; AuditEvents = 'Sequence'
         Commands = 'IdempotencyKey'; Deadlines = 'Id'; Inbox = 'EventId,Consumer'
@@ -448,9 +477,11 @@ function Get-RecoveryState($Connection, $Config) {
     $rows = @{}
     $tables = @()
     foreach ($name in $orders.Keys) {
+        Write-RecoveryPhase "state-table-$name-start"
         $json = [string](Invoke-RecoverySql $Connection "SELECT (SELECT * FROM dbo.[$name] ORDER BY $($orders[$name]) FOR JSON PATH,INCLUDE_NULL_VALUES)" -Scalar)
         $rows[$name] = ConvertFrom-Json -InputObject $json -AsHashtable -Depth 100 -DateKind String -NoEnumerate
         $tables += [ordered]@{ name = $name; count = $rows[$name].Count; sha256 = [Cohors.Domain.Canonical]::HashText($json) }
+        Write-RecoveryPhase "state-table-$name-complete" $rows[$name].Count $json.Length
     }
     $store = New-RecoveryStore $Config $Connection.Database
     $history = @{}
@@ -463,6 +494,7 @@ function Get-RecoveryState($Connection, $Config) {
         $aggregates[$key] = $row
         $versionCounts[$key] = 0
     }
+    Write-RecoveryPhase 'state-historical-bindings-start' $rows.AggregateVersions.Count
     foreach ($row in $rows.AggregateVersions) {
         $key = "$($row.Kind)|$($row.Id)"
         if (-not $aggregates.ContainsKey($key) -or $row.Version -lt 1 -or $row.Version -gt $aggregates[$key].Version) {
@@ -489,11 +521,15 @@ function Get-RecoveryState($Connection, $Config) {
             }
         }
     }
+    Write-RecoveryPhase 'state-audit-manifests-start' $rows.Aggregates.Count
+    $checkedManifests = 0
     foreach ($row in $rows.Aggregates) {
         if ($versionCounts["$($row.Kind)|$($row.Id)"] -ne $row.Version) {
             throw 'recovery_sql_integrity: Missing historical revision.'
         }
         $store.Manifest($row.Id, [Threading.CancellationToken]::None, $row.Kind).GetAwaiter().GetResult() | Out-Null
+        $checkedManifests++
+        if ($checkedManifests % 16 -eq 0) { Write-RecoveryPhase 'state-audit-manifests-progress' $checkedManifests }
         if ($row.Kind -eq 'case') {
             $case = [Text.Json.JsonSerializer]::Deserialize($row.Json, [Cohors.Domain.SafetyCase], [Cohors.Domain.Canonical]::Json)
             foreach ($deadline in $case.Deadlines) {
@@ -502,6 +538,7 @@ function Get-RecoveryState($Connection, $Config) {
             }
         }
     }
+    Write-RecoveryPhase 'state-audit-manifests-complete' $checkedManifests
     if ($expectedDeadlines.Count -ne $rows.Deadlines.Count) { throw 'recovery_sql_integrity: Incomplete deadline projection.' }
     foreach ($row in $rows.Deadlines) {
         $expected = $expectedDeadlines[$row.Id]
@@ -535,10 +572,14 @@ function Get-RecoveryState($Connection, $Config) {
         }
     }
     $payloads = @($rows.Aggregates.Json) + @($rows.AggregateVersions.Json) + @($rows.Commands.Result) + @($rows.Outbox.Payload)
+    Write-RecoveryPhase 'state-retention-bindings-start'
     $retention = Get-RecoveryRetentionCut $rows.Aggregates
     # Commands and Outbox are checked above against these exact retained SQL revisions.
     $revisions = @($rows.Aggregates) + @($rows.AggregateVersions)
-    return @{ tables = $tables; references = (Get-RecoveryReferences $payloads $retention $revisions); retention = $retention }
+    Write-RecoveryPhase 'state-original-references-start' $payloads.Count
+    $references = Get-RecoveryReferences $payloads $retention $revisions
+    Write-RecoveryPhase 'state-original-references-complete' $references.Count
+    return @{ tables = $tables; references = $references; retention = $retention }
 }
 
 function Get-RecoveryObjectKey($Item) {
@@ -699,6 +740,13 @@ Initialize-RecoveryRuntime $ApplicationDirectory
 $config = Read-RecoveryConfiguration $ConfigurationPath
 $backup = Assert-RecoveryPath $BackupDirectory -New
 Assert-RecoverySeparatePaths $backup $config.objectRoot
+if ($TimingPath) {
+    $TimingPath = Assert-RecoveryPath $TimingPath -New
+    Assert-RecoverySeparatePaths $TimingPath $config.objectRoot
+    Assert-RecoverySeparatePaths $TimingPath $backup
+    Initialize-RecoveryTiming $TimingPath
+    Write-RecoveryPhase 'configuration-ready'
+}
 $connection = Open-RecoverySql $config $config.database
 $native = '/var/opt/mssql/data/cohors_recovery_' + [Guid]::NewGuid().ToString('N') + '.bak'
 $nativeCreated = $false
@@ -706,18 +754,25 @@ try {
     if ((Invoke-RecoverySql $connection 'SELECT is_read_only FROM sys.databases WHERE database_id=DB_ID()' -Scalar) -ne $true) {
         throw 'recovery_quiescence: The source database must already be READ_ONLY; this script never stops or changes source writers.'
     }
+    Write-RecoveryPhase 'before-state-start'
     $before = Get-RecoveryState $connection $config
+    Write-RecoveryPhase 'before-state-complete'
     $objects = Get-RecoveryObjects $config.objectRoot
     Assert-RecoveryCoverage $before $objects
     New-Item -ItemType Directory -Path $backup | Out-Null
     $objectCopy = Join-Path $backup 'objects'
     New-Item -ItemType Directory -Path $objectCopy | Out-Null
+    Write-RecoveryPhase 'native-backup-start'
     $nativeCreated = $true
     Invoke-RecoverySql $connection "BACKUP DATABASE [$($config.database)] TO DISK=N'$native' WITH COPY_ONLY,CHECKSUM"
     Invoke-RecoverySql $connection "RESTORE VERIFYONLY FROM DISK=N'$native' WITH CHECKSUM"
+    Write-RecoveryPhase 'native-backup-verified'
     Invoke-RecoveryDocker @('cp', "$($config.containerId):$native", (Join-Path $backup 'database.bak')) | Out-Null
+    Write-RecoveryPhase 'native-backup-copied'
     Copy-RecoveryObjects $config.objectRoot $objectCopy $objects
+    Write-RecoveryPhase 'objects-copied' $objects.Count
     $after = Get-RecoveryState $connection $config
+    Write-RecoveryPhase 'after-state-complete'
     if ((Invoke-RecoverySql $connection 'SELECT is_read_only FROM sys.databases WHERE database_id=DB_ID()' -Scalar) -ne $true -or
         (Get-RecoveryHash $before) -cne (Get-RecoveryHash $after) -or
         (Get-RecoveryHash $objects) -cne (Get-RecoveryHash (Get-RecoveryObjects $config.objectRoot)) -or
@@ -737,6 +792,7 @@ try {
     }
     $manifestPath = Join-Path $backup 'manifest.json'
     [IO.File]::WriteAllText($manifestPath, (ConvertTo-Json -InputObject $manifest -Depth 30), [Text.UTF8Encoding]::new($false))
+    Write-RecoveryPhase 'manifest-written'
     Write-Output ('RECOVERY_MANIFEST_SHA256=' + (Get-FileHash -LiteralPath $manifestPath).Hash.ToLowerInvariant())
 } finally {
     $connection.Dispose()

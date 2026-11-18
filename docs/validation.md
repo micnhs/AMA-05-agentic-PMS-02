@@ -1779,11 +1779,24 @@ der Gesamt-Solution-Build 45,5290609 Sekunden.
 
 Die 28 Abhaengigkeitsmanifeste/Lockfiles waren gegen den tatsaechlich
 erfolgreichen Locked-Restore von Build31 byteidentisch. Deshalb wurde
-dieser vorhandene Restore explizit gebunden wiederverwendet, **kein
-neuer Restore oder Paketinstallationslauf behauptet**. Der gemessene
+dieser vorhandene Hauptprojekt-Restore explizit gebunden wiederverwendet.
+Das belegt **keine erneute explizite Hauptprojekt-Restore-Stufe**, nicht
+die Abwesenheit aller SDK-internen Restores. Der gemessene
 Prozessrunner blieb byteidentisch; nur volle SHA256-Lesungen verwenden
 nun den bereits nachgewiesenen 1-MiB-SequentialScan-Puffer. Keine
 Dateisatz-, Quell-, Paket-, XLSX-, Handle- oder Cleanupausnahme.
+
+Die spaetere Nachpruefung der Build34-/Build35-MSBuildlogs und des
+installierten `Microsoft.Azure.Functions.Worker.Sdk`2.1.0 zeigt:
+`_FunctionsInnerBuild` ruft `_WorkerExtensionsRestore` auf; dieses Target
+restoret das generierte `WorkerExtensions.csproj` auch bei einem
+Top-level-`--no-restore`. Seine `RestoreTask`-Zeiten betrugen in Build34
+4,300s/3,487s und in Build35 22,061s/11,669s fuer Operations/Workflows.
+Die Wiederverwendungsfelder der privaten Pruefprotokolle beziehen sich
+auf die elf Hauptprojekt-Assetgraphen, nicht auf diese generierten Projekte.
+Ein tatsaechlicher Paketdownload wurde damit weder nachgewiesen noch
+ausgeschlossen. Alte Ergebnisdateien bleiben unveraendert; SDK-Targets,
+Analyser und Abhaengigkeitspruefungen werden nicht deaktiviert.
 
 Offline60 und Native61 bis Native67 bestanden **zehn unterschiedliche
 Faelle ohne Skips**. Native63 bis Native67 besassen jeweils sowohl eine
@@ -2419,6 +2432,129 @@ Keine Previewpromotion, neue fachliche Abnahme oder Cloudaktivierung.
 | `public-ui-selection-03.json` | `abbe6a860b77c824d5a2ab288e5ad246ae1c964ce1259ef6d0b272da45ecc8de` |
 | `public-ui-selection-owned-03.json` | `ec009dd4ddc9a93aae5b30ce4aef69a3caefda88c5ec2cf0a382c019b5db449f` |
 | `public-ui-selection-owned-01.json` (negativ) | `305205400915f679e0c1a4ae87e7eb3d491fc3bb3ed5999a4e616bfc3ce90afe` |
+
+### Recovery-Quellpraezisierung und negativer Build35
+
+`6ec9c37f1487a0e315eef09e85ad2ff375b86dfb` ergaenzt die dauerhaften
+monotonen RecoverySetup-Metazeiten, nicht den fachlichen Testumfang.
+Build35 baute neun Projekte frisch, erschoepfte aber das unveraenderte
+600s-Gesamtbudget waehrend `Cohors.Bootstrap.Tests`: diesem Prozess
+verblieben28s; `Cohors.Tests` wurde nicht mehr erreicht. Der umschliessende
+900s-Job endete negativ ohne eigenen Timeout und ohne verbliebene
+Nachkommen/Streams. **Kein vollstaendiger Build und kein Recovery17-Pass**;
+gemischte Ausgaben dieses Versuchs werden nicht fuer Tests freigegeben.
+
+Ein anschliessender begrenzter reiner Lesedurchstich mass34,122s fuer
+alle412 Quelldateihashes und1,254s fuer elf Assetgraphen. Eine
+aequivalente serielle CLR-Schleife las alle423 Dateien in1,6564213s
+und bestaetigte jeden Originaldigest sowie erneutes Lesen geaenderter
+Bytes und fehlerschliessendes Verhalten bei fehlendem Input.
+SHA256, vollstaendige Dateiinhalte und FileStream-Zugriffsoptionen bleiben
+gleich; kein Cache, Parallelismus oder reduzierter Dateisatz.
+Der zweite Prozess endete nach10,0084918s/60s vollstaendig.
+Das sind einzelne Diagnosemessungen, kein allgemeines Leistungsversprechen.
+Sie begruenden die eng begrenzte Builderkorrektur, nicht einen Build-Pass
+oder eine Erhoehung von180/600/900s.
+
+| Diagnosebeleg | SHA256 |
+| --- | --- |
+| `build-35-project-partitions.json` (negativ) | `5262bd0e52c4cd4426b6efd44e793667c49abdfbb3050c12bbc17a160d09c60a` |
+| `build-35-partitions-owned-job.json` | `3fe384712145320519a1b6e058d9979c190d88a283b9ac39ffe5a4b890b81af6` |
+| `partition-bindings-probe-01.json` | `a76ce57e7d27295be8f46188d83858d3a918446efd1627a15f432062c21ed586` |
+| `bound-file-hashes-proof-01.json` | `617404ce5dc2ba72a68bd776f29fdbb7768fb62200535daaffdbd1c2bc929601` |
+| `bound-file-hashes-proof-owned-01.json` | `885307affe494b034f8b9522821cdefe7b598e1a912de3440acc40c268d2ab01` |
+
+### Build36 und getrennte Recovery-Voraussetzungen
+
+Der nachfolgende **Build36 auf demselben6ec9c37** bestand alle
+urspruenglichen Komplettgates. Alle elf Projekte wurden erneut frisch
+gebaut, zusammen480,7241584s/600; keine frueheren Teilergebnisse zaehlen
+mit. Alle13 vollen Quellhashgrenzen blieben erhalten und dauerten
+einzeln1,237 bis6,029s. Die neuen monotonen Metazeiten unterscheiden
+Vorbereitung, Guard, Git, Quellen, Assetgraphen und Projektprozesse;
+sie ersetzen keine OS-Prozessendzeit.
+
+| Unveraendertes Buildgate | Tatsaechliche Prozessdauer / Limit |
+| --- | --- |
+| Frisches Web ohne TypeScript-Inkrementalcache | 88,5839257 / 120 s |
+| Vollstaendiger Solution-Build | 70,3930900 / 180 s |
+| API-Publish | 14,2803802 / 90 s |
+| Bootstrap-Tests, 39/39 ohne Skips | 14,9482837 / 180 s |
+| Bootstrap-Publish | 3,7212407 / 90 s |
+
+Alle Prozesse und Streams waren geschlossen;116 API-Dateien und55
+Bootstrap-Dateien sind vollstaendig gebunden. Der Build ist keine
+Previewpromotion oder UI-/Recovery-/Cloudabnahme.
+
+**Offline80** bestand anschliessend die originalen sieben
+`RecoveryDiagnostics`-Faelle und den einen SQL-freien
+`RecoveryEudamedContract`:8/8,0 Skips,19,6859332s/180 fuer den echten
+Testprozess. Kein SQL-Fixturejournal, geschlossener Gesamtjob.
+Diese acht Faelle ersetzen ausdruecklich nicht Recovery17.
+
+Der zusaetzliche private Vierfach-Grenzdiagnoseversuch01 endete
+nach60,2920789s/60 ohne abgeschlossenes Resultat; eigene Prozesse und
+Streams waren geschlossen, ohne SQL/Docker/API/Browseranlage.
+Seine Teilfortschritte sind unbelegt. Versuch02 mass stattdessen die
+**eine vollstaendige** Source-/Assembly-/Package-/Guard-/Workbookgrenze,
+die der separate Abschlusspruefer genau einmal ausfuehrt:
+39,7733079s/60 fuer den Prozess, mit dauerhaftem Phasenprotokoll,
+412 Quelldateien und116 Paketdateien. Er ist weder eine Umwertung
+des vorherigen Timeouts noch eine Verkuerzung der17 fachlichen Faelle.
+Der17er-Gesamtlauf und seine unabhaengige Ressourcenpruefung bleiben
+separate offene Gates.
+
+| Aktueller Build-/Voraussetzungsbeleg | SHA256 |
+| --- | --- |
+| `build-36-project-partitions.json` | `3a479bbf98d8aa825002e2dcf698251e193934d8287bae65e89601a7a72fdaf8` |
+| `build-36-project-phases.jsonl` | `1bb2e7c1d0cb53e8bc319b91742f9cdffce17bf8f6d5fd01f8c9cfc189fb8330` |
+| `build-36-result.json` | `5e69c01550d3a660cdaf45f8081f6d5973519c89210fcb73c44e10689d3035fe` |
+| `build-36-owned-job.json` | `52872bf794a974c9ad6f6f87995ad75b8d7554bc52afb39d91d4a70a0580dce5` |
+| `offline-80-result.json` | `fea4189f0efffab14fc821fc51a1f3ca23d4c10b33acf93ddceb4cd6d3eef1ea` |
+| `offline-80-owned-job.json` | `e4b605b4f24c7a1af6cff5ee0f1536116176599bebcccb32bc2963beb73f5f5e` |
+| `recovery-boundary-proof-owned-01.json` (negativ) | `3520402be745f5175b54ccaaffbe0c0475c7561a46fa00c9f83fc35f457ce501` |
+| `recovery-boundary-proof-02.json` | `aeb551b48754a006d5b6a82b623f05799dc77ee48fc1d21219c378ef62b025c8` |
+| `recovery-boundary-proof-owned-02.json` | `c5501ad024843abcd47696d2e6b2738ffd174fa90895bbb495cc47899ee3361e` |
+
+### Recovery03: Timeout und separate Bereinigung
+
+Der originale gemeinsame17er-Runner auf
+`6ec9c37f1487a0e315eef09e85ad2ff375b86dfb`/Build36 endete am18.11.2026
+erneut **negativ**. OS-Prozessstart01:59:52,2589982Z,
+OS-Ende02:14:52,6831350Z: **900,4241368s bei900s**. Eigene erfasste
+Prozesse, Jobhandle und Streams wurden geschlossen. Kein17er-TRX-Pass;
+auch keine Addition frueherer Teilversuche.
+
+Das unveraenderte dauerhafte Setupjournal weist fuer die volle
+PSUR-Vorbereitung460,9817339s aus. Die letzte Marke ist
+`pre-deletion-backup-start` bei584,6439284s **ab Fixturekonstruktion**,
+nicht ab OS-Start. Nachfolgend sind ein natives Backup und Objektkopien,
+aber kein abgeschlossener Backupmanifest-/Restorebeleg vorhanden.
+Die reine BS-Rueckfrage-Antwort-Latenz ist damit nicht isoliert gemessen;
+eine einzelne SQL-Abfrage ist noch nicht als Zeitursache nachgewiesen.
+
+| Getrenntes Abschlussverfahren | Prozessdauer / Limit | Ergebnis |
+| --- | --- | --- |
+| Originale unabhaengige Abschlusspruefung |25,6300026 /60s| Fehler: normale Fixturebereinigung nicht abgeschlossen |
+| Exakte nachtraegliche eigene Ressourcenbereinigung |41,8397878 /60s| Eigener Sourcecontainer/Volume, voller journalgebundener Fixture-Elternordner und generierte Source-Konfiguration entfernt |
+| Nachfolgende Read-only-Abwesenheits-/Quell-/Assembly-/Paketgrenze |48,5615119 /60s| Vollstaendig geprueft:412 Quellen,116 Paketdateien, Testassemblies und urspruengliche Ressourcenbasis |
+
+Die beiden spaeteren Prozesse sind separate Nachweise, keine Verlaengerung
+oder Umwertung des ersten Cleanupgates. Vor jeder Entfernung wurden die
+konkreten aktuellen Container-/Volume-Identitaeten und Labels gegen
+Inventory und vierphasiges Originaljournal geprueft. Alle65 Run-Artefakte,
+einschliesslich negativer Ergebnisse und unvollstaendigem Backup,
+blieben bytegleich erhalten. Das Journal wurde nicht um erfundene normale
+Cleanup-/Disposed-Phasen erweitert. Beide fremden Workbookdeltas und
+die alte742-Vorschau blieben unangetastet.
+
+| Privater Beleg unter `.local\eudamed-integration-01` | SHA256 |
+| --- | --- |
+| `recovery-03-bounded-result.json` | `ef7fb501fa9627d10108a5f37c8f7befdfcb7aeacdb72e6cb273a7379876702b` |
+| `recovery-03-cleanup.json` (negativ) | `aaaf1d78e9d9092b35a6858c0fac6b8344af1c382ce5eeb548c3c3946d8d4a82` |
+| `recovery-03-cleanup-reconciled.json` | `89433317db12fed567b150ca8812faa354c4dde7e92459db9dc615d421f9239a` |
+| `recovery-03-cleanup-reconciled-owned.json` | `d58eb5237f1f6f9c567b39af34e069e62e7b6fe39b8882da10f13d09b83b99a7` |
+| `recovery-03-post-cleanup-boundary.json` | `dfafd354d5be67ea28ee1410f188841eb124b6742f1d91df6277bf1bbbed65db` |
 
 ### Wiederherstellung ausschliesslich der freigegebenen 742-Vorschau
 

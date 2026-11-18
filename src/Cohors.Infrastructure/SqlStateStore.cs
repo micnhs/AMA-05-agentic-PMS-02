@@ -125,28 +125,33 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         await using var connection = await Open(ct);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         using var query = Command(connection, transaction, """
-            SELECT a.Kind,a.Id,a.Json,a.UpdatedAt,h.Hash,CAST(0 AS bit) AS Historical FROM dbo.Aggregates a
+            SELECT a.Kind,a.Id,a.UpdatedAt,h.Hash,CAST(0 AS bit) AS Historical,a.Json FROM dbo.Aggregates a
             LEFT JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
             WHERE a.ProductId IN (SELECT value FROM OPENJSON(@products)) AND a.Kind IN ('case','exposure','trend','capa','change','productGovernance','psur','source','psurGroup','psurReview')
             UNION ALL
-            SELECT h.Kind,h.Id,h.Json,h.At,h.Hash,CAST(1 AS bit) AS Historical FROM dbo.AggregateVersions h
+            SELECT h.Kind,h.Id,h.At,h.Hash,CAST(1 AS bit) AS Historical,h.Json FROM dbo.AggregateVersions h
             INNER JOIN dbo.Aggregates a ON a.Kind=h.Kind AND a.Id=h.Id
             WHERE h.Kind IN ('evidence','case','capa','change','psurReview') AND a.ProductId IN (SELECT value FROM OPENJSON(@products))
             """, ("products", Canonical.Serialize(products)));
         var rows = new List<(string Kind, string Json)>();
         var history = new List<AggregateRevision>();
-        await using (var reader = await query.ExecuteReaderAsync(ct))
+        await using (var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct))
             while (await reader.ReadAsync(ct))
             {
-                var json = reader.GetString(2);
-                Guard.Against(reader.IsDBNull(4) || Canonical.HashText(json) != reader.GetString(4),
+                var kind = reader.GetString(0);
+                var id = reader.GetString(1);
+                var at = reader.GetFieldValue<DateTimeOffset>(2);
+                var hash = reader.IsDBNull(3) ? throw new DomainException("portfolio_integrity",
+                    "Aktueller oder historischer SQL-Payload stimmt nicht mit der gespeicherten Version ueberein.", 409) : reader.GetString(3);
+                var historical = reader.GetBoolean(4);
+                var json = await ReadText(reader, 5, ct);
+                Guard.Against(Canonical.HashText(json) != hash,
                     "portfolio_integrity", "Aktueller oder historischer SQL-Payload stimmt nicht mit der gespeicherten Version ueberein.", 409);
-                if (!reader.GetBoolean(5) || reader.GetString(0) == "evidence") rows.Add((reader.GetString(0), json));
-                if (reader.GetBoolean(5))
+                if (!historical || kind == "evidence") rows.Add((kind, json));
+                if (historical)
                 {
                     using var document = System.Text.Json.JsonDocument.Parse(json);
-                    history.Add(new(reader.GetString(0), reader.GetString(1), document.RootElement.GetProperty("version").GetInt32(),
-                        reader.GetFieldValue<DateTimeOffset>(3), json, reader.GetString(4)));
+                    history.Add(new(kind, id, document.RootElement.GetProperty("version").GetInt32(), at, json, hash));
                 }
             }
         await transaction.CommitAsync(ct);
@@ -483,13 +488,13 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         int currentVersion;
         string currentProduct;
         using (var query = Command(connection, transaction,
-            "SELECT Version,Json,ProductId FROM dbo.Aggregates WITH(HOLDLOCK) WHERE Kind=@kind AND Id=@id", ("id", id), ("kind", kind)))
+            "SELECT Version,ProductId,Json FROM dbo.Aggregates WITH(HOLDLOCK) WHERE Kind=@kind AND Id=@id", ("id", id), ("kind", kind)))
         {
-            await using var reader = await query.ExecuteReaderAsync(ct);
+            await using var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
             Guard.Against(!await reader.ReadAsync(ct), "aggregate_missing", "Fuehrender Aggregattyp/Datensatz fehlt.", 404);
             currentVersion = reader.GetInt32(0);
-            currentJson = reader.GetString(1);
-            currentProduct = reader.GetString(2);
+            currentProduct = reader.GetString(1);
+            currentJson = await ReadText(reader, 2, ct);
         }
         var audit = await ReadAudit(connection, transaction, id, ct);
         Guard.Against(audit.Length == 0, "audit_missing", "Keine Auditkette vorhanden.", 404);
@@ -501,11 +506,16 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
                 entry.Hash != Canonical.Hash(entry with { Sequence = 0, Hash = "" }),
                 "audit_tampered", "Auditkette ist nicht konsistent.", 409);
             using var query = Command(connection, transaction,
-                "SELECT Json,Hash,At FROM dbo.AggregateVersions WHERE Kind=@kind AND Id=@id AND Version=@version",
+                "SELECT Hash,At,Json FROM dbo.AggregateVersions WHERE Kind=@kind AND Id=@id AND Version=@version",
                 ("kind", kind), ("id", id), ("version", entry.Version));
-            await using var reader = await query.ExecuteReaderAsync(ct);
-            Guard.Against(!await reader.ReadAsync(ct) || Canonical.HashText(reader.GetString(0)) != entry.PayloadHash ||
-                reader.GetString(1) != entry.PayloadHash || !reader.GetFieldValue<DateTimeOffset>(2).EqualsExact(entry.At),
+            await using var reader = await query.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
+            Guard.Against(!await reader.ReadAsync(ct),
+                "history_tampered", "Historische Version, Hash oder Ereigniszeit passt nicht zum Audit.", 409);
+            var hash = reader.GetString(0);
+            var at = reader.GetFieldValue<DateTimeOffset>(1);
+            var json = await ReadText(reader, 2, ct);
+            Guard.Against(Canonical.HashText(json) != entry.PayloadHash ||
+                hash != entry.PayloadHash || !at.EqualsExact(entry.At),
                 "history_tampered", "Historische Version, Hash oder Ereigniszeit passt nicht zum Audit.", 409);
             previous = entry.Hash;
         }
