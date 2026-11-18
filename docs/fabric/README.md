@@ -257,6 +257,43 @@ HTTP-parsing Relay or copying the user's bearer to a worker do not close it.
 Any later connection decision must bind client prerequisites, DNS, unchanged
 Fabric identity, separate network authentication, costs and stop/removal.
 
+`FabricC1BlobCheckpointStore` now provides a separate versioned checkpoint
+consumer, not yet the complete Hosted delivery/bootstrap path. It requires an
+already existing JSON block blob under the own account's
+`c1-checkpoints/{deployment-binding}/{execution-binding}/{runtime}.json`.
+There is no create-on-404, file import/fallback, new task, lease break, or retry.
+Its native factory uses the same explicit app-only caller with a separately
+bound Storage audience/issuer and the existing private DNS/socket/TLS guard.
+It refuses GitHub Actions before reading credentials or contacting a service.
+
+The consumer holds a proposed 60-second lease, renews every 15 seconds and
+conservatively fences at 50 seconds measured from the request start. Every
+state write requires both that lease and the current strong ETag. Lost lease
+or ambiguous writes cancel in-flight MCP/Hosted-control reads and prevent later
+writes; cancellation alone does **not** prove a remote task stopped.
+Original clocks, consumed MCP requests and outstanding calls survive ownership
+changes. Metadata and an observed encryption scope are preserved; unexpected
+index tags fail closed rather than being silently erased. Calls and JSON reads
+are bounded to ten seconds or the remaining invocation allowance, whichever is
+shorter. One reserved request is kept for release; a failed/unknown release is
+reported, never replayed. A server lease can remain until expiry, and Azure
+documents an additional acquisition wait after expiry; no immediate recovery
+or completed cleanup is inferred.
+
+Before **any** storage request, the driver must durably debit a one-use I/O
+reservation from the original approved deployment allocation. The consumer
+records successful reservations under the lease, rejects reuse or excess,
+and does not refund unused quota or allocate a replacement after ambiguity.
+The receipt/review hashes are references, not proof that this upstream debit
+happened. The durable reservation producer, initial conditional blob seed,
+scoped RBAC/readback, protected profile/credential delivery and explicit CLI/
+Hosted selection are still **not integrated**. `--state FILE` retains its file
+meaning; no blob URI is hidden in it. The existing 39 preparation mappings,
+18 execution fields and seven caller fields are unchanged; these additional
+storage documents are a separate implementation contract. All five full-driver
+gaps and seven native `NotRun` cases remain. No live Blob/lease, permission,
+private-path, budget or recovery acceptance follows from fake-transport tests.
+
 These are explicit **implementation gaps**, not assertions that Microsoft
 lacks the corresponding APIs. Source-grant/ontology-private-link and the
 custom Hosted app-only path may additionally encounter actual provider

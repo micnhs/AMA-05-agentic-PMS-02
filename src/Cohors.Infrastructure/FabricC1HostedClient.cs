@@ -41,7 +41,7 @@ public sealed class FabricC1HostedClient
         var remaining = state.DeadlineUtc.AddSeconds(cleanup ? settings.Preparation.Limits.CleanupTimeoutSeconds!.Value : 0) - time.GetUtcNow();
         Guard.Against(remaining <= TimeSpan.Zero || state.Requests >= settings.HostedControlMaxRequests,
             "c1_hosted_limit", "Hosted control budget or deadline exhausted.", 409);
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct, store.FailureToken);
         bounded.CancelAfter(remaining);
         var body = JsonSerializer.SerializeToElement(command, Canonical.Json);
         Save(state with { Requests = state.Requests + 1, PendingRequest = pending ?? body,

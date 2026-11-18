@@ -336,6 +336,166 @@ public sealed class FabricC1TransportTests
     }
 
     [Fact]
+    public async Task BlobCheckpointRetainsUnknownOriginalQueryAcrossLeaseOwnersWithoutReissuingIt()
+    {
+        using var blob = new BlobHarness();
+        await using (var store = await blob.Open())
+        {
+            blob.Run.Discovery();
+            blob.Run.Handler.Respond(_ => Sse(": lost original result\n\n"));
+            var transport = blob.Run.NewTransport(store);
+            await transport.Execute(blob.Run.Command("discover"));
+            Assert.Equal("Unknown", (await transport.Execute(blob.Run.Command("query", "allowed"))).Status);
+        }
+        var originalCall = blob.Handler.Document.Checkpoint.OriginalCall!.Value.GetRawText();
+        await using (var resumed = await blob.Open())
+        {
+            var transport = blob.Run.NewTransport(resumed);
+            Assert.Equal("c1_unknown_without_cursor", (await transport.Execute(blob.Run.Command("resume"))).Code);
+            await transport.Execute(blob.Run.Command("query", "allowed"));
+            Assert.Equal(originalCall, resumed.Load().OriginalCall!.Value.GetRawText());
+        }
+        Assert.Single(blob.Run.Handler.Requests, request => request.RpcMethod == "tools/call");
+        Assert.Equal(2, blob.Handler.Document.Reservations.Length);
+        Assert.All(blob.Handler.Requests.Where(request => request.Action is null && request.Method == "PUT"),
+            request => Assert.NotNull(request.IfMatch));
+        Assert.All(blob.Credential.Scopes, scope => Assert.Equal(FabricC1BlobCheckpointStore.Scope, scope));
+        Assert.DoesNotContain(blob.Handler.Requests, request => request.Action is "break" or "change" || request.Method == "DELETE");
+    }
+
+    [Fact]
+    public async Task ASecondBlobOwnerCannotBreakAnActiveLeaseOrWriteCheckpointState()
+    {
+        using var blob = new BlobHarness();
+        await using var first = await blob.Open();
+        var writes = blob.Handler.Writes;
+        Assert.Equal("c1_checkpoint_http_409", (await Assert.ThrowsAsync<DomainException>(() => blob.Open())).Code);
+        Assert.Equal(writes, blob.Handler.Writes);
+        Assert.False(first.FailureToken.IsCancellationRequested);
+        first.Save(first.Load() with { Requests = 1 });
+        Assert.Equal(1, first.Load().Requests);
+        Assert.DoesNotContain(blob.Handler.Requests, request => request.Action == "break");
+    }
+
+    [Fact]
+    public async Task LostBlobWriteFencesItsOwnerAndPreservesTheUnknownRequestForAnotherOwner()
+    {
+        using var blob = new BlobHarness();
+        await using (var store = await blob.Open())
+        {
+            blob.Handler.LoseNextWriteResponse = true;
+            Assert.Throws<IOException>(() => store.Save(store.Load() with
+            {
+                Requests = 1, Status = "Unknown",
+                PendingRequest = JsonSerializer.SerializeToElement(new { id = "synthetic-original", method = "tools/call" })
+            }));
+            Assert.True(store.FailureToken.IsCancellationRequested);
+            var writes = blob.Handler.Writes;
+            Assert.Throws<DomainException>(() => store.Save(blob.Handler.Document.Checkpoint with { Status = "New" }));
+            Assert.Equal(writes, blob.Handler.Writes);
+        }
+        await using var resumed = await blob.Open();
+        Assert.Equal("synthetic-original", resumed.Load().PendingRequest!.Value.GetProperty("id").GetString());
+        Assert.Equal(1, resumed.Load().Requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LosingTheCheckpointLeaseCancelsAnInFlightMcpOrHostedControlRead(bool hostedControl)
+    {
+        using var blob = new BlobHarness(hostedControl: hostedControl);
+        await using var store = await blob.Open();
+        var stream = new InterruptedReadStream();
+        var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(stream) };
+        response.Content.Headers.ContentType = new(hostedControl ? "application/json" : "text/event-stream");
+        if (hostedControl) response.Headers.Add("x-agent-session-id", blob.Run.Settings.Hosted!.SessionId);
+        blob.Run.Handler.Respond(_ => response);
+        var operation = hostedControl
+            ? blob.Run.NewHostedClient(store).Invoke(blob.Run.Command("discover"))
+            : blob.Run.NewTransport(store).Execute(blob.Run.Command("discover"));
+        await stream.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        blob.Handler.LoseLeaseOnRenewal = true;
+        Assert.Equal("c1_checkpoint_http_412", (await Assert.ThrowsAsync<DomainException>(() => store.RenewLease())).Code);
+        Assert.True(store.FailureToken.IsCancellationRequested);
+        await Assert.ThrowsAsync<DomainException>(() => operation.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Single(blob.Run.Handler.Requests);
+        Assert.NotNull(blob.Handler.Document.Checkpoint.PendingRequest);
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("binding")]
+    [InlineData("reservation")]
+    [InlineData("allocation")]
+    public async Task BlobCheckpointCannotRecreateMissingStateChangeItsProfileOrRenewItsOriginalIoAllocation(string invalid)
+    {
+        using var blob = new BlobHarness(allocated: invalid == "allocation" ? 64 : 256);
+        var reservation = blob.Reservation();
+        if (invalid is "reservation" or "allocation")
+        {
+            await using var first = await blob.Open(reservation);
+        }
+        else if (invalid == "missing") blob.Handler.Missing = true;
+        else blob.Handler.Document = blob.Handler.Document with { StorageBindingHash = new string('f', 64) };
+        var writes = blob.Handler.Writes;
+        var failure = await Assert.ThrowsAsync<DomainException>(() =>
+            blob.Open(invalid == "reservation" ? reservation : blob.Reservation()));
+        Assert.Equal(invalid switch
+        {
+            "missing" => "c1_checkpoint_http_404", "binding" => "c1_checkpoint_binding",
+            _ => "c1_checkpoint_reservation"
+        }, failure.Code);
+        Assert.Equal(writes, blob.Handler.Writes);
+        Assert.Empty(blob.Run.Handler.Requests);
+    }
+
+    [Fact]
+    public async Task BlobCheckpointCannotResetItsClockOrRequestCountAndReservesOneReleaseRequest()
+    {
+        using var blob = new BlobHarness();
+        await using var store = await blob.Open(blob.Reservation(requests: 5));
+        var original = store.Load();
+        store.Save(original with { Requests = 1 });
+        Assert.Equal("c1_checkpoint_binding", Assert.Throws<DomainException>(() =>
+            store.Save(original with { DeadlineUtc = original.DeadlineUtc.AddMinutes(1) })).Code);
+        Assert.Equal("c1_checkpoint_binding", Assert.Throws<DomainException>(() => store.Save(original)).Code);
+        Assert.Equal("c1_checkpoint_io_limit", Assert.Throws<DomainException>(() => store.Save(store.Load() with { Requests = 2 })).Code);
+        Assert.True(store.FailureToken.IsCancellationRequested);
+        Assert.Equal(4, store.Requests);
+    }
+
+    [Fact]
+    public async Task ConditionalBlobFailureStopsAllFurtherWritesInsteadOfReloadingOrOverwriting()
+    {
+        using var blob = new BlobHarness();
+        await using var store = await blob.Open();
+        blob.Handler.RejectNextWrite = true;
+        Assert.Equal("c1_checkpoint_http_412", Assert.Throws<DomainException>(() => store.Save(store.Load() with { Requests = 1 })).Code);
+        var attempts = blob.Handler.Requests.Count;
+        Assert.Throws<DomainException>(() => store.Save(blob.Handler.Document.Checkpoint));
+        Assert.Equal(attempts, blob.Handler.Requests.Count);
+        Assert.Equal(0, blob.Handler.Document.Checkpoint.Requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CheckpointProfileCannotSwapItsAppCallerOrUsePublicStorageAddresses(bool publicAddress)
+    {
+        using var blob = new BlobHarness();
+        var binding = publicAddress ? blob.Binding with { PrivateAddresses = ["1.1.1.1"] } :
+            blob.Binding with { Identity = blob.Binding.Identity with { PrincipalObjectId = Guid.NewGuid().ToString("D") } };
+        using var client = new HttpClient(blob.Handler);
+        Assert.Equal(publicAddress ? "c1_private_addresses" : "c1_checkpoint_identity",
+            (await Assert.ThrowsAsync<DomainException>(() =>
+                FabricC1BlobCheckpointStore.OpenWithTransport(blob.Run.Settings, binding, blob.Reservation(),
+                    client, blob.Credential, blob.Run.Time))).Code);
+        Assert.Empty(blob.Handler.Requests);
+        Assert.Empty(blob.Credential.Scopes);
+    }
+
+    [Fact]
     public void ExecutableRevisionMatchesTheHostedCommitAndRejectsAnotherSource()
     {
         using var run = new Harness();
@@ -410,9 +570,12 @@ public sealed class FabricC1TransportTests
                 : FabricC1PreparationTests.Tools()));
         }
 
-        private FabricC1Transport NewTransport() => new(Settings, FabricC1PreparationTests.Fixture, "direct",
+        public FabricC1Transport NewTransport(IFabricC1CheckpointStore? checkpoint = null) => new(Settings, FabricC1PreparationTests.Fixture, "direct",
             new(client, Credential, Settings.Preparation.Identity, FabricC1ProbeClient.TokenScope,
-                new(Settings.Preparation.Target.PublishedMcpEndpoint!), Time), Store, Time);
+                new(Settings.Preparation.Target.PublishedMcpEndpoint!), Time), checkpoint ?? Store, Time);
+        public FabricC1HostedClient NewHostedClient(IFabricC1CheckpointStore checkpoint) => new(Settings,
+            new(client, new SyntheticCredential(Settings.Hosted!.Caller, Time), Settings.Hosted.Caller,
+                FabricC1Execution.HostedScope, new(Settings.Hosted.InvocationEndpoint), Time), checkpoint, Time);
         public void Restart() => transport = NewTransport();
         public FabricC1Invocation Command(string operation, string? probe = null) =>
             new(Canonical.Hash(Settings), operation, probe, Guid.NewGuid().ToString("D"));
@@ -431,6 +594,113 @@ public sealed class FabricC1TransportTests
         public FabricC1Checkpoint? Value;
         public FabricC1Checkpoint? Load() => Value;
         public void Save(FabricC1Checkpoint checkpoint) => Value = checkpoint;
+    }
+
+    private sealed class BlobHarness : IDisposable
+    {
+        public Harness Run { get; } = new();
+        public FabricC1BlobCheckpointBinding Binding { get; }
+        public SyntheticCredential Credential { get; }
+        public BlobHandler Handler { get; }
+        private readonly HttpClient client;
+        public BlobHarness(int allocated = 256, bool hostedControl = false)
+        {
+            var identity = hostedControl ? Run.Settings.Hosted!.Caller : Run.Settings.Preparation.Identity;
+            Binding = new(FabricC1BlobCheckpointStore.Contract, new string('d', 64), Canonical.Hash(Run.Settings),
+                hostedControl ? "hosted-control" : "direct",
+                "/subscriptions/77777777-7777-7777-7777-777777777777/resourceGroups/c1-synthetic/providers/Microsoft.Storage/storageAccounts/c1synthetic",
+                identity with { ExpectedAudience = "https://storage.azure.com/" }, ["10.0.0.6"], new string('e', 64), new string('a', 64), allocated);
+            Credential = new(Binding.Identity, Run.Time);
+            Handler = new(new(FabricC1BlobCheckpointStore.DocumentContract, Canonical.Hash(Binding),
+                Run.Store.Value! with { Runtime = Binding.Runtime }, []));
+            client = new(Handler);
+        }
+        public FabricC1CheckpointReservation Reservation(int requests = 64) =>
+            new(Guid.NewGuid().ToString("D"), new string('c', 64), requests, Run.Time.Now.AddSeconds(80));
+        public Task<FabricC1BlobCheckpointStore> Open(FabricC1CheckpointReservation? reservation = null) =>
+            FabricC1BlobCheckpointStore.OpenWithTransport(Run.Settings, Binding, reservation ?? Reservation(),
+                client, Credential, Run.Time);
+        public void Dispose() { client.Dispose(); Run.Dispose(); }
+    }
+
+    private sealed record BlobRequest(string Method, string? Action, string? IfMatch);
+    private sealed class BlobHandler(FabricC1BlobCheckpointDocument document) : HttpMessageHandler
+    {
+        public FabricC1BlobCheckpointDocument Document = document;
+        public List<BlobRequest> Requests { get; } = [];
+        public bool Missing;
+        public bool LoseNextWriteResponse;
+        public bool RejectNextWrite;
+        public bool LoseLeaseOnRenewal;
+        public int Writes { get; private set; }
+        private string? lease;
+        private int version = 1;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            string? Header(string key) => request.Headers.TryGetValues(key, out var values) ? values.Single() : null;
+            var action = Header("x-ms-lease-action");
+            Requests.Add(new(request.Method.Method, action, request.Headers.IfMatch.SingleOrDefault()?.ToString()));
+            Assert.Equal("2023-11-03", Header("x-ms-version"));
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            if (Missing) return Reply(HttpStatusCode.NotFound, request);
+            if (action == "acquire")
+            {
+                if (lease is not null) return Reply(HttpStatusCode.Conflict, request);
+                lease = Header("x-ms-proposed-lease-id");
+                Assert.Equal("60", Header("x-ms-lease-duration"));
+                return Reply(HttpStatusCode.Created, request, includeLease: true);
+            }
+            if (lease is null || Header("x-ms-lease-id") != lease) return Reply(HttpStatusCode.PreconditionFailed, request);
+            if (action == "renew")
+            {
+                if (LoseLeaseOnRenewal) { lease = null; return Reply(HttpStatusCode.PreconditionFailed, request); }
+                return Reply(HttpStatusCode.OK, request, includeLease: true);
+            }
+            if (action == "release") { lease = null; return Reply(HttpStatusCode.OK, request); }
+            Assert.Null(action);
+            if (request.Method == HttpMethod.Get)
+            {
+                var response = Reply(HttpStatusCode.OK, request);
+                response.Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(Document, Canonical.Json));
+                response.Content.Headers.ContentType = new("application/json");
+                response.Headers.Add("x-ms-blob-type", "BlockBlob");
+                response.Headers.Add("x-ms-meta-ownership", "synthetic-owned-metadata");
+                response.Headers.Add("x-ms-encryption-scope", "synthetic-scope");
+                return response;
+            }
+            Assert.Equal(HttpMethod.Put, request.Method);
+            Assert.Equal("BlockBlob", Header("x-ms-blob-type"));
+            Assert.Equal("synthetic-owned-metadata", Header("x-ms-meta-ownership"));
+            Assert.Equal("synthetic-scope", Header("x-ms-encryption-scope"));
+            if (RejectNextWrite || request.Headers.IfMatch.SingleOrDefault()?.ToString() != $"\"v{version}\"")
+            {
+                RejectNextWrite = false;
+                return Reply(HttpStatusCode.PreconditionFailed, request);
+            }
+            Document = JsonSerializer.Deserialize<FabricC1BlobCheckpointDocument>(await request.Content!.ReadAsStringAsync(ct), Canonical.Json)!;
+            version++;
+            Writes++;
+            if (LoseNextWriteResponse) { LoseNextWriteResponse = false; throw new IOException("synthetic lost checkpoint response"); }
+            return Reply(HttpStatusCode.Created, request);
+        }
+        private HttpResponseMessage Reply(HttpStatusCode status, HttpRequestMessage request, bool includeLease = false)
+        {
+            var response = new HttpResponseMessage(status) { RequestMessage = request, Content = new StringContent("") };
+            response.Headers.ETag = new($"\"v{version}\"");
+            if (includeLease) response.Headers.Add("x-ms-lease-id", lease);
+            return response;
+        }
+    }
+
+    private sealed class InterruptedReadStream : MemoryStream
+    {
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            Started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            throw new InvalidOperationException("The read must be cancelled by checkpoint fencing.");
+        }
     }
 
     private sealed class SyntheticCredential(FabricC1Identity identity, Clock time) : TokenCredential

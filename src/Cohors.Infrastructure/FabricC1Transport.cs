@@ -19,6 +19,7 @@ public sealed record FabricC1Checkpoint(string BindingHash, string Runtime, Date
 
 public interface IFabricC1CheckpointStore
 {
+    CancellationToken FailureToken => CancellationToken.None;
     FabricC1Checkpoint? Load();
     void Save(FabricC1Checkpoint checkpoint);
 }
@@ -123,7 +124,7 @@ public sealed class FabricC1Transport
             Save(state with { Status = cleanup ? "CleanupIncomplete" : "Blocked", Code = "c1_deadline" });
             return Observation();
         }
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct, store.FailureToken);
         bounded.CancelAfter(remaining);
         try
         {

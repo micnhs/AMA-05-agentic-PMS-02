@@ -119,6 +119,17 @@ this purpose. Failed parents without complete outputs remain unresolved.
 No ARM write/delete, child retagging or full cleanup is demonstrated by this
 source-only inventory increment.
 
+The versioned Blob checkpoint consumer now implements lease/ETag fencing,
+strict original-state/clock binding, private app-only transport and cancellation
+of in-flight MCP/Hosted reads when authority is lost. It cannot create missing
+state, break another lease, retry an uncertain write or renew a budget. A
+one-use I/O reservation must be debited upstream before opening it; successful
+reservations are retained under the lease. Reservation/seed production,
+RBAC/readback, protected credential/profile delivery and CLI/Hosted selection
+are not integrated. Existing file checkpoint arguments retain their semantics.
+The component does not close the whole certificate/durable-state driver gap,
+prove a remote task stopped, or constitute a native Blob/recovery result.
+
 The foundation now explicitly attaches its own Standard NAT/static IPv4 to the
 client subnet without a public VM NIC or default outbound access. This fixes
 the missing address-translation component, not the still-unfinished FQDN filter,
