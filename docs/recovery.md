@@ -129,9 +129,17 @@ Aktivierungsfreigabe; alle bisherigen Tabellen-, Audit-, Byte-,
 Retention-, Search- und Vorher-/Nachher-Pruefungen erfolgreicher Pfade
 bleiben bestehen. Die17 Originalfaelle und11 Fixturegates bleiben gleich.
 Der Code ist separat als4a82a8c/Build39 gebaut. Die erste kombinierte
-SQL-freie Pruefung bestand nur13/14; der neue Praesenzvertrag scheiterte.
-Ein positiver nativer Praesenz- oder vollstaendiger Recoverynachweis
-liegt fuer diese Korrektur noch nicht vor.
+SQL-freie Pruefung bestand nur13/14; eine kollidierende PowerShell-
+Fixturevariable wurde gezielt korrigiert. Auf2456d1d/Build40 bestanden
+die14 Vertraege. Native88 scheiterte danach vor dem Praesenzprobeaufruf
+am Tabellenorakel, seine eigene Fixture wurde vollstaendig entfernt.
+Eine rein lesende SQL-Probe bestaetigte: ein leerer `FOR JSON`-Skalar
+liefert SQL-NULL. Der neue Code verwendet deshalb wie der vorhandene
+`SqlStateStore` explizit `COALESCE(...,N'[]')` fuer leere Ergebnismengen
+im Praesenzleser, vollstaendigen Backupzustand und Tabellenorakel.
+Nichtleere Original-JSON-Bytes und alle Integritaetspruefungen bleiben
+unveraendert. Dieser Folgefix benoetigt seinen eigenen gebundenen
+Build-/Nativebeleg; ein Recovery17-Erfolg wird noch nicht behauptet.
 
 Vor weiterer mutierender Sonderbereinigung muss der vollstaendige
 Vorher-Dateisatz inklusive explizit gebundener Loeschdateien mit

@@ -2741,6 +2741,54 @@ Build39 ist kein positiver nativer Praesenz- oder Recovery17-Nachweis.
 Recovery17, FSN/EU-27, gemeinsame X-12/X-15-/Releaseabnahme,
 allgemeiner nativer Abbruchcleanup und Preview-/Cloudpromotion bleiben offen.
 
+Der Variable-Fix wurde als
+`2456d1d0916d6cd1cfbedbcb9c8b4f833fa1990a`/Build40 separat vollstaendig
+gebaut. Offline87 bestand anschliessend **14/14 in54,3142624s/180**.
+Native88 startete mit erneut identischem Docker-Before-Satz und pruefte
+den neuen echten SQL-Fall separat. Er scheiterte nach43,3125705s/180
+bereits in `RecoveryFixture.Tables` an einem SQL-NULL, noch vor dem
+Praesenz-Unterprozess. Seine einzige Fixture erreichte alle sechs
+Originalphasen; Datenbank, Objektverzeichnis, Parent und Prozess waren
+entfernt, der fremde Satz unveraendert. Kein Timeout und kein nachtraeglich
+umgedeutetes positives Testergebnis.
+
+Die gezielte Diagnose fuehrte ausschliesslich konstante read-only
+SQL-Ausdruecke auf der bestehenden lokalen Instanz aus. Ein leerer
+`FOR JSON`-Unterausdruck lieferte tatsaechlich SQL-NULL; explizites
+`COALESCE(...,N'[]')` lieferte `[]`. Entsprechend dem vorhandenen
+`SqlStateStore` normalisiert der neue Folgefix nur diese legitime leere
+Ergebnismenge: im Originalpraesenzleser, allen acht vollstaendigen
+Recoverytabellen und dem unabhaengigen Tabellenorakel.
+Der erweiterte, weiterhin einzelne Nativefall prueft zuerst den leeren
+EUDAMED-Stand einschliesslich echtem `Get-RecoveryState`, dann befuellte
+aktuelle/historische Originale mit unveraendertem SQL-Schnitt.
+Nur kontrollierter Fehlercode, Typ und Zeilennummer werden bei einem
+Unterprozessfehler ausgegeben, keine Originaltexte oder Verbindungsdaten.
+Dieser Folgefix ist hier noch nicht gebaut oder nativ bestaetigt.
+
+Der eigene Datei-only-Integrationsvertrag
+`preservation-binding-01.json` bestand in38,4495698s/60. Die Einfuegung
+erhaelt reversibel alle bestehenden Ownership-/Pfad-/Prozess-/Fremdsatz-
+Pruefungen, liegt vor allen drei Mutationsstellen und vergleicht danach
+den dauerhaft gespeicherten Originalsatz. Der tatsaechliche eingefuegte
+Vorher-/Nachher-Code wurde auf eigenen synthetischen Dateien ausgefuehrt;
+unvollstaendiges Hashen erreicht keine Fortsetzung zur Mutation.
+Historischer Recovery06 kann nicht neu gebunden werden. Die eigene
+Dateifixture ist entfernt, ihr vollstaendiger Vorherbeleg bleibt erhalten.
+Dies ist weiterhin **kein ausgefuehrter SQL-/Docker-Sondercleanup**;
+eine neue konkrete Ressourcenbereinigung benoetigt ihre eigene genaue
+Run-/Quell-/Journalbindung.
+
+| Private Datei | SHA256 |
+|---|---|
+| `build-40-result.json` | `c172fb5a44b6d029977bcaab9be4cdc6cd24afe71a36c6ff6a382a4e0df62c1d` |
+| `offline-87-result.json` | `3a4b5bbd8bd9219c0b38cc97623e951556324f192005120cbe5638bbe102d610` |
+| `tests-88-result.json` | `6bf6aeba584614c62d082543bc829e8811a0623249678385069ed32c5a4267b6` |
+| `recovery-empty-json-diagnosis-01.json` | `a2668e7bc5288d4269dd254d78bf381c3f238ada6d9d1790da37c080b04e4cee` |
+| `preservation-binding-01.json` | `ac92c6136a9a91e57a4b24013b8d61fe205271ad4210fe97a79be8aae3a3f2fb` |
+| `preservation-binding-owned-01.json` | `e1a19f869b2975832eb03eaca199a99a895b53b0d1bb3826ad8b8f5d3c1e7449` |
+| `Test-RecoveryPreservationBinding-v1-before.json` | `4b3f89cfe8d9017dc062217cf5f9f4df16063be8f221062b01c17006cd82c492` |
+
 ### Prospektive 45-Minuten-Grenze
 
 Die nachfolgende ausdrueckliche Nutzerentscheidung erhoeht nur die

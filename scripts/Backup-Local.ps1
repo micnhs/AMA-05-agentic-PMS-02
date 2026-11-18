@@ -393,13 +393,13 @@ function Assert-RecoveryEudamedOriginals($Connection, [string]$ObjectDirectory) 
     $directory = Assert-RecoveryPath $ObjectDirectory
     Write-RecoveryPhase 'eudamed-original-presence-start'
     $json = [string](Invoke-RecoverySql $Connection @"
-SELECT (SELECT Kind,Json FROM (
+SELECT COALESCE((SELECT Kind,Json FROM (
     SELECT Kind,Id,Version,Json FROM dbo.Aggregates
     WHERE Kind COLLATE Latin1_General_100_CI_AS LIKE N'eudamed%'
     UNION ALL
     SELECT Kind,Id,Version,Json FROM dbo.AggregateVersions
     WHERE Kind COLLATE Latin1_General_100_CI_AS LIKE N'eudamed%'
-) revisions ORDER BY Kind,Id,Version FOR JSON PATH,INCLUDE_NULL_VALUES)
+) revisions ORDER BY Kind,Id,Version FOR JSON PATH,INCLUDE_NULL_VALUES),N'[]')
 "@ -Text)
     $revisions = ConvertFrom-Json -InputObject $json -AsHashtable -Depth 100 -DateKind String -NoEnumerate
     Write-RecoveryPhase 'eudamed-original-presence-read' $revisions.Count $json.Length
@@ -507,7 +507,7 @@ function Get-RecoveryState($Connection, $Config) {
     $tables = @()
     foreach ($name in $orders.Keys) {
         Write-RecoveryPhase "state-table-$name-start"
-        $json = [string](Invoke-RecoverySql $Connection "SELECT (SELECT * FROM dbo.[$name] ORDER BY $($orders[$name]) FOR JSON PATH,INCLUDE_NULL_VALUES)" -Text)
+        $json = [string](Invoke-RecoverySql $Connection "SELECT COALESCE((SELECT * FROM dbo.[$name] ORDER BY $($orders[$name]) FOR JSON PATH,INCLUDE_NULL_VALUES),N'[]')" -Text)
         Write-RecoveryPhase "state-table-$name-read" -Characters $json.Length
         $rows[$name] = ConvertFrom-Json -InputObject $json -AsHashtable -Depth 100 -DateKind String -NoEnumerate
         $tables += [ordered]@{ name = $name; count = $rows[$name].Count; sha256 = [Cohors.Domain.Canonical]::HashText($json) }

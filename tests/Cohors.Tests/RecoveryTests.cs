@@ -1569,7 +1569,7 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
             ("Outbox", "Id"), ("SchemaVersions", "Version") })
         {
             using var command = new SqlCommand(
-                $"SELECT (SELECT * FROM dbo.[{table}] ORDER BY {order} FOR JSON PATH,INCLUDE_NULL_VALUES)", sql) { CommandTimeout = 30 };
+                $"SELECT COALESCE((SELECT * FROM dbo.[{table}] ORDER BY {order} FOR JSON PATH,INCLUDE_NULL_VALUES),N'[]')", sql) { CommandTimeout = 30 };
             // Preserve the complete oracle without asynchronous materialization of one multi-megabyte scalar.
             using var reader = command.ExecuteReader(System.Data.CommandBehavior.SequentialAccess);
             if (!reader.Read() || reader.IsDBNull(0)) throw new InvalidOperationException("Recovery table JSON is absent.");
