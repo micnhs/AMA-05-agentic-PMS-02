@@ -42,8 +42,31 @@ class WorkflowIsolationTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-24.04", source)
         self.assertIn("ref: ${{ github.sha }}", source)
         self.assertIn("persist-credentials: false", source)
-        self.assertNotRegex(source, r"secrets\.|id-token:|strategy:|services:|upload-artifact@|actions/cache@|azure/login@")
+        self.assertNotRegex(source, r"secrets\.|id-token:|strategy:|services:|actions/cache@|azure/login@")
         self.assertNotRegex(source, r"(?m)^  (workflow_dispatch|pull_request|workflow_call|schedule):")
+
+    def test_artifact_amendment_keeps_one_explicit_post_validation_upload(self):
+        source = (WORKFLOWS / "cohors-fabric-contracts.yml").read_text(encoding="utf-8")
+        steps = re.findall(r"^      - (.*?)(?=^      - |\Z)", source, re.MULTILINE | re.DOTALL)
+        package = [step for step in steps if "id: c1-package\n" in step]
+        uploads = [step for step in steps if "uses: actions/upload-artifact@" in step]
+        self.assertEqual(1, len(package))
+        self.assertEqual(1, len(uploads))
+        for condition in ("success()", "github.repository == 'micnhs/AMA-05-agentic-PMS-02'",
+                          "github.event_name == 'push'", "contains(github.event.head_commit.message, 'Cohors-C1-Package: requested')"):
+            self.assertIn(condition, package[0])
+        self.assertLess(source.index("run: ./scripts/fabric/Test-HostedContracts.ps1"),
+                        source.index("run: ./scripts/fabric/Build-C1Package.ps1"))
+        upload = uploads[0]
+        self.assertIn("if: ${{ success() && steps.c1-package.outcome == 'success' }}", upload)
+        self.assertIn("retention-days: 1\n", upload)
+        self.assertIn("overwrite: false\n", upload)
+        self.assertIn("include-hidden-files: false\n", upload)
+        self.assertIn("if-no-files-found: error\n", upload)
+        paths = re.search(r"          path: \|\n((?:            .*\n)+)", upload).group(1).splitlines()
+        self.assertEqual(["${{ steps.c1-package.outputs.package-directory }}/package.zip",
+                          "${{ steps.c1-package.outputs.package-directory }}/archive.json"],
+                         [path.strip() for path in paths])
 
 
 if __name__ == "__main__":
