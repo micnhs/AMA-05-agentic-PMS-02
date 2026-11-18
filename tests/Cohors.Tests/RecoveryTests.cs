@@ -695,6 +695,8 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
     private int sourcePort;
     private int targetPort;
     private int logNumber;
+    private readonly long setupStarted = Stopwatch.GetTimestamp();
+    private int setupSequence;
     private bool sourceRemoved;
     public string Directory { get; private set; } = "";
     public string BackupDirectory => Path.Combine(Directory, "backup");
@@ -773,13 +775,17 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         var previousConnection = Environment.GetEnvironmentVariable("COHORS_TEST_CONNECTION");
         try
         {
+            await RecordSetupPhase("source-sql-start");
             sourceContainer = await StartSql("source", sourcePort);
+            await RecordSetupPhase("source-sql-ready");
             var sourceConnection = Connection(sourcePort, sourceContainer.Password, "master");
             Environment.SetEnvironmentVariable("COHORS_TEST_CONNECTION", sourceConnection);
             var source = new SqlFixture { SeedCases = false };
             try
             {
+                await RecordSetupPhase("source-fixture-initialize-start");
                 await source.InitializeAsync();
+                await RecordSetupPhase("source-fixture-ready");
                 Policies = source.Policies;
                 sourceDatabase = new SqlConnectionStringBuilder(source.ConnectionString).InitialCatalog;
                 sourceObjects = Path.Combine(home, ".local", sourceDatabase, "blobs");
@@ -806,6 +812,7 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 s.Case = await s.Service.Submit(s.Case.Id, UnknownCommand, SqlFixture.Ra, UnknownKey);
                 UnknownReceipt = s.Case;
                 UnknownCorrelation = s.Case.Submissions.Single(x => x.Status == "TransmissionUnknown").CorrelationId;
+                await RecordSetupPhase("source-native-case-ready");
                 OriginalEvidence = (await source.Store.Get<Evidence>("evidence", "ortho-spec-v3"))!;
                 var quality = new QualityService(source.Store, source.Objects, s.Clock);
                 var change = await quality.OpenChange(new(s.Case.Id, "ortho", OriginalEvidence.Id, OriginalEvidence.Version,
@@ -833,9 +840,16 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 Assert.Contains(SourceCase.Deadlines, d => d.Jurisdiction == "NI" && d.Status == "Open");
                 await source.Store.Manifest(SourceCase.Id);
                 await source.Store.Manifest(CurrentEvidence.Id, kind: "evidence");
+                await RecordSetupPhase("source-evidence-outbox-ready");
+                await RecordSetupPhase("source-psur-start");
                 await PreparePsurRecovery(source);
+                await RecordSetupPhase("source-psur-complete");
+                await RecordSetupPhase("source-eudamed-start");
                 Eudamed = await EudamedRecoveryData.Prepare(source);
+                await RecordSetupPhase("source-eudamed-complete");
+                await RecordSetupPhase("source-psur-history-start");
                 SourcePsurHistory = await PsurHistory(source.Store);
+                await RecordSetupPhase("source-psur-history-complete");
                 const string retentionReason = "Menschlich kontrollierter isolierter T18/T20-Rohdaten-Test ohne Patienten oder produktive Loeschung.";
                 var retention = new RetentionService(source.Store, source.Store, source.Objects, source.Policies,
                     new(true), new TestClock(CaptureTime));
@@ -847,8 +861,10 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 DeletedRawText = await raw.ReadRaw(DeletedRaw.Object);
                 ActiveRawText = await raw.ReadRaw(ActiveRaw.Object);
                 var config = await WriteConfig(source.ConnectionString, sourceObjects, sourceContainer, "source");
+                await RecordSetupPhase("source-retention-ready");
                 SqlConnection.ClearAllPools();
                 await Execute(sourceConnection, $"ALTER DATABASE [{sourceDatabase}] SET READ_ONLY WITH NO_WAIT");
+                await RecordSetupPhase("pre-deletion-backup-start");
                 var beforeDeletion = await Script("Backup-Local.ps1", config, PreDeletionBackupDirectory, "-Quiesced");
                 RequireSuccess(beforeDeletion, "pre-deletion native backup");
                 await RecordSetupPhase("pre-deletion-backup-complete");
@@ -869,6 +885,7 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 await RecordSetupPhase("source-table-read-complete");
                 SqlConnection.ClearAllPools();
                 await Execute(sourceConnection, $"ALTER DATABASE [{sourceDatabase}] SET READ_ONLY WITH NO_WAIT");
+                await RecordSetupPhase("post-deletion-backup-start");
                 var backup = await Script("Backup-Local.ps1", config, BackupDirectory, "-Quiesced");
                 RequireSuccess(backup, "native backup");
                 await RecordSetupPhase("post-deletion-backup-complete");
@@ -938,6 +955,7 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         var definition = Definition("ortho");
         CurrentPsurGroup = await analytics.RecordGroup(definition, SqlFixture.Pms, CaseScenario.Key());
         InitialPsur = await ApproveReport(await analytics.Freeze(Initial(CurrentPsurGroup), SqlFixture.Pms, CaseScenario.Key()));
+        await RecordSetupPhase("source-psur-initial-ready");
         clock.Now = DateTimeOffset.Parse("2027-11-13T15:00:00Z");
         var cardioCase = await source.Service(clock).Register(new CaseScenario(source).Input with {
             ProductId = "cardio", OccurredAt = clock.Now.AddDays(-2), AwarenessAt = clock.Now.AddDays(-1)
@@ -961,11 +979,13 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         PsurReplyCommand = new(review.Version, reason);
         PsurReplyKey = CaseScenario.Key();
         PsurReviewAtCutoff = await reviews.Simulate(review.Id, PsurReplyCommand, SqlFixture.Ra, PsurReplyKey);
+        await RecordSetupPhase("source-psur-cutoff-reply-ready");
 
         var otherGroup = await analytics.RecordGroup(Definition("cardio"), SqlFixture.Pms, CaseScenario.Key());
         OtherSeriesPsur = await ApproveReport(await analytics.Freeze(Initial(otherGroup), SqlFixture.Pms, CaseScenario.Key()));
         Assert.Equal(Canonical.Serialize(PsurReviewAtCutoff),
             Canonical.Serialize(Assert.Single(OtherSeriesPsur.Snapshot.Group!.RegulatoryHistory!.Reviews).CurrentAtFreeze));
+        await RecordSetupPhase("source-psur-other-series-ready");
 
         clock.Now = DateTimeOffset.Parse("2027-11-16T15:00:00Z");
         VerifiedPsurCapa = await quality.Verify(PsurCapaAtCutoff.Id, new(PsurCapaAtCutoff.Version,
@@ -998,7 +1018,9 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         Assert.Equal("ReplySubmitted", NextPsur.Snapshot.Group!.RegulatoryHistory!.Reviews
             .Single(r => r.CurrentSource.Id == ClosedPsurReview.Id).StatusAtCutoff);
         Assert.Equal("MedicalApproved", PendingPsurReview.Status);
+        await RecordSetupPhase("source-psur-next-period-ready");
         SourcePsurHistory = await PsurHistory(source.Store);
+        await RecordSetupPhase("source-psur-initial-history-ready");
         Assert.Equal(Canonical.Serialize(SourceCase), Canonical.Serialize(await source.Store.Get<SafetyCase>("case", SourceCase.Id)));
     }
 
@@ -1447,8 +1469,22 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         return tables;
     }
 
-    private Task RecordSetupPhase(string phase) => File.AppendAllTextAsync(Path.Combine(Directory, "private", "setup-phases.jsonl"),
-        JsonSerializer.Serialize(new { phase, at = DateTimeOffset.UtcNow }, Canonical.Json) + Environment.NewLine);
+    private Task RecordSetupPhase(string phase)
+    {
+        var timestamp = Stopwatch.GetTimestamp();
+        var record = JsonSerializer.Serialize(new
+        {
+            variant = "RecoverySetup", phase, sequence = ++setupSequence,
+            timestampTicks = timestamp, frequency = Stopwatch.Frequency,
+            elapsedTicks = timestamp - setupStarted, clockScope = "fixture-construction",
+            at = DateTimeOffset.UtcNow
+        }, Canonical.Json);
+        using var stream = new FileStream(Path.Combine(Directory, "private", "setup-phases.jsonl"),
+            FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough);
+        stream.Write(Encoding.UTF8.GetBytes(record + Environment.NewLine));
+        stream.Flush(flushToDisk: true);
+        return Task.CompletedTask;
+    }
 
     private static async Task<string> Event(string connectionString, string aggregate, string type, int version)
     {

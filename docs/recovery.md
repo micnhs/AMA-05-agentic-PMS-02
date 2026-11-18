@@ -9,7 +9,42 @@ uebernommenen [Byte-Integritaetsfixes](object-integrity.md)
 unten beschriebenen T18-Datenklassen-/Loeschkatalogvertrag. HTTP/UI und der
 getrennte Functions-Host-/Neustartnachweis bleiben separate Pruefungen.
 
-## Zurueckgegebene PSUR-/BS-Fixture: noch kein Laufnachweis
+## Aktueller Integrations- und Ausfuehrungsstand
+
+Der vollstaendige EUDAMED-Folgepatch und sein Runner sind in `874bffc`
+integriert. Der aktuelle Runner selektiert `Recovery|RecoveryEudamed` und
+verlangt **17 echte Passed-Ergebnisse** (14 plus 3), keine Skips sowie
+unveraendert alle elf Fixture-Abschlusspruefungen. Sieben
+`RecoveryDiagnostics`-Faelle und ein SQL-freier `RecoveryEudamedContract`
+gehoeren nicht zu diesem Gesamtnachweis.
+
+Zwei begrenzte Windows-Gesamtversuche am integrierten Stand endeten nach
+900 Sekunden ohne abgeschlossenen 17er-TRX. Sie sind **Timeouts, keine
+Teilpaesse**. Ihre genau zugeordneten Ressourcen wurden anschliessend
+unabhaengig bereinigt; das ist kein Restore-Erfolg. Im zweiten Versuch
+dauerte das vollstaendige Acht-Tabellen-Lesen 4,08 Sekunden, waehrend
+Quellvorbereitung, Backups und Nachprozessabschluss weiter untersucht werden
+muessen. Eine separate Prozessgrenzenprobe ersetzt keinen Recoverylauf.
+
+Build34 mit Anwendungsquelle `19961ee9a1d662b6ec98b12d9fb92e85135ab773`
+ist vollstaendig gebaut. Die frueheren acht separaten Diagnostik-/SQL-freien
+Vertragstests behalten ihre jeweiligen Quellbindungen; sie werden nicht als
+Recovery17 ausgegeben. **Ein erfolgreicher aktueller 17er-Gesamtlauf bleibt
+offen.** Die nachfolgenden historischen Nachweise gelten jeweils nur fuer
+ihren ausdruecklichen damaligen Umfang.
+
+Die aktuelle Recovery-Quellpraezisierung protokolliert die vorhandenen
+Aufbauschritte einschliesslich PSUR-/EUDAMED-Vorbereitung und beider Backups
+feiner. `private\setup-phases.jsonl` enthaelt nur die Variante
+`RecoverySetup`, konstante Phasenlabels, Sequenz und Metazeiten.
+Monotone `elapsedTicks` beginnen bei Konstruktion der Fixture, nicht am
+Prozessstart; `frequency` erlaubt ihre Umrechnung. Jede Zeile wird mit
+WriteThrough/Flush-to-disk geschrieben. Der UTC-Wert `at` dient nur der
+Korrelation, nicht der Laufzeitberechnung. Das ist getrennt von den
+sechs Ressourcenphasen und den tatsaechlichen Prozessstart/-endwerten.
+Dieser neue Quellteil hat noch keinen ausgefuehrten Recovery17-Nachweis.
+
+## Historische PSUR-/BS-Fixture-Uebergabe und Typpruefung
 
 `d0e864dc0f7ccdbfd3758499bc4a9b4d88f59684` wurde nach Abschluss des begrenzten
 L03-/Diagnostikblocks als **`c90664121339d81ca56a4d225203e768c2ebe146`**
@@ -52,11 +87,11 @@ historische 13/13 werden nicht als 14/14 umgedeutet.
 Voraussetzungen: Docker Desktop mit Linux-Engine, das gepinnte .NET-SDK und
 **PowerShell 7.6 auf .NET 10**. `RecoveryTests` gehoert zu `Category=Sql` und
 startet selbst Docker; dies gilt auch bei einem allgemeinen SQL-Testfilter.
-Der lokale Runner verlangt `Category=Recovery` vollstaendig: elf echte
-SQL-/Docker-Faelle und drei getrennte Pfad-/Retention-Vertragstests ohne SQL.
-Diese **14er-Gesamtselektion wurde noch nicht ausgefuehrt**. Die vorherige
-13er-Selektion und der urspruengliche 9er-Lauf bleiben unten getrennt als
-historische Nachweise benannt. Der fruehere
+Der lokale Runner verlangt `Category=Recovery|Category=RecoveryEudamed`
+vollstaendig: die 14 bisherigen Faelle plus drei EUDAMED-Recoveryfaelle,
+zusammen **17**. Die acht separaten Diagnostik-/SQL-freien Vertragstests
+zaehlen nicht dazu. Die vorherige 13er-Selektion und der urspruengliche
+9er-Lauf bleiben unten getrennt als historische Nachweise benannt. Der fruehere
 Linux-Runner mit PowerShell 7.5 belegt keine Kompatibilitaet dieses neuen Pfads.
 
 ```powershell
