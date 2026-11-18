@@ -1,7 +1,10 @@
 import ast
 import copy
 import datetime as dt
+import json
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -130,6 +133,107 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertFalse(complete(core | {"permissionFailureReproduced": False}))
         self.assertFalse(complete(core | {"operatingSystemErrors": [13]}))
         self.assertFalse(complete(core | {"sqlProcessUidGid": "0 0"}))
+
+    def test_extension_invocation_shares_the_original_owner_scope_and_deadline(self):
+        harness = r"""
+#requires -Version 7.6
+param([string]$CorePath, [string]$ExtensionPath)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+function Parse-Source([string]$Path) {
+    $tokens = $null; $errors = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors)
+    if ($errors.Count) { throw 'Diagnostic source must parse.' }
+    return $ast
+}
+$core = Parse-Source $CorePath
+$extension = Parse-Source $ExtensionPath
+$guard = $core.Find({ param($n)
+    $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $n.Name -ceq 'Assert-DiagnosticDeadline'
+}, $true)
+$assignment = $core.Find({ param($n)
+    $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left.Extent.Text -ceq '$result.backupAccessRepair' -and
+        $n.Right.Extent.Text.Contains("'recovery-backup-access.ps1'")
+}, $true)
+$entry = @($extension.EndBlock.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.PipelineAst] -and
+        $_.PipelineElements[0] -is [Management.Automation.Language.CommandAst] -and
+        $_.PipelineElements[0].GetCommandName() -ceq 'Assert-DiagnosticDeadline'
+})
+if ($null -eq $guard -or $null -eq $assignment -or $entry.Count -ne 1) {
+    throw 'The real caller, parameter contract and first deadline guard must be identifiable.'
+}
+# The source-derived child exercises the actual call/parameter boundary without platform spoofing or transport.
+$child = $extension.ParamBlock.Extent.Text + "`n" + $entry[0].Extent.Text + "`n" + @'
+[ordered]@{
+    deadlineTicks = $script:deadline.UtcTicks
+    observationTicks = $script:lastObservation.UtcTicks
+    bindingPreserved = $Baseline.owner -ceq $OwnerId -and
+        $ContainerId -ceq ('a' * 64) -and $EvidenceDirectory -ceq $script:evidence
+}
+'@
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'recovery-backup-access.ps1'), $child)
+$actual = $assignment.Extent.Text
+$legacy = [regex]::new('^(\$result\.backupAccessRepair\s*=\s*)[.&](?=\s)').Replace($actual, '$1&', 1)
+$parent = @'
+param([string]$Case)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+__GUARD__
+$started = [DateTimeOffset]::UtcNow
+$originalDeadline = $started.AddSeconds(180)
+$container = 'a' * 64
+$owner = 'b' * 32
+$evidence = $PSScriptRoot
+$script:deadline = if ($Case -ceq 'expired') { $started.AddSeconds(-1) } else { $originalDeadline }
+$script:lastObservation = if ($Case -ceq 'rollback') { $originalDeadline } else { $started }
+$result = [ordered]@{ owner = $owner }
+$check = [ordered]@{ succeeded = $false }
+try {
+    __CALL__
+    $check.succeeded = $true
+    $check.sameDeadline = $result.backupAccessRepair.deadlineTicks -eq $originalDeadline.UtcTicks -and
+        $script:deadline -eq $originalDeadline
+    $check.sharedObservation = $result.backupAccessRepair.observationTicks -eq $script:lastObservation.UtcTicks -and
+        $script:lastObservation -ge $started
+    $check.bindingPreserved = $result.backupAccessRepair.bindingPreserved
+} catch {
+    $check.errorId = $_.FullyQualifiedErrorId
+    $check.undefinedOwnerObservation = $_.Exception.Message.Contains('script:lastObservation')
+    $check.originalDeadlineRejected = $_.Exception.Message.StartsWith('diagnostic_deadline:')
+}
+$check
+'@
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'current-owner.ps1'),
+    $parent.Replace('__GUARD__', $guard.Extent.Text).Replace('__CALL__', $actual))
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'legacy-owner.ps1'),
+    $parent.Replace('__GUARD__', $guard.Extent.Text).Replace('__CALL__', $legacy))
+$checks = [ordered]@{}
+foreach ($case in @('legacy', 'current', 'expired', 'rollback')) {
+    $file = if ($case -ceq 'legacy') { 'legacy-owner.ps1' } else { 'current-owner.ps1' }
+    $checks[$case] = & (Join-Path $PSScriptRoot $file) -Case $case
+}
+$checks | ConvertTo-Json -Depth 4 -Compress
+"""
+        with tempfile.TemporaryDirectory(prefix="cohors-scope-contract-") as directory:
+            path = Path(directory) / "owner.ps1"
+            path.write_text(harness, encoding="utf-8")
+            run = subprocess.run(
+                ["pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-File", str(path),
+                 "-CorePath", str(ROOT / "diagnostics/recovery-host-copy.ps1"),
+                 "-ExtensionPath", str(ROOT / "diagnostics/recovery-backup-access.ps1")],
+                capture_output=True, text=True, timeout=30, check=True)
+            observed = json.loads(run.stdout)
+        self.assertFalse(observed["legacy"]["succeeded"])
+        self.assertEqual(observed["legacy"]["errorId"].split(",")[0], "VariableIsUndefined")
+        self.assertTrue(observed["legacy"]["undefinedOwnerObservation"])
+        self.assertEqual(observed["current"], {
+            "succeeded": True, "sameDeadline": True, "sharedObservation": True, "bindingPreserved": True})
+        for case in ("expired", "rollback"):
+            self.assertFalse(observed[case]["succeeded"])
+            self.assertTrue(observed[case]["originalDeadlineRejected"])
 
     def test_recovery_diagnostic_is_a_narrow_read_only_push_workflow(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/cohors-recovery-copy-diagnostic.yml").read_text(encoding="utf-8"))

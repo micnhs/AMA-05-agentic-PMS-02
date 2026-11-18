@@ -50,7 +50,7 @@ jobs:
           IMAGE = "mcr.microsoft.com/mssql/server@sha256:4525e3efac9f3e241cb003bb2ff2a82818b502f37e12049d788b1a9fa7e13b7f"
           SUPPLIED = "2bc4f44be264f52206eed2290309f2b7ccd2d92aee8f2ad83c08a998671cc206"
           BASELINE = "f9a15228fb1e6a2d455d535a9c2a75c0f41953f951e9bde2a9bf859cb5a9375a"
-          PUBLISHED = "21b10bbd00c00ec98b21b16923b12a45197a4194999d8f86e250b000247f6b8e"
+          PUBLISHED = "e46a21e88d2bd2461f3a21c95200ab9646ee154a164697a077f081cfe0dab824"
           PRODUCTION_COMMIT = "1e8acd4e65599ea07f1156ea2ff32e8f997fa1ac"
           REPAIR_SOURCES = {
               "extension": {

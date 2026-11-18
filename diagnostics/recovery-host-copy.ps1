@@ -248,7 +248,8 @@ try {
     $result.permissionFailureReproduced = -not $result.sqlUserCanRead -and $verification.exitCode -ne 0
     $result.verifyOnlyPassed = $verification.exitCode -eq 0
     $operation = 'production-backup-access-regression'
-    $result.backupAccessRepair = & (Join-Path $PSScriptRoot 'recovery-backup-access.ps1') `
+    # Keep the bounded transport in the original script-scoped deadline and clock state.
+    $result.backupAccessRepair = . (Join-Path $PSScriptRoot 'recovery-backup-access.ps1') `
         -BackupScriptPath (Join-Path $PSScriptRoot 'recovery-source-1e8acd4/Backup-Local.ps1') `
         -BackupScriptSha256 '8bdf2b3644277b00f77793d7232ef715d98f7e19e81ad6c83b9f34c07e03ab87' `
         -RestoreScriptPath (Join-Path $PSScriptRoot 'recovery-source-1e8acd4/Restore-Local.ps1') `
