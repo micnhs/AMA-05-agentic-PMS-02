@@ -61,6 +61,12 @@ public sealed class OperationsSqlTests(SqlFixture fixture)
         await Rejected(connection, current, Canonical.Serialize(extra), scenario.Clock.Now);
         await Rejected(connection, current, Canonical.Serialize(valid with
         { Alerts = [.. current.Alerts, "MedicalApproved:forged"] }), scenario.Clock.Now);
+        foreach (var target in new (string Parameter, string Value)[] { ("@Kind", "CASE"), ("@Kind", "case "), ("@Id", current.Id + " ") })
+        {
+            using var aliased = Write(connection, current, Canonical.Serialize(valid), scenario.Clock.Now);
+            aliased.Parameters[target.Parameter].Value = target.Value;
+            Assert.Equal(51100, (await Assert.ThrowsAsync<SqlException>(() => aliased.ExecuteScalarAsync())).Number);
+        }
 
         foreach (var table in new[] { "Aggregates", "AggregateVersions", "Commands", "AuditEvents", "Outbox",
             "Inbox", "Deadlines", "SearchProjection", "SchemaVersions" })

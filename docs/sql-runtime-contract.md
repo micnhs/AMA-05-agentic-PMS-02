@@ -26,7 +26,9 @@ werden **nicht** an die Operations-Identitaet weitergegeben.
 Die Prozedur akzeptiert Zieltyp/ID, erwartete Version, den kanonischen
 Ergebnisvorschlag, fachlichen Tickzeitpunkt und genaue
 Korrespondenzabhaengigkeiten. Sie rekonstruiert selbst die einzige erlaubte
-Aenderung und vergleicht alle Bytes. Zulaessig sind neue quellgebundene
+Aenderung und vergleicht alle Bytes. Zieltyp und ID sind exakt gebunden;
+SQLs nachgestellte Leerzeichen oder Gross-/Kleinschreibungsaliase sind
+kein anderer erlaubter Audit-/Outboxzielname. Zulaessig sind neue quellgebundene
 Fristenhinweise in `case`/`psurReview`, neue originalgebundene
 Korrespondenzhinweise in `eudamedDelivery` sowie der typisierte
 `operations/heartbeat`. Vorhandene Hinweise bleiben unveraendert.

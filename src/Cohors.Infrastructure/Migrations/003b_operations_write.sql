@@ -6,7 +6,9 @@ BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
     IF @Kind IS NULL OR @Kind COLLATE Latin1_General_100_BIN2 NOT IN (N'case',N'psurReview',N'eudamedDelivery',N'operations')
+        OR DATALENGTH(@Kind)<>DATALENGTH(TRIM(@Kind))
         OR @Id IS NULL OR LEN(@Id)=0 OR @ExpectedVersion IS NULL OR @ExpectedVersion<0
+        OR DATALENGTH(@Id)<>DATALENGTH(TRIM(@Id))
         OR @At IS NULL OR DATEPART(TZOFFSET,@At)<>0
         OR ISNULL(ISJSON(@Result,OBJECT),0)<>1 OR ISNULL(ISJSON(@Dependencies,ARRAY),0)<>1
         THROW 51100,'Invalid restricted Operations command.',1;
@@ -61,6 +63,7 @@ BEGIN
         IF @current IS NULL AND (@Kind<>N'operations' OR @Id<>N'heartbeat')
             THROW 51100,'Operations cannot create a clinical aggregate.',1;
         IF @current IS NOT NULL AND (JSON_VALUE(@current,'$.id') IS NULL
+            OR DATALENGTH(JSON_VALUE(@current,'$.id'))<>DATALENGTH(@Id)
             OR JSON_VALUE(@current,'$.id') COLLATE Latin1_General_100_BIN2<>@Id COLLATE Latin1_General_100_BIN2)
             THROW 51100,'Operations aggregate identity must match exactly.',1;
         IF @current IS NOT NULL AND (@hash IS NULL OR @hash<>LOWER(CONVERT(char(64),HASHBYTES('SHA2_256',
