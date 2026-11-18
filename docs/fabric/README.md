@@ -213,6 +213,11 @@ only that library's twelve previously locked ASP.NET framework references.
 The existing .NET runtime pruning (including DiagnosticSource and Unsafe)
 and the API's pruning remain unchanged. The full base-graph equality check
 stays enforced; no lock content is synthesized by hand.
+The first committed RID locks are NuGet output from source
+`59d3da44e30f443ace0f016ebdc530cb2a75cf06`, hosted run
+`44321528471` (attempt 1). Their import verified each emitted file's length
+and SHA256 before creating the five new source files. That run uploaded
+nothing and is not a native deployment result.
 `scripts\fabric\c1_package.py` derives the exact binary allowlist from the
 published dependency graphs; its explicit `SOURCE_ASSETS` lists the only
 IaC/templates, unchanged synthetic source, license and verification-tool files.
