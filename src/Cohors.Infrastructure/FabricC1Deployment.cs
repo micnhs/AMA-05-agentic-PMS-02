@@ -478,9 +478,8 @@ public sealed partial class FabricC1Provisioner
     {
         Guard.Against(stage is not ("foundation" or "private-endpoints"), "c1_deploy_stage", "Unknown ARM stage.", 409);
         Owned("resource-group", "ResourceGroup");
+        await EnsureResourceGroup(ct);
         var group = FabricC1Deployment.GroupId(input);
-        var resources = await ReadAll($"https://management.azure.com{group}/resources?api-version=2021-04-01", false, ct);
-        foreach (var resource in resources) RequireArmOwnership(resource);
         var id = group + "/providers/Microsoft.Resources/deployments/c1-" + stage;
         var uri = new Uri("https://management.azure.com" + id + "?api-version=2022-09-01");
         var body = new JsonObject { ["properties"] = new JsonObject
@@ -493,10 +492,16 @@ public sealed partial class FabricC1Provisioner
             Guard.Against(known.RequestHash != hash, "c1_deploy_drift", "ARM template or parameters changed.", 409);
         if (state.PendingCreates.TryGetValue(key, out var pending))
             Guard.Against(pending != hash, "c1_deploy_drift", "Pending ARM request changed.", 409);
+        state.Objects.TryGetValue(key + "-observation", out var observed);
+        Guard.Against(observed is not null && (observed.Kind != "ArmDeploymentObservation" ||
+            observed.RequestHash != hash || known is null && pending is null),
+            "c1_deploy_arm_binding", "ARM observation has no matching original request.", 409);
+        var expectedReadback = known ?? observed;
         var existing = await Send(HttpMethod.Get, uri, ct: ct);
         if (existing.Status == 404)
         {
             Guard.Against(known is not null || pending is not null, "c1_deploy_unknown", "ARM deployment outcome unknown; never recreate automatically.", 409);
+            SaveArmInventory(await VerifyArmInventory(ct));
             Pending(key, hash);
             var create = await Send(HttpMethod.Put, uri, body, ct: ct);
             RequireStatus(create, 200, 201, 202);
@@ -505,15 +510,28 @@ public sealed partial class FabricC1Provisioner
         {
             RequireStatus(existing, 200);
             Guard.Against(known is null && pending is null, "c1_deploy_foreign", "Unowned ARM deployment name.", 409);
+            VerifyArmDeploymentReadback(existing.Body, id, parameters, expectedReadback);
+            if (expectedReadback is null)
+            {
+                SaveObject(key + "-observation", "ArmDeploymentObservation", id, hash, existing.Body);
+                expectedReadback = state.Objects[key + "-observation"];
+            }
         }
         for (var poll = 0; poll < 120; poll++)
         {
             var result = await Send(HttpMethod.Get, uri, ct: ct);
             RequireStatus(result, 200);
+            VerifyArmDeploymentReadback(result.Body, id, parameters, expectedReadback);
+            if (expectedReadback is null)
+            {
+                SaveObject(key + "-observation", "ArmDeploymentObservation", id, hash, result.Body);
+                expectedReadback = state.Objects[key + "-observation"];
+            }
             var status = result.Body["properties"]?["provisioningState"]?.GetValue<string>();
             if (status == "Succeeded")
             {
-                SaveObject(key, "ArmDeployment", id, hash, result.Body);
+                var children = await VerifyArmInventory(ct, stage, hash, result.Body);
+                SaveArmInventory(children, stage, id, hash, result.Body);
                 return result.Body;
             }
             Guard.Against(status is not ("Accepted" or "Running" or "Creating"), "c1_deploy_arm_failed", "ARM deployment did not succeed.", 409);

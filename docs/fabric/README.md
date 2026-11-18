@@ -173,6 +173,24 @@ Implemented source components:
   without blind POST replay, ARM deployment polling, distinct ARM/Fabric
   capacity identities, Graph app/SP bootstrap, workspace/Lakehouse/DataAgent
   APIs, publication readback, and the agent-workspace-only Contributor grant.
+- ARM resume also binds the actual deployment ID, Incremental mode, exact
+  parameter values and first observed correlation/template hash. A replaced
+  deployment is not adopted. The resource group is read again before the stage;
+  no missing original deployment is silently recreated.
+  Azure-generated PE NICs and the VM OS disk need not acquire fabricated
+  ownership tags: their IDs must occur in the original successful parent
+  outputs and complete group inventory, with matching fresh parent and child
+  references in both directions. The original VM instance and each NIC/disk
+  instance GUID are retained; replacing an instance, adding tags later, changing
+  region or attaching a shared disk cannot bypass reconciliation.
+  `c1.workspace-network.json` therefore returns its actual private endpoints
+  and their generated NIC references. Missing outputs/children, unknown untagged
+  resources or contradictory tags block progress; they are not absence proof.
+  Child observations are retained with `ThroughRecordedParentOnly` and
+  `directDeleteAuthorized=false`. No tag write or child deletion is performed.
+  This is resume/inventory groundwork, not a full cleanup implementation or
+  a successful Azure deployment. A failed/incomplete parent without these
+  outputs still needs explicit reconciliation, not inferred child ownership.
 - A policy update first reads its ETag and full body, explicitly writes both
   inbound and outbound `defaultAction=Deny`, preserves other fields, and
   checks the readback. Missing ETag, HTTP 412, foreign names, wrong

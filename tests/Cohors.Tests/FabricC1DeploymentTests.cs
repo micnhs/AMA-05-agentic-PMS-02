@@ -705,6 +705,167 @@ public sealed class FabricC1DeploymentTests
         Assert.Single(run.Api.Requests, r => r.Method == HttpMethod.Put);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GeneratedArmChildrenNeedOriginalParentAndBidirectionalReadbackWithoutTagWrites(bool network)
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network);
+        QueueArmCreate(run, fixture);
+        await run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default);
+        var child = Assert.Single(run.Store.Current!.Objects.Values, value => value.Kind == "ArmGeneratedChild");
+        Assert.Equal(fixture.Child["id"]!.GetValue<string>(), child.Id);
+        Assert.Equal(fixture.Parent["id"]!.GetValue<string>(), child.Response["parentId"]!.GetValue<string>());
+        Assert.False(child.Response["directDeleteAuthorized"]!.GetValue<bool>());
+        Assert.False(run.Store.Current.PendingCreates.ContainsKey("arm-" + fixture.Stage));
+        run.Restart();
+        QueueArmResume(run, fixture);
+        await run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Patch || request.Method == HttpMethod.Delete);
+        Assert.Single(run.Store.Current.Objects.Values, value => value.Kind == "ArmGeneratedChild");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GeneratedChildReverseLinkCannotPointAtAnotherParent(bool network)
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network);
+        if (network) fixture.Child["properties"]!["privateEndpoint"]!["id"] = fixture.Parent["id"]!.GetValue<string>() + "-foreign";
+        else fixture.Child["managedBy"] = fixture.Parent["id"]!.GetValue<string>() + "-foreign";
+        QueueArmCreate(run, fixture);
+        Assert.Equal("c1_deploy_arm_child_binding", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("arm-" + fixture.Stage));
+        Assert.True(run.Store.Current.PendingCreates.ContainsKey("arm-" + fixture.Stage));
+        Assert.DoesNotContain(run.Store.Current.Objects.Values, value => value.Kind == "ArmGeneratedChild");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task RecreatedGeneratedChildIsNotAdoptedEvenAfterItReceivesMatchingTags(bool network, bool addTags)
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network);
+        QueueArmCreate(run, fixture);
+        await run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default);
+        var original = Assert.Single(run.Store.Current!.Objects.Values, value => value.Kind == "ArmGeneratedChild");
+        fixture.Child["properties"]![network ? "resourceGuid" : "uniqueId"] = Guid.NewGuid().ToString("D");
+        if (addTags) fixture.Child["tags"] = FabricC1Deployment.Tags(run.Input);
+        run.Restart();
+        QueueArmResume(run, fixture);
+        Assert.Equal("c1_deploy_arm_child_replaced", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        var retained = Assert.Single(run.Store.Current.Objects.Values, value => value.Kind == "ArmGeneratedChild");
+        Assert.Equal(original.Response["instanceId"]!.GetValue<string>(), retained.Response["instanceId"]!.GetValue<string>());
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put);
+    }
+
+    [Fact]
+    public async Task MissingGeneratedChildIsNotTreatedAsCompletedCleanupOrRemovedFromInventory()
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network: true);
+        QueueArmCreate(run, fixture);
+        await run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default);
+        run.Restart();
+        run.Api.Reply(200, fixture.Group);
+        run.Api.Reply(200, fixture.Deployment);
+        run.Api.Reply(200, fixture.Deployment);
+        run.Api.List(fixture.Parent);
+        Assert.Equal("c1_deploy_arm_inventory_incomplete", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        Assert.Single(run.Store.Current!.Objects.Values, value => value.Kind == "ArmGeneratedChild");
+        Assert.Empty(run.Store.Current.CleanupReceipts);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put);
+    }
+
+    [Theory]
+    [InlineData("mode", "c1_deploy_arm_binding")]
+    [InlineData("parameters", "c1_deploy_arm_binding")]
+    [InlineData("correlationId", "c1_deploy_arm_replaced")]
+    [InlineData("templateHash", "c1_deploy_arm_replaced")]
+    public async Task ArmResumeDoesNotTrustAReplacedDeploymentOrChangedParameters(string field, string code)
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network: false);
+        QueueArmCreate(run, fixture);
+        await run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default);
+        var changed = (JsonObject)fixture.Deployment.DeepClone();
+        if (field == "parameters") changed["properties"]!["parameters"]!["synthetic"]!["value"] = "foreign";
+        else changed["properties"]![field] = field == "mode" ? "Complete" : Guid.NewGuid().ToString("D");
+        run.Restart();
+        run.Api.Reply(200, fixture.Group);
+        run.Api.Reply(200, changed);
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put);
+    }
+
+    [Fact]
+    public async Task LostArmCreateReconcilesWithoutReplayAndPinsTheFirstObservedOperation()
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network: false);
+        run.Api.Reply(200, fixture.Group);
+        run.Api.Reply(404, new());
+        run.Api.List();
+        run.Api.Fail(new IOException("synthetic lost ARM create response"));
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default));
+        Assert.True(run.Store.Current!.PendingCreates.ContainsKey("arm-" + fixture.Stage));
+        run.Restart();
+        run.Api.Reply(200, fixture.Group);
+        run.Api.Reply(200, fixture.Deployment);
+        var replaced = (JsonObject)fixture.Deployment.DeepClone();
+        replaced["properties"]!["correlationId"] = Guid.NewGuid().ToString("D");
+        run.Api.Reply(200, replaced);
+        Assert.Equal("c1_deploy_arm_replaced", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put);
+        Assert.False(run.Store.Current.Objects.ContainsKey("arm-" + fixture.Stage));
+    }
+
+    [Fact]
+    public async Task UnrelatedUntaggedResourceBlocksNewArmSubmissionAndIsNeverRetagged()
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network: false);
+        run.Api.Reply(200, fixture.Group);
+        run.Api.Reply(404, new());
+        run.Api.List(new JsonObject
+        {
+            ["id"] = FabricC1Deployment.GroupId(run.Input) + "/providers/Microsoft.Storage/storageAccounts/foreign",
+            ["type"] = "Microsoft.Storage/storageAccounts", ["location"] = run.Input.Location
+        });
+        Assert.Equal("c1_deploy_arm_untagged", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+        Assert.False(run.Store.Current!.PendingCreates.ContainsKey("arm-" + fixture.Stage));
+    }
+
+    [Theory]
+    [InlineData("vmId", "c1_deploy_arm_parent_replaced")]
+    [InlineData("location", "c1_deploy_arm_child_scope")]
+    [InlineData("shared", "c1_deploy_arm_child_binding")]
+    public async Task GeneratedDiskCannotOutliveItsRecordedVmInstanceRegionOrExclusiveAttachment(string drift, string code)
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network: false);
+        if (drift == "vmId") fixture.Parent["properties"]!["vmId"] = Guid.NewGuid().ToString("D");
+        else if (drift == "location") fixture.Parent["location"] = "swedencentral";
+        else fixture.Child["managedByExtended"] = new JsonArray(fixture.Parent["id"]!.GetValue<string>() + "-other");
+        QueueArmCreate(run, fixture);
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("arm-" + fixture.Stage));
+    }
+
     [Fact]
     public void GraphAppCreateOnlyPermissionDoesNotAuthorizeWholeBootstrap()
     {
@@ -1376,6 +1537,80 @@ public sealed class FabricC1DeploymentTests
         ["settingName"] = name, ["enabled"] = enabled, ["canSpecifySecurityGroups"] = true,
         ["tenantSettingGroup"] = "SyntheticNonAdminGroup", ["enabledSecurityGroups"] = new JsonArray()
     };
+
+    private sealed record ArmCase(string Stage, JsonObject Template, JsonObject Parameters, JsonObject Group,
+        JsonObject Deployment, JsonObject Parent, JsonObject Child);
+
+    private static ArmCase ArmFixture(Harness run, bool network)
+    {
+        var groupId = FabricC1Deployment.GroupId(run.Input);
+        var stage = network ? "private-endpoints" : "foundation";
+        var parentType = network ? "Microsoft.Network/privateEndpoints" : "Microsoft.Compute/virtualMachines";
+        var childType = network ? "Microsoft.Network/networkInterfaces" : "Microsoft.Compute/disks";
+        var parentId = groupId + "/providers/" + parentType + "/" + FabricC1Deployment.Name(run.Input) + (network ? "-agent-pe" : "-probe");
+        var childId = groupId + "/providers/" + childType + "/synthetic-generated-child";
+        var group = new JsonObject { ["id"] = groupId, ["tags"] = FabricC1Deployment.Tags(run.Input) };
+        run.Seed("resource-group", "ResourceGroup", group);
+        var properties = network ? new JsonObject
+        {
+            ["networkInterfaces"] = new JsonArray(new JsonObject { ["id"] = childId })
+        } : new JsonObject
+        {
+            ["vmId"] = Guid.NewGuid().ToString("D"),
+            ["storageProfile"] = new JsonObject { ["osDisk"] = new JsonObject
+            { ["deleteOption"] = "Delete", ["managedDisk"] = new JsonObject { ["id"] = childId } } }
+        };
+        var parent = new JsonObject
+        {
+            ["id"] = parentId, ["type"] = parentType, ["location"] = run.Input.Location,
+            ["tags"] = FabricC1Deployment.Tags(run.Input), ["properties"] = properties
+        };
+        var child = new JsonObject
+        {
+            ["id"] = childId, ["type"] = childType, ["location"] = run.Input.Location,
+            ["properties"] = new JsonObject { [network ? "resourceGuid" : "uniqueId"] = Guid.NewGuid().ToString("D") }
+        };
+        if (network) child["properties"]!["privateEndpoint"] = new JsonObject { ["id"] = parentId };
+        else child["managedBy"] = parentId;
+        var parameters = new JsonObject { ["synthetic"] = new JsonObject { ["value"] = "owned" } };
+        var outputs = new JsonObject
+        {
+            [network ? "privateEndpoints" : "probe"] = new JsonObject
+            { ["value"] = network ? new JsonArray(parent.DeepClone()) : parent.DeepClone() }
+        };
+        var deployment = new JsonObject
+        {
+            ["id"] = groupId + "/providers/Microsoft.Resources/deployments/c1-" + stage,
+            ["properties"] = new JsonObject
+            {
+                ["mode"] = "Incremental", ["parameters"] = parameters.DeepClone(), ["templateHash"] = "synthetic-provider-hash",
+                ["correlationId"] = Guid.NewGuid().ToString("D"), ["provisioningState"] = "Succeeded", ["outputs"] = outputs
+            }
+        };
+        return new(stage, new JsonObject { ["resources"] = new JsonArray() }, parameters, group, deployment, parent, child);
+    }
+
+    private static void QueueArmCreate(Harness run, ArmCase fixture)
+    {
+        run.Api.Reply(200, fixture.Group);
+        run.Api.Reply(404, new());
+        run.Api.List();
+        run.Api.Reply(202, new());
+        run.Api.Reply(200, fixture.Deployment);
+        run.Api.List(fixture.Parent, fixture.Child);
+        run.Api.Reply(200, fixture.Parent);
+        run.Api.Reply(200, fixture.Child);
+    }
+
+    private static void QueueArmResume(Harness run, ArmCase fixture)
+    {
+        run.Api.Reply(200, fixture.Group);
+        run.Api.Reply(200, fixture.Deployment);
+        run.Api.Reply(200, fixture.Deployment);
+        run.Api.List(fixture.Parent, fixture.Child);
+        run.Api.Reply(200, fixture.Parent);
+        run.Api.Reply(200, fixture.Child);
+    }
 
     private static Dictionary<string, (JsonObject App, JsonObject Principal)> QueueIdentities(Harness run)
     {

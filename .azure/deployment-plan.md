@@ -108,6 +108,17 @@ route; no VPN or Relay choice follows from the unanswered access question.
 Public workspace/HTTP Relay/token-copy workarounds are not permitted. No new
 cost/consent question or speculative tunnel is introduced by this increment.
 
+ARM resume now records and checks the actual operation's parameters,
+correlation and provider template hash, and rechecks the owned resource group.
+Successful VM/PE outputs plus fresh two-way child links can bind provider-created
+OS disks/NICs without adding ownership tags. Their immutable instance IDs and
+parent-only cleanup association remain in the journal. Missing/replaced/shared
+or out-of-region instances block progression; a missing list entry is not
+cleanup proof. The network template exposes actual endpoint/NIC references for
+this purpose. Failed parents without complete outputs remain unresolved.
+No ARM write/delete, child retagging or full cleanup is demonstrated by this
+source-only inventory increment.
+
 The foundation now explicitly attaches its own Standard NAT/static IPv4 to the
 client subnet without a public VM NIC or default outbound access. This fixes
 the missing address-translation component, not the still-unfinished FQDN filter,

@@ -55,5 +55,14 @@
         }]
       }
     }
-  ]
+  ],
+  "outputs": {
+    "privateEndpoints": {
+      "type": "array",
+      "copy": {
+        "count": "[length(parameters('endpoints'))]",
+        "input": "[reference(resourceId('Microsoft.Network/privateEndpoints', concat(parameters('name'), '-', parameters('endpoints')[copyIndex()].key, '-pe')), '2024-05-01', 'Full')]"
+      }
+    }
+  }
 }
