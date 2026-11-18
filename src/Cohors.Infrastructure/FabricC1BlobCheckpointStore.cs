@@ -290,9 +290,10 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
         using var limited = new FabricC1LimitedStream(raw, maximumBytes);
         document = await JsonSerializer.DeserializeAsync<FabricC1BlobCheckpointDocument>(limited, Json, bounded.Token)
             ?? throw new DomainException("c1_checkpoint_missing", "The checkpoint document is missing; never create replacement state.", 409);
-        var checkpoint = document.Checkpoint;
+        var checkpoint = document.Checkpoint ??
+            throw new DomainException("c1_checkpoint_binding", "The original checkpoint clock is missing.", 409);
         Guard.Against(document.Contract != DocumentContract || document.StorageBindingHash != Canonical.Hash(binding) ||
-            document.Reservations is null || checkpoint is null || checkpoint.BindingHash != binding.ExecutionBindingHash ||
+            document.Reservations is null || checkpoint.BindingHash != binding.ExecutionBindingHash ||
             checkpoint.Runtime != binding.Runtime || checkpoint.StartedAtUtc > time.GetUtcNow() ||
             checkpoint.DeadlineUtc < checkpoint.StartedAtUtc || checkpoint.DeadlineUtc > maximumDeadline ||
             checkpoint.DeadlineUtc - checkpoint.StartedAtUtc > maximumDuration ||

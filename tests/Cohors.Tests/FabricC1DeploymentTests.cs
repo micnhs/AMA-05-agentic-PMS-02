@@ -897,9 +897,10 @@ public sealed class FabricC1DeploymentTests
     {
         using var run = new Harness(maxRequests: 300);
         var (execution, original) = CheckpointFixture(run);
-        var controlIdentity = execution.Hosted!.Caller with
+        var originalHosted = execution.Hosted!;
+        var controlIdentity = originalHosted.Caller with
         { ClientId = Guid.NewGuid().ToString("D"), PrincipalObjectId = Guid.NewGuid().ToString("D") };
-        execution = execution with { Hosted = execution.Hosted with { Caller = controlIdentity } };
+        execution = execution with { Hosted = originalHosted with { Caller = controlIdentity } };
         var hosted = original with { Runtime = "hosted", ExecutionBindingHash = Canonical.Hash(execution) };
         var control = original with
         {
