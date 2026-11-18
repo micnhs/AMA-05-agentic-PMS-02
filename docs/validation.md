@@ -3129,6 +3129,13 @@ Der [Objekt-/Prozedurvertrag](sql-runtime-contract.md)
 gehaertet. **Nur dd11270/Build49 ist der nachfolgend nativ gepruefte
 Quell-/Paketstand.** Dieser Dokumentationsnachtrag ist kein Neubuild.
 
+Die anschliessende Quellkontrolle von `Cohors.Bootstrap.Program` und
+`BootstrapRequest.Parse` berichtigt ausschliesslich die Vertragsdoku:
+der vorhandene Befehl ist `sql --expect-server ... --expect-database ... --apply`,
+nicht `sql-migrate`. Die CLI kennt `sql` und `search`; ohne `--apply`
+sind es lesende Remotepruefungen. Weder Runtime noch Build49-Belege
+wurden fuer diese Dokumentationskorrektur geaendert oder neu ausgefuehrt.
+
 Build47 bestand auf c13f041. Build48 auf dd11270 bleibt dagegen
 **negativ**: neun von elf Projekten,900,4323136s im unveraenderten
 600s-Gesamtbudget. Der Workflows-Rebuild meldete573,621s fuer Delete

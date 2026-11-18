@@ -9,8 +9,15 @@ Azure-, Entra-, Preview- oder Livefreigabe folgt allein aus dieser Datei.
 
 ## Einzige Schemaquelle und Einstieg
 
-`Cohors.Bootstrap sql-migrate` verwendet weiterhin
-`SqlStateStore.Initialize` und die eingebetteten Migrationen. Nach001/002
+Der vorhandene CLI-Einstieg lautet:
+
+```text
+Cohors.Bootstrap sql --expect-server <server.database.windows.net> --expect-database <database> --apply
+```
+
+`sql-migrate` ist kein gueltiger Befehl. Ohne `--apply` erfolgen nur
+lesende Remotepruefungen, keine Offline-Simulation. Der SQL-Applypfad
+verwendet weiterhin `SqlStateStore.Initialize` und die eingebetteten Migrationen. Nach001/002
 folgen `003a_operations_quote.sql`, `003b_operations_write.sql` und
 `003c_operations_permissions.sql`. Quote-Funktion und Schreibprozedur
 sind einzeln wiederholbare SQL-DDL-Batches; erst die letzte transaktionale
@@ -107,6 +114,7 @@ Das ist eine administrativ kontrollierte Migration, kein dauerhafter
 Runtime-Grant und kein Anlass, Operations `db_owner` zu geben.
 Der getrennte synthetische Seed verwendet danach die bestehenden
 API-aehnlichen Fachschreibrechte und den vorgesehenen Blobzugang;
+er ist kein zusaetzlicher Befehl dieses `sql`/`search`-CLI.
 Operations fuehrt weder Migration noch Seed aus.
 
 DELETE auf SearchProjection bleibt ausschliesslich dem separat
