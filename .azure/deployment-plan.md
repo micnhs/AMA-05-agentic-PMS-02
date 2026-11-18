@@ -140,10 +140,16 @@ reservations are retained under the lease. The provisioner's journal producer
 now atomically preallocates this I/O from the original control budget and
 binds immutable seed/claim records to the own observed account and identities.
 Unused or unknown claims remain charged; ambiguous journal writes fence the
-process until original-state recovery. Actual conditional Blob seeding and
-reconciliation, RBAC/readback, protected credential/profile delivery and
-CLI/Hosted selection remain unintegrated. The seed plan alone is not a storage
-write or an authorization result. Existing file arguments retain their semantics.
+process until original-state recovery. The separate seed producer now binds
+the own declared nonpublic container, journals a unique creation marker, issues
+only a conditional initial PUT and verifies bounded exact bytes/metadata/strong
+ETag. Lost writes reconcile without replay; 404 after an uncertain create never
+reconstructs state. Seed attempts consume normal control requests, not prepaid
+consumer I/O or cleanup. A confirmed original receipt cannot reset a later
+runtime state. Native execution, RBAC/readback, protected credential/profile
+delivery and CLI/Hosted selection remain unintegrated. The seed plan or
+fake-transport result is not a live storage write or an authorization result.
+Existing file arguments retain their semantics.
 The component does not close the whole certificate/durable-state driver gap,
 prove a remote task stopped, or constitute a native Blob/recovery result.
 

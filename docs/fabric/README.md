@@ -330,15 +330,35 @@ Resume returns the original seed, clock and claim, never a new allocation;
 direct/Hosted/control allocations share that original execution and clock.
 Unused/uncertain claims are not refunded. An ambiguous journal write fences
 all further provider calls and journal writes in that process until its
-original journal is reopened. The generated seed is a **plan**, not a
-confirmed Blob create. Initial conditional Blob creation/reconciliation,
-scoped RBAC/readback, protected profile/credential delivery and explicit CLI/
-Hosted selection are still **not integrated**. `--state FILE` retains its file
+original journal is reopened. The generated seed alone is a **plan**, not a
+confirmed Blob create.
+
+`MaterializeBlobCheckpointNative` now supplies the separate seed producer.
+Foundation declares the own nonpublic `c1-checkpoints` container; the producer
+requires that completed original output and never creates a container on a data
+path 404. It charges every attempted GET/PUT to the original normal control
+budget, outside prepaid consumer I/O and cleanup reserves. Only `BlobNotFound`
+permits a first `If-None-Match: *` block-blob PUT, after a durable random creation
+marker and original allocation/seed hashes. The subsequent bounded readback
+must have the exact seed bytes, metadata and a strong ETag. Unjournaled data,
+a conditional-create race, changed bytes or metadata, uncertain create followed
+by 404, or uncertain journal persistence fail closed. There is no automatic
+retry; only an explicit 401/403 rejection permits a later invocation to retry
+that same original conditional intent. A confirmed receipt remains historical:
+it does not reinitialize or attest the current runtime state. The consumer
+still rejects missing state instead of importing or reconstructing it.
+
+The native factory uses the explicit app-only/private transport and refuses
+the hosted source-build runner. Protected native execution, scoped RBAC/readback,
+profile/credential delivery and explicit CLI/Hosted selection are still
+**not integrated** by this component. `--state FILE` retains its file
 meaning; no blob URI is hidden in it. The existing 39 preparation mappings,
 18 execution fields and seven caller fields are unchanged; these additional
 storage documents are a separate implementation contract. All five full-driver
 gaps and seven native `NotRun` cases remain. No live Blob/lease, permission,
 private-path, budget or recovery acceptance follows from fake-transport tests.
+
+Storage API basis: [conditional Put Blob and metadata](https://learn.microsoft.com/rest/api/storageservices/put-blob).
 
 These are explicit **implementation gaps**, not assertions that Microsoft
 lacks the corresponding APIs. Source-grant/ontology-private-link and the

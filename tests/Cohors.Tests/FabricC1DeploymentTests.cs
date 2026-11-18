@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Net;
 using Azure.Core;
 using Cohors.Domain;
 using Cohors.Infrastructure;
@@ -695,6 +696,209 @@ public sealed class FabricC1DeploymentTests
         Assert.Equal(original, Canonical.Hash(run.Store.Current!));
         Assert.Equal(run.Clock.GetUtcNow(), allocation.Seed.Checkpoint.StartedAtUtc);
         Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
+    public async Task BlobSeedUsesConditionalCreateAndKeepsItsOriginalReceiptAfterTheRuntimeStarts()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        var original = await seed.Materialize();
+        Assert.Equal(["GET", "PUT", "GET"], seed.Handler.Methods.ToArray());
+        Assert.Equal(3, run.Store.Current!.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+        Assert.Empty(run.Store.Current.PendingCreates);
+        Assert.All(seed.Credential.Scopes, scope => Assert.Equal(FabricC1BlobCheckpointStore.Scope, scope));
+        var stored = JsonSerializer.Deserialize<FabricC1BlobCheckpointDocument>(seed.Handler.Content!, Canonical.Json)!;
+        Assert.Equal(Canonical.Hash(seed.Binding), stored.StorageBindingHash);
+        Assert.Equal(run.Clock.GetUtcNow(), stored.Checkpoint.StartedAtUtc);
+        seed.Handler.Content = JsonSerializer.SerializeToUtf8Bytes(stored with
+        { Checkpoint = stored.Checkpoint with { Requests = 1 } }, Canonical.Json);
+        run.Restart();
+        Assert.Equal(original, await seed.Materialize());
+        Assert.Equal(3, seed.Handler.Methods.Count);
+        Assert.Equal(1, JsonSerializer.Deserialize<FabricC1BlobCheckpointDocument>(seed.Handler.Content, Canonical.Json)!.Checkpoint.Requests);
+    }
+
+    [Fact]
+    public async Task LostBlobSeedCreateResponseReconcilesTheSameMarkerWithoutAnotherPut()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        seed.Handler.LoseAfterPut = true;
+        await Assert.ThrowsAsync<IOException>(() => seed.Materialize());
+        Assert.Contains("checkpoint-seed-direct", run.Store.Current!.PendingCreates.Keys);
+        var original = Canonical.Hash(run.Store.Current.Objects["checkpoint-allocation-direct"]);
+        run.Restart();
+        var receipt = await seed.Materialize();
+        Assert.Equal(original, receipt.AllocationReceiptSha256);
+        Assert.Equal(["GET", "PUT", "GET"], seed.Handler.Methods.ToArray());
+        Assert.Empty(run.Store.Current!.PendingCreates);
+    }
+
+    [Fact]
+    public async Task MissingBlobAfterUncertainCreateNeverResetsTheOriginalRunOrRetriesThePut()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        seed.Handler.LoseBeforePut = true;
+        await Assert.ThrowsAsync<IOException>(() => seed.Materialize());
+        var allocation = Canonical.Hash(run.Store.Current!.Objects["checkpoint-allocation-direct"]);
+        run.Restart();
+        Assert.Equal("c1_deploy_checkpoint_seed_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            seed.Materialize())).Code);
+        Assert.Equal(["GET", "PUT", "GET"], seed.Handler.Methods.ToArray());
+        Assert.Equal(allocation, Canonical.Hash(run.Store.Current!.Objects["checkpoint-allocation-direct"]));
+        Assert.Contains("checkpoint-seed-direct", run.Store.Current.PendingCreates.Keys);
+    }
+
+    [Fact]
+    public async Task SeedCreateRaceDoesNotOverwriteOrAdoptTheOtherWritersBlob()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        seed.Handler.RacePut = true;
+        Assert.Equal("c1_deploy_checkpoint_seed_http_412", (await Assert.ThrowsAsync<DomainException>(() =>
+            seed.Materialize())).Code);
+        Assert.Equal(["GET", "PUT"], seed.Handler.Methods.ToArray());
+        run.Restart();
+        Assert.Equal("c1_deploy_checkpoint_seed_foreign", (await Assert.ThrowsAsync<DomainException>(() =>
+            seed.Materialize())).Code);
+        Assert.Equal(["GET", "PUT", "GET"], seed.Handler.Methods.ToArray());
+        Assert.Contains("checkpoint-seed-direct", run.Store.Current!.PendingCreates.Keys);
+    }
+
+    [Fact]
+    public async Task EvenMatchingPreexistingSeedBytesCannotBeAdoptedWithoutAnOriginalWriteIntent()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        var allocation = run.Provisioner.PrepareBlobCheckpoint(seed.Execution, seed.Binding);
+        seed.Handler.Content = JsonSerializer.SerializeToUtf8Bytes(allocation.Seed, Canonical.Json);
+        Assert.Equal("c1_deploy_checkpoint_seed_foreign", (await Assert.ThrowsAsync<DomainException>(() =>
+            seed.Materialize())).Code);
+        Assert.Equal(["GET"], seed.Handler.Methods.ToArray());
+        Assert.DoesNotContain("checkpoint-seed-direct", run.Store.Current!.Objects.Keys);
+    }
+
+    [Theory]
+    [InlineData("marker", "c1_deploy_checkpoint_seed_foreign")]
+    [InlineData("allocation", "c1_deploy_checkpoint_seed_foreign")]
+    [InlineData("body", "c1_deploy_checkpoint_seed_content")]
+    [InlineData("weak-etag", "c1_deploy_checkpoint_seed_etag")]
+    public async Task UnknownSeedCannotBeRecoveredFromForeignMetadataChangedBytesOrWeakEtag(string changed, string code)
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        seed.Handler.LoseAfterPut = true;
+        await Assert.ThrowsAsync<IOException>(() => seed.Materialize());
+        if (changed == "marker") seed.Handler.Metadata["x-ms-meta-cohors_seed_id"] = Guid.NewGuid().ToString("D");
+        if (changed == "allocation") seed.Handler.Metadata["x-ms-meta-cohors_allocation"] = new string('f', 64);
+        if (changed == "weak-etag") seed.Handler.WeakEtag = true;
+        if (changed == "body")
+        {
+            var original = JsonSerializer.Deserialize<FabricC1BlobCheckpointDocument>(seed.Handler.Content!, Canonical.Json)!;
+            seed.Handler.Content = JsonSerializer.SerializeToUtf8Bytes(original with
+            { Checkpoint = original.Checkpoint with { Requests = 1 } }, Canonical.Json);
+        }
+        run.Restart();
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() => seed.Materialize())).Code);
+        Assert.Single(seed.Handler.Methods, method => method == "PUT");
+        Assert.Contains("checkpoint-seed-direct", run.Store.Current!.PendingCreates.Keys);
+    }
+
+    [Fact]
+    public async Task MissingContainerIsNotPermissionToCreateOneFromTheSeedDataPath()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        seed.Handler.MissingCode = "ContainerNotFound";
+        Assert.Equal("c1_deploy_checkpoint_container", (await Assert.ThrowsAsync<DomainException>(() =>
+            seed.Materialize())).Code);
+        Assert.Equal(["GET"], seed.Handler.Methods.ToArray());
+        Assert.Empty(run.Store.Current!.PendingCreates);
+    }
+
+    [Fact]
+    public async Task SeedCannotBorrowItsConsumersPrepaidRequestsOrCleanupReserve()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run, allocated: 80);
+        Assert.Equal("c1_deploy_budget", (await Assert.ThrowsAsync<DomainException>(() => seed.Materialize())).Code);
+        Assert.Empty(seed.Handler.Methods);
+        Assert.Empty(seed.Credential.Scopes);
+        Assert.Equal(0, run.Store.Current!.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+    }
+
+    [Fact]
+    public async Task RejectedSeedCreateNeedsAFreshInvocationAndReusesItsOriginalMarker()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        seed.Handler.RejectPut = true;
+        Assert.Equal("c1_deploy_checkpoint_seed_http_403", (await Assert.ThrowsAsync<DomainException>(() =>
+            seed.Materialize())).Code);
+        Assert.Equal(["GET", "PUT"], seed.Handler.Methods.ToArray());
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        var original = run.Store.Current.Objects["checkpoint-seed-direct-intent"].RequestHash;
+        run.Restart();
+        await seed.Materialize();
+        Assert.Equal(original, run.Store.Current!.Objects["checkpoint-seed-direct"].RequestHash);
+        Assert.Equal(["GET", "PUT", "GET", "PUT", "GET"], seed.Handler.Methods.ToArray());
+    }
+
+    [Fact]
+    public async Task UncertainSeedReceiptPersistenceFencesTheProcessButRetainsTheOriginalSuccessfulReadback()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        seed.Handler.AfterRead = () => run.Store.FailAfterSave = true;
+        await Assert.ThrowsAsync<IOException>(() => seed.Materialize());
+        Assert.Contains("checkpoint-seed-direct", run.Store.Current!.Objects.Keys);
+        run.Store.FailAfterSave = false;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            seed.Materialize())).Code);
+        run.Restart();
+        var original = await seed.Materialize();
+        Assert.Equal(seed.Handler.Metadata["x-ms-meta-cohors_seed_id"], original.CreationId);
+        Assert.Equal(3, seed.Handler.Methods.Count);
+    }
+
+    [Fact]
+    public async Task SeedRequiresTheOwnNonpublicContainerAndCannotProceedAfterCleanupFencing()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        var foundation = (JsonObject)run.Store.Current!.Objects["arm-foundation"].Response.DeepClone();
+        foundation["properties"]!["outputs"]!["checkpointContainer"]!["value"]!["properties"]!["publicAccess"] = "Blob";
+        run.Seed("arm-foundation", "ArmDeployment", foundation);
+        Assert.Equal("c1_deploy_checkpoint_container", (await Assert.ThrowsAsync<DomainException>(() => seed.Materialize())).Code);
+        Assert.Empty(seed.Handler.Methods);
+        foundation["properties"]!["outputs"]!["checkpointContainer"]!["value"]!["properties"]!["publicAccess"] = "None";
+        run.Seed("arm-foundation", "ArmDeployment", foundation);
+        run.Store.Save(run.Store.Current! with { CleanupStartedAtUtc = run.Clock.GetUtcNow() });
+        run.Restart();
+        Assert.Equal("c1_deploy_cleanup_started", (await Assert.ThrowsAsync<DomainException>(() => seed.Materialize())).Code);
+        Assert.Empty(seed.Handler.Methods);
+    }
+
+    [Fact]
+    public async Task CancellationCoversTheSeedReadbackBodyAndRetainsTheUncertainOriginal()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        seed.Handler.LoseAfterPut = true;
+        await Assert.ThrowsAsync<IOException>(() => seed.Materialize());
+        run.Restart();
+        using var cancellation = new CancellationTokenSource();
+        seed.Handler.BlockBody = true;
+        var pending = seed.Materialize(cancellation.Token);
+        await seed.Handler.BodyStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        Assert.Contains("checkpoint-seed-direct", run.Store.Current!.PendingCreates.Keys);
+        Assert.Single(seed.Handler.Methods, method => method == "PUT");
     }
 
     [Fact]
@@ -2307,6 +2511,109 @@ public sealed class FabricC1DeploymentTests
             if (FailAfterSave) throw new IOException("synthetic lost journal acknowledgement");
         }
     }
+
+    private sealed class SeedHarness : IDisposable
+    {
+        private readonly Harness run;
+        private readonly HttpClient client;
+        public FabricC1ExecutionSettings Execution { get; }
+        public FabricC1BlobCheckpointBinding Binding { get; }
+        public BoundCredential Credential { get; }
+        public SeedHandler Handler { get; } = new();
+        public SeedHarness(Harness run, int allocated = 40)
+        {
+            this.run = run;
+            (Execution, Binding) = CheckpointFixture(run);
+            Binding = Binding with { AllocatedRequests = allocated };
+            Credential = new(Token(run.Input with { BootstrapIdentity = Binding.Identity },
+                Binding.Identity.ExpectedAudience!, run.Clock.GetUtcNow()));
+            client = new(Handler);
+        }
+        public Task<FabricC1CheckpointSeedReceipt> Materialize(CancellationToken ct = default) =>
+            run.Provisioner.MaterializeBlobCheckpointWithTransport(Execution, Binding, client, Credential, ct);
+        public void Dispose() => client.Dispose();
+    }
+
+    private sealed class SeedHandler : HttpMessageHandler
+    {
+        public List<string> Methods { get; } = [];
+        public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public byte[]? Content;
+        public bool LoseAfterPut;
+        public bool LoseBeforePut;
+        public bool RejectPut;
+        public bool RacePut;
+        public bool WeakEtag;
+        public bool BlockBody;
+        public string MissingCode = "BlobNotFound";
+        public Action? AfterRead;
+        public TaskCompletionSource BodyStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Methods.Add(request.Method.Method);
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            Assert.Equal("2023-11-03", request.Headers.GetValues("x-ms-version").Single());
+            Assert.Equal("", request.RequestUri!.Query);
+            HttpResponseMessage Reply(HttpStatusCode code) => new(code)
+            {
+                RequestMessage = request, Content = new ByteArrayContent([]),
+                Headers = { ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"seed-version-1\"", WeakEtag) }
+            };
+            if (request.Method == HttpMethod.Get)
+            {
+                if (Content is null)
+                {
+                    var missing = Reply(HttpStatusCode.NotFound);
+                    missing.Headers.Add("x-ms-error-code", MissingCode);
+                    return missing;
+                }
+                var response = Reply(HttpStatusCode.OK);
+                response.Content = BlockBody ? new StreamContent(new BlockedSeedBody(BodyStarted)) : new ByteArrayContent(Content);
+                response.Content.Headers.ContentType = new("application/json");
+                response.Content.Headers.ContentLength = Content.Length;
+                response.Headers.Add("x-ms-blob-type", "BlockBlob");
+                foreach (var header in Metadata) response.Headers.Add(header.Key, header.Value);
+                AfterRead?.Invoke();
+                return response;
+            }
+            Assert.Equal(HttpMethod.Put, request.Method);
+            Assert.Equal("*", request.Headers.IfNoneMatch.Single().Tag);
+            Assert.Empty(request.Headers.IfMatch);
+            Assert.Equal("BlockBlob", request.Headers.GetValues("x-ms-blob-type").Single());
+            if (RejectPut) { RejectPut = false; return Reply(HttpStatusCode.Forbidden); }
+            if (LoseBeforePut) { LoseBeforePut = false; throw new IOException("synthetic unknown create before service effect"); }
+            if (RacePut)
+            {
+                RacePut = false;
+                Content = await request.Content!.ReadAsByteArrayAsync(ct);
+                return Reply(HttpStatusCode.PreconditionFailed);
+            }
+            if (Content is not null) return Reply(HttpStatusCode.PreconditionFailed);
+            Content = await request.Content!.ReadAsByteArrayAsync(ct);
+            foreach (var header in request.Headers.Where(header => header.Key.StartsWith("x-ms-meta-", StringComparison.OrdinalIgnoreCase)))
+                Metadata.Add(header.Key, header.Value.Single());
+            if (LoseAfterPut) { LoseAfterPut = false; throw new IOException("synthetic lost create acknowledgement"); }
+            return Reply(HttpStatusCode.Created);
+        }
+    }
+
+    private sealed class BlockedSeedBody(TaskCompletionSource started) : MemoryStream
+    {
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            throw new InvalidOperationException("The read must be cancelled.");
+        }
+        public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken) =>
+            WaitForCancellation(cancellationToken);
+        private async Task WaitForCancellation(CancellationToken ct)
+        {
+            started.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+        }
+    }
+
     private static (FabricC1ExecutionSettings Execution, FabricC1BlobCheckpointBinding Binding) CheckpointFixture(Harness run)
     {
         var preparation = FabricC1PreparationTests.Bound();
@@ -2346,6 +2653,12 @@ public sealed class FabricC1DeploymentTests
                     {
                         ["id"] = storage, ["type"] = "Microsoft.Storage/storageAccounts", ["location"] = run.Input.Location,
                         ["tags"] = FabricC1Deployment.Tags(run.Input)
+                    }},
+                    ["checkpointContainer"] = new JsonObject { ["value"] = new JsonObject
+                    {
+                        ["id"] = storage + "/blobServices/default/containers/c1-checkpoints",
+                        ["type"] = "Microsoft.Storage/storageAccounts/blobServices/containers",
+                        ["properties"] = new JsonObject { ["publicAccess"] = "None" }
                     }}
                 }
             }
