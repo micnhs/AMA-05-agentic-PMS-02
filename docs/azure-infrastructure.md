@@ -32,7 +32,7 @@ Runtime-Neubuild. Migrationen und SQL-Schreibprozedur bleiben ausschliesslich
 in der originalen Anwendung, nicht als zweite Fach-DDL im Infra-Code.
 
 Der lokale Build49-/Native98/99-Nachweis ist kein Entra-/Azure-/FSN-/UI-Pass.
-Er liefert insbesondere noch keine Release-ZIPs oder Images. Der ausschliesslich
+Build49 selbst lieferte keine Release-ZIPs oder Images. Der ausschliesslich
 gehostete Workflow `cohors-primary-package.yml` baut die beiden originalen
 Container-Dockerfiles und ruft das originale `scripts/Publish-Functions.ps1`
 auf. Er bindet OCI-Digests, beide ZIPs, echte Trigger-Metadaten, eingebettete
@@ -40,6 +40,33 @@ Originalmigrationen und alle Paketdateien. Er meldet `cloudReleased=false`.
 Die separaten privaten CLI-Ausgaben enthalten die tatsaechlichen SDK-Runtimes,
 kein zweites Fachprogramm und keine erfundenen ACR-/ZIP-URLs.
 Ein solcher Rebuild ist **nicht** das unveraenderte lokale Build49-Binaerpaket.
+
+**Technisches Hosted-Paket vom 2026-11-18:** Der erfolgreiche
+[Paketlauf44381848217](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44381848217)
+bindet genau dd112 an Infra `3dad2c4292da1371b1856a25328e17d165178a50`.
+Artefakt14462484129 wurde heruntergeladen und gegen den GitHub-Digest und
+339239361 Bytes geprueft. Alle 722 Manifestdateien, Originalquellhashes,
+SQL-Moduldefinitionen, echten Functions-Metadaten und dieselbe
+`Cohors.Infrastructure.dll` in API, Bootstrap, SQL-Helfer und Operations-ZIP
+sind unabhaengig gegengeprueft. Beide OCI-Archive binden Linux/amd64 und jeweils
+zehn SHA256-/laengengepruefte Blobs einschliesslich acht Layern; kein lokaler
+Container, SQL-Host oder Anwendungsprozess wurde dafuer gestartet.
+
+| Paketbindung | SHA256 |
+| --- | --- |
+| Aeusseres GitHub-Artefakt | `c6c17f6cb64545e3bbbfe8f1d1bc4c665431580debe7edcef969813255e77cb5` |
+| Inneres Bundle | `3fc9c4894ab9476a2846b61a8aeb5def443d4d34a5d23a9b4802880004597688` |
+| Release-Manifest | `385afbeb41ef70c18a2aa9b2cb2d125d6e050024fee55ea6acf9ee215df032c8` |
+| Operations-Release-ZIP | `8ddc27e5481968b5b96789102727468b363bacdbfd7411fe106fa2f2ef170c95` |
+| Gemeinsame Infrastructure-DLL | `4698789731bfc93b6a93fee00eb0463f7f9f4014e0e44090310dce6cea903047` |
+| API-OCI-Manifest | `dbbc043de534cc9d4239de1fca5905ca307aa356778751b74e1989579d2462cb` |
+| Agents-OCI-Manifest | `be30cc362d3b5edbff70333eec21277394d8ef835bfbaa2211ae1e09e4041aa1` |
+
+Der private unabhaengige Beleg hat SHA256
+`ecd4f23e537c4d47497392e2fcf86f0a1c3ab70ffc39e2f15448350e4b6195e5`.
+Dies schliesst die technische Paketluecke, **nicht** die nachfolgenden
+Anwendungs-, Entra-, Sicherheits- oder Cloudgates. Ein spaeterer Quellstand
+benoetigt seine eigene Paketbindung; diese Bytes sind nicht automatisch dessen Release.
 
 Die Remotequelle dd112 ist inzwischen abrufbar. Ihr natuerlicher
 [CI-Lauf44355710367](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44355710367)
@@ -57,10 +84,15 @@ Die eigene NVA ist eine **zusaetzliche kostenpflichtige Filterkomponente** mit
 eigenem Betrieb: Linux-VM, Disk, Public IP, Updates, Ausfall- und Messverfahren.
 Der gepinnte mitmproxy-Parser/TCP-Mechanismus leitet TLS verschluesselt weiter;
 keine Zertifizierungsstelle, Inhaltsentschluesselung oder TLS-Abschwaechung.
-Ungeprueftes/fehlendes SNI, ECH/eSNI, ALPN, DNS-/IPv6-/UDP-/QUIC-/Direkt-IP-Pfade
-bleiben gesperrt. FQDN/SNI ist keine HTTP-Pfad-/Inhaltskontrolle und kein
-umfassender Exfiltrationsschutz. Der Einzelnachweis in isolierten Linux-Namespaces
-ist ausdruecklich **kein ACA-/Flex-/Operator-/Browser-Cloudnachweis**.
+Der Filtercode verweigert ungeprueftes/fehlendes SNI, ECH/eSNI und unerlaubtes
+ALPN; die Netzkonfiguration begrenzt DNS-/IPv6-/UDP-/QUIC-/Direkt-IP-Pfade.
+Sechs echte Linux-Kernel/TLS-Faelle sind gehostet bestanden: erlaubte Verbindung,
+gesperrtes SNI, Direkt-IP/fehlendes SNI, SNI/IP-Widerspruch, UDP/QUIC-Bypass und
+Proxyverlust. Eigene Ressourcen wurden entfernt; die fremde Namespaceinventur
+blieb unveraendert. DNS ist bisher nur per `dnsdist --check-config` geprueft;
+ECH/IPv6 haben nur Unitnachweise. FQDN/SNI ist keine HTTP-Pfad-/Inhaltskontrolle
+und kein umfassender Exfiltrationsschutz. Diese Teilnachweise sind ausdruecklich
+**kein DNS-End-to-end-/ACA-/Flex-/Operator-/Browser-Cloudnachweis**.
 
 **Offene Profilentscheidung:** Der historische ACA-Kandidat ist Consumption,
 nicht Dedicated. Laut
@@ -87,13 +119,29 @@ Evaluator; Replay, fehlende Werte und Nullfehler-/klinische-Validierungsversprec
 werden nicht als Qualitaetsnachweis akzeptiert. Billigere Nebenprofile brauchen
 einen kuenftigen versionierten Appvertrag und eigenen Eignungsnachweis.
 
-`primary_sql.py` und `Cohors.InfraSql` enthalten einen noch nicht gehostet
-qualifizierten Principal-/Grantadapter: Originalmodulhashes, Schema3 und exakte
-Rollenrechte werden gegengelesen; die Anwendungsmigrationen werden nicht kopiert.
+`primary_sql.py` und `Cohors.InfraSql` enthalten den gehostet kompilierten, aber
+noch nicht gegen echte Azure-SQL-/Entra-Zielprincipals abgenommenen
+Principal-/Grantadapter: Originalmodulhashes, Schema3 und exakte Rollenrechte
+werden gegengelesen; die Anwendungsmigrationen werden nicht kopiert.
 Ein Metadatenreadback meldet ausdruecklich noch keinen Runtime-Entra-Login.
-Noch offen sind dessen echter SQL-/Entra-Nachweis, native Plattform-/Ausfallpruefungen, vollstaendiger
-Deadline-/Aktivierungs-/Cleanupabschluss, reale Personen-/Alarm-/Lizenzbindungen,
-vollstaendige aktuelle Kosten und gehostete Sicherheits-/Paketnachweise.
+
+Die vier ausdruecklich benannten vorhandenen Benutzer wurden zentral mit genau
+vier lesenden Graph-GETs im gebundenen Ursprungskontext aufgeloest: aktivierte
+Konten, vier verschiedene Object-IDs, getrennte Medical-/RA-Identitaeten.
+Eingaben und Minimalbeleg bleiben privat. Das ist keine App-Role-Zuweisung,
+Produktfreigabe oder Token-/API-Abnahme; der separate Admin-Appvertrag fehlt
+im gebundenen dd112-Quellstand weiterhin.
+Auch der nutzerbenannte Alarmempfaenger liegt nur im privaten Teilinput:
+`profile.alertEmailReceivers` -> `primary.bicep` -> `main.bicep` ->
+eigene Action Group. Keine weitere Principalaufloesung, Testmail oder Mutation
+folgt daraus. Reale Zustellung, menschliche 15-Minuten-Bestaetigung, Stellvertretung
+und unabhaengige Eskalation bleiben offen. Diese Teilinputs sind noch kein
+vollstaendiges deploybares oder genehmigtes Startmanifest.
+
+Noch offen sind der echte SQL-/Entra-Nachweis, Plattform-/Ausfallpruefungen,
+vollstaendiger Deadline-/Aktivierungs-/Cleanupabschluss, produktbezogene
+Personenrechte, Alarmabnahme, Lizenzen, vollstaendige aktuelle Kosten sowie
+die Sicherheitskontrollen und unbewerteten Scannerchecks.
 Runtimephasen bleiben geschlossen; ein bloss passender Manifest-SHA oeffnet sie
 nicht. Die nachfolgenden historischen Voraussetzungen sind kein Beleg, dass
 diese neuen Aufgaben schon abgeschlossen waeren.
@@ -573,8 +621,8 @@ Checkov 3.4.5 verwendet pycep-parser 0.5.1: Der direkte Bicep-Scan scheitert an
 Beides wurde verworfen. `checkov_templates.py` exportiert deshalb **alle**
 eingebetteten kompilierten Templates, auch bedingte/standardmaessig inaktive
 Zweige, als Ressourcenlisten. Die zusaetzlichen quellengebundenen Projektionen
-sind die SQL-Server-Auditzuordnung und beide Zweige des eng unterstuetzten
-DHCP-Objektausdrucks. Storage-Namen, uebrige Eigenschaften,
+sind die SQL-Server-Auditzuordnung und beide Zweige der eng unterstuetzten
+VNet-DHCP-/NIC-DNS-Objektausdruecke. Storage-Namen, uebrige Eigenschaften,
 Ressourcenbedingungen und Copy-Loops bleiben unveraendert.
 
 **CKV_AZURE_182/183:** Checkov3.4.5 behandelte das kompilierte
@@ -584,6 +632,14 @@ nun fuer jede betroffene Template-Scope beide Booleanzweige vollstaendig,
 auch wenn ein Parameterdefault nur einen davon waehlt. Der DNS-Parameter bleibt
 symbolisch; keine erfundene IP, kein Ersatz-DNS und kein impliziter Default.
 Eine inverse Vollbaumpruefung bindet jede Auswahl an den Originalausdruck.
+Der nachfolgende Hostedlauf machte drei gleichartige NIC-Exceptions sichtbar.
+Auch die NIC-Sicht enthaelt nun beide Faelle, aber nur bei einer exakten
+Original-Copyarray mit beiden literalen Rollenfaellen und deren unveraendertem
+`length(...)`-Copycount. Der originale Upstream168.63.129.16, Copyloop,
+IP-Forwarding und gesamte Restbaum bleiben erhalten; keine zweite DNS-IP wird
+erfunden. Der erneute Hostedscan3dad2c4 hat keine beobachteten Checkexceptions
+oder sonstige Scannerdiagnostik mehr. Das beseitigt einen Werkzeugfehler,
+nicht die nachfolgenden Kontrollen.
 Ein einzelner DNS-Server bleibt ein echter CKV_AZURE_182-Befund; ein nicht
 aufgeloester Adressvergleich bleibt unbewertet, nicht bestanden.
 `checkov_observe.py` beobachtet die unveraenderten Python-Checkrueckgaben und
@@ -661,7 +717,7 @@ Validierungsnachweis.
 SQL-/Browser-/Container-/Functions-Abnahme kann in diesem Quellstand ohne
 Anwendungsquellen nicht behauptet werden.
 
-### Einzelklassifikation der 17 beobachteten Controls
+### Einzelklassifikation der beobachteten Controls
 
 Diese Klassifikation bezieht sich auf die bisherigen Rohbefunde. Der oben
 begrenzte Scan-only-Pfad ist keine Freigabe und keine Produktionsausnahme.
@@ -671,8 +727,11 @@ benoetigen einen kontrolliert korrigierten Pruefpfad statt unsicherer Azure-Wert
 
 | Checkov-ID | Einordnung und konkreter Restpunkt |
 | --- | --- |
+| CKV_AZURE_1 / CKV_AZURE_178 | **Windows-/Pruefmodellgrenze, kein Auth-Pass.** Die Treffer betreffen den separaten Windows-Testclient. Die erste Regel erkennt dessen noch symbolisches `windowsImage` nicht als Windows-Ausnahme; beide verlangen Linux-SSH-Felder. Linux-Hosts haben eigene Schluesselkonfiguration. Tatsaechlicher Windows-/Entra-Login, eng begrenzter Bootstrapzugang und dessen anschliessende Absicherung bleiben separat nachzuweisen. |
+| CKV_AZURE_50 | **Offene Betriebskontrolle.** Die Regel fordert `allowExtensionOperations=false`; VM-Agent/Managed Run Command und die vorgesehene Entra-Login-Extension benoetigen einen passenden Betriebsweg. Kein Abschalten nur fuer den Scanner und keine pauschale Extensionfreigabe: Rechte, zugelassene Handler und Abschlusszustand muessen abgenommen werden. |
 | CKV_AZURE_166 | **Offene Lieferkette.** ACR-Quarantaene ist Preview und hier nicht aktiviert. Image-Digests allein belegen keinen Scan, SBOM, verifizierte Promotion oder laufenden Quarantaene-Controller. Diese Release-Nachweise bleiben erforderlich. |
 | CKV_AZURE_17 | **Nicht verwendetes Auth-Verfahren.** Die generische Web-App-Regel fordert Clientzertifikate. Flex hat private TLS-Health-Endpunkte; Workload-Rollen werden an API/AgentHost geprueft. Kein mTLS-Verfahren wird erfunden; der tatsaechliche Zugriff muss abgenommen werden. |
+| CKV_AZURE_182 | **Offene DNS-Verfuegbarkeitskontrolle.** Die reparierte Quelle zeigt weiterhin jeweils eine DNS-Adresse; eigener NVA/Resolver bleibt ein zusaetzlicher Single Point of Failure. Ein Plattform-DNS-Endpunkt ist nicht automatisch eine weitere eigene DNS-Instanz. Keine zweite Adresse erfinden und kein HA-Pass aus den Scanansichten ableiten; Verfuegbarkeit, fail-closed Ausfallverhalten und Mehrkosten bleiben gesondert zu entscheiden. |
 | CKV_AZURE_206 | **Bewusste geografische/DR-Grenze.** Die konkrete Regel akzeptiert nur GRS/RAGRS/GZRS/RAGZRS, nicht LRS/ZRS. Ungepruefte Geo-Kopien werden nicht fuer ein gruenes Ergebnis eingeschaltet. EU-Ziele, RPO/RTO und Redundanz bleiben Deployment-/Produktionsgates. |
 | CKV_AZURE_208 | **Genehmigte Pilotgrenze.** Ein Search-Replikat erfuellt kein SLA fuer Indexupdates; SQL bleibt fuehrend, Search rekonstruierbar. Drei Replikate und ihre Kosten/Verfuegbarkeit sind nicht als vorhanden bestaetigt. |
 | CKV_AZURE_209 | **Genehmigte Pilotgrenze.** Ein Search-Replikat belegt kein Query-SLA. Zusaetzliche Replikate erfordern einen eigenen Kapazitaets-/Kosten-/SLO-Nachweis. |
@@ -704,6 +763,16 @@ und [StorageAccountName](https://github.com/bridgecrewio/checkov/blob/3.4.5/chec
 gebunden; er ersetzt oder unterdrueckt keine dieser Regeln.
 SQL-Elternnamen werden nur strukturell anhand ihrer Syntax verglichen, nicht
 ausgewertet; es werden keine Parameter-, Default- oder Runtimewerte eingesetzt.
+
+Die neuen Einordnungen binden die unveraenderten Klassen
+[AzureInstancePassword](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/AzureInstancePassword.py),
+[LinuxVMUsesSSH](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/LinuxVMUsesSSH.py),
+[AzureInstanceExtensions](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/AzureInstanceExtensions.py)
+und [VnetSingleDNSServer](https://github.com/bridgecrewio/checkov/blob/3.4.5/checkov/arm/checks/resource/VnetSingleDNSServer.py).
+Zusaetzlich verbleiben **UNKNOWNs**, insbesondere CKV_AZURE_149 am Windows-Host,
+CKV_AZURE_183 beim symbolischen DNS-Adressvergleich sowie 81/82/83 und bedingte
+SQL-/Search-Kontrollen. Jeder einzelne Treffer bleibt im Ausfuehrungsbeleg;
+weder diese Gruppierung noch ein fehlender Severitywert erlaubt seine Freigabe.
 
 ## CI und die noch ausstehenden Integrationspruefungen
 
@@ -987,6 +1056,59 @@ die jeweils neueste Preview. Azure-Typen ersetzen keine Live-Provider-/SKU-Pruef
 | OIDC | [GitHub-Claims](https://docs.github.com/en/actions/reference/security/oidc), [Azure CLI login](https://learn.microsoft.com/cli/azure/reference-index#az-login) |
 
 ## Validierungsnachweis
+
+### Aktueller Hostednachweis: 3dad2c4 / 2026-11-18
+
+[CI44381848130](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44381848130),
+Infrajob135075947103, verwendete exakt
+`3dad2c4292da1371b1856a25328e17d165178a50`. Der Bicep-/Lint-/Parameterpfad,
+PowerShellsyntax und Actionlint liefen erfolgreich; der Validator endete erst
+am weiterhin negativen Sicherheitsgate. Aus dem tatsaechlichen Jobauszug:
+
+```text
+Bicep CLI version 0.49.2 (b34271ac51); Checkov 3.4.5; Actionlint 1.7.12
+Bicep main build/lint: exit 0.
+Bicep primary-network build/lint: exit 0.
+Bicep primary build/lint: exit 0.
+Bicep parameter example: exit 0 (not deployable approval).
+PowerShell syntax and Actionlint: exit 0.
+Ran 91 tests in 3.571s
+Checkov main compiled ARM: {"passed":293,"failed":113,"skipped":0,"parsing_errors":0,"resource_count":343,"checkov_version":"3.4.5"}; exit 1.
+Checkov main Python executions: {"FAILED":113,"PASSED":293,"UNKNOWN":42}.
+Checkov primary-network compiled ARM: {"passed":165,"failed":30,"skipped":0,"parsing_errors":0,"resource_count":136,"checkov_version":"3.4.5"}; exit 1.
+Checkov primary-network Python executions: {"FAILED":30,"PASSED":165,"UNKNOWN":9}.
+Checkov primary compiled ARM: {"passed":461,"failed":180,"skipped":0,"parsing_errors":0,"resource_count":509,"checkov_version":"3.4.5"}; exit 1.
+Checkov primary Python executions: {"FAILED":180,"PASSED":461,"UNKNOWN":67}.
+Security gate is NOT passed.
+```
+
+In allen drei Scans: keine beobachteten Ausfuehrungsfehler und keine sonstige
+Scannerdiagnostik; `UNKNOWN` wird dennoch nicht als Pass behandelt.
+Die Zahlen sind Befundvorkommen in verschachtelten/bedingten Ansichten, keine
+Anzahl bereitgestellter Ressourcen. Die Zunahme im Netzscan ist Folge der
+vollstaendigen NIC-Zweige, nicht einer neuen Azure-Ressource.
+Alle 86 Scan-Dateiansichten wurden aus den unveraenderten Hostedkompilaten
+unabhaengig bytegleich rekonstruiert (36->38, 3->8, 37->40 Templates/Ansichten).
+Rohberichte, stderr, Ausfuehrungsbeobachtung und Manifeste stimmen mit ihren
+Gate-Hashes ueberein. Artefakt14464706538 hat SHA256
+`1e8c3fc8db62be242d94095d8fe70eb1e8a639f8f35722e09e1b5d82a3ffc3f2`;
+der private Gegenpruefbeleg hat SHA256
+`b1e718396d329e815c02dad49a4e095141b053816017f95166ed3e1e1122207e`.
+
+Der separate native Schritt endete erfolgreich mit:
+
+```json
+{"dnsConfigurationParsed":true,"nativeKernelCasesPassed":6,"endToEndCertificateValidation":true,"ownedResourcesRemoved":true,"foreignNamespaceInventoryUnchanged":true,"azureAcaFlexAcceptance":false}
+```
+
+Die bestehende negative dd112-Anwendungsabnahme wurde nur gegengelesen.
+Der absichtlich ausgelassene zweite Appjob ist **kein** positiver Fachtestnachweis.
+**Phase-6-Teilbilanz:** Build/Lint und die genannten lokalen/native Teile bestanden;
+Sicherheitsgate, aktuelle fachliche Gesamtqualifikation und echte Zielplattform
+weiterhin nicht bestanden bzw. nicht abgenommen. Keine Bereitstellung oder
+Produktionsausnahme folgt aus dem reparierten Scanner.
+
+### Historischer lokaler Nachweis: 2026-11-15
 
 IaC-Vollvalidator zum Watchdog-Folgecommit, tatsaechlich lokal ausgefuehrt am
 2026-11-15, ohne Azure-Anmeldung:
