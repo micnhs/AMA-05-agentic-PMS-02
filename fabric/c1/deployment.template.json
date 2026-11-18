@@ -9,6 +9,7 @@
   "expiresAtUtc": null,
   "bootstrapIdentity": null,
   "capacityAdministrators": [],
+  "requiredTenantSettingNames": [],
   "network": {
     "vnetPrefix": null,
     "clientPrefix": null,

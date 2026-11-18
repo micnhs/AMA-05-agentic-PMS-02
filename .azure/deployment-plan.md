@@ -1,10 +1,16 @@
 # Cohors Fabric deployment preparation
 
-Status: C1 provisioning components implemented, complete bootstrap blocked (source-only). General cost approval
+Status: C1 provisioning components and unpaid identity phase in implementation;
+complete bootstrap not ready. The complete first C1 deployment has now been
+requested, but the protected startup credential reference is not available.
+No candidate login, credential search/reset, other-caller fallback or isolated
+paid foundation is permitted. General cost approval
 and bounded C1 execution approval already exist. The current assignment is to
-automate resource creation, not to require manually created targets. Concrete
+automate resource creation and then perform the complete reviewed first C1
+deployment, not to require manually created targets. Concrete
 start parameters and authorized deployment identity are supplied by the existing
-infrastructure owner. No cloud mutation is authorized by this source task.
+infrastructure owner. Work remains source-only until the protected credential,
+specific administrative authorizations and required validation are bound.
 NOT Ready for Validation or Validated.
 
 ## Current C1 automation increment
@@ -26,16 +32,18 @@ NOT Ready for Validation or Validated.
 
 The first source increment now supplies variant-only ARM JSON, Graph/Fabric
 provider operations, a durable ownership/request journal and an offline
-`--fabric-c1-deploy plan --manifest FILE` entry. `apply` is deliberately blocked
-before credential acquisition and mutations. It is not complete automation.
+`--fabric-c1-deploy plan --manifest FILE` entry. Full `apply` remains blocked
+before credential acquisition and mutations. The explicit `--through identities`
+path now connects a real unpaid Graph phase and a scoped admin-readback pause;
+it has not been invoked against a tenant. It is not complete automation.
 See `docs\fabric\README.md` for the remaining private-bootstrap integrations.
 They are implementation gaps, not unsupported-provider claims. No template-only
 or paid partial apply is exposed. Source regression verification uses only the
 existing standard-hosted job; no cloud validation/deployment has occurred.
 
-R4.0 from the existing infrastructure owner was read and hash-checked:
-contract `ee2307d6b4371fdf260230825d43599be8355afbf127f332cce1ff968cb6aaee`,
-binding map `f0301868704a269b58d654230f5695ffbabb2c4f2f727f822ffc79a77dca2da7`.
+R4.1 from the existing infrastructure owner was read and hash-checked:
+contract `95380dd59de6d3ccf1c5c2cef6ed5a67aa930c9a0af493e24f8749beb126d942`,
+binding map `d7e2c7c942309aa4a704fc435eedb8f74c663778ba14b55f5dadf6cf3a347589`.
 Private identities, paths and tenant configuration are not copied here.
 The R4 package still requires specific egress/operator/credential/model
 choices and effective start scopes; it does not require manually created

@@ -74,10 +74,12 @@ public static class FabricC1Execution
     public static bool HeaderValue(string? value) =>
         value is { Length: > 0 and <= 4096 } && value.All(c => c is >= '!' and <= '~');
 
-    public static void RequireSourceBuild(FabricC1ExecutionSettings settings)
+    public static void RequireSourceBuild(FabricC1ExecutionSettings settings) => RequireSourceBuild(settings.SourceCommit);
+
+    public static void RequireSourceBuild(string sourceCommit)
     {
         var version = typeof(FabricC1Execution).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-        Guard.Against(version is null || !version.EndsWith("+" + settings.SourceCommit, StringComparison.OrdinalIgnoreCase),
+        Guard.Against(version is null || !version.EndsWith("+" + sourceCommit, StringComparison.OrdinalIgnoreCase),
             "c1_binary_binding", "The executable was not built from the bound source revision.", 409);
     }
 

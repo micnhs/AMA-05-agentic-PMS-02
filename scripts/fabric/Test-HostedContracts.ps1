@@ -79,6 +79,14 @@ if ($deploymentPlan.status -cne 'Blocked' -or $deploymentPlan.canApply -ne $fals
     throw 'The deployment entry hid missing inputs or its incomplete bootstrap.'
 }
 $deploymentJson | Write-Output
+$applyLog = Join-Path $temporary 'identity-apply-refusal.log'
+dotnet src/Cohors.Api/bin/Release/net10.0/Cohors.Api.dll --fabric-c1-deploy apply --manifest fabric/c1/deployment.template.json --journal (Join-Path $temporary 'not-created.json') --through identities 2> $applyLog
+if ($LASTEXITCODE -ne 2) { throw 'Identity apply must be refused on the credential-free build runner.' }
+$applyRefusal = Get-Content -LiteralPath $applyLog -Raw | ConvertFrom-Json
+if ($applyRefusal.code -cne 'c1_deploy_ci_prohibited' -or
+    (Test-Path -LiteralPath (Join-Path $temporary 'not-created.json'))) {
+    throw 'The identity entry did not refuse before credential acquisition and journal creation.'
+}
 [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
 $testSummary = @()
 foreach ($class in $classes) {
@@ -97,6 +105,7 @@ $summary = @(
     '- Evidence level: local contract execution only. NOT Fabric/IQ/Hosted Agents/WORM/Ledger/recovery or production acceptance.'
     '- C1 executable unbound-template preflight: Blocked, exit 2, cloudExecutionAllowed=false (expected offline rejection).'
     '- C1 deployment entry: Blocked, exit 2, canApply=false; incomplete private bootstrap is not a deployment pass.'
+    '- C1 identity apply is refused on this build runner before credentials, journal creation or cloud access.'
 )
 $summary += $testSummary
 foreach ($path in @('fabric/delivery.json', 'docs/fabric/requirement-register.json', 'src/Cohors.Domain/bin/Release/net10.0/Cohors.Domain.dll')) {

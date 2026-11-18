@@ -9,8 +9,16 @@ The new opt-in entry is `Cohors.Api --fabric-c1-deploy plan --manifest FILE`.
 Start with `fabric\c1\deployment.template.json`, not with manually created
 Capacity/Workspace/App/PE IDs. The normal API and the existing `--fabric-c1`
 probe entry are unchanged. `plan` is offline and returns exit 2 / `Blocked`.
-`apply` is deliberately blocked **before credential acquisition or any cloud
-request**: the complete private bootstrap driver is not implemented yet.
+Full-profile `apply --manifest FILE --journal PRIVATE_FILE` is still blocked
+before credential acquisition: the complete private bootstrap driver is not
+implemented yet. The explicitly limited
+`apply --manifest FILE --journal PRIVATE_FILE --through identities` now runs
+the unpaid identity phase, with the exact selected credential, source-build
+binding and owner-only manifest/credential/state paths. It never allocates
+capacity or other paid resources. Missing scopes, group permission, policy
+selection or admin-read access produce a specific paused result; they are
+not converted into successful deployment. This path is prohibited in the
+credential-free hosted verification job and has not been run against a tenant.
 This is not the requested finished automatic C1 deployment.
 
 Implemented source components:
@@ -36,9 +44,31 @@ Implemented source components:
   bounded, atomic file journal. Generated preparation **drafts** retain
   observed IDs but leave missing credentials, ontology, reviews and runtime
   facts missing. They cannot become runnable by substituting dummy values.
+- Four separate applications/SPs (runtime, Hosted control, private bootstrap
+  and negative caller) and a static, non-role-assignable Fabric API group are
+  generated from provider responses. The initial deployer is never reused as
+  one of them. `Application.ReadWrite.OwnedBy` is accepted for the app-only
+  owned-app/SP path. Group creation, read and SP membership have independent
+  permission checks; `AppRegistration.Create` alone is not the whole path.
+  Graph v1.0 group SP omissions are addressed with the documented expanded
+  members query and the creator SP's `ownedObjects` ownership read.
+- Tenant policy planning uses observed setting keys, preserves exclusions and
+  delegations, refuses admin-API membership for the runtime group, and never
+  enables an unscopable setting or reactivates unrelated disabled groups.
+  Existing tenant-wide settings are reported, not silently rewritten.
+  The scoped-update component needs an exact approved change and a separate
+  administrative concurrency review: its API has no documented ETag/CAS
+  contract. It is not automatically invoked by the normal identity command.
+  An explicit `--admin-approval PRIVATE_FILE` after `--through identities`
+  enables only that deployment-bound, unexpired change. The approval JSON uses
+  `contract=cohors-fabric-c1-scoped-admin-approval-1`, `deploymentBindingHash`,
+  `changeHash`, `administrativeConcurrencyReviewSha256`, and `expiresAtUtc`.
+  Group membership is read again before changing policy; completed/uncertain
+  substeps reconcile against the original persisted approval without POST
+  replay. No separate admin identity is selected automatically.
 
 Remaining integration gaps block the **whole** profile, not just its last
-step: scoped identity/group/admin resume; private operator/artifact delivery
+step: private operator/artifact delivery
 and FQDN-filtered egress; private synthetic materialization and effective
 source-grant readback; protected Hosted certificate delivery and durable
 checkpoint outside upload-writable `HOME`; Hosted image/model/version/session
@@ -56,15 +86,25 @@ disguised as a deployment gate. DataAgent and Ontology creation/definition
 APIs exist; Ontology creation is not Ontology MCP app-only/private support.
 
 R4 separates the existing probe's 40 fields into start policy/limits,
-generated outputs, discovery values and real reviews. The initial user and
-the actually consented OAuth client must both be bound; a successful user
-metadata read does not prove write scopes. Graph `AppRegistration.Create`
+generated outputs, discovery values and real reviews. The selected initial
+actor and actual OAuth client must both be bound; a successful user metadata
+read does not prove an app-only caller's write access. An existing bootstrap
+secret can be supplied only through its protected file reference, independently
+of the new runtime certificate contract. A credential key ID is not a secret.
+An observed directory role is neither copied to runtime nor silently used as
+a fallback for an unbound operation-specific permission path.
+Graph `AppRegistration.Create`
 alone does not cover app/SP/key/group lifecycle. A dedicated group and
 scoped admin-resume gate must precede paid capacity where needed; no implicit
 tenant-setting, consent, provider-registration or role escalation is included
 here. Contributor is restricted to the agent workspace, never the source
-workspace; neither broad Viewer membership nor prompt filtering substitutes
-for effective source ACLs. App-only means authenticated service access, not
+workspace. The narrow candidate is a separate, closed, synthetic release
+workspace containing only C1-A@1/C1-B@2, with excluded records in a distinct,
+present deny scope. Viewer there is not permission to use a mixed source
+workspace and does not prove OneLake ReadAll, SQL policy, revocation or
+productive RLS. Required SQL/OneLake grants and ontology bindings still need
+implementation and native checks; prompt filtering is not enforcement.
+App-only means authenticated service access, not
 anonymous Cohors use. Entra user login and separate Medical/RA approval stay
 unchanged.
 

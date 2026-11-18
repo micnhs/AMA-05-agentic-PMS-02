@@ -15,7 +15,10 @@ public sealed record FabricC1DeploymentReviews(string? StartRightsSha256, string
 public sealed record FabricC1DeploymentInputs(string Contract, string? DeploymentId, string? SourceCommit,
     string? TenantId, string? SubscriptionId, string? Location, string? NamePrefix, DateTimeOffset? ExpiresAtUtc,
     FabricC1Identity? BootstrapIdentity, string[]? CapacityAdministrators, FabricC1DeploymentNetwork? Network,
-    FabricC1DeploymentCompute? Compute, FabricC1DeploymentReviews? Reviews, int? MaxControlRequests, int? MaxControlDurationSeconds);
+    FabricC1DeploymentCompute? Compute, FabricC1DeploymentReviews? Reviews, int? MaxControlRequests, int? MaxControlDurationSeconds)
+{
+    public string[] RequiredTenantSettingNames { get; init; } = [];
+}
 public sealed record FabricC1DeploymentPlan(string Status, string BindingHash, string[] MissingInputs,
     string[] ImplementationBlockers, string[] Resources, string[] NonArmOperations)
 {
@@ -28,7 +31,6 @@ public static class FabricC1Deployment
     public const string Contract = "cohors-fabric-c1-deployment-1";
     public static string[] ImplementationBlockers =>
     [
-        "scoped-identity-group-and-admin-resume-not-integrated",
         "private-operator-artifact-delivery-and-fqdn-egress-not-integrated",
         "private-source-materialization-and-source-grant-readback-not-integrated",
         "hosted-certificate-delivery-and-durable-checkpoint-not-integrated",
@@ -54,11 +56,14 @@ public static class FabricC1Deployment
             input.CapacityAdministrators.All(Text));
         Required("maxControlRequests", input.MaxControlRequests is >= 1 and <= 1000);
         Required("maxControlDurationSeconds", input.MaxControlDurationSeconds is >= 1 and <= 7200);
+        Required("requiredTenantSettingNames", input.RequiredTenantSettingNames is { Length: <= 32 } &&
+            input.RequiredTenantSettingNames.All(name => name is not null &&
+                Regex.IsMatch(name, "^[a-zA-Z0-9_-]{1,128}$", RegexOptions.CultureInvariant)));
         Required("bootstrapIdentity", input.BootstrapIdentity is { } identity &&
             Guid.TryParse(identity.TenantId, out var tenant) && Guid.TryParse(input.TenantId, out var targetTenant) && tenant == targetTenant &&
             Id(identity.ClientId) && Id(identity.PrincipalObjectId) &&
             (identity.CredentialKind == "DelegatedAzureCli" && identity.CredentialReference is null ||
-             identity.CredentialKind is "ServicePrincipalCertificate" or "ServicePrincipalFederation" &&
+             identity.CredentialKind is "ServicePrincipalCertificate" or "ServicePrincipalFederation" or "ServicePrincipalSecret" &&
              identity.CredentialReference is not null && Path.IsPathFullyQualified(identity.CredentialReference)));
         Required("network", input.Network is not null);
         if (input.Network is { } network)
@@ -196,7 +201,9 @@ public sealed record FabricC1DeploymentJournal(string BindingHash,
     public int Requests { get; init; }
     public DateTimeOffset? StartedAtUtc { get; init; }
     public Dictionary<string, string> PendingOperations { get; init; } = new(StringComparer.Ordinal);
+    public Dictionary<string, FabricC1DeniedRequest> DeniedRequests { get; init; } = new(StringComparer.Ordinal);
 }
+public sealed record FabricC1DeniedRequest(string RequestHash, int Status);
 public interface IFabricC1DeploymentJournal
 {
     FabricC1DeploymentJournal? Load();
@@ -204,7 +211,7 @@ public interface IFabricC1DeploymentJournal
 }
 
 // Provider operations are kept separate from the full-profile apply gate. Partial foundation deployment is not exposed by the CLI.
-public sealed class FabricC1Provisioner
+public sealed partial class FabricC1Provisioner
 {
     private readonly FabricC1DeploymentInputs input;
     private readonly IFabricC1DeploymentApi api;
@@ -252,6 +259,8 @@ public sealed class FabricC1Provisioner
             "Microsoft.Fabric/capacities/write", "Microsoft.Fabric/privateLinkServicesForFabric/write",
             "Microsoft.Network/virtualNetworks/write", "Microsoft.Network/privateEndpoints/write",
             "Microsoft.Network/privateDnsZones/write", "Microsoft.Compute/virtualMachines/write",
+            "Microsoft.Compute/virtualMachines/runCommands/read", "Microsoft.Compute/virtualMachines/runCommands/write",
+            "Microsoft.Compute/virtualMachines/runCommands/delete", "Microsoft.Authorization/roleAssignments/write",
             "Microsoft.CognitiveServices/accounts/write", "Microsoft.ContainerRegistry/registries/write",
             "Microsoft.KeyVault/vaults/write", "Microsoft.Storage/storageAccounts/write"
         })
@@ -553,9 +562,9 @@ public sealed class FabricC1Provisioner
         {
             Guard.Against(known.Kind != kind || known.RequestHash != hash, "c1_deploy_drift", "A completed create request changed.", 409);
             var current = await Read(collection + "/" + known.Id, ct);
-            RequireMarker(current, isGraph);
+            RequireMarker(current, isGraph && kind != "SecurityGroup");
             SameId(Text(current, "id"), known.Id);
-            await VerifyGraphBinding(kind, collection, current, ct);
+            await VerifyGraphBinding(kind, collection, current, body, ct);
             return current;
         }
         if (state.PendingCreates.TryGetValue(key, out var pending))
@@ -563,7 +572,7 @@ public sealed class FabricC1Provisioner
         if (state.PendingOperations.TryGetValue(key, out var operation))
         {
             Guard.Against(pending is null, "c1_deploy_journal_invalid", "Operation has no creation intent.", 409);
-            return await ConfirmCreation(key, kind, collection, await AwaitOperation(operation, collection, ct), hash, isGraph, ct);
+            return await ConfirmCreation(key, kind, collection, await AwaitOperation(operation, collection, ct), body, hash, isGraph, ct);
         }
         var listUri = isGraph
             ? collection + "?$filter=" + Uri.EscapeDataString(filterProperty + " eq '" + name.Replace("'", "''") + "'")
@@ -574,9 +583,9 @@ public sealed class FabricC1Provisioner
         if (matches.Length == 1)
         {
             Guard.Against(pending is null, "c1_deploy_foreign", "Name already exists without a recorded creation intent.", 409);
-            RequireMarker(matches[0], isGraph);
+            RequireMarker(matches[0], isGraph && kind != "SecurityGroup");
             GuidValue(Text(matches[0], "id"));
-            await VerifyGraphBinding(kind, collection, matches[0], ct);
+            await VerifyGraphBinding(kind, collection, matches[0], body, ct);
             SaveObject(key, kind, Text(matches[0], "id"), hash, matches[0]);
             return matches[0];
         }
@@ -584,6 +593,7 @@ public sealed class FabricC1Provisioner
             "No authoritative create result; absence after interruption is not permission to retry POST.", 409);
         Pending(key, hash);
         var created = await Send(HttpMethod.Post, new(collection), body, ct: ct);
+        RecordDeniedRequest(key, hash, created.Status);
         if (created.Status == 202)
         {
             Guard.Against(isGraph || created.OperationUrl is null, "c1_deploy_item_pending",
@@ -593,19 +603,19 @@ public sealed class FabricC1Provisioner
             journal.Save(next);
             state = next;
             if (created.RetryAfterSeconds is > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(created.RetryAfterSeconds.Value, 30)), time, ct);
-            return await ConfirmCreation(key, kind, collection, await AwaitOperation(created.OperationUrl!, collection, ct), hash, isGraph, ct);
+            return await ConfirmCreation(key, kind, collection, await AwaitOperation(created.OperationUrl!, collection, ct), body, hash, isGraph, ct);
         }
         RequireStatus(created, 201);
-        return await ConfirmCreation(key, kind, collection, created.Body, hash, isGraph, ct);
+        return await ConfirmCreation(key, kind, collection, created.Body, body, hash, isGraph, ct);
     }
 
     private async Task<JsonObject> ConfirmCreation(string key, string kind, string collection, JsonObject response,
-        string hash, bool isGraph, CancellationToken ct)
+        JsonObject request, string hash, bool isGraph, CancellationToken ct)
     {
-        RequireMarker(response, isGraph);
+        RequireMarker(response, isGraph && kind != "SecurityGroup");
         var id = Text(response, "id");
         GuidValue(id);
-        await VerifyGraphBinding(kind, collection, response, ct);
+        await VerifyGraphBinding(kind, collection, response, request, ct);
         SaveObject(key, kind, id, hash, response);
         return response;
     }
@@ -677,6 +687,19 @@ public sealed class FabricC1Provisioner
         journal.Save(next);
         state = next;
     }
+    private void RecordDeniedRequest(string key, string hash, int status)
+    {
+        if (status is not (401 or 403)) return;
+        var pending = new Dictionary<string, string>(state.PendingCreates, StringComparer.Ordinal);
+        pending.Remove(key);
+        var next = state with
+        {
+            PendingCreates = pending,
+            DeniedRequests = new(state.DeniedRequests, StringComparer.Ordinal) { [key] = new(hash, status) }
+        };
+        journal.Save(next);
+        state = next;
+    }
     private void SaveObject(string key, string kind, string id, string hash, JsonObject body)
     {
         var objects = new Dictionary<string, FabricC1ProvisionedObject>(state.Objects, StringComparer.Ordinal)
@@ -701,7 +724,7 @@ public sealed class FabricC1Provisioner
             !(string.Equals(body["id"]?.GetValue<string>(), FabricC1Deployment.GroupId(input), StringComparison.OrdinalIgnoreCase) ||
               body["id"]?.GetValue<string>()?.StartsWith(FabricC1Deployment.GroupId(input) + "/", StringComparison.OrdinalIgnoreCase) == true),
             "c1_deploy_foreign", "ARM resource is outside the owned C1 manifest.", 409);
-    private async Task VerifyGraphBinding(string kind, string collection, JsonObject item, CancellationToken ct)
+    private async Task VerifyGraphBinding(string kind, string collection, JsonObject item, JsonObject request, CancellationToken ct)
     {
         if (kind == "Application")
         {
@@ -711,7 +734,26 @@ public sealed class FabricC1Provisioner
             Guard.Against(!owners.Any(owner => owner["id"]?.GetValue<string>() == input.BootstrapIdentity!.PrincipalObjectId),
                 "c1_deploy_app_owner", "Bound creator is not a verified application owner.", 409);
         }
-        if (kind == "ServicePrincipal") SameId(Text(item, "appId"), Text(Owned("runtime-app", "Application"), "appId"));
+        if (kind == "ServicePrincipal") SameId(Text(item, "appId"), Text(request, "appId"));
+        if (kind == "SecurityGroup")
+        {
+            var groupId = Text(item, "id");
+            var details = await Read(collection + "/" + groupId +
+                "?$select=id,description,securityEnabled,mailEnabled,isAssignableToRole,groupTypes", ct);
+            SameId(Text(details, "id"), groupId);
+            RequireMarker(details, false);
+            Guard.Against(details["securityEnabled"]?.GetValue<bool>() != true ||
+                details["mailEnabled"]?.GetValue<bool>() != false || !details.ContainsKey("isAssignableToRole") ||
+                details["isAssignableToRole"]?.GetValue<bool>() == true ||
+                details["groupTypes"] is not JsonArray types || types.Count != 0,
+                "c1_deploy_group_scope", "Allowlist group must be static, non-mail, non-role-assignable security group.", 409);
+            var delegated = input.BootstrapIdentity!.CredentialKind == "DelegatedAzureCli";
+            var ownership = await ReadAll(delegated ? collection + "/" + groupId + "/owners?$select=id" :
+                $"https://graph.microsoft.com/v1.0/servicePrincipals/{input.BootstrapIdentity.PrincipalObjectId}/ownedObjects?$select=id", true, ct);
+            var expectedId = delegated ? input.BootstrapIdentity.PrincipalObjectId : groupId;
+            Guard.Against(!ownership.Any(owner => owner["id"]?.GetValue<string>() == expectedId),
+                "c1_deploy_group_owner", "Bound creator is not a verified allowlist group owner.", 409);
+        }
     }
     private async Task<FabricC1DeploymentReply> Send(HttpMethod method, Uri uri, JsonObject? body = null,
         string? ifMatch = null, CancellationToken ct = default)

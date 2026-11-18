@@ -94,6 +94,27 @@ public sealed class FabricC1DeploymentTests
         Assert.Single(run.Api.Requests, r => r.Method == HttpMethod.Post);
     }
 
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task ConfirmedAuthorizationDenialCanResumeWithoutPretendingItWasAnUnknownCreate(int status)
+    {
+        using var run = new Harness();
+        run.Capacity();
+        run.Api.List();
+        run.Api.Reply(status, new());
+        Assert.Equal("c1_deploy_http_" + status, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureWorkspace("agent", default))).Code);
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        Assert.Equal(status, run.Store.Current.DeniedRequests["workspace-agent"].Status);
+        run.Restart();
+        run.Api.List();
+        run.Api.Reply(201, run.Workspace("agent"));
+        await run.Provisioner.EnsureWorkspace("agent", default);
+        Assert.True(run.Store.Current!.Objects.ContainsKey("workspace-agent"));
+        Assert.Equal(2, run.Api.Requests.Count(request => request.Method == HttpMethod.Post));
+    }
+
     [Fact]
     public async Task LostCreateCanReconcileExactOwnedInventoryEntry()
     {
@@ -388,6 +409,341 @@ public sealed class FabricC1DeploymentTests
     }
 
     [Fact]
+    public void OwnApplicationsPermissionIsAcceptedWithoutGrantingGroupMembershipOrDelegatedRights()
+    {
+        using var run = new Harness();
+        const string audience = "00000003-0000-0000-c000-000000000000";
+        var token = Token(run.Input, audience, run.Clock.GetUtcNow(), "Application.ReadWrite.OwnedBy");
+        FabricC1DeploymentHttp.ValidateBootstrapToken(token, run.Input.BootstrapIdentity!, audience, run.Clock.GetUtcNow(), graph: true);
+        Assert.Equal("c1_deploy_graph_group_rights", Assert.Throws<DomainException>(() =>
+            FabricC1DeploymentHttp.ValidateBootstrapToken(token, run.Input.BootstrapIdentity!, audience,
+                run.Clock.GetUtcNow(), true, FabricC1GraphOperation.GroupMembers)).Code);
+        Assert.False(new FabricC1GraphRights(true, ["Application.ReadWrite.OwnedBy"]).Allows(FabricC1GraphOperation.OwnApplications));
+    }
+
+    [Fact]
+    public void GraphPermissionsAreCheckedForTheOperationRatherThanOneBroadBootstrapScope()
+    {
+        Assert.True(new FabricC1GraphRights(false, ["AppRegistration.Create"]).Allows(FabricC1GraphOperation.ApplicationCreate));
+        Assert.False(new FabricC1GraphRights(false, ["AppRegistration.Create"]).Allows(FabricC1GraphOperation.OwnApplications));
+        Assert.True(new FabricC1GraphRights(false, ["Group.Create"]).Allows(FabricC1GraphOperation.GroupCreate));
+        Assert.False(new FabricC1GraphRights(false, ["Group.Create"]).Allows(FabricC1GraphOperation.GroupMembers));
+        Assert.True(new FabricC1GraphRights(false, ["GroupMember.ReadWrite.All", "Application.ReadWrite.All"]).Allows(FabricC1GraphOperation.GroupMembers));
+        Assert.True(new FabricC1GraphRights(false, ["Group.ReadWrite.All", "Application.ReadWrite.All"]).Allows(FabricC1GraphOperation.GroupMembers));
+        Assert.False(new FabricC1GraphRights(false, ["GroupMember.ReadWrite.All", "Application.ReadWrite.OwnedBy"]).Allows(FabricC1GraphOperation.GroupMembers));
+    }
+
+    [Fact]
+    public async Task OwnAppBootstrapCreatesFourSeparateIdentitiesAndPausesBeforeGroupOrPaidResources()
+    {
+        using var run = new Harness();
+        var identities = QueueIdentities(run);
+        var result = await run.Provisioner.EnsureIdentityPhase(new(false, ["Application.ReadWrite.OwnedBy"]), default);
+        Assert.Equal("AwaitingGroupPermission", result.Status);
+        Assert.Null(result.AllowlistGroupId);
+        Assert.False(result.PaidResourcesCreated);
+        Assert.Equal(4, result.PrincipalIds.Count);
+        foreach (var role in FabricC1Provisioner.IdentityRoles)
+        {
+            Assert.Equal(identities[role].App["appId"]!.GetValue<string>(), result.ApplicationIds[role]);
+            Assert.Equal(identities[role].Principal["id"]!.GetValue<string>(), result.PrincipalIds[role]);
+        }
+        Assert.All(run.Api.Requests, request => Assert.Equal("graph.microsoft.com", request.Uri.Host));
+        Assert.DoesNotContain(run.Api.Requests, request => request.Uri.AbsolutePath.StartsWith("/v1.0/groups", StringComparison.Ordinal));
+        Assert.DoesNotContain(run.Api.Requests, request => request.Body?.ContainsKey("passwordCredentials") == true);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Body?.ContainsKey("requiredResourceAccess") == true);
+    }
+
+    [Fact]
+    public async Task IdentityAndGroupResumeUsesActualIdsWithoutRecreatingOrRegranting()
+    {
+        using var run = new Harness();
+        var identities = QueueIdentities(run);
+        var group = Group(run);
+        QueueGroup(run, group, resume: false);
+        var memberIds = new[] { "runtime", "bootstrap", "negative" }.Select(role => identities[role].Principal["id"]!.GetValue<string>()).ToArray();
+        for (var i = 0; i < memberIds.Length; i++)
+        {
+            run.Api.Reply(200, GroupMembers(group, memberIds.Take(i).ToArray()));
+            run.Api.Reply(204, new());
+            run.Api.Reply(200, GroupMembers(group, memberIds.Take(i + 1).ToArray()));
+        }
+        run.Api.Reply(200, GroupMembers(group, memberIds));
+        var rights = new FabricC1GraphRights(false, ["Application.ReadWrite.All", "Group.ReadWrite.All"]);
+        var initial = await run.Provisioner.EnsureIdentityPhase(rights, default);
+        Assert.Equal("IdentitiesProvisioned", initial.Status);
+        Assert.Equal(group["id"]!.GetValue<string>(), initial.AllowlistGroupId);
+        var writes = run.Api.Requests.Count(request => request.Method == HttpMethod.Post);
+        Assert.Equal(12, writes);
+
+        run.Restart();
+        foreach (var role in FabricC1Provisioner.IdentityRoles)
+        {
+            run.Api.Reply(200, identities[role].App);
+            run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
+            run.Api.Reply(200, identities[role].Principal);
+        }
+        QueueGroup(run, group, resume: true);
+        foreach (var _ in memberIds) run.Api.Reply(200, GroupMembers(group, memberIds));
+        run.Api.Reply(200, GroupMembers(group, memberIds));
+        var resumed = await run.Provisioner.EnsureIdentityPhase(rights, default);
+        Assert.Equal(initial.AllowlistGroupId, resumed.AllowlistGroupId);
+        Assert.Equal(writes, run.Api.Requests.Count(request => request.Method == HttpMethod.Post));
+        Assert.Contains(run.Api.Requests, request => request.Uri.AbsolutePath.EndsWith("/ownedObjects", StringComparison.Ordinal));
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Get && request.Uri.AbsolutePath.EndsWith("/members", StringComparison.Ordinal));
+        Assert.DoesNotContain(run.Api.Requests, request => request.Body?["@odata.id"]?.GetValue<string>()?.EndsWith(initial.PrincipalIds["hosted-control"], StringComparison.Ordinal) == true);
+    }
+
+    [Fact]
+    public async Task MissingOwnApplicationRightsStopBeforeAnyEffect()
+    {
+        using var run = new Harness();
+        Assert.Equal("c1_deploy_graph_rights", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureIdentityPhase(new(false, ["Group.ReadWrite.All"]), default))).Code);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
+    public async Task ASecondIdentityCannotBeBoundToTheRuntimeApplicationByMistake()
+    {
+        using var run = new Harness();
+        var appId = Guid.NewGuid().ToString("D");
+        run.Seed("hosted-control-app", "Application", new() { ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = appId });
+        run.Api.List();
+        run.Api.Reply(201, new()
+        {
+            ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = Guid.NewGuid().ToString("D"),
+            ["tags"] = new JsonArray(FabricC1Deployment.Marker(run.Input))
+        });
+        Assert.Equal("c1_deploy_context", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsurePrincipalForRole("hosted-control", default))).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("hosted-control-sp"));
+    }
+
+    [Fact]
+    public async Task ForeignGroupNameIsNotAdoptedEvenWhenItCopiesTheOwnershipMarker()
+    {
+        using var run = new Harness();
+        run.Api.List(Group(run));
+        Assert.Equal("c1_deploy_foreign", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureAllowlistGroup(default))).Code);
+        Assert.Single(run.Api.Requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DelegatedGroupCreationDistinguishesAutomaticNonAdminOwnership(bool administrator)
+    {
+        using var run = new Harness(delegated: true);
+        var group = Group(run);
+        run.Api.List();
+        run.Api.Reply(201, group);
+        run.Api.Reply(200, group);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
+        await run.Provisioner.EnsureAllowlistGroup(default, administrator);
+        var request = Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
+        Assert.Equal(administrator, request.Body!.ContainsKey("owners@odata.bind"));
+    }
+
+    [Fact]
+    public async Task AdditionalGroupMembersStopBeforeGrantingAnythingElse()
+    {
+        using var run = new Harness();
+        var group = Group(run);
+        run.Seed("fabric-api-group", "SecurityGroup", group);
+        foreach (var role in new[] { "runtime", "bootstrap", "negative" })
+            run.Seed(role + "-sp", "ServicePrincipal", new() { ["id"] = Guid.NewGuid().ToString("D") });
+        run.Api.Reply(200, GroupMembers(group, Guid.NewGuid().ToString("D")));
+        Assert.Equal("c1_deploy_group_drift", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureAllowlistMember("runtime", default))).Code);
+        Assert.Single(run.Api.Requests);
+        Assert.Equal(HttpMethod.Get, run.Api.Requests[0].Method);
+    }
+
+    [Fact]
+    public void ScopedTenantRequestPreservesExclusionsAndDelegationsInsteadOfEnablingEveryone()
+    {
+        var group = Guid.NewGuid().ToString("D");
+        var existingGroup = Guid.NewGuid().ToString("D");
+        var excludedGroup = Guid.NewGuid().ToString("D");
+        var setting = TenantSetting("SyntheticFabricApi", true);
+        setting["enabledSecurityGroups"] = new JsonArray(new JsonObject { ["graphId"] = existingGroup, ["name"] = "existing" });
+        setting["excludedSecurityGroups"] = new JsonArray(new JsonObject { ["graphId"] = excludedGroup, ["name"] = "excluded" });
+        setting["delegateToCapacity"] = true;
+        var result = FabricC1Provisioner.PlanTenantSettings([setting], ["SyntheticFabricApi"], group, "own-generated-group");
+        Assert.False(result.CanAllocatePaidResources);
+        Assert.Empty(result.Blockers);
+        var change = Assert.Single(result.Changes);
+        Assert.Equal(Canonical.Hash(setting), change.BeforeHash);
+        Assert.Equal(2, change.Request["enabledSecurityGroups"]!.AsArray().Count);
+        Assert.True(JsonNode.DeepEquals(setting["excludedSecurityGroups"], change.Request["excludedSecurityGroups"]));
+        Assert.True(change.Request["delegateToCapacity"]!.GetValue<bool>());
+    }
+
+    [Fact]
+    public void InactiveOtherGroupsAndUnscopablePoliciesAreNotSilentlyEnabled()
+    {
+        var group = Guid.NewGuid().ToString("D");
+        var inactive = TenantSetting("Inactive", false);
+        inactive["enabledSecurityGroups"] = new JsonArray(new JsonObject { ["graphId"] = Guid.NewGuid().ToString("D"), ["name"] = "unrelated" });
+        var unscopable = TenantSetting("WholeTenantOnly", false);
+        unscopable["canSpecifySecurityGroups"] = false;
+        var result = FabricC1Provisioner.PlanTenantSettings([inactive, unscopable], ["Inactive", "WholeTenantOnly"], group, "own");
+        Assert.Empty(result.Changes);
+        Assert.Contains("enabling-would-also-reactivate-other-groups:Inactive", result.Blockers);
+        Assert.Contains("setting-cannot-be-scoped:WholeTenantOnly", result.Blockers);
+    }
+
+    [Fact]
+    public void AdminApiScopeNeverUsesTheRuntimeGroupEvenWhenItIsAnExistingSetting()
+    {
+        var group = Guid.NewGuid().ToString("D");
+        var setting = TenantSetting("SyntheticAdminApi", true);
+        setting["tenantSettingGroup"] = "AdminApiSettings";
+        setting["enabledSecurityGroups"] = new JsonArray(new JsonObject { ["graphId"] = group, ["name"] = "own" });
+        var result = FabricC1Provisioner.PlanTenantSettings([setting], ["SyntheticAdminApi"], group, "own");
+        Assert.False(result.CanAllocatePaidResources);
+        Assert.Empty(result.Changes);
+        Assert.Contains("runtime-group-has-admin-api-scope:SyntheticAdminApi", result.Blockers);
+        Assert.Contains("runtime-group-cannot-receive-admin-api-scope:SyntheticAdminApi", result.Blockers);
+    }
+
+    [Fact]
+    public void AlreadyEnabledTenantWideSettingIsReportedRatherThanNarrowedOrRewritten()
+    {
+        var result = FabricC1Provisioner.PlanTenantSettings([TenantSetting("ExistingWide", true)],
+            ["ExistingWide"], Guid.NewGuid().ToString("D"), "own");
+        Assert.True(result.CanAllocatePaidResources);
+        Assert.Empty(result.Changes);
+        Assert.Equal(new[] { "ExistingWide" }, result.ExistingTenantWideSettings);
+    }
+
+    [Fact]
+    public async Task ScopedTenantUpdateRequiresExactApprovedDiffBeforeAnyWrite()
+    {
+        using var run = new Harness(requiredTenantSettingNames: ["SyntheticFabricApi"]);
+        var (group, members) = SeedTenantGroup(run);
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.List(TenantSetting("SyntheticFabricApi", false));
+        Assert.Equal("c1_deploy_admin_approval", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.ApplyScopedTenantSettings(new string('e', 64), new string('f', 64), default))).Code);
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+    }
+
+    [Fact]
+    public void AdministrativeApprovalCannotOutliveOrChangeItsDeploymentBinding()
+    {
+        using var run = new Harness();
+        var approval = new FabricC1TenantApproval("cohors-fabric-c1-scoped-admin-approval-1", Canonical.Hash(run.Input),
+            new string('e', 64), new string('f', 64), run.Clock.GetUtcNow().AddMinutes(30));
+        approval.Validate(run.Input, run.Clock.GetUtcNow());
+        Assert.Equal("c1_deploy_admin_approval", Assert.Throws<DomainException>(() =>
+            approval.Validate(run.Input with { Location = "swedencentral" }, run.Clock.GetUtcNow())).Code);
+        Assert.Equal("c1_deploy_admin_approval", Assert.Throws<DomainException>(() =>
+            approval.Validate(run.Input, approval.ExpiresAtUtc)).Code);
+        Assert.Equal("c1_deploy_admin_approval", Assert.Throws<DomainException>(() =>
+            (approval with { ExpiresAtUtc = run.Input.ExpiresAtUtc!.Value.AddSeconds(1) }).Validate(run.Input, run.Clock.GetUtcNow())).Code);
+    }
+
+    [Fact]
+    public async Task ApprovedTenantPlanResumesACompletedFirstChangeAndALostSecondResponseWithoutRepeatingPost()
+    {
+        using var run = new Harness(requiredTenantSettingNames: ["SyntheticFirst", "SyntheticSecond"]);
+        var (group, members) = SeedTenantGroup(run);
+        var groupId = group["id"]!.GetValue<string>();
+        var first = TenantSetting("SyntheticFirst", false);
+        var second = TenantSetting("SyntheticSecond", false);
+        var review = FabricC1Provisioner.PlanTenantSettings([first, second], run.Input.RequiredTenantSettingNames,
+            groupId, group["displayName"]!.GetValue<string>());
+        var appliedFirst = AppliedSetting(first, review.Changes[0]);
+        var appliedSecond = AppliedSetting(second, review.Changes[1]);
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.List(first, second);
+        run.Api.List(first, second);
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.Reply(200, new());
+        run.Api.List(appliedFirst, second);
+        run.Api.List(appliedFirst, second);
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.Fail(new HttpRequestException("synthetic response lost after update"));
+        var concurrencyReview = new string('f', 64);
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            run.Provisioner.ApplyScopedTenantSettings(review.ChangeHash, concurrencyReview, default));
+        Assert.Contains("tenant-change-SyntheticFirst", run.Store.Current!.Objects.Keys);
+        Assert.Contains("tenant-change-SyntheticSecond", run.Store.Current.PendingCreates.Keys);
+
+        run.Restart();
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.List(appliedFirst, appliedSecond);
+        run.Api.List(appliedFirst, appliedSecond);
+        run.Api.List(appliedFirst, appliedSecond);
+        var resumed = await run.Provisioner.ApplyScopedTenantSettings(review.ChangeHash, concurrencyReview, default);
+        Assert.True(resumed.CanAllocatePaidResources);
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        Assert.Equal(2, run.Api.Requests.Count(request => request.Method == HttpMethod.Post));
+    }
+
+    [Fact]
+    public async Task UnknownTenantWriteCannotBeReplayedWhenReadbackStillShowsOldState()
+    {
+        using var run = new Harness(requiredTenantSettingNames: ["SyntheticFabricApi"]);
+        var (group, members) = SeedTenantGroup(run);
+        var groupId = group["id"]!.GetValue<string>();
+        var setting = TenantSetting("SyntheticFabricApi", false);
+        var review = FabricC1Provisioner.PlanTenantSettings([setting], run.Input.RequiredTenantSettingNames,
+            groupId, group["displayName"]!.GetValue<string>());
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.List(setting);
+        run.Api.List(setting);
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.Fail(new HttpRequestException("synthetic uncertain write"));
+        var concurrencyReview = new string('f', 64);
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            run.Provisioner.ApplyScopedTenantSettings(review.ChangeHash, concurrencyReview, default));
+        run.Restart();
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.List(setting);
+        Assert.Equal("c1_deploy_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.ApplyScopedTenantSettings(review.ChangeHash, concurrencyReview, default))).Code);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Fact]
+    public async Task ForeignGroupMemberAfterApprovalStopsTenantMutation()
+    {
+        using var run = new Harness(requiredTenantSettingNames: ["SyntheticFabricApi"]);
+        var (group, _) = SeedTenantGroup(run);
+        run.Api.Reply(200, GroupMembers(group, Guid.NewGuid().ToString("D")));
+        Assert.Equal("c1_deploy_group_drift", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.ApplyScopedTenantSettings(new string('e', 64), new string('f', 64), default))).Code);
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+    }
+
+    private static (JsonObject Group, string[] Members) SeedTenantGroup(Harness run)
+    {
+        var group = Group(run);
+        var groupId = group["id"]!.GetValue<string>();
+        run.Seed("fabric-api-group", "SecurityGroup", group);
+        run.Seed("fabric-api-members", "VerifiedGroupMembers", new() { ["id"] = groupId });
+        var members = new List<string>();
+        foreach (var role in new[] { "runtime", "bootstrap", "negative" })
+        {
+            var id = Guid.NewGuid().ToString("D");
+            run.Seed(role + "-sp", "ServicePrincipal", new() { ["id"] = id });
+            members.Add(id);
+        }
+        return (group, members.ToArray());
+    }
+
+    private static JsonObject AppliedSetting(JsonObject original, FabricC1TenantChange change)
+    {
+        var applied = (JsonObject)original.DeepClone();
+        foreach (var pair in change.Request) applied[pair.Key] = pair.Value?.DeepClone();
+        return applied;
+    }
+
+    [Fact]
     public async Task PublicFabricDataPlaneIsRejectedBeforeGettingAToken()
     {
         using var run = new Harness();
@@ -395,6 +751,20 @@ public sealed class FabricC1DeploymentTests
         var api = new FabricC1DeploymentHttp(run.Input, token, new Dictionary<string, HttpClient>(), run.Clock);
         Assert.Equal("c1_deploy_public_data_path", (await Assert.ThrowsAsync<DomainException>(() =>
             api.Send(HttpMethod.Get, new($"https://api.fabric.microsoft.com/v1/workspaces/{Guid.NewGuid():D}/lakehouses")))).Code);
+        Assert.Equal(0, token.Requests);
+    }
+
+    [Theory]
+    [InlineData("servicePrincipals", "appRoleAssignments")]
+    [InlineData("applications", "owners/$ref")]
+    [InlineData("groups", "owners/$ref")]
+    public async Task GraphAuthorityCannotBeUsedForUnboundConsentOrOwnerMutation(string collection, string suffix)
+    {
+        using var run = new Harness();
+        var token = new Credential();
+        var api = new FabricC1DeploymentHttp(run.Input, token, new Dictionary<string, HttpClient>(), run.Clock);
+        Assert.Equal("c1_deploy_graph_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            api.Send(HttpMethod.Post, new($"https://graph.microsoft.com/v1.0/{collection}/{Guid.NewGuid():D}/{suffix}")))).Code);
         Assert.Equal(0, token.Requests);
     }
 
@@ -441,7 +811,85 @@ public sealed class FabricC1DeploymentTests
         }
     }
 
-    private static AccessToken Token(FabricC1DeploymentInputs input, string audience, DateTimeOffset now, string role)
+    [Fact]
+    public void PrivateInputRejectsSharedParentPermissionsAndLinksOnTheAllocatedLinuxRunner()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var directory = Directory.CreateTempSubdirectory("cohors-c1-private-").FullName;
+        var path = Path.Combine(directory, "synthetic.txt");
+        var alias = Path.Combine(directory, "alias.txt");
+        try
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            File.WriteAllText(path, "synthetic-nonsecret");
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            FabricC1PrivateFiles.RequireFile(path);
+            File.CreateSymbolicLink(alias, path);
+            Assert.Equal("c1_private_file_link", Assert.Throws<DomainException>(() => FabricC1PrivateFiles.RequireFile(alias)).Code);
+            File.SetUnixFileMode(directory, File.GetUnixFileMode(directory) | UnixFileMode.GroupWrite);
+            Assert.Equal("c1_private_file_access", Assert.Throws<DomainException>(() => FabricC1PrivateFiles.RequireFile(path)).Code);
+        }
+        finally
+        {
+            File.Delete(alias);
+            File.Delete(path);
+            Directory.Delete(directory);
+        }
+    }
+
+    private static JsonObject TenantSetting(string name, bool enabled) => new()
+    {
+        ["settingName"] = name, ["enabled"] = enabled, ["canSpecifySecurityGroups"] = true,
+        ["tenantSettingGroup"] = "SyntheticNonAdminGroup", ["enabledSecurityGroups"] = new JsonArray()
+    };
+
+    private static Dictionary<string, (JsonObject App, JsonObject Principal)> QueueIdentities(Harness run)
+    {
+        var result = new Dictionary<string, (JsonObject, JsonObject)>(StringComparer.Ordinal);
+        foreach (var role in FabricC1Provisioner.IdentityRoles)
+        {
+            var appId = Guid.NewGuid().ToString("D");
+            var app = new JsonObject
+            {
+                ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = appId, ["signInAudience"] = "AzureADMyOrg",
+                ["displayName"] = FabricC1Deployment.Name(run.Input) + "-" + role, ["tags"] = new JsonArray(FabricC1Deployment.Marker(run.Input))
+            };
+            var principal = new JsonObject
+            {
+                ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = appId, ["tags"] = new JsonArray(FabricC1Deployment.Marker(run.Input))
+            };
+            run.Api.List();
+            run.Api.Reply(201, app);
+            run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
+            run.Api.List();
+            run.Api.Reply(201, principal);
+            result.Add(role, (app, principal));
+        }
+        return result;
+    }
+
+    private static JsonObject Group(Harness run) => new()
+    {
+        ["id"] = Guid.NewGuid().ToString("D"), ["displayName"] = FabricC1Deployment.Name(run.Input) + "-fabric-api",
+        ["description"] = FabricC1Deployment.Marker(run.Input), ["securityEnabled"] = true,
+        ["mailEnabled"] = false, ["isAssignableToRole"] = false, ["groupTypes"] = new JsonArray()
+    };
+
+    private static void QueueGroup(Harness run, JsonObject group, bool resume)
+    {
+        if (!resume) run.Api.List();
+        run.Api.Reply(resume ? 200 : 201, group);
+        run.Api.Reply(200, group);
+        run.Api.List(new JsonObject { ["id"] = group["id"]!.GetValue<string>() });
+    }
+
+    private static JsonObject GroupMembers(JsonObject group, params string[] members) => new()
+    {
+        ["id"] = group["id"]!.GetValue<string>(),
+        ["members"] = new JsonArray(members.Select(id => (JsonNode)new JsonObject { ["id"] = id }).ToArray())
+    };
+
+    private static AccessToken Token(FabricC1DeploymentInputs input, string audience, DateTimeOffset now, params string[] roles)
     {
         static string Encode(object value) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(value))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -449,7 +897,7 @@ public sealed class FabricC1DeploymentTests
         {
             aud = audience, iss = $"https://sts.windows.net/{input.TenantId}/", tid = input.TenantId,
             oid = input.BootstrapIdentity!.PrincipalObjectId, appid = input.BootstrapIdentity.ClientId,
-            exp = now.AddHours(1).ToUnixTimeSeconds(), nbf = now.AddMinutes(-1).ToUnixTimeSeconds(), roles = new[] { role }
+            exp = now.AddHours(1).ToUnixTimeSeconds(), nbf = now.AddMinutes(-1).ToUnixTimeSeconds(), roles
         }) + ".", now.AddHours(1));
     }
 
@@ -501,18 +949,21 @@ public sealed class FabricC1DeploymentTests
         public FabricC1DeploymentInputs Input { get; }
         public FabricC1Provisioner Provisioner { get; private set; }
         public string CapacityId { get; } = Guid.NewGuid().ToString("D");
-        public Harness(int maxRequests = 100)
+        public Harness(int maxRequests = 100, string[]? requiredTenantSettingNames = null, bool delegated = false)
         {
             var tenant = Guid.NewGuid().ToString("D");
             var hash = new string('a', 64);
             Input = new(FabricC1Deployment.Contract, Guid.NewGuid().ToString("D"), new string('b', 40), tenant,
                 Guid.NewGuid().ToString("D"), "francecentral", "c1test", Clock.GetUtcNow().AddHours(4),
-                new(tenant, Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"), "ServicePrincipalCertificate",
-                    Path.Combine(Path.GetTempPath(), "synthetic-not-read.pem"), $"https://sts.windows.net/{tenant}/", "https://api.fabric.microsoft.com"),
+                new(tenant, Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D"),
+                    delegated ? "DelegatedAzureCli" : "ServicePrincipalCertificate",
+                    delegated ? null : Path.Combine(Path.GetTempPath(), "synthetic-not-read.pem"),
+                    $"https://sts.windows.net/{tenant}/", "https://api.fabric.microsoft.com"),
                 ["synthetic-admin@example.invalid"],
                 new("10.241.0.0/20", "10.241.1.0/24", "10.241.2.0/24", "10.241.3.0/24", hash, hash),
                 new("Standard_B2s", "synthetic", "synthetic", "synthetic", "1.0.0", "ssh-ed25519 synthetic"),
-                new(hash, hash, hash, hash, hash, hash), maxRequests, 600);
+                new(hash, hash, hash, hash, hash, hash), maxRequests, 600)
+            { RequiredTenantSettingNames = requiredTenantSettingNames ?? [] };
             Provisioner = new(Input, Api, Store, Clock);
         }
         public void Capacity() => Seed("fabric-capacity", "FabricCapacity", new() { ["id"] = CapacityId });
