@@ -3,10 +3,159 @@
 param(
     [Parameter(Mandatory)][string]$ApplicationDirectory,
     [Parameter(Mandatory)][string]$ArtifactDirectory,
-    [ValidateSet('Preview','AuditExport','SummaryReport','CaseDocuments','ReportPrefill','InformationLifecycle','EudamedConfiguration','EudamedDossiers','CockpitCalendar','SignalReview','PhysicalRetention')][string]$Profile = 'Preview',
+    [ValidateSet('Preview','PrimaryBaseline','AuditExport','SummaryReport','CaseDocuments','ReportPrefill','InformationLifecycle','EudamedConfiguration','EudamedDossiers','CockpitCalendar','SignalReview','PhysicalRetention')][string]$Profile = 'Preview',
     [int]$Port = 5197
 )
 $ErrorActionPreference = 'Stop'
+function HashFile([string]$path) {
+    $stream = [IO.FileStream]::new($path, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+        [IO.FileShare]::Read, 1048576, [IO.FileOptions]::SequentialScan)
+    try { [Convert]::ToHexStringLower([Security.Cryptography.SHA256]::HashData($stream)) }
+    finally { $stream.Dispose() }
+}
+function WriteDurableJson([string]$path, $value, [switch]$Append) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject $value -Depth 20 -Compress) + "`n")
+    $mode = if ($Append) { [IO.FileMode]::Append } else { [IO.FileMode]::CreateNew }
+    $stream = [IO.FileStream]::new($path, $mode, [IO.FileAccess]::Write, [IO.FileShare]::Read, 4096, [IO.FileOptions]::WriteThrough)
+    try { $stream.Write($bytes); $stream.Flush($true) } finally { $stream.Dispose() }
+}
+function ResourceStage([ValidateSet('CreateRequested','DatabaseCreated','SchemaReady','Ready','CleanupRequested','Disposed')][string]$phase) {
+    WriteDurableJson $journalPath ([ordered]@{
+        schema = 'cohors-browser-resources-1'; phase = $phase; intentSha256 = $intentHash
+        database = $database; runtime = $runtime; apiPid = $apiPid
+        elapsedTicks = $resourceClock.ElapsedTicks; frequency = [Diagnostics.Stopwatch]::Frequency
+        utc = [DateTimeOffset]::UtcNow.ToString('O')
+    }) -Append
+}
+function DatabaseNames {
+    $command = $master.CreateCommand(); $command.CommandTimeout = 15
+    $command.CommandText = 'SELECT name FROM sys.databases ORDER BY name'
+    try {
+        $reader = $command.ExecuteReader()
+        $names = [Collections.Generic.List[string]]::new()
+        try { while ($reader.Read()) { $names.Add($reader.GetString(0)) } } finally { $reader.Dispose() }
+        return $names.ToArray()
+    } finally { $command.Dispose() }
+}
+function Invoke-BrowserCleanupSql([string]$text, [switch]$Scalar) {
+    $command = $master.CreateCommand(); $command.CommandTimeout = 15; $command.CommandText = $text
+    try {
+        if ($Scalar) { return $command.ExecuteScalar() }
+        $command.ExecuteNonQuery() | Out-Null
+    } finally { $command.Dispose() }
+}
+function CleanupStep([scriptblock]$action) {
+    try { & $action } catch { $cleanupErrors.Add($_.Exception) }
+}
+function Restore-BrowserEnvironment([Collections.IDictionary]$values) {
+    foreach ($name in $values.Keys) {
+        if ($null -eq $values[$name]) {
+            [Environment]::SetEnvironmentVariable($name, [NullString]::Value)
+        } else {
+            [Environment]::SetEnvironmentVariable($name, $values[$name])
+        }
+    }
+}
+function RemoveRuntime {
+    if (-not (Test-Path -LiteralPath $runtime)) { return }
+    $objects = Join-Path $private 'blobs'
+    $allowedDirectories = @($runtime, $private, $objects, (Join-Path $objects 'raw-quarantine'), (Join-Path $objects '.deletion-receipts'))
+    $directories = [Collections.Generic.List[string]]::new()
+    $files = [Collections.Generic.List[object]]::new()
+    $queue = [Collections.Generic.Queue[string]]::new()
+    $queue.Enqueue($runtime)
+    while ($queue.Count) {
+        $directory = $queue.Dequeue()
+        if ($directory -cnotin $allowedDirectories) { throw 'Unexpected directory inside the exact owned runtime.' }
+        $null = Assert-RecoveryPath $directory
+        $directories.Add($directory)
+        foreach ($item in Get-ChildItem -LiteralPath $directory -Force) {
+            if ($item.PSIsContainer) { $queue.Enqueue($item.FullName); continue }
+            if ($item.LinkTarget -or $item.Attributes.HasFlag([IO.FileAttributes]::ReparsePoint)) { throw 'Redirected owned file.' }
+            $hash = HashFile $item.FullName
+            if ($item.FullName -cnotin @($settingsPath, $accessPath)) {
+                if ($item.DirectoryName -cin @($objects, (Join-Path $objects 'raw-quarantine'))) {
+                    if ($item.Name -cnotmatch '^[0-9a-f]{64}$' -or $item.Name -cne $hash) { throw 'Unexpected or non-addressed owned object.' }
+                } elseif ($item.DirectoryName -ceq (Join-Path $objects '.deletion-receipts')) {
+                    if ($item.Name -cnotmatch '^[0-9a-f]{64}\.json$') { throw 'Unexpected deletion receipt name.' }
+                } else { throw 'Unknown file in the exact owned runtime.' }
+            }
+            $files.Add(@{ path = $item.FullName; sha256 = $hash })
+        }
+    }
+    foreach ($directory in $directories) { $null = Assert-RecoveryPath $directory }
+    foreach ($file in $files) {
+        $null = Assert-RecoveryPath $file.path
+        if ((HashFile $file.path) -cne $file.sha256) { throw 'Owned bytes changed before exact removal.' }
+        [IO.File]::Delete($file.path)
+    }
+    for ($index = $directories.Count - 1; $index -ge 0; $index--) { [IO.Directory]::Delete($directories[$index]) }
+    if (Test-Path -LiteralPath $runtime) { throw 'The owned runtime parent remains.' }
+}
+function Get-BrowserSelection([ValidateSet('EudamedDossiers','PrimaryBaseline')][string]$SelectedProfile) {
+    if ($SelectedProfile -ceq 'EudamedDossiers') {
+        $project = 'eudamed-dossiers'
+        [string[]]$titles = @(
+            'E03: source-bound MIR dossier, separate approvals, business receipt and newly approved correspondence reply',
+            'E04: byte-exact dossier PDF and audit originals, historical scope and cancelled download after identity switch'
+        )
+    } else {
+        $project = 'preview'
+        [string[]]$titles = @(
+            ('SQL-backed complaint {0} grounded assessment {0} distinct approvals {0} unknown/reconcile {0} verified audit' -f [char]0x2192),
+            'T16: grouped PSUR stays independently readable, editable and protected by every member scope'
+        )
+    }
+    [string[]]$arguments = @("--project=$project")
+    if ($SelectedProfile -ceq 'PrimaryBaseline') {
+        $arguments += @('--grep', ('(?:' + (($titles | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')$'))
+    }
+    return @{ project = $project; titles = $titles; arguments = $arguments }
+}
+function Assert-BrowserSelection($document, $selection) {
+    $cases = [Collections.Generic.List[object]]::new()
+    function VisitSuite($suite) {
+        foreach ($spec in $suite['specs']) {
+            foreach ($test in $spec['tests']) {
+                $cases.Add(@{ title = $spec['title']; project = $test['projectName']; expectedStatus = $test['expectedStatus'] })
+            }
+        }
+        foreach ($child in $suite['suites']) { VisitSuite $child }
+    }
+    foreach ($suite in $document['suites']) { VisitSuite $suite }
+    if ($cases.Count -ne 2 -or
+        @($cases | Where-Object { $_.project -cne $selection.project -or $_.expectedStatus -cne 'passed' }).Count -or
+        @(Compare-Object @($selection.titles) @($cases | ForEach-Object { $_.title })).Count) {
+        throw 'Playwright must list exactly the two declared unskipped cases in the selected project before resources.'
+    }
+    return $cases.ToArray()
+}
+function Confirm-BrowserSelection($selection) {
+    $jsonPath = Join-Path $artifacts 'selected-tests.json'
+    $stub = Join-Path $artifacts 'selection-access.txt'
+    $stream = [IO.FileStream]::new($stub, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    $stream.Dispose()
+    [string[]]$arguments = $selection.arguments
+    try {
+        $env:COHORS_URL = "http://localhost:$Port"
+        $env:COHORS_TEST_ACCESS_FILE = $stub
+        $env:COHORS_UI_ARTIFACT_DIR = $artifacts
+        & node (Join-Path $root 'src\Cohors.Web\node_modules\@playwright\test\cli.js') test `
+            --config (Join-Path $root 'src\Cohors.Web\playwright.config.ts') @arguments --list --reporter=json `
+            1> $jsonPath 2> (Join-Path $artifacts 'selected-tests.stderr.log')
+        if ($LASTEXITCODE -ne 0) { throw 'Read-only Playwright test listing failed before resources.' }
+    } finally {
+        Restore-BrowserEnvironment $previous
+        [IO.File]::Delete($stub)
+    }
+    $document = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json -AsHashtable
+    $cases = @(Assert-BrowserSelection $document $selection)
+    WriteDurableJson (Join-Path $artifacts 'selected-tests-proof.json') @{
+        profile = $Profile; project = $selection.project; cases = $cases; arguments = $arguments
+        selectionOnly = $true; browserSqlAndApiStarted = $false; listSha256 = HashFile $jsonPath
+        sourceFiles = $sourceFiles
+    }
+}
 if ($env:GITHUB_ACTIONS -eq 'true') { throw 'This is the explicit local browser runner, not GitHub Actions.' }
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'Backup-Local.ps1') -ApplicationDirectory $ApplicationDirectory
@@ -25,9 +174,11 @@ $config = Get-Content -LiteralPath (Join-Path $root '.local\settings.json') -Raw
 $sql = [Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($config.ConnectionStrings.Cohors)
 if ($sql.DataSource -cnotmatch '^(127\.0\.0\.1|localhost),[1-9][0-9]{3,4}$') { throw 'Browser acceptance requires the explicit existing loopback SQL server.' }
 $database = 'Cohors_Test_' + [Guid]::NewGuid().ToString('N')
-$sql.set_InitialCatalog('master')
-$sql.set_Pooling($false)
-$master = [Microsoft.Data.SqlClient.SqlConnection]::new($sql.ConnectionString)
+$masterSql = [Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($sql.ConnectionString)
+$masterSql.set_InitialCatalog('master')
+$masterSql.set_Pooling($false)
+$masterSql.set_ConnectTimeout(5)
+$master = [Microsoft.Data.SqlClient.SqlConnection]::new($masterSql.ConnectionString)
 $runtime = Join-Path $artifacts 'runtime'
 $private = Join-Path $runtime '.local'
 $settingsPath = Join-Path $private 'settings.json'
@@ -38,6 +189,19 @@ $apiPid = $null
 $apiStopped = $false
 $databaseRemoved = $false
 $passed = $false
+$selection = $null
+$intentHash = $null
+$registered = $false
+$createRequested = $false
+$runtimeCreated = $false
+$baselineDatabases = @()
+$stdout = $null
+$stderr = $null
+$originalError = $null
+$cleanupErrors = [Collections.Generic.List[Exception]]::new()
+$journalPath = Join-Path $artifacts 'owned-resources-journal.jsonl'
+$intentPath = Join-Path $artifacts 'owned-resources-intent.json'
+$resourceClock = [Diagnostics.Stopwatch]::StartNew()
 $started = [DateTimeOffset]::UtcNow.ToString('O')
 $assemblyNames = @('Cohors.Api.dll','Cohors.Application.dll','Cohors.Domain.dll','Cohors.Infrastructure.dll','Cohors.Agents.dll')
 $applicationFiles = [ordered]@{}
@@ -54,11 +218,37 @@ $previous = @{}
 foreach ($name in @('COHORS_URL', 'COHORS_TEST_ACCESS_FILE', 'COHORS_UI_ARTIFACT_DIR')) {
     $previous[$name] = [Environment]::GetEnvironmentVariable($name)
 }
-New-Item -ItemType Directory -Path $private | Out-Null
+New-Item -ItemType Directory -Path $artifacts | Out-Null
+if ($Profile -in @('EudamedDossiers', 'PrimaryBaseline')) {
+    $selection = Get-BrowserSelection $Profile
+    Confirm-BrowserSelection $selection
+}
 try {
     $master.Open()
+    $baselineDatabases = @(DatabaseNames)
+    if ($database -cin $baselineDatabases) { throw 'The new database name already exists; no ownership was acquired.' }
+    if (Test-Path -LiteralPath $runtime) { throw 'The private runtime already exists; no ownership was acquired.' }
+    $ownerProcess = [Diagnostics.Process]::GetCurrentProcess()
+    try { $ownerStarted = $ownerProcess.StartTime.ToUniversalTime().ToString('O') } finally { $ownerProcess.Dispose() }
+    WriteDurableJson $intentPath ([ordered]@{
+        schema = 'cohors-browser-resources-1'; sourceCheckout = $root; application = $application
+        artifacts = $artifacts; runtime = $runtime; database = $database; port = $Port
+        executable = $dotnet; runnerPid = $PID; runnerStartedUtc = $ownerStarted
+        databaseAbsentBeforeCreate = $true; baselineDatabases = $baselineDatabases
+        runtimeAbsentBeforeCreate = $true
+        helperSha256 = HashFile $PSCommandPath; createdUtc = [DateTimeOffset]::UtcNow.ToString('O')
+    })
+    $intentHash = HashFile $intentPath
+    ResourceStage 'CreateRequested'
+    $registered = $true
+    $null = Assert-RecoveryPath $runtime -New
+    New-Item -ItemType Directory -Path $runtime | Out-Null
+    $runtimeCreated = $true
+    New-Item -ItemType Directory -Path $private | Out-Null
+    $createRequested = $true
     Invoke-RecoverySql $master "CREATE DATABASE [$database]"
     $created = $true
+    ResourceStage 'DatabaseCreated'
     $sql.set_InitialCatalog($database)
     $config.ConnectionStrings.Cohors = $sql.ConnectionString
     $config.Cohors.AutoMigrate = $true
@@ -67,7 +257,7 @@ try {
     $config.Cohors.PublicSources = $false
     $config.Cohors.ObjectStore = 'Local'
     $config.Cohors.Search = 'Local'
-    if ($Profile -in @('EudamedConfiguration', 'EudamedDossiers')) {
+    if ($Profile -in @('EudamedConfiguration', 'EudamedDossiers', 'PrimaryBaseline')) {
         $config.Domibus = @{ Endpoints = @(); Secrets = @(); ModuleKeys = @(); OnboardingEvidence = @() }
     }
     $physical = $Profile -eq 'PhysicalRetention'
@@ -77,7 +267,7 @@ try {
         @{ Username = 'pms-ortho.demo'; Role = 'PmsSpecialist'; Product = 'ortho' },
         @{ Username = 'pms-cardio.demo'; Role = 'PmsSpecialist'; Product = 'cardio' }
     )
-    if ($Profile -in @('SignalReview', 'EudamedConfiguration', 'EudamedDossiers')) {
+    if ($Profile -in @('SignalReview', 'EudamedConfiguration', 'EudamedDossiers', 'PrimaryBaseline')) {
         $accountScopes += @{ Username = 'medical-cardio.demo'; Role = 'MedicalSafetyReviewer'; Product = 'cardio' }
         $accountScopes += @{ Username = 'ra-cardio.demo'; Role = 'RegulatoryAffairs'; Product = 'cardio' }
     }
@@ -108,12 +298,16 @@ try {
     $start.RedirectStandardError = $true
     $start.Environment['COHORS_HOME'] = $runtime
     $start.Environment['ASPNETCORE_ENVIRONMENT'] = 'Testing'
+    $start.Environment['DOTNET_ENVIRONMENT'] = 'Testing'
     $start.Environment['ASPNETCORE_CONTENTROOT'] = $application
     $start.Environment['ASPNETCORE_URLS'] = "http://localhost:$Port"
     $apiProcess = [Diagnostics.Process]::Start($start)
     $apiPid = $apiProcess.Id
-    [IO.File]::WriteAllText((Join-Path $artifacts 'owned-resources-start.json'),
-        (ConvertTo-Json -InputObject @{ apiPid = $apiPid; database = $database; port = $Port; runtime = $runtime }))
+    WriteDurableJson (Join-Path $artifacts 'owned-resources-start.json') @{
+        apiPid = $apiPid; database = $database; port = $Port; runtime = $runtime; intentSha256 = $intentHash
+        apiStartedUtc = $apiProcess.StartTime.ToUniversalTime().ToString('O'); executable = $dotnet
+        application = $application; sourceCheckout = $root
+    }
     $stdout = $apiProcess.StandardOutput.ReadToEndAsync()
     $stderr = $apiProcess.StandardError.ReadToEndAsync()
     $ready = $false
@@ -129,6 +323,8 @@ try {
         Start-Sleep -Seconds 1
     }
     if (-not $ready) { throw 'The owned browser-test API did not become ready.' }
+    ResourceStage 'SchemaReady'
+    ResourceStage 'Ready'
     if ($Profile -eq 'SignalReview') {
         $testAssembly = Join-Path $root 'tests\Cohors.Tests\bin\Debug\net10.0\Cohors.Tests.dll'
         [void][Reflection.Assembly]::LoadFrom($testAssembly)
@@ -144,13 +340,17 @@ try {
     $env:COHORS_TEST_ACCESS_FILE = $accessPath
     $env:COHORS_UI_ARTIFACT_DIR = $artifacts
     $project = switch ($Profile) { 'PhysicalRetention' { 'physical-retention' } 'AuditExport' { 'audit-export' } 'SummaryReport' { 'summary-report' } 'CaseDocuments' { 'case-documents' } 'ReportPrefill' { 'report-prefill' } 'InformationLifecycle' { 'information-lifecycle' } 'EudamedConfiguration' { 'eudamed-configuration' } 'EudamedDossiers' { 'eudamed-dossiers' } 'CockpitCalendar' { 'cockpit-calendar' } 'SignalReview' { 'signal-review' } default { 'preview' } }
-    & npm --prefix (Join-Path $root 'src\Cohors.Web') run test:e2e -- "--project=$project" *> (Join-Path $artifacts 'private-browser.log')
+    [string[]]$browserArguments = if ($selection) { $selection.arguments } else { @("--project=$project") }
+    & npm --prefix (Join-Path $root 'src\Cohors.Web') run test:e2e -- @browserArguments *> (Join-Path $artifacts 'private-browser.log')
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw
     $cases = $junit.SelectNodes('//testcase')
-    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar' -or $Profile -eq 'SignalReview') { 4 } elseif ($Profile -in @('CaseDocuments','InformationLifecycle','EudamedConfiguration','EudamedDossiers')) { 2 } else { 1 }
+    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar' -or $Profile -eq 'SignalReview') { 4 } elseif ($Profile -in @('PrimaryBaseline','CaseDocuments','InformationLifecycle','EudamedConfiguration','EudamedDossiers')) { 2 } else { 1 }
     if ($cases.Count -ne $expected -or $junit.SelectNodes('//testcase/skipped | //testcase/failure | //testcase/error').Count) {
         throw 'Browser acceptance requires every named scenario of the explicitly selected profile, without failures or skips.'
+    }
+    if ($selection -and @(Compare-Object @($selection.titles) @($cases | ForEach-Object { $_.name })).Count) {
+        throw 'Executed browser cases differ from the exact declared selection.'
     }
     foreach ($file in $applicationFiles.Keys) {
         if ((Get-FileHash -LiteralPath (Join-Path $application $file)).Hash.ToLowerInvariant() -cne $applicationFiles[$file]) {
@@ -177,41 +377,71 @@ try {
         originalDemoUnchanged = $true; ownApiStopped = $false; ownDatabaseRemoved = $false
     }
     $passed = $true
+} catch {
+    $originalError = $_
 } finally {
-    foreach ($name in $previous.Keys) { [Environment]::SetEnvironmentVariable($name, $previous[$name]) }
-    if ($apiProcess) {
-        if (-not $apiProcess.HasExited) { $apiProcess.Kill($true) }
-        $apiProcess.WaitForExit()
-        $apiStopped = $true
-        [IO.File]::WriteAllText((Join-Path $artifacts 'private-api.log'), $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult())
-        $apiProcess.Dispose()
+    CleanupStep { Restore-BrowserEnvironment $previous }
+    if ($registered) { CleanupStep { ResourceStage 'CleanupRequested' } }
+    CleanupStep {
+        if ($apiProcess) {
+            if (-not $apiProcess.HasExited) { $apiProcess.Kill($true) }
+            if (-not $apiProcess.WaitForExit(10000)) { throw 'The exact owned API did not stop within ten seconds.' }
+            $script:apiStopped = $true
+            if (-not $stdout -or -not $stderr -or
+                -not [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($stdout, $stderr)).Wait(3000)) {
+                throw 'API streams retained after three seconds; independent cleanup is required.'
+            }
+            [IO.File]::WriteAllText((Join-Path $artifacts 'private-api.log'), $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult())
+        } else { $script:apiStopped = $true }
     }
-    if ($created) {
-        if ($master.State -ne [Data.ConnectionState]::Open) { $master.Open() }
-        Invoke-RecoverySql $master "ALTER DATABASE [$database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$database]"
-        if ((Invoke-RecoverySql $master "SELECT COUNT(*) FROM sys.databases WHERE name=N'$database'" -Scalar) -ne 0) {
-            throw 'Owned browser-test database cleanup is incomplete.'
+    CleanupStep { if ($apiProcess) { $apiProcess.Dispose() } }
+    if ($apiStopped) {
+        CleanupStep {
+            if ($createRequested) {
+                if ($master.State -ne [Data.ConnectionState]::Open) { $master.Open() }
+                if ($database -cin @(DatabaseNames)) {
+                    if ((Invoke-BrowserCleanupSql "SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE is_user_process=1 AND database_id=DB_ID(N'$database')" -Scalar) -ne 0) {
+                        throw 'An active connection remains in the exact owned database; independent cleanup is required.'
+                    }
+                    Invoke-BrowserCleanupSql "ALTER DATABASE [$database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$database]"
+                }
+                $afterDatabases = @(DatabaseNames)
+                if ($database -cin $afterDatabases -or @($baselineDatabases | Where-Object { $_ -cnotin $afterDatabases }).Count) {
+                    throw 'Owned database removal or baseline preservation failed.'
+                }
+            }
+            $script:databaseRemoved = $true
         }
-        $databaseRemoved = $true
-    }
-    $master.Dispose()
-    [IO.File]::Delete($settingsPath)
-    [IO.File]::Delete($accessPath)
+        if ($databaseRemoved) {
+            if ($runtimeCreated) { CleanupStep { RemoveRuntime } }
+        } else { $cleanupErrors.Add([InvalidOperationException]::new('Database removal unproven; runtime was preserved.')) }
+    } else { $cleanupErrors.Add([InvalidOperationException]::new('API stop unproven; database and runtime were preserved.')) }
+    CleanupStep { $master.Dispose() }
     $objects = Join-Path $private 'blobs'
-    if (Test-Path -LiteralPath $objects) {
-        $objects = Assert-RecoveryPath $objects
-        [IO.Directory]::Delete($objects, $true)
+    if ($registered -and $apiStopped -and $databaseRemoved -and -not (Test-Path -LiteralPath $runtime)) {
+        CleanupStep { ResourceStage 'Disposed' }
     }
-    [IO.File]::WriteAllText((Join-Path $artifacts 'owned-resources-terminal.json'), (ConvertTo-Json -InputObject @{
-        apiPid = $apiPid; ownApiStopped = $apiStopped; database = $database; ownDatabaseRemoved = $databaseRemoved
-        settingsRemoved = -not (Test-Path -LiteralPath $settingsPath); accessFileRemoved = -not (Test-Path -LiteralPath $accessPath)
-        objectDirectoryRemoved = -not (Test-Path -LiteralPath $objects); browserPassed = $passed
-        finishedUtc = [DateTimeOffset]::UtcNow.ToString('O')
-    }))
-    if ($passed) {
-        $report.ownApiStopped = $true
-        $report.ownDatabaseRemoved = $true
-        [IO.File]::WriteAllText((Join-Path $artifacts 'browser-results.json'), (ConvertTo-Json -InputObject $report -Depth 20))
-        Write-Output "Current $Profile browser acceptance: $expected/$expected passed, none skipped in this explicit profile; owned API/database stopped and removed. Existing 5187 demo unchanged."
+    CleanupStep {
+        WriteDurableJson (Join-Path $artifacts 'owned-resources-terminal.json') @{
+            apiPid = $apiPid; ownApiStopped = $apiStopped; database = $database; ownDatabaseRemoved = $databaseRemoved
+            settingsRemoved = -not (Test-Path -LiteralPath $settingsPath); accessFileRemoved = -not (Test-Path -LiteralPath $accessPath)
+            objectDirectoryRemoved = -not (Test-Path -LiteralPath $objects); runtimeParentRemoved = -not (Test-Path -LiteralPath $runtime)
+            runtimeCreatedByRunner = $runtimeCreated; browserPassed = $passed; executionFailed = $null -ne $originalError
+            cleanupErrorCount = $cleanupErrors.Count; intentSha256 = $intentHash
+            resourceJournalSha256 = if (Test-Path -LiteralPath $journalPath) { HashFile $journalPath } else { $null }
+            finishedUtc = [DateTimeOffset]::UtcNow.ToString('O')
+        }
     }
 }
+if ($cleanupErrors.Count) {
+    if ($originalError) { $cleanupErrors.Insert(0, $originalError.Exception) }
+    throw [AggregateException]::new('Browser execution and cleanup errors were preserved independently.', $cleanupErrors.ToArray())
+}
+if ($originalError) { throw $originalError }
+if (-not $passed -or -not $apiStopped -or -not $databaseRemoved -or (Test-Path -LiteralPath $runtime)) {
+    throw 'No complete browser/cleanup success.'
+}
+$report.ownApiStopped = $true; $report.ownDatabaseRemoved = $true
+$report.runtimeParentRemoved = $true; $report.resourceIntentSha256 = $intentHash; $report.resourceJournalSha256 = HashFile $journalPath
+WriteDurableJson (Join-Path $artifacts 'browser-results.json') $report
+Write-Output "Current $Profile browser acceptance: $expected/$expected passed, none skipped; owned API/database and complete runtime removed. Existing 5187 demo unchanged."

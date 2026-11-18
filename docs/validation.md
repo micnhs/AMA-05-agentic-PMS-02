@@ -2340,7 +2340,8 @@ Ressourcenmutation. Sie bestaetigte die exakte negative Vorgeschichte,
 normale sechsphasige Journalbindung, abwesende aufgezeichnete Prozesse,
 Profile, Runtime und Port5197 sowie die entfernte Datenbank und exakt
 fuenf unveraenderte Baseline-Datenbanken. Alle411 gebundenen Quelldateien,
-116 Paketdateien und beide Workbooks wurden erneut geprueft.
+116 Paketdateien und beide IMDRF-Dateibindungen (kanonische Gitdatei
+und unveraenderter fremder Worktree-Stand) wurden erneut geprueft.
 Diese separate Schliessung erlaubt sichere Folgearbeit; sie macht den
 historischen60s-Timeout **nicht nachtraeglich erfolgreich**. Ein allgemeiner
 Cleanup-SLO oder eine vollstaendige neue Releaseabnahme ist nicht belegt.
@@ -2354,6 +2355,70 @@ Die bestehende742-Vorschau blieb unveraendert.
 | `browser-24-cleanup-verification-01.json` | `cd266731759829bfec27ff974a82266ddbbe9605283927171f3771e793741b2f` |
 | `browser-24-cleanup-verification-owned-01.json` | `2ac9602f183370eb7109a9f8004a413ec491e34e302dd977c2d683de2463ea54` |
 | `browser-24-cleanup-verification-01-phases.jsonl` | `2a0d09d9a00611f1d3d42c2bbf173b1c16c9b3d53c295b56c75e412affcb5404` |
+
+### Oeffentlicher Browserrunner: Quell- und Vertragsnachweis, keine neue Runtimeabnahme
+
+`scripts\Test-Ui.ps1` wurde um das exakte `PrimaryBaseline`-Profil,
+wirkliche Playwright-Listenselektion vor Ressourcenanlage, durable
+Ownershipregistrierung vor CREATE und den unveraenderten sechsphasigen
+Ressourcenjournalvertrag ergaenzt. Die vollstaendige eigene Runtime wird
+nur nach nachgewiesenem API-Stop und Datenbankabschluss entfernt;
+vorhandene Runtime, unbekannte Objekte oder unbewiesener Stop/Drop bleiben
+fehlerschliessend erhalten. Ausfuehrungs- und Cleanupfehler werden getrennt
+bewahrt. Der API-Stop ist auf10s, der **gemeinsame** stdout/stderr-Nachlauf
+auf3s und die scoped Cleanup-SQL-Befehle auf15s begrenzt.
+Das sind keine neuen Gesamtprozess- oder Browserfallbudgets.
+
+Die erste wirkliche Listenselektion01 scheiterte nach erfolgreicher
+Eudamed-Listenausgabe an der ungenauen Umgebungswiederherstellung:
+PowerShell band `$null` als leere Zeichenfolge statt als abwesende
+Umgebungsvariable. Der Defekt wurde in einem allein prozesslokalen
+Durchstich reproduziert und mit `[NullString]::Value` korrigiert.
+Urspruenglich fehlend, leer und gesetzt werden nun unterschieden.
+Der negative Versuch bleibt unveraendert erhalten;23,209738/60s,
+Exit1, kein Timeout und keine SQL/API/Browseranlage.
+
+`tests\scripts\Test-UiContracts.ps1` extrahiert die tatsaechlichen
+Runnerfunktionen, den Registrierungsblock, das Finally und die
+Fehlererhaltung. Lauf04 pruefte **11/11** Varianten in19,588173/60s:
+Registrierung vor CREATE, verweigertes Journal, vorhandene Runtime,
+unbekanntes Objekt vor Loeschung, unabhaengige Fehler, ungestoppte API,
+unfertige Streams, unerledigte Datenbank mit erhaltener Runtime,
+exakte Umgebungswiederherstellung sowie beide Zwei-Fall-Selektionen
+einschliesslich falschem Titel/Projekt/Skip. SQL und Prozesse waren
+synthetische Callbacks; keine echte API oder Browserinstanz wurde gestartet.
+
+Anschliessend bestaetigte die echte `node ... --list --reporter=json`
+Selektion03 fuer dieselben finalen Runnerbytes beide Originalpaare:
+E03/E04 und vollstaendiger Beschwerde-/befuellter Gruppen-T16-Fall.
+21,663250/60s, Exit0, keine Skips in der Listendeklaration, Zugangsstub
+entfernt und Prozessumgebung exakt zurueckgesetzt. Der vorhandene
+unveraenderte19961ee-Toolingcheckout stellte seine bereits installierte
+Playwright-Lockversion bereit; keine Installation oder neue Infrastruktur.
+Beide begrenzten Jobs samt Nachkommen/Streams waren geschlossen.
+
+Der oeffentliche Runnerhash lautet
+`0eb286dc69643921ce361fbf5cf1b11239b3523b81a6f3370ebb792938e17c4b`,
+der Vertragstesthash
+`6162a82ab193b4c21168f1494be482abb21ffe257dff3e8521c1753e6c9b7ddf`.
+Die Checks sind mit `.\tests\scripts\Test-UiContracts.ps1` wiederholbar.
+Nach eigenem Build/Publish und den erforderlichen lokalen Voraussetzungen
+waehlt `.\scripts\Test-Ui.ps1 -ApplicationDirectory <eigenes-Paket>
+-ArtifactDirectory <neuer-eigener-Pfad> -Profile PrimaryBaseline`
+das deklarierte Paar. Eine **vollstaendige neue SQL/API/Browserausfuehrung
+des portierten oeffentlichen Runners ist noch offen**. Seine internen
+Einzelgrenzen ersetzen keinen externen Gesamtprozess-/Cleanup-Waechter.
+Die privaten Windows-Handle-/Tag-Proofs und Browser23/24 gelten nicht
+automatisch fuer den oeffentlichen `Assert-RecoveryPath`-Pfad.
+Keine Previewpromotion, neue fachliche Abnahme oder Cloudaktivierung.
+
+| Quell-/Vertragsbeleg | SHA256 |
+| --- | --- |
+| `.local\ui-contracts-public-04\result.json` | `56eb9b2f6ca910a909f821521adf293c520fa89aeed6e1a0d73edbdafb22eb2c` |
+| `public-ui-contracts-owned-04.json` | `cf1c2563babcb9b4e8eab22fa93cc1a8c19871c2d8aefc3981f162d462d3bb21` |
+| `public-ui-selection-03.json` | `abbe6a860b77c824d5a2ab288e5ad246ae1c964ce1259ef6d0b272da45ecc8de` |
+| `public-ui-selection-owned-03.json` | `ec009dd4ddc9a93aae5b30ce4aef69a3caefda88c5ec2cf0a382c019b5db449f` |
+| `public-ui-selection-owned-01.json` (negativ) | `305205400915f679e0c1a4ae87e7eb3d491fc3bb3ed5999a4e616bfc3ce90afe` |
 
 ### Wiederherstellung ausschliesslich der freigegebenen 742-Vorschau
 
