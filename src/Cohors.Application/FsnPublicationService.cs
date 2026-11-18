@@ -34,11 +34,13 @@ public sealed partial class EudamedService
         var (channel, ledger, sources) = await FsnPublicationContext(value, input.ExpectedLedgerVersion, actor, ct);
         var fsn = value.Package.Content.Fsn!;
         var feedback = FsnPublicationRules.Feedback(ledger);
-        Guard.Against(input.Feedback is null || input.Feedback.Length != feedback.Length ||
-            input.Feedback.Any(f => f is null) ||
-            input.Feedback.Select(f => f.CorrespondenceId).Distinct(StringComparer.Ordinal).Count() != input.Feedback.Length,
+        var decisions = input.Feedback ?? throw new DomainException("fsn_feedback_incomplete",
+            "Die ausdruecklichen Bewertungen der gebundenen Korrespondenz fehlen.", 409);
+        Guard.Against(decisions.Length != feedback.Length ||
+            decisions.Any(f => f is null) ||
+            decisions.Select(f => f.CorrespondenceId).Distinct(StringComparer.Ordinal).Count() != decisions.Length,
             "fsn_feedback_incomplete", "Jeder bekannte Kommentar braucht genau eine ausdrueckliche Bewertung.", 409);
-        var assessed = input.Feedback.Select(decision =>
+        var assessed = decisions.Select(decision =>
         {
             var original = feedback.SingleOrDefault(f => f.Id == decision.CorrespondenceId && f.OriginalHash == decision.OriginalHash)
                 ?? throw new DomainException("fsn_feedback_stale", "Ausgewaehlte Originalkorrespondenz fehlt oder wurde geaendert.", 409);

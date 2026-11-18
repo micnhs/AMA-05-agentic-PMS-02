@@ -73,12 +73,14 @@ public static class FsnPublicationRules
                 "fsn_recipient_synthetic", "Empfaenger ausdruecklich mit SYNTHETISCH: kennzeichnen.");
         }
         var feedback = Feedback(ledger);
-        Guard.Against(plan.Feedback is null || plan.Feedback.Length != feedback.Length ||
-            plan.Feedback.Any(f => f is null || f.Original is null) ||
-            !plan.Feedback.Select(f => f.Original.Id).Order(StringComparer.Ordinal)
+        var assessments = plan.Feedback ?? throw new DomainException("fsn_feedback_incomplete",
+            "Die ausdruecklichen Bewertungen der gebundenen Korrespondenz fehlen.", 409);
+        Guard.Against(assessments.Length != feedback.Length ||
+            assessments.Any(f => f is null || f.Original is null) ||
+            !assessments.Select(f => f.Original.Id).Order(StringComparer.Ordinal)
                 .SequenceEqual(feedback.Select(f => f.Id)),
             "fsn_feedback_incomplete", "Jeder bekannte Kommentar und jede Nachforderung braucht eine eigene originalgebundene Bewertung.", 409);
-        foreach (var assessment in plan.Feedback)
+        foreach (var assessment in assessments)
         {
             var original = feedback.Single(f => f.Id == assessment.Original.Id);
             Guard.Against(!original.Simulated || Canonical.Hash(assessment.Original) != Canonical.Hash(original),
@@ -96,7 +98,7 @@ public static class FsnPublicationRules
                     e.Attempt.PackageHash == dossier.ScopeHash && e.BusinessStatus == "BusinessAccepted" &&
                     Canonical.Hash(e.Attempt.Binding) == Canonical.Hash(dossier.Package.Binding)),
                 "fsn_authority_state", "Der regulaere Simulatorweg braucht die finale FSN-Fassung und ihre eigene fachliche Annahme ohne ungeklaerten Versuch; Annahme ist keine Sicherheitsfreigabe.", 409);
-            Guard.Against(plan.Feedback.Any(f => f.Disposition == "DeferredUrgent" ||
+            Guard.Against(assessments.Any(f => f.Disposition == "DeferredUrgent" ||
                 (f.Original.Kind == "InformationRequest" || f.Original.DueAt.HasValue) && f.Original.Status != "Replied"),
                 "fsn_feedback_pending", "Offene Nachforderungen oder aufgeschobene Bewertungen verlangen Bearbeitung oder einen gesondert begruendeten dringlichen Alternativweg.", 409);
         }

@@ -2898,6 +2898,15 @@ keine Vorschau-/Cloudpromotion. Die gleichzeitig nur im Primaercheckout
 bearbeitete FSN-Publikation ist **nicht** Teil dieses Build42-Erfolgs;
 ihre neue Native-/Browser-/Recoveryevidenz ist gesondert zu erbringen.
 
+Die anschliessende FSN-Quellfassung827d984 wurde als eigener **Build43**
+geprueft. Der Domain-Rebuild endete mit dem CompilerfehlerCS8602 in
+der neuen Korrespondenzbewertung, nicht mit einem Timeout. Die eigene
+Prozessgruppe und Streams wurden vollstaendig geschlossen; kein
+Anwendungspaket oder Testpass wird aus diesem abgebrochenen Build
+abgeleitet. Der Folgefix verwendet explizite nichtnullbare lokale
+Sammlungen mit fachlichem Fehler fuer fehlende Eingaben, keine
+Nullunterdrueckung oder stillschweigende leere Bewertung.
+
 Der eigene Datei-only-Integrationsvertrag
 `preservation-binding-01.json` bestand in38,4495698s/60. Die Einfuegung
 erhaelt reversibel alle bestehenden Ownership-/Pfad-/Prozess-/Fremdsatz-
