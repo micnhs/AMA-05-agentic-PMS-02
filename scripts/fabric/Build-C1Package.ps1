@@ -42,6 +42,10 @@ if ((Test-Path -LiteralPath $publish) -or (Test-Path -LiteralPath $package) -or 
     throw 'Package paths already exist; do not overwrite or automatically retry an upload.'
 }
 New-Item -ItemType Directory -Path $publish, $package | Out-Null
+# Match lock generation's complete RID set before selecting one RID for each publish.
+# --runtime during restore narrows referenced projects to one RID and invalidates their two-RID locks.
+dotnet restore $project --locked-mode -p:SelfContained=true -p:CohorsC1Publish=true --verbosity minimal
+if ($LASTEXITCODE -ne 0) { throw 'Locked dual-RID restore failed; no unpinned dependency fallback.' }
 foreach ($rid in @('win-x64', 'linux-x64')) {
     $output = Join-Path $publish $rid
     $log = Join-Path $temporary "publish-$rid.log"
@@ -51,17 +55,8 @@ foreach ($rid in @('win-x64', 'linux-x64')) {
         '-p:DebugType=None', '-p:DebugSymbols=false', '--verbosity', 'minimal')
     & dotnet @publishArguments *> $log
     if ($LASTEXITCODE -ne 0) {
-        if (-not (Select-String -LiteralPath $log -Pattern 'NETSDK1004|NETSDK1047|NETSDK1112' -Quiet)) {
-            Get-Content -LiteralPath $log -Tail 60
-            throw "Cross-RID publish failed without a missing-assets/runtime-pack condition: $rid"
-        }
-        dotnet restore $project --runtime $rid --locked-mode -p:SelfContained=true -p:CohorsC1Publish=true --verbosity minimal
-        if ($LASTEXITCODE -ne 0) { throw "Locked $rid restore failed; no unpinned dependency fallback." }
-        & dotnet @publishArguments *> $log
-        if ($LASTEXITCODE -ne 0) {
-            Get-Content -LiteralPath $log -Tail 60
-            throw "Cross-RID publish failed: $rid"
-        }
+        Get-Content -LiteralPath $log -Tail 60
+        throw "Cross-RID publish failed: $rid"
     }
 }
 git --no-pager diff --quiet --exit-code
