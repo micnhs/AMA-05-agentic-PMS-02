@@ -56,7 +56,24 @@ Pruefungen sind **kein nachtraeglich bestandenes normales Cleanupgate**.
 [Einzelbelege](validation.md#recovery03-timeout-und-separate-bereinigung)
 trennen die drei Prozesse und ihre Grenzen.
 
-Die aktuelle Recovery-Quellpraezisierung protokolliert die vorhandenen
+**Build37 auf655ef4a** ist inzwischen vollstaendig gebaut; seine acht
+Diagnostik-/SQL-freien Vertragsfaelle und vier gezielten nativen
+Regressionen bestanden separat. Recovery04 scheiterte vor dem Teststart
+am nicht verfuegbaren Docker-Engine. Nach der ausdruecklich erlaubten
+Wiederinbetriebnahme endete **Recovery05 dennoch negativ**:
+900,3048792s/900 ohne vollstaendiges17er-TRX.
+PSUR-Vorbereitung80,7039093s und beide abgeschlossenen Backupmanifeste
+sind belegter Teilfortschritt, kein vollstaendiger Restoreerfolg.
+Die urspruengliche normale Abschlusspruefung scheiterte nach9,6524257s/60.
+Danach wurden nur die exakt gebundenen Source-/Target-Reste in
+29,2611495s/60 entfernt; die unabhaengige vollstaendige Nachpruefung
+bestand in36,3842629s/60. Alle541 verbleibenden Run-Dateien und die
+negativen Ergebnisse blieben bytegleich. Das echte sechsstufige
+Sourcejournal wurde nicht veraendert.
+[Aktuelle Einzelbelege](validation.md#build37-recovery04-und-recovery05)
+trennen historische Ergebnisse, Sonderbereinigung und neue Quellarbeit.
+
+Die Recovery-Quellpraezisierung protokolliert die vorhandenen
 Aufbauschritte einschliesslich PSUR-/EUDAMED-Vorbereitung und beider Backups
 feiner. `private\setup-phases.jsonl` enthaelt nur die Variante
 `RecoverySetup`, konstante Phasenlabels, Sequenz und Metazeiten.
@@ -77,9 +94,33 @@ monotone Zeiten sowie Anzahlen/JSON-Zeichenlaengen. Keine SQL-Parameter,
 Originaltexte oder Zugangsdaten. Die Uhr beginnt erst bei
 `script-timing-initialization`, nicht beim Prozessstart; WriteThrough
 und Flush-to-disk erhalten Fortschritt auch bei hartem Testprozessende.
-Weder diese Metazeiten noch eine erfolgreiche Typpruefung belegen
-bereits eine Laufzeitverbesserung oder Recovery17. Dieser neue Quellteil
-hat noch keinen ausgefuehrten Gesamtnachweis.
+Recovery05 misst pro Originalreferenzpruefung21,31 bis24,21s; das
+Tabellenlesen einschliesslich JSON-Aufbereitung beanspruchte fuer
+einzelne15,7-Millionen-Zeichen-Ergebnisse4,72 bis7,83s.
+Die nachfolgende Quellkorrektur verwendet fuer diese Tabellen dasselbe
+vollstaendige sequenzielle Textlesen wie das bestehende Testorakel.
+`RecoveryJson.ReferenceNodes` durchlaeuft JSON-Strukturen kompiliert und
+liefert nur unveraenderte Knoten an die bestehenden fachlichen Pruefungen;
+es leitet keine eigenen Originalreferenzen ab. Identische Knoten werden
+pro festem Retention-Cut nur einmal validiert. Typed EUDAMED-Abdeckung,
+historische Revisionen, eingebettete JSON-Texte, unabhaengige
+Rohdatenbindungen und alle Hash-/Loeschpruefungen bleiben erforderlich.
+Die nativen Tabellen-Hashes entstehen weiterhin aus den vollstaendigen,
+unveraenderten SQL-JSON-Bytes, nicht aus dieser Knotenprojektion.
+
+Auch `Restore-Local.ps1` akzeptiert jetzt einen optionalen `TimingPath`.
+Seine Variante `RecoveryRestore` trennt Original-/Retentionpruefung,
+Objektkopien, native Wiederherstellung, SQL-Integritaet, Search-Neuaufbau
+und Aktivierung. Zusaetzliche Tabellenmarken trennen Lesen und
+JSON-Aufbereitung. `private\script-invocations.jsonl` korreliert die
+Invocation und den bekannten Testnamen mit echten OS-Prozessstart/-endwerten;
+ein hart unterbrochener Aufruf bekommt keinen erfundenen Abschluss.
+Diese Metazeiten bleiben vom sechsphasigen Ressourcenjournal,
+480s-Step-Wait,900s-Gesamtlimit sowie Stop-/Stream-Nachlauf getrennt.
+Drei neue SQL-freie `RecoveryJsonContract`-Faelle gehoeren nicht zu den
+unveraenderten17 Gesamtszenarien. Die neue Quellkorrektur braucht einen
+eigenen gebundenen Build und ausgefuehrten Gesamtnachweis; die
+Recovery05-Teilzeiten werden nicht als deren Erfolg umgedeutet.
 
 ## Historische PSUR-/BS-Fixture-Uebergabe und Typpruefung
 

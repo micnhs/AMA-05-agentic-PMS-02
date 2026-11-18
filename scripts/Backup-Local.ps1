@@ -12,12 +12,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:recoveryTiming = $null
 
-function Initialize-RecoveryTiming([string]$Path) {
+function Initialize-RecoveryTiming([string]$Path, [ValidateSet('RecoveryBackup','RecoveryRestore')][string]$Variant = 'RecoveryBackup') {
     if (-not $Path) { return }
     $path = Assert-RecoveryPath $Path -New
     $stream = [IO.FileStream]::new($path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
     $stream.Dispose()
-    $script:recoveryTiming = @{ path = $path; started = [Diagnostics.Stopwatch]::GetTimestamp(); sequence = 0 }
+    $script:recoveryTiming = @{ path = $path; started = [Diagnostics.Stopwatch]::GetTimestamp(); sequence = 0; variant = $Variant }
     Write-RecoveryPhase 'timing-start'
 }
 
@@ -25,7 +25,7 @@ function Write-RecoveryPhase([string]$Phase, [long]$Count = -1, [long]$Character
     if ($null -eq $script:recoveryTiming) { return }
     $timestamp = [Diagnostics.Stopwatch]::GetTimestamp()
     $record = [ordered]@{
-        variant = 'RecoveryBackup'; phase = $Phase; sequence = ++$script:recoveryTiming.sequence
+        variant = $script:recoveryTiming.variant; phase = $Phase; sequence = ++$script:recoveryTiming.sequence
         timestampTicks = $timestamp; frequency = [Diagnostics.Stopwatch]::Frequency
         elapsedTicks = $timestamp - $script:recoveryTiming.started; clockScope = 'script-timing-initialization'
         at = [DateTimeOffset]::UtcNow.ToString('O')
@@ -154,10 +154,20 @@ function Open-RecoverySql($Config, [string]$Database) {
     catch { $connection.Dispose(); throw 'recovery_sql: Cannot open the explicitly configured local database.' }
 }
 
-function Invoke-RecoverySql($Connection, [string]$Sql, [switch]$Scalar) {
+function Invoke-RecoverySql($Connection, [string]$Sql, [switch]$Scalar, [switch]$Text) {
     $command = [Microsoft.Data.SqlClient.SqlCommand]::new($Sql, $Connection)
     $command.CommandTimeout = 180
     try {
+        if ($Text) {
+            $reader = $command.ExecuteReader([Data.CommandBehavior]::SequentialAccess)
+            try {
+                if (-not $reader.Read() -or $reader.IsDBNull(0)) { throw 'recovery_sql: Complete table JSON is absent.' }
+                $textReader = $reader.GetTextReader(0)
+                try { $value = $textReader.ReadToEnd() } finally { $textReader.Dispose() }
+                if ($reader.Read()) { throw 'recovery_sql: Table JSON is not one complete result.' }
+                return $value
+            } finally { $reader.Dispose() }
+        }
         if ($Scalar) { return $command.ExecuteScalar() }
         $command.ExecuteNonQuery() | Out-Null
     } finally { $command.Dispose() }
@@ -383,15 +393,15 @@ function Get-RecoveryReferences([string[]]$Payloads, $RetentionCut, $Revisions =
     $hashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($hash in (Get-RecoveryEudamedReferences $Revisions)) { $hashes.Add($hash) | Out-Null }
     $parsed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-    $pending = [Collections.Generic.Stack[object]]::new()
+    $validated = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $pending = [Collections.Generic.Stack[string]]::new()
     foreach ($payload in $Payloads) { $pending.Push($payload) }
     while ($pending.Count) {
-        $node = $pending.Pop()
-        if ($node -is [string]) {
-            if (-not $parsed.Add([Cohors.Domain.Canonical]::HashText($node))) { continue }
-            $node = ConvertFrom-Json -InputObject $node -AsHashtable -Depth 100 -DateKind String -NoEnumerate
-        }
-        if ($node -is [Collections.IDictionary]) {
+        $payload = $pending.Pop()
+        if (-not $parsed.Add([Cohors.Domain.Canonical]::HashText($payload))) { continue }
+        foreach ($rawNode in [Cohors.Infrastructure.RecoveryJson]::ReferenceNodes($payload)) {
+            if (-not $validated.Add([Cohors.Domain.Canonical]::HashText($rawNode))) { continue }
+            $node = ConvertFrom-Json -InputObject $rawNode -AsHashtable -Depth 100 -DateKind String -NoEnumerate
             $references = [Collections.Generic.List[string]]::new()
             $retentionRecord = $node.Contains('contract') -and $node.contract -ceq 'cohors-retention-record-1'
             if ($retentionRecord) {
@@ -440,15 +450,10 @@ function Get-RecoveryReferences([string[]]$Payloads, $RetentionCut, $Revisions =
             }
             foreach ($entry in $node.GetEnumerator()) {
                 if ($retentionRecord -and $entry.Key -in @('object', 'deletion')) { continue }
-                if ($entry.Value -is [Collections.IDictionary] -or $entry.Value -is [array]) {
-                    $pending.Push($entry.Value)
-                } elseif ($entry.Key -in @('Json', 'Payload', 'Result', 'frozenJson', 'inputJson', 'outputJson') -and $entry.Value) {
+                if ($entry.Value -is [Collections.IDictionary] -or $entry.Value -is [array]) { continue }
+                if ($entry.Key -in @('Json', 'Payload', 'Result', 'frozenJson', 'inputJson', 'outputJson') -and $entry.Value) {
                     $pending.Push([string]$entry.Value)
                 }
-            }
-        } elseif ($node -is [array]) {
-            foreach ($item in $node) {
-                if ($item -is [Collections.IDictionary] -or $item -is [array]) { $pending.Push($item) }
             }
         }
     }
@@ -478,7 +483,8 @@ function Get-RecoveryState($Connection, $Config) {
     $tables = @()
     foreach ($name in $orders.Keys) {
         Write-RecoveryPhase "state-table-$name-start"
-        $json = [string](Invoke-RecoverySql $Connection "SELECT (SELECT * FROM dbo.[$name] ORDER BY $($orders[$name]) FOR JSON PATH,INCLUDE_NULL_VALUES)" -Scalar)
+        $json = [string](Invoke-RecoverySql $Connection "SELECT (SELECT * FROM dbo.[$name] ORDER BY $($orders[$name]) FOR JSON PATH,INCLUDE_NULL_VALUES)" -Text)
+        Write-RecoveryPhase "state-table-$name-read" -Characters $json.Length
         $rows[$name] = ConvertFrom-Json -InputObject $json -AsHashtable -Depth 100 -DateKind String -NoEnumerate
         $tables += [ordered]@{ name = $name; count = $rows[$name].Count; sha256 = [Cohors.Domain.Canonical]::HashText($json) }
         Write-RecoveryPhase "state-table-$name-complete" $rows[$name].Count $json.Length

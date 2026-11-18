@@ -2556,6 +2556,85 @@ die alte742-Vorschau blieben unangetastet.
 | `recovery-03-cleanup-reconciled-owned.json` | `d58eb5237f1f6f9c567b39af34e069e62e7b6fe39b8882da10f13d09b83b99a7` |
 | `recovery-03-post-cleanup-boundary.json` | `dfafd354d5be67ea28ee1410f188841eb124b6742f1d91df6277bf1bbbed65db` |
 
+### Build37, Recovery04 und Recovery05
+
+Quelle `655ef4a45007976bd972fa3a60385136d5520816`, Build37:
+alle elf frischen Projekte360,3553563s/600, Web44,2414413s/120,
+Solution37,8605364s/180, API-Publish9,8174974s/90,
+Bootstrap39/39 in14,8785048s/180 und Bootstrap-Publish3,6099271s/90.
+Offline81 bestand8/8 in37,7435515s/180; die vier gezielten nativen
+Regressionen Tests82 bestanden in39,8895783s/180 einschliesslich beider
+vollstaendig bereinigten Fixtures. Diese Voraussetzungen sind kein
+Recovery17-Erfolg.
+
+Recovery04 scheiterte vor einem Testprozess am fehlenden Docker-Engine.
+Nach der ausdruecklich erlaubten Wiederinbetriebnahme verwendete
+Recovery05 dieselbe gebundene Quelle und den originalen17er-Runner.
+OS-Start07:02:05,6816085Z, OS-Ende07:17:05,9864877Z am18.11.2026:
+**900,3048792s/900, Timeout**, kein vollstaendiges17er-TRX.
+Eigenes Prozessende, Streams und Jobabschluss sind belegt.
+Die normale unabhaengige Abschlusspruefung endete nach9,6524257s/60
+mit Fehler wegen nicht abgeschlossener Fixturebereinigung.
+
+Die feineren dauerhaften Metazeiten belegen PSUR-Aufbau80,7039093s und
+vollstaendige Pre-/Post-Deletion-Backupmanifeste. Die beiden Backupaufrufe
+dauerten innerhalb der Setupuhr131,9823448s beziehungsweise138,1008534s.
+Vier Originalreferenzpruefungen beanspruchten jeweils21,31 bis24,21s.
+Das ist kein isolierter Rueckfrage-Antwort-Wert, kein kausal kontrollierter
+Vergleich zu Recovery03 und kein Nachweis der spaeteren positiven Restorefaelle.
+Erhaltene abgeschlossene Restorelogs enthalten erwartete Negativcodes;
+der letzte Versuch hinterliess53 gestagte Dateien ohne Aktivierungsbeleg.
+Seine genaue Operation am900s-Abbruch ist ohne weitere Phasenmarken
+nicht bestimmt.
+
+Der erste Sondercleanup stoppte nach9,0546427s/60 **vor jeder Entfernung**:
+der bisherige Win32-Metadatenleser konnte ein bestehendes268-Zeichen-
+Verzeichnis nicht adressieren. Der neue private Reader aendert nur den
+`CreateFileW`-Pfad auf die dokumentierte Extended-Length-Schreibweise.
+Zugriffs-/Sharing-/Open-Reparse-Flags, Normalisierung und Klassifikation
+bleiben gebunden. Die rein lesende Probe bestand in6,0156587s/60:
+alle urspruenglichen12 Verweigerungen,16 bekannten Cloud-Tags, echtes
+langes Verzeichnis und Verweigerung eines fehlenden langen Pfads.
+Keine ACL-, Tag-, Schutz-, System- oder Policyaenderung.
+
+Sondercleanup02 bestand in29,2611495s/60; danach bestand eine unabhaengige
+vollstaendige Read-only-Quell-/Assembly-/Paket-/SDK-/Abwesenheitspruefung
+in36,3842629s/60. Ausschliesslich zwei exakt gebundene Source-/Target-
+Container, deren zwei Volumes und zwei private Konfigurationen wurden
+entfernt. Der urspruengliche fremde Before-Satz blieb unveraendert.
+Alle541 anderen Run-Dateien einschliesslich unvollstaendiger Restoreobjekte
+blieben vollstaendig hashgleich. Das echte sechsstufige Sourcejournal,
+der Timeout und `cleanupVerified=false` im historischen Inventory blieben
+unveraendert. Keine nachtraegliche Umwertung des normalen Cleanupgates,
+keine neue Vorschau oder Cloudpromotion.
+
+| Privater Beleg unter `.local\eudamed-integration-01` | SHA256 |
+| --- | --- |
+| `build-37-result.json` | `57c40c324ab42c87f4ce5c9f5a194606742ae6cdfed62dd5714bffe66b634574` |
+| `offline-81-result.json` | `8301c883129b312920e6e246d470eece8cd6503ee8fa659c23421883920b5c9a` |
+| `tests-82-result.json` | `2cc325c590b5d3276613f4b18dacc483f2b19d899edf20434e429a380d760aab` |
+| `recovery-04-preflight-failure.json` | `cf376f25183ef2571d013673778d036c7ec224ac30e80586edf8b0f722b2c715` |
+| `recovery-05-bounded-result.json` | `076febfba4d53ff5146b33ced2dce39ff3896a1cf4b6b79d071cad0a0dba5808` |
+| `recovery-05-cleanup.json` (negativ) | `fe0479eb3439be013a1e49eabbfeca88ca21db3580efebeeb69457cede1043af` |
+| `recovery-05-cleanup-reconciled-02.json` | `b28fd3eab0893752a152bfcbd1f55b0169532cfafa9bbf535887b5174520fc57` |
+| `recovery-05-cleanup-reconciled-owned-02.json` | `8dccbe2a0a032a85a1281db5b86111cc0c531130d76dbc5b309b2957bafee56f` |
+| `recovery-05-post-cleanup-boundary.json` | `bf0c5678ebbb7c084eae0c7b79c048de041de1d15447ab9a4a86a9e8ae7e8f47` |
+
+Der prospektive native Gesamtjournal-Abbruchpfad ist separat quellgebunden:
+`Invoke-SliceCheck-v12.ps1` behaelt v11 ausserhalb einer einzigen
+Before-Set-Erfassung bytegleich; Prozessmessung,180s-/300s-Auswahl und
+normale sechsphasige Abschlusspruefung bleiben unveraendert.
+`Complete-NativeCleanup-v3.ps1` verarbeitet nach unabhaengigem Inspect
+alle eindeutig journalisierten CreateRequested-Intents, auch vor Ready;
+es laesst fremde Ressourcen und unvollstaendige Eigentumsbelege unberuehrt.
+Die13 SQL-freien Vertraege bestanden in5,907661s/60, die Runnerbindung
+in2,3149378s/60. **Kein realer nativer SQL-Abbruchcleanup wurde dadurch
+ausgefuehrt oder als bewiesen ausgegeben.** Historisches v2 bleibt unveraendert.
+`native-journal-contract-03.json` ist gebunden an
+`645c2b63d4b04111e6b7ed0f4f48e4fa7dd75b0d28daf97ef0933b8f57e8bccb`,
+`slice-runner-12-binding.json` an
+`689bfc8ccc3230f52f8e3d450dd52c6a5e307212f3fd10675b90fa12f49860ab`.
+
 ### Wiederherstellung ausschliesslich der freigegebenen 742-Vorschau
 
 Der zuvor nicht erreichbare lokale Host wurde nach der bedingten

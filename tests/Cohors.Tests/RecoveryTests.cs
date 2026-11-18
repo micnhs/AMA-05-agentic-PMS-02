@@ -542,6 +542,87 @@ public sealed class RecoveryPathTests
     }
 }
 
+[Trait("Category", "RecoveryJsonContract")]
+public sealed class RecoveryJsonTests
+{
+    [Fact]
+    public void ReferenceNodesKeepNestedOriginalsAndOpaqueEmbeddedJsonButExcludeInlineBindings()
+    {
+        var citation = new { uri = "demo:original", hash = new string('a', 64) };
+        var carrier = new Dictionary<string, object?>
+        {
+            ["pAyLoAd"] = Canonical.Serialize(new { attachmentHashes = new[] { new string('b', 64) } }),
+            ["inputJson"] = null
+        };
+        var nodes = RecoveryJson.ReferenceNodes(Canonical.Serialize(new
+        {
+            nested = new object[] { new[] { citation }, new { deeper = carrier } },
+            inline = new { id = "version-only", version = 3, hash = new string('c', 64) },
+            signatures = new[] { new { scopeHash = new string('d', 64) } }
+        }));
+        Assert.Equal(2, nodes.Length);
+        Assert.Contains(Canonical.Serialize(citation), nodes);
+        Assert.Contains(Canonical.Serialize(carrier), nodes);
+    }
+
+    [Fact]
+    public void ReferenceNodesSkipOnlyRetentionOwnedChildrenAndRetainIndependentAndOtherNestedBindings()
+    {
+        var owned = new { objectKey = "raw-quarantine/" + new string('a', 64), source = "retention-owned" };
+        var receipt = new { xmlHash = new string('b', 64), source = "retention-receipt" };
+        var other = new { attachmentHashes = new[] { new string('c', 64) } };
+        var retention = new { contract = "cohors-retention-record-1", @object = owned, deletion = receipt, other };
+        var independent = new { objectKey = owned.objectKey, source = "independent" };
+        var nodes = RecoveryJson.ReferenceNodes(Canonical.Serialize(new object[] { retention, independent }));
+        Assert.Equal(3, nodes.Length);
+        Assert.Contains(Canonical.Serialize(retention), nodes);
+        Assert.Contains(Canonical.Serialize(other), nodes);
+        Assert.Contains(Canonical.Serialize(independent), nodes);
+        Assert.DoesNotContain(Canonical.Serialize(owned), nodes);
+        Assert.DoesNotContain(Canonical.Serialize(receipt), nodes);
+    }
+
+    [Fact]
+    public async Task RestoreTimingSurvivesDotSourcedBackupParametersAndIsDurableBeforeRuntimeFailure()
+    {
+        var home = RecoveryFixture.RepositoryRoot();
+        var directory = RecoveryFixture.RequireNewDirectory(home,
+            Path.Combine(home, ".local", "restore-timing-contract-" + Guid.NewGuid().ToString("N")));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var timing = Path.Combine(directory, "phases.jsonl");
+            var values = new Dictionary<string, string>
+            {
+                ["ConfigurationPath"] = Path.Combine(directory, "missing-config.json"),
+                ["BackupDirectory"] = Path.Combine(directory, "missing-backup"),
+                ["ManifestSha256"] = new string('a', 64),
+                ["ApplicationDirectory"] = Path.Combine(directory, "missing-runtime"),
+                ["TimingPath"] = timing
+            };
+            var parameters = Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(values));
+            var script = Path.Combine(home, "scripts", "Restore-Local.ps1").Replace("'", "''");
+            var output = await RecoveryDiagnosticTests.Probe($$"""
+                $parameters = ConvertFrom-Json -AsHashtable ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{{parameters}}')))
+                $failed = $false
+                try { & '{{script}}' @parameters }
+                catch {
+                    if (-not $_.Exception.Message.StartsWith('recovery_runtime:', [StringComparison]::Ordinal)) { throw }
+                    $failed = $true
+                }
+                if (-not $failed) { throw 'The deliberately absent runtime must fail before SQL or Docker.' }
+                Write-Output 'RESTORE_TIMING_PRE_RUNTIME=Verified'
+                """, Guid.NewGuid().ToString("N"));
+            Assert.Contains("RESTORE_TIMING_PRE_RUNTIME=Verified", output);
+            using var record = JsonDocument.Parse(Assert.Single(await File.ReadAllLinesAsync(timing)));
+            Assert.Equal("RecoveryRestore", record.RootElement.GetProperty("variant").GetString());
+            Assert.Equal("timing-start", record.RootElement.GetProperty("phase").GetString());
+            Assert.Equal("script-timing-initialization", record.RootElement.GetProperty("clockScope").GetString());
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+}
+
 [Trait("Category", "Recovery")]
 public sealed class RecoveryRetentionContractTests : IDisposable
 {
@@ -1083,8 +1164,8 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         var invocation = RecoveryDiagnostics.Invocation(name, test);
         var parameters = new Dictionary<string, object> { ["ConfigurationPath"] = configuration,
             ["BackupDirectory"] = backup, ["ApplicationDirectory"] = applicationDirectory };
-        if (name == "Backup-Local.ps1")
-            parameters.Add("TimingPath", Path.Combine(Directory, "private", invocation.Id + "-backup-phases.jsonl"));
+        var timingKind = name == "Backup-Local.ps1" ? "backup" : "restore";
+        parameters.Add("TimingPath", Path.Combine(Directory, "private", invocation.Id + "-" + timingKind + "-phases.jsonl"));
         for (var index = 0; index < extra.Length; index++)
         {
             var parameter = extra[index];
@@ -1392,11 +1473,21 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Recovery process could not start.");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromMinutes(8)); }
+        var timedOut = false;
+        try
+        {
+            if (invocation is not null) RecordScriptInvocation(invocation, process, terminal: false, timedOut: false);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromMinutes(8));
+        }
         catch (TimeoutException)
         {
-            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+            timedOut = true;
             throw new InvalidOperationException("Recovery step timed out; its exact process tree was stopped.");
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+            if (invocation is not null) RecordScriptInvocation(invocation, process, terminal: true, timedOut);
         }
         var standardOutput = await stdout;
         var standardError = await stderr;
@@ -1506,6 +1597,27 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         return Task.CompletedTask;
     }
 
+    private void RecordScriptInvocation(RecoveryInvocation invocation, Process process, bool terminal, bool timedOut)
+    {
+        var timestamp = Stopwatch.GetTimestamp();
+        var started = process.StartTime.ToUniversalTime();
+        DateTime? ended = terminal ? process.ExitTime.ToUniversalTime() : null;
+        var record = JsonSerializer.Serialize(new
+        {
+            variant = "RecoveryScript", phase = terminal ? "exited" : "started",
+            invocation = invocation.Id, invocation.Operation, invocation.Test, entryScript = invocation.Script,
+            timestampTicks = timestamp, frequency = Stopwatch.Frequency,
+            elapsedTicks = timestamp - setupStarted, clockScope = "fixture-construction",
+            processId = process.Id, processStartedUtc = started, processExitedUtc = ended,
+            processDurationSeconds = ended is { } exit ? (double?)(exit - started).TotalSeconds : null,
+            stepWaitLimitSeconds = 480, timedOut, at = DateTimeOffset.UtcNow
+        }, Canonical.Json);
+        using var stream = new FileStream(Path.Combine(Directory, "private", "script-invocations.jsonl"),
+            FileMode.Append, FileAccess.Write, FileShare.Read, 4096, FileOptions.WriteThrough);
+        stream.Write(Encoding.UTF8.GetBytes(record + Environment.NewLine));
+        stream.Flush(flushToDisk: true);
+    }
+
     private static async Task<string> Event(string connectionString, string aggregate, string type, int version)
     {
         await using var connection = new SqlConnection(connectionString);
@@ -1595,7 +1707,7 @@ internal static class RecoveryDiagnostics
             "Backup-Local.ps1" => "BackupLocal",
             _ => throw new InvalidOperationException("Unknown recovery test script.")
         };
-        var method = test is null ? null : typeof(RecoveryTests).GetMethod(test);
+        var method = test is null ? null : typeof(RecoveryTests).GetMethod(test) ?? typeof(EudamedRecoveryTests).GetMethod(test);
         return new(Guid.NewGuid().ToString("N"), operation, script,
             method?.GetCustomAttribute<FactAttribute>() is not null ? test : null);
     }
@@ -1827,7 +1939,7 @@ public sealed class RecoveryDiagnosticTests
             new(0, "Microsoft.Data.SqlClient.SqlException", -2146232060, [new(3201, 1, 16)], false, null)
         ]));
 
-    private static async Task<string> Probe(string script, string invocation)
+    internal static async Task<string> Probe(string script, string invocation)
     {
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh")
         {
