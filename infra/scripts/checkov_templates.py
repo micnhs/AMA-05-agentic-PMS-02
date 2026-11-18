@@ -8,6 +8,7 @@ are projected. Resource conditions, copies and unresolved DNS addresses remain.
 import argparse
 import copy
 import hashlib
+import ipaddress
 import itertools
 import json
 import re
@@ -211,24 +212,48 @@ DHCP_EXPRESSION = re.compile(
     r"createObject\('dnsServers', createArray\(parameters\('(?P<dns>[A-Za-z][A-Za-z0-9_]*)'\)\)\), "
     r"createObject\(\)\)\]"
 )
+NIC_DNS_EXPRESSION = re.compile(
+    r"\[if\((?P<condition>equals\(variables\('(?P<variable>[A-Za-z][A-Za-z0-9_]*)'\)"
+    r"\[copyIndex\(\)\]\.(?P<property>[A-Za-z][A-Za-z0-9_]*), '(?P<label>[A-Za-z][A-Za-z0-9_-]*)'\)), "
+    r"createObject\('dnsServers', createArray\('(?P<address>[0-9.]+)'\)\), createObject\(\)\)\]"
+)
 
 
 def dhcp_sites(template, path=()):
     for index, resource in enumerate(template["resources"]):
         resource_path = path + ("resources", index)
         properties = resource.get("properties", {})
-        if resource["type"].lower() == "microsoft.network/virtualnetworks":
-            expression = properties.get("dhcpOptions")
+        kind = resource["type"].lower()
+        if kind in ("microsoft.network/virtualnetworks", "microsoft.network/networkinterfaces"):
+            field = "dhcpOptions" if kind.endswith("/virtualnetworks") else "dnsSettings"
+            expression = properties.get(field)
             if isinstance(expression, str):
-                match = DHCP_EXPRESSION.fullmatch(expression)
-                parameters = template.get("parameters", {})
-                if (match is None or parameters.get(match["condition"], {}).get("type") != "bool"
-                        or parameters.get(match["dns"], {}).get("type") != "string"):
-                    raise ValueError("Unsupported DHCP object expression; no partial or default-only scan.")
-                yield {"path": list(resource_path + ("properties", "dhcpOptions")),
-                       "scope": list(path), "conditionParameter": match["condition"],
-                       "dnsParameter": match["dns"], "sourceExpressionSha256": digest(expression)}
-        elif resource["type"].lower() == "microsoft.resources/deployments":
+                if field == "dhcpOptions":
+                    match = DHCP_EXPRESSION.fullmatch(expression)
+                    parameters = template.get("parameters", {})
+                    if (match is None or parameters.get(match["condition"], {}).get("type") != "bool"
+                            or parameters.get(match["dns"], {}).get("type") != "string"):
+                        raise ValueError("Unsupported DHCP object expression; no partial or default-only scan.")
+                    condition = "parameters('" + match["condition"] + "')"
+                    scope, dns_value = path, "[parameters('" + match["dns"] + "')]"
+                else:
+                    match = NIC_DNS_EXPRESSION.fullmatch(expression)
+                    if match is None:
+                        raise ValueError("Unsupported NIC DNS object expression; no partial scan.")
+                    values = template.get("variables", {}).get(match["variable"])
+                    if (not isinstance(values, list) or not values
+                            or any(not isinstance(item, dict) or not isinstance(item.get(match["property"]), str)
+                                   or item[match["property"]].startswith("[") for item in values)
+                            or {item[match["property"]] == match["label"] for item in values} != {False, True}
+                            or resource.get("copy", {}).get("count") !=
+                            "[length(variables('" + match["variable"] + "'))]"):
+                        raise ValueError("NIC DNS branches require the exact source copy array and both literal cases.")
+                    ipaddress.IPv4Address(match["address"])
+                    condition, scope, dns_value = match["condition"], resource_path, match["address"]
+                yield {"path": list(resource_path + ("properties", field)),
+                       "conditionScope": list(scope), "conditionExpression": condition,
+                       "dnsValue": dns_value, "sourceExpressionSha256": digest(expression)}
+        elif kind == "microsoft.resources/deployments":
             yield from dhcp_sites(properties["template"], resource_path + ("properties", "template"))
 
 
@@ -248,11 +273,11 @@ def verify_dhcp_projection(source, projected, bindings):
     for site, binding in zip(sites, bindings):
         if any(binding.get(key) != value for key, value in site.items()) or type(binding.get("branch")) is not bool:
             raise ValueError("DHCP branch is not bound to its exact source expression.")
-        condition = (tuple(site["scope"]), site["conditionParameter"])
+        condition = (tuple(site["conditionScope"]), site["conditionExpression"])
         if condition in assignments and assignments[condition] != binding["branch"]:
             raise ValueError("One parameter cannot take conflicting values in the same template scope.")
         assignments[condition] = binding["branch"]
-        expected = {"dnsServers": ["[parameters('" + site["dnsParameter"] + "')]"]} if binding["branch"] else {}
+        expected = {"dnsServers": [site["dnsValue"]]} if binding["branch"] else {}
         if digest(at_path(projected, site["path"])) != digest(expected):
             raise ValueError("DHCP branch changed the source-derived DNS expression.")
         parent = at_path(restored, site["path"][:-1])
@@ -263,7 +288,7 @@ def verify_dhcp_projection(source, projected, bindings):
 
 def dhcp_variants(template):
     sites = list(dhcp_sites(template))
-    conditions = list(dict.fromkeys((tuple(site["scope"]), site["conditionParameter"]) for site in sites))
+    conditions = list(dict.fromkeys((tuple(site["conditionScope"]), site["conditionExpression"]) for site in sites))
     if len(conditions) > 8:
         raise ValueError("Too many DHCP branch combinations; explicit scanner support is required.")
     for values in itertools.product((False, True), repeat=len(conditions)):
@@ -271,8 +296,8 @@ def dhcp_variants(template):
         projected = copy.deepcopy(template)
         bindings = []
         for site in sites:
-            branch = assignments[(tuple(site["scope"]), site["conditionParameter"])]
-            value = {"dnsServers": ["[parameters('" + site["dnsParameter"] + "')]"]} if branch else {}
+            branch = assignments[(tuple(site["conditionScope"]), site["conditionExpression"])]
+            value = {"dnsServers": [site["dnsValue"]]} if branch else {}
             at_path(projected, site["path"][:-1])[site["path"][-1]] = value
             bindings.append({**site, "branch": branch})
         verify_dhcp_projection(template, projected, bindings)

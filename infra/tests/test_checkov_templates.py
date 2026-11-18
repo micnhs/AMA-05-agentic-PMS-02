@@ -276,8 +276,6 @@ class CheckovTemplateTests(unittest.TestCase):
                           "originalName": source["resources"]["storage"]["name"], "scanName": "replacementname"}
         with self.assertRaisesRegex(ValueError, "Unsupported scan normalization"):
             verify_projection(source, altered, [*changes, storage_change])
-
-
     def dhcp_template(self):
         return {"parameters": {"owned": {"type": "bool", "defaultValue": False},
                                "dns": {"type": "string", "defaultValue": "10.0.0.4"}},
@@ -337,6 +335,45 @@ class CheckovTemplateTests(unittest.TestCase):
                          {(False, False), (False, True), (True, False), (True, True)})
         with self.assertRaisesRegex(ValueError, "omitted"):
             verify_dhcp_projection(source, variants[0][0], variants[0][1][:-1])
+
+    def nic_template(self):
+        return {"variables": {"machines": [{"role": "filter", "subnet": "[parameters('filterSubnet')]"},
+                                           {"role": "operator", "subnet": "[parameters('operatorSubnet')]"}]},
+                "resources": [{"type": "Microsoft.Network/networkInterfaces", "name": "[parameters('name')]",
+                               "copy": {"name": "nics", "count": "[length(variables('machines'))]"},
+                               "properties": {"enableIPForwarding": "[equals(variables('machines')[copyIndex()].role, 'filter')]",
+                                              "dnsSettings": "[if(equals(variables('machines')[copyIndex()].role, 'filter'), createObject('dnsServers', createArray('168.63.129.16')), createObject())]"}}]}
+
+    def test_nic_dns_retains_original_literal_both_cases_and_the_complete_copy(self):
+        source = self.nic_template()
+        original = copy.deepcopy(source)
+        variants = list(dhcp_variants(source))
+        self.assertEqual(len(variants), 2)
+        self.assertEqual([view["resources"][0]["properties"]["dnsSettings"] for view, _ in variants],
+                         [{}, {"dnsServers": ["168.63.129.16"]}])
+        for view, bindings in variants:
+            self.assertEqual(view["variables"], source["variables"])
+            self.assertEqual(view["resources"][0]["copy"], source["resources"][0]["copy"])
+            self.assertEqual(view["resources"][0]["properties"]["enableIPForwarding"],
+                             source["resources"][0]["properties"]["enableIPForwarding"])
+            verify_dhcp_projection(source, view, bindings)
+        changed = copy.deepcopy(variants[1][0])
+        changed["resources"][0]["properties"]["dnsSettings"]["dnsServers"].append("10.0.0.4")
+        with self.assertRaisesRegex(ValueError, "source-derived DNS"):
+            verify_dhcp_projection(source, changed, variants[1][1])
+        self.assertEqual(source, original)
+
+    def test_nic_dns_does_not_invent_cases_or_resolve_arbitrary_copy_expressions(self):
+        for mutate in (
+            lambda value: value["variables"]["machines"].pop(),
+            lambda value: value["variables"]["machines"][1].update(role="[parameters('role')]"),
+            lambda value: value["resources"][0]["copy"].update(count=2),
+            lambda value: value["resources"][0]["properties"].update(dnsSettings="[variables('networkDns')]"),
+        ):
+            source = self.nic_template()
+            mutate(source)
+            with self.assertRaisesRegex(ValueError, "NIC DNS"):
+                list(dhcp_variants(source))
 
 
 if __name__ == "__main__":
