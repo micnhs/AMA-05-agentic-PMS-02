@@ -315,7 +315,7 @@ public sealed class FabricC1DeploymentTests
         var unresolved = await run.Provisioner.CleanupIdentityPhase(default);
         Assert.False(unresolved.ActiveIdentityInventoryAbsent);
         Assert.Contains("runtime-app", unresolved.UnresolvedIdentityKeys);
-        Assert.Empty(run.Api.Requests.Where(request => request.Method == HttpMethod.Delete));
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
         run.Restart();
         var application = CleanupApplication(run);
         run.Api.List(application);
@@ -353,6 +353,26 @@ public sealed class FabricC1DeploymentTests
         Assert.Equal("c1_deploy_cleanup_dependents", (await Assert.ThrowsAsync<DomainException>(() =>
             dependent.Provisioner.CleanupIdentityPhase(default))).Code);
         Assert.Empty(dependent.Api.Requests);
+    }
+
+    [Fact]
+    public async Task PrincipalCleanupChecksItsParentApplicationOwnershipBeforeDeletingEither()
+    {
+        using var run = new Harness(delegated: true);
+        var application = CleanupApplication(run);
+        var principal = new JsonObject
+        {
+            ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = application["appId"]!.GetValue<string>(),
+            ["tags"] = new JsonArray(FabricC1Deployment.Marker(run.Input))
+        };
+        run.Seed("runtime-app", "Application", application);
+        run.Seed("runtime-sp", "ServicePrincipal", principal);
+        run.Api.Reply(200, principal);
+        run.Api.Reply(200, application);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId }, new JsonObject { ["id"] = Guid.NewGuid().ToString("D") });
+        Assert.Equal("c1_deploy_cleanup_ownership", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupIdentityPhase(default))).Code);
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
     }
 
     [Fact]
