@@ -2719,11 +2719,68 @@ Private Belege unter `.local\eudamed-integration-01`:
 | `preservation-contract-01.json` | `abb44dfdceffa88b72d88eb24ee4e9672efb7f469f80e7a78423b1210ec34f87` |
 | `preservation-contract-owned-01.json` | `f8c5b960924ddcc5764fbbdc789a0c5a2ce387d5f150a251818544990d635366` |
 
-Der neue Originalpraesenzcode, sein zweiter SQL-freier Vertrag und
-der getrennte native `RecoveryPresence`-Fall sind hier noch
-**ungebaut/ungetestet**. Sie duerfen Build38 nicht mitbenutzen.
+Der Originalpraesenzcode, sein zweiter SQL-freier Vertrag und der
+getrennte native `RecoveryPresence`-Fall sind separat unter
+`4a82a8c62a5c1ae156259da7b8c56dc211744a1e`/Build39 gebaut.
+Alle elf Projekt-Rebuilds, fuenf finalen Buildstufen und39 Bootstrapfaelle
+bestanden; sechs Testassemblies und116 Paketdateien sind neu gebunden.
+Offline86 verband die bestehenden Recovery-JSON-/Retention-/Diagnosevertraege
+mit dem neuen Praesenzvertrag: **13/14 bestanden**,56,5894257s/180,
+kein Skip oder Timeout, aber fehlgeschlagener neuer Praesenzvertrag.
+Kein SQL-Fixturejournal wurde erzeugt; eigener Job und Streams sind beendet.
+Die gezielte Diagnose reproduzierte dessen neue `$home`-Zuweisung:
+PowerShell behandelt sie als schreibgeschuetztes `$HOME` und wirft
+`VariableNotWritable`/`SessionStateUnauthorizedAccessException`
+vor der Dateifixtureanlage. Die Quellkorrektur verwendet `$fixtureHome`;
+sie verlangt einen eigenen Build-/Vertragsnachweis.
+Build39 ist kein positiver nativer Praesenz- oder Recovery17-Nachweis.
+`build-39-result.json` hat SHA256
+`cabed4e4455a5c029be478c928d2458dacdf617810d3ae6f4935949ef80bef74`;
+`offline-86-result.json` hat
+`7b959a2d85d9a2ff9e08bac53822857a5db7c23a92d1ef830aeea6b85b913bd8`.
 Recovery17, FSN/EU-27, gemeinsame X-12/X-15-/Releaseabnahme,
 allgemeiner nativer Abbruchcleanup und Preview-/Cloudpromotion bleiben offen.
+
+### Prospektive 45-Minuten-Grenze
+
+Die nachfolgende ausdrueckliche Nutzerentscheidung erhoeht nur die
+Gesamtprozessgrenze der naechsten vollstaendigen Recovery-Suite
+von1800 auf **2700 Sekunden**. Der bereits beendete Recovery06 bleibt
+mit seinen urspruenglichen Timeout-, Cleanup- und Evidenzdateien negativ.
+Keine alte Datei wurde dafuer ersetzt oder umetikettiert.
+
+Die neue private Generation `Invoke-RecoveryBounded-v6.ps1` verwendet
+2700 beim wirklichen `Invoke-OwnedJobProcess`-Aufruf mit
+`-FullRecoveryProcess`, bei der gebundenen Konfiguration und bei der
+Pruefung der tatsaechlichen OS-Prozessdauer. `OwnedRecoveryJob-v3.ps1`
+laesst die Ausnahme ausschliesslich fuer den exakten oeffentlichen
+`scripts\Test-Recovery.ps1`-Einstieg zu. Sein Prozess-/Ownership-/Stop-/
+Streamcode ist abseits der begrenzten Budgetvorpruefung unveraendert.
+Die separate Abschlusspruefung bleibt60s, Einzeloperationen480s,
+Stop10s und Streams15s;17 Originalfaelle und11 Fixturegates bleiben gleich.
+
+Der gezielte Quellnachweis wertete die **tatsaechlichen beiden
+Aufruf-ASTs mit einem nicht startenden Empfaenger** aus und pruefte
+anschliessend den unveraenderten Guardcode im expliziten Dateikontext:
+2700 fuer den vollstaendigen Prozess,60 fuer den Abschluss.
+Unscoped2700,2701, anderer Einstieg und901 fuer einen anderen Prozess
+wurden abgewiesen. Das ist Konfigurations-/Aufrufbindung, **kein
+45-Minuten-Laufbeleg**. Der erste rein lesende Ableitungsversuch
+scheiterte vor Ausgabe an fehlendem `$PSScriptRoot`-Kontext im isolierten
+AST; die anschliessende Pruefung setzte diesen Dateikontext explizit.
+Beide starteten weder Recovery noch SQL/Browser.
+
+| Private Datei | SHA256 |
+|---|---|
+| `Invoke-RecoveryBounded-v6.ps1` | `c6070cce931a4402224dca868874761dffb0ef0790791a6ae79e53ce9f833891` |
+| `OwnedRecoveryJob-v3.ps1` | `6fe09d9b4c76cad38906ed90a7cc6cbc9741175be394d603c76b9c3180ca5497` |
+| `recovery-2700-binding.json` | `f7df0ee293e11e024c9e332aae600df26ec694e3e9b42ab11ac76473f8063fe3` |
+
+Die Budgetaenderung allein ist keine neue Ausfuehrungsfreigabe. Die
+gezielte Ursachenbehebung, frische Source-/Build-/Package-/Ressourcenbindung
+und dauerhafte vollstaendige Vorher-Evidenz vor mutierendem Cleanup
+bleiben Voraussetzungen. Es gab dafuer keinen neuen Vollversuch,
+keine Bereinigung, keine Preview-/Cloudpromotion.
 
 ### Wiederherstellung ausschliesslich der freigegebenen 742-Vorschau
 

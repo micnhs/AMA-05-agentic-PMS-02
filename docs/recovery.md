@@ -75,7 +75,7 @@ Sourcejournal wurde nicht veraendert.
 [Aktuelle Einzelbelege](validation.md#build37-recovery04-und-recovery05)
 trennen historische Ergebnisse, Sonderbereinigung und neue Quellarbeit.
 
-Am18.11.2026 wurde fuer den **naechsten vollstaendigen gemeinsamen
+Am18.11.2026 wurde zunaechst fuer den **naechsten vollstaendigen gemeinsamen
 Recovery-Pruefprozess** eine Obergrenze von30 Minuten/1800s erlaubt.
 Die17 Originalfaelle,11 Fixturegates,480s je Fixtureoperation und die
 separate60s-Abschlusspruefung bleiben unveraendert; Stop10s und
@@ -104,6 +104,20 @@ Die Beobachtung selbst behaelt `allowsNewRuntime=false`.
 [Einzelbelege und Diagnose](validation.md#recovery06-und-getrennte-testumfeldfreigabe)
 trennen diese Entscheidungen und Nachweise.
 
+Die spaetere ausdrueckliche Nutzerentscheidung setzt ausschliesslich
+den **naechsten gemeinsamen Recovery-Pruefprozess auf2700s/45 Minuten**.
+Die neue private Supervisorgeneration `Invoke-RecoveryBounded-v6.ps1`
+bindet diesen Wert sowohl im Aufruf als auch in der Prozessdauerpruefung;
+`OwnedRecoveryJob-v3.ps1` akzeptiert ihn nur fuer den ausdruecklichen
+vollstaendigen oeffentlichen Recovery-Einstieg. Die originale
+60s-Abschlusspruefung,480s-Einzeloperationen,10s-/15s-Nachlaeufe sowie
+17 Faelle/11 Gates bleiben gleich. Ein gezielter Aufruf-/Guardnachweis
+prueft die tatsaechlichen AST-Aufrufe ohne Prozessstart. Recovery06
+bleibt unveraendert negativ bei1800s; weder Ursachenbehebung noch
+die dauerhafte Cleanup-Vorherbindung werden durch die neue Grenze ersetzt.
+Die Aenderung allein startet keinen Recovery-, SQL- oder Browserlauf.
+[Budgetbindung](validation.md#prospektive-45-minuten-grenze)
+
 Die vorhandenen Metazeiten belegen wiederholte vollstaendige
 SQL-/Referenzpruefungen vor dem Abweisen fehlender EUDAMED-Originale.
 Die neue Quellkorrektur prueft deshalb zunaechst die notwendigen
@@ -114,7 +128,10 @@ werden frueher abgewiesen. Das ist keine Integritaets- oder
 Aktivierungsfreigabe; alle bisherigen Tabellen-, Audit-, Byte-,
 Retention-, Search- und Vorher-/Nachher-Pruefungen erfolgreicher Pfade
 bleiben bestehen. Die17 Originalfaelle und11 Fixturegates bleiben gleich.
-Der neue Code benoetigt seinen eigenen gebundenen Build und Nachweis.
+Der Code ist separat als4a82a8c/Build39 gebaut. Die erste kombinierte
+SQL-freie Pruefung bestand nur13/14; der neue Praesenzvertrag scheiterte.
+Ein positiver nativer Praesenz- oder vollstaendiger Recoverynachweis
+liegt fuer diese Korrektur noch nicht vor.
 
 Vor weiterer mutierender Sonderbereinigung muss der vollstaendige
 Vorher-Dateisatz inklusive explizit gebundener Loeschdateien mit

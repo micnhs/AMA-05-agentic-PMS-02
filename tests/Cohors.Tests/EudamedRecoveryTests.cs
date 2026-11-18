@@ -295,8 +295,8 @@ public sealed class EudamedRecoveryContractTests
                 if (-not $Text) { throw 'Presence probe only supplies a complete synthetic JSON read.' }
                 return Json $script:presenceRows
             }
-            $home = Split-Path (Split-Path $env:COHORS_EUDAMED_RECOVERY_SCRIPT -Parent) -Parent
-            $root = Assert-RecoveryPath (Join-Path $home ('.local\recovery-presence-contract-' + [Guid]::NewGuid().ToString('N'))) -New
+            $fixtureHome = Split-Path (Split-Path $env:COHORS_EUDAMED_RECOVERY_SCRIPT -Parent) -Parent
+            $root = Assert-RecoveryPath (Join-Path $fixtureHome ('.local\recovery-presence-contract-' + [Guid]::NewGuid().ToString('N'))) -New
             [IO.Directory]::CreateDirectory($root) | Out-Null
             try {
                 foreach ($hash in $references) {
