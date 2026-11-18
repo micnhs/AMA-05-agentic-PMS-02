@@ -81,23 +81,25 @@ class C1PackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "destination"):
             package.receive(path, package.digest(path.read_bytes()), self.commit, self.run_id, "1", retain_archive=True)
 
-    def test_historical_package_allowlist_is_not_expanded_by_the_new_worker_asset(self):
+    def historical_allowlist(self, contract, forbidden_asset):
         receipt = self.build()
         payload = package.read_zip((self.output / "package.zip").read_bytes())
-        asset = "assets/scripts/fabric/c1_private_stage.py"
-        del payload[asset]
+        removed = {"assets/" + name for name in set(package.SOURCE_ASSETS) - set(package.source_assets(contract))}
+        for asset in removed:
+            del payload[asset]
         manifest = package.object_json(payload["manifest.json"])
-        manifest["contract"] = package.LEGACY_CONTRACT
-        manifest["files"] = [item for item in manifest["files"] if item["path"] != asset]
+        manifest["contract"] = contract
+        manifest["files"] = [item for item in manifest["files"] if item["path"] not in removed]
         payload["manifest.json"] = package.encoded(manifest)
         legacy = self.root / "legacy.zip"
         package.write_zip(legacy, payload)
         data = legacy.read_bytes()
-        receipt.update(contract=package.LEGACY_CONTRACT, archiveSha256=package.digest(data), archiveLength=len(data),
+        receipt.update(contract=contract, archiveSha256=package.digest(data), archiveLength=len(data),
                        manifestSha256=package.digest(payload["manifest.json"]))
         verified, _ = package.verify(data, receipt, self.commit, self.run_id, "1")
-        self.assertEqual(package.LEGACY_CONTRACT, verified["contract"])
+        self.assertEqual(contract, verified["contract"])
 
+        asset = forbidden_asset
         payload[asset] = b"unexpected-retroactive-worker"
         manifest["files"].append({"path": asset, "length": len(payload[asset]), "sha256": package.digest(payload[asset])})
         payload["manifest.json"] = package.encoded(manifest)
@@ -108,6 +110,12 @@ class C1PackageTests(unittest.TestCase):
                        manifestSha256=package.digest(payload["manifest.json"]))
         with self.assertRaisesRegex(ValueError, "allowlist"):
             package.verify(data, receipt, self.commit, self.run_id, "1")
+
+    def test_historical_package_one_does_not_gain_the_worker_asset(self):
+        self.historical_allowlist(package.LEGACY_CONTRACT, "assets/scripts/fabric/c1_private_stage.py")
+
+    def test_historical_package_two_does_not_gain_the_network_asset(self):
+        self.historical_allowlist(package.WORKER_CONTRACT, "assets/infra/fabric/c1.network-access.json")
 
     def test_wrong_digest_source_or_attempt_never_creates_destination(self):
         path = self.outer()

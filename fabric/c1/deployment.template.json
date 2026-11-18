@@ -23,7 +23,19 @@
     "agentPrefix": null,
     "endpointPrefix": null,
     "egressReviewSha256": null,
-    "operatorReviewSha256": null
+    "operatorReviewSha256": null,
+    "operatorAccess": {
+      "contract": "cohors-fabric-c1-operator-network-1",
+      "gatewayPrefix": null,
+      "firewallPrefix": null,
+      "operatorEndpointPrefix": null,
+      "vpnClientPrefix": null,
+      "operatorObjectId": null,
+      "excludedPrefixes": [],
+      "httpsEgressFqdns": [],
+      "addressPlanReviewSha256": null,
+      "clientPrerequisitesReviewSha256": null
+    }
   },
   "compute": {
     "size": null,

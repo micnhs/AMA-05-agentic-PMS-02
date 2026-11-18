@@ -1,0 +1,121 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "name": { "type": "string", "minLength": 8, "maxLength": 20 },
+    "location": { "type": "string", "allowedValues": ["francecentral"] },
+    "tenantId": { "type": "string" },
+    "tags": { "type": "object" },
+    "network": { "type": "object" },
+    "vpnAudience": { "type": "string", "minLength": 36, "maxLength": 36 }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks", "apiVersion": "2024-05-01",
+      "name": "[concat(parameters('name'), '-vnet')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "properties": {
+        "addressSpace": { "addressPrefixes": ["[parameters('network').vnetPrefix]"] },
+        "subnets": [
+          { "name": "GatewaySubnet", "properties": { "addressPrefix": "[parameters('network').operatorAccess.gatewayPrefix]" } },
+          { "name": "AzureFirewallSubnet", "properties": { "addressPrefix": "[parameters('network').operatorAccess.firewallPrefix]" } }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses", "apiVersion": "2024-05-01",
+      "name": "[concat(parameters('name'), '-firewall-ip')]", "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]", "sku": { "name": "Standard" }, "zones": ["1", "2", "3"],
+      "properties": { "publicIPAllocationMethod": "Static", "publicIPAddressVersion": "IPv4" }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses", "apiVersion": "2024-05-01",
+      "name": "[concat(parameters('name'), '-vpn-ip')]", "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]", "sku": { "name": "Standard" }, "zones": ["1", "2", "3"],
+      "properties": { "publicIPAllocationMethod": "Static", "publicIPAddressVersion": "IPv4" }
+    },
+    {
+      "type": "Microsoft.Network/firewallPolicies", "apiVersion": "2024-05-01",
+      "name": "[concat(parameters('name'), '-firewall-policy')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "properties": {
+        "sku": { "tier": "Standard" }, "threatIntelMode": "Deny",
+        "dnsSettings": { "enableProxy": true, "servers": ["168.63.129.16"] }
+      }
+    },
+    {
+      "type": "Microsoft.Network/firewallPolicies/ruleCollectionGroups", "apiVersion": "2024-05-01",
+      "name": "[concat(parameters('name'), '-firewall-policy/c1-egress')]",
+      "dependsOn": ["[resourceId('Microsoft.Network/firewallPolicies', concat(parameters('name'), '-firewall-policy'))]"],
+      "properties": {
+        "priority": 200,
+        "ruleCollections": [{
+          "name": "ReviewedHttpsOnly", "priority": 200, "ruleCollectionType": "FirewallPolicyFilterRuleCollection",
+          "action": { "type": "Allow" },
+          "rules": [{
+            "name": "ExactReviewedHosts", "ruleType": "ApplicationRule",
+            "sourceAddresses": ["[parameters('network').clientPrefix]", "[parameters('network').agentPrefix]"],
+            "protocols": [{ "protocolType": "Https", "port": 443 }],
+            "targetFqdns": "[parameters('network').operatorAccess.httpsEgressFqdns]",
+            "terminateTLS": false
+          }]
+        }]
+      }
+    },
+    {
+      "type": "Microsoft.Network/azureFirewalls", "apiVersion": "2024-05-01",
+      "name": "[concat(parameters('name'), '-firewall')]", "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]", "zones": ["1", "2", "3"],
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', concat(parameters('name'), '-vnet'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('name'), '-firewall-ip'))]",
+        "[resourceId('Microsoft.Network/firewallPolicies/ruleCollectionGroups', concat(parameters('name'), '-firewall-policy'), 'c1-egress')]"
+      ],
+      "properties": {
+        "sku": { "name": "AZFW_VNet", "tier": "Standard" },
+        "autoscaleConfiguration": { "minCapacity": 2, "maxCapacity": 2 },
+        "firewallPolicy": { "id": "[resourceId('Microsoft.Network/firewallPolicies', concat(parameters('name'), '-firewall-policy'))]" },
+        "ipConfigurations": [{
+          "name": "c1",
+          "properties": {
+            "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('name'), '-vnet'), 'AzureFirewallSubnet')]" },
+            "publicIPAddress": { "id": "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('name'), '-firewall-ip'))]" }
+          }
+        }]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworkGateways", "apiVersion": "2024-05-01",
+      "name": "[concat(parameters('name'), '-vpn')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', concat(parameters('name'), '-vnet'))]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('name'), '-vpn-ip'))]"
+      ],
+      "properties": {
+        "gatewayType": "Vpn", "vpnType": "RouteBased", "vpnGatewayGeneration": "Generation1",
+        "activeActive": false, "enableBgp": false,
+        "sku": { "name": "VpnGw1AZ", "tier": "VpnGw1AZ" },
+        "ipConfigurations": [{
+          "name": "c1",
+          "properties": {
+            "privateIPAllocationMethod": "Dynamic",
+            "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('name'), '-vnet'), 'GatewaySubnet')]" },
+            "publicIPAddress": { "id": "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('name'), '-vpn-ip'))]" }
+          }
+        }],
+        "vpnClientConfiguration": {
+          "vpnClientAddressPool": { "addressPrefixes": ["[parameters('network').operatorAccess.vpnClientPrefix]"] },
+          "vpnClientProtocols": ["OpenVPN"], "vpnAuthenticationTypes": ["AAD"],
+          "aadTenant": "[concat('https://login.microsoftonline.com/', parameters('tenantId'), '/')]",
+          "aadIssuer": "[concat('https://sts.windows.net/', parameters('tenantId'), '/')]",
+          "aadAudience": "[parameters('vpnAudience')]"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "vnet": { "type": "object", "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', concat(parameters('name'), '-vnet')), '2024-05-01', 'Full')]" },
+    "firewall": { "type": "object", "value": "[reference(resourceId('Microsoft.Network/azureFirewalls', concat(parameters('name'), '-firewall')), '2024-05-01', 'Full')]" },
+    "vpn": { "type": "object", "value": "[reference(resourceId('Microsoft.Network/virtualNetworkGateways', concat(parameters('name'), '-vpn')), '2024-05-01', 'Full')]" },
+    "firewallPublicIp": { "type": "object", "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('name'), '-firewall-ip')), '2024-05-01', 'Full')]" },
+    "vpnPublicIp": { "type": "object", "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('name'), '-vpn-ip')), '2024-05-01', 'Full')]" }
+  }
+}

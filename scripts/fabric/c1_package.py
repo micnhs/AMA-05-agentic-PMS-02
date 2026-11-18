@@ -14,7 +14,9 @@ import zipfile
 
 
 LEGACY_CONTRACT = "cohors-fabric-c1-package-1"
-CONTRACT = "cohors-fabric-c1-package-2"
+WORKER_CONTRACT = "cohors-fabric-c1-package-2"
+CONTRACT = "cohors-fabric-c1-package-3"
+CONTRACTS = (LEGACY_CONTRACT, WORKER_CONTRACT, CONTRACT)
 REPOSITORY = "micnhs/AMA-05-agentic-PMS-02"
 BRANCH = "micnhs-cohors-fabric-umsetzung"
 WORKFLOW = ".github/workflows/cohors-fabric-contracts.yml"
@@ -36,7 +38,8 @@ LEGACY_SOURCE_ASSETS = (
     "src/Cohors.Api/ReportFonts/PDFsharp.LICENSE",
     "scripts/fabric/c1_package.py",
 )
-SOURCE_ASSETS = (*LEGACY_SOURCE_ASSETS, "scripts/fabric/c1_private_stage.py")
+WORKER_SOURCE_ASSETS = (*LEGACY_SOURCE_ASSETS, "scripts/fabric/c1_private_stage.py")
+SOURCE_ASSETS = (*WORKER_SOURCE_ASSETS, "infra/fabric/c1.network-access.json")
 FORBIDDEN_SUFFIXES = {".pfx", ".p12", ".pem", ".key", ".log", ".trx", ".pdb"}
 SECRET_PATTERNS = (
     re.compile(rb"-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----\s+[A-Za-z0-9+/=\r\n]{64,}-----END "),
@@ -62,8 +65,9 @@ def encoded(value):
 
 
 def source_assets(contract):
-    require(contract in (LEGACY_CONTRACT, CONTRACT), "Unsupported package contract")
-    return LEGACY_SOURCE_ASSETS if contract == LEGACY_CONTRACT else SOURCE_ASSETS
+    require(contract in CONTRACTS, "Unsupported package contract")
+    return {LEGACY_CONTRACT: LEGACY_SOURCE_ASSETS, WORKER_CONTRACT: WORKER_SOURCE_ASSETS,
+            CONTRACT: SOURCE_ASSETS}[contract]
 
 
 def object_json(data):
@@ -165,7 +169,7 @@ def validate_provenance(manifest, commit, run_id, attempt):
     require(set(manifest) == {"contract", "repository", "branch", "workflow", "sdkVersion", "sourceCommit", "runId",
                              "runAttempt", "request", "sourceLocks", "evidenceLevel", "files"} and
             manifest.get("evidenceLevel") == "source-build-not-native-windows-or-cloud-evidence", "Unexpected package metadata")
-    require(manifest.get("contract") in (LEGACY_CONTRACT, CONTRACT) and manifest.get("repository") == REPOSITORY and
+    require(manifest.get("contract") in CONTRACTS and manifest.get("repository") == REPOSITORY and
             manifest.get("branch") == BRANCH and manifest.get("workflow") == WORKFLOW and
             manifest.get("sdkVersion") == SDK and manifest.get("sourceCommit") == commit and
             manifest.get("runId") == str(run_id) and manifest.get("runAttempt") == str(attempt) and
@@ -264,7 +268,7 @@ def read_zip(data, names=None):
 
 def verify(data, receipt, commit, run_id, attempt):
     require(set(receipt) == {"contract", "sourceCommit", "runId", "runAttempt", "archiveSha256", "archiveLength", "manifestSha256"} and
-            receipt.get("contract") in (LEGACY_CONTRACT, CONTRACT) and receipt.get("sourceCommit") == commit and
+            receipt.get("contract") in CONTRACTS and receipt.get("sourceCommit") == commit and
             receipt.get("runId") == str(run_id) and receipt.get("runAttempt") == str(attempt) and
             receipt.get("archiveLength") == len(data) and receipt.get("archiveSha256") == digest(data), "Archive digest/run binding differs")
     payload = read_zip(data)

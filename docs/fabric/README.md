@@ -162,12 +162,39 @@ Implemented source components:
   private VM/VNet/subnets, DNS, Key Vault, private storage/ACR, and a Foundry
   account with injection at creation plus a separate project identity.
   The selected technical work profile is F2/FranceCentral, not a live quota/cost
-  result. Client-subnet NAT plus a dedicated static egress IPv4 provide explicit
-  translation without a public VM NIC; they are not a FQDN filter or a proven
-  artifact/Managed Run Command path. Both remain in the cost/cleanup inventory.
+  result. The new `c1.network-access.json` stage owns its Standard Firewall,
+  DNS proxy, two fixed default instances, active-passive VpnGw1AZ/OpenVPN
+  gateway and their separate static Standard IPv4 addresses. Foundation v2
+  consumes the observed firewall address before creating workloads, sets VNet
+  DNS and attaches the default route only to `client` and `agents`.
+  This replaces NAT in the new resource graph; it does not delete or adopt an
+  earlier deployment. GatewaySubnet and AzureFirewallSubnet have neither an
+  NSG nor a default route table. No public VM NIC, DNAT, TLS interception,
+  shared gateway or primary peering is added.
   Vault purge protection and seven-day soft-delete retention are enabled; the
   deleted-vault/name tail is retained rather than falsely reported as purged.
   `c1.workspace-network.json` binds workspace PLS/PE/DNS from creation outputs.
+  Own workspace, Vault and artifact-Blob bootstrap endpoints use the dedicated
+  NSG-protected `operator-endpoints` subnet. P2S has HTTPS access only there,
+  not to VM/ACR/Hosted endpoints. Workload callers retain HTTPS to both endpoint
+  subnets. The service-specific identity and data grants still apply.
+- `FabricC1OperatorNetwork` binds nonoverlapping canonical private prefixes,
+  explicit excluded workstation/other-network prefixes, exact reviewed HTTPS
+  hostnames and client/address-review references. Wildcards, URL/IP aliases
+  and absent private routing review are not executable inputs. Null omission
+  preserves historic deployment hashes; legacy identity cleanup does not
+  require retroactively inserting a VPN profile.
+  `EnsureOperatorNetworkIdentity` creates a separate, credential-free custom
+  Entra audience and assignment-required SP. Only the bound original operator
+  gets the default application assignment; this is not a Cohors/Fabric role.
+  The Microsoft-registered Azure VPN Client is preauthorized for that own scope.
+  It does not change the deployment client's OAuth context, grant Microsoft API
+  access, create tenant consent or modify Conditional Access. Client MFA and
+  connectivity still need their own real sign-in evidence.
+  Identifier PATCH and operator POST are journaled before effect; uncertain
+  responses reconcile without reissuing either write. Additional owners,
+  assignments, credentials or scopes block continuation/identity cleanup.
+  Removing this own SP/app does not delete a user or the Microsoft VPN Client.
 - `FabricC1Provisioner` implements journal-before-effect creation, exact
   manifest/ownership checks, bounded inventory, unknown-create reconciliation
   without blind POST replay, ARM deployment polling, distinct ARM/Fabric
@@ -248,14 +275,17 @@ and final execution binding; an independent deadline/stop/cleanup executor.
 The foundation
 NSG is only a deny-by-default candidate, **not an implemented FQDN filter or
 working Managed Run Command route**. Do not deploy the template alone and
-leave paid resources waiting for these gaps. Firewall/VPN remain absent/off.
-In particular, B5 uses documented delegated notebook authoring and still lacks
-an approved complete workstation-to-workspace-private-endpoint connection.
-Neither P2S VPN nor Relay has been selected. This is an open access gate, not a
-Fabric product rejection. Managed Run Command, public workspace calls, an
-HTTP-parsing Relay or copying the user's bearer to a worker do not close it.
-Any later connection decision must bind client prerequisites, DNS, unchanged
-Fabric identity, separate network authentication, costs and stop/removal.
+leave paid resources waiting for these gaps. The user has now explicitly selected
+an own Azure Firewall and own Point-to-Site VPN gateway into the own Azure VNet,
+not into Fabric SaaS and not a shared primary network. B5 still uses documented
+delegated notebook authoring. Its transport selection is resolved; installation,
+configuration and native private access are not thereby proven.
+The implementation binds an isolated VPN Entra audience and operator assignment,
+separate from the unchanged Fabric/deployment OAuth client and Cohors roles.
+Client prerequisites, private DNS, narrow service access, costs and stop/removal
+must be bound before activation. No automatic client install or connection is
+assumed. Managed Run Command, public workspace calls, an HTTP-parsing Relay or
+copying the user's bearer to a worker remain invalid substitutes.
 
 `FabricC1BlobCheckpointStore` now provides a separate versioned checkpoint
 consumer, not yet the complete Hosted delivery/bootstrap path. It requires an
@@ -428,9 +458,11 @@ results, PDBs or unknown package files are included. Content checks include
 credential-shaped strings in binary UTF-16 as well as text. Unknown entries,
 unbound dependencies, path aliases/links, or an over-limit archive fail closed.
 Package contract `cohors-fabric-c1-package-2` adds only the explicitly listed
-`scripts/fabric/c1_private_stage.py` operator asset. Historical package-1
-verification retains its original exact allowlist; it does not retroactively
-permit the new file or alter existing archive hashes.
+`scripts/fabric/c1_private_stage.py` operator asset. Package-3 additionally lists
+`infra/fabric/c1.network-access.json` for the explicitly selected isolated
+Firewall/P2S path. Historical package-1 and package-2 verification retain their
+original exact allowlists; neither silently gains a new file. Existing archive
+hashes are not altered.
 
 Each included file has a length and SHA256 in `manifest.json`, bound to the
 source SHA, repository/branch/workflow, run/attempt, SDK and source lock hashes.
@@ -495,7 +527,7 @@ delivery through the Guest Agent, FQDN egress, durable result reconciliation and
 ordered Blob/VM cleanup are **not integrated** by this receiver. The five
 whole-profile blockers therefore remain. No user bearer, GitHub credential,
 storage key or SAS is accepted by or copied to this worker. This implementation
-does not choose the still-open B5 operator connection or supply a full installer,
+does not implement the now-selected B5 P2S connection or supply a full installer,
 G03/G04 pass, independent cloud stop or monetary hard cap.
 Sources: [VM IMDS identity protocol](https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/how-to-use-vm-token),
 [Blob GET and least-privilege authorization](https://learn.microsoft.com/rest/api/storageservices/get-blob).

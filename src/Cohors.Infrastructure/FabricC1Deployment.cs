@@ -8,7 +8,11 @@ using Cohors.Domain;
 namespace Cohors.Infrastructure;
 
 public sealed record FabricC1DeploymentNetwork(string? VnetPrefix, string? ClientPrefix, string? AgentPrefix,
-    string? EndpointPrefix, string? EgressReviewSha256, string? OperatorReviewSha256);
+    string? EndpointPrefix, string? EgressReviewSha256, string? OperatorReviewSha256)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FabricC1OperatorNetwork? OperatorAccess { get; init; }
+}
 public sealed record FabricC1DeploymentCompute(string? Size, string? ImagePublisher, string? ImageOffer,
     string? ImageSku, string? ImageVersion, string? SshPublicKey);
 public sealed record FabricC1DeploymentReviews(string? StartRightsSha256, string? TenantSettingsSha256,
@@ -34,7 +38,7 @@ public sealed record FabricC1DeploymentPlan(string Status, string BindingHash, s
     public string EvidenceLevel => "offline-deployment-contract-not-service-evidence";
 }
 
-public static class FabricC1Deployment
+public static partial class FabricC1Deployment
 {
     public const string Contract = "cohors-fabric-c1-deployment-1";
     public static string[] ImplementationBlockers =>
@@ -84,6 +88,8 @@ public static class FabricC1Deployment
             Required("network.egressReviewSha256", FabricC1Execution.Hex(network.EgressReviewSha256, 64));
             Required("network.operatorReviewSha256", FabricC1Execution.Hex(network.OperatorReviewSha256, 64));
             Required("network.prefixes", ValidPrefixes(network));
+            foreach (var missingNetworkInput in OperatorNetworkMissingInputs(input))
+                Required(missingNetworkInput, false);
         }
         Required("compute", input.Compute is not null);
         if (input.Compute is { } compute)
@@ -107,15 +113,18 @@ public static class FabricC1Deployment
         return new("Blocked", Canonical.Hash(input), missing.ToArray(), ImplementationBlockers.ToArray(),
         [
             "Own resource group; one F2, overage disabled",
-            "Own VNet, client/agent/private-endpoint subnets; no public VM IP",
-            "Client-subnet Standard NAT gateway and dedicated static Standard IPv4; connectivity only, not a FQDN filter",
+            "Own VNet, separate workload/internal/operator-endpoint subnets; no public VM IP or peering",
+            "Own Standard Azure Firewall with DNS proxy, exact reviewed HTTPS FQDNs and workload-only default routes; no NAT gateway",
+            "Own VpnGw1AZ/OpenVPN gateway and restricted own Entra audience; GatewaySubnet has no NSG/default route",
+            "Two dedicated Standard static IPv4 addresses for firewall and active-passive VPN, not public application endpoints",
             "Private DNS, Fabric workspace PLS/PE, Foundry/ACR/Vault/Blob PE",
             "Foundry account with network injection from creation and separate project identity",
             "Premium ACR, RBAC Key Vault, private Blob evidence storage, private probe VM",
-            "No Firewall, VPN, Bastion, C2 archive, SQL journal or production resource"
+            "No Bastion, Relay, C2 archive, SQL journal or production resource in the narrow C1 profile"
         ],
         [
             "Graph application with public certificate, service principal, exact ownership",
+            "Separate credential-free VPN audience and operator assignment; not a Fabric runtime identity or Cohors approval role",
             "Fabric capacity ID readback; owned workspaces; full Deny/Deny communication policies with ETags",
             "Owned Lakehouse/DataAgent item APIs, published definition readback, scoped workspace assignments",
             "Private source/credential/Hosted bootstrap and complete output binding: BLOCKED, see implementationBlockers"
@@ -147,7 +156,7 @@ public static class FabricC1Deployment
         ["tenantId"] = new JsonObject { ["value"] = input.TenantId },
         ["tags"] = new JsonObject { ["value"] = Tags(input) },
         ["capacityAdministrators"] = new JsonObject { ["value"] = JsonSerializer.SerializeToNode(input.CapacityAdministrators, Canonical.Json) },
-        ["network"] = new JsonObject { ["value"] = JsonSerializer.SerializeToNode(input.Network, Canonical.Json) },
+        ["network"] = new JsonObject { ["value"] = FabricC1Provisioner.ArmNetworkValue(input.Network) },
         ["compute"] = new JsonObject { ["value"] = JsonSerializer.SerializeToNode(input.Compute, Canonical.Json) }
     };
 
@@ -301,7 +310,9 @@ public sealed partial class FabricC1Provisioner
             "Microsoft.Resources/subscriptions/resourceGroups/write", "Microsoft.Resources/deployments/write",
             "Microsoft.Fabric/capacities/write", "Microsoft.Fabric/privateLinkServicesForFabric/write",
             "Microsoft.Network/virtualNetworks/write", "Microsoft.Network/privateEndpoints/write",
-            "Microsoft.Network/natGateways/write", "Microsoft.Network/publicIPAddresses/write",
+            "Microsoft.Network/azureFirewalls/write", "Microsoft.Network/firewallPolicies/write",
+            "Microsoft.Network/firewallPolicies/ruleCollectionGroups/write", "Microsoft.Network/virtualNetworkGateways/write",
+            "Microsoft.Network/routeTables/write", "Microsoft.Network/networkSecurityGroups/write", "Microsoft.Network/publicIPAddresses/write",
             "Microsoft.Network/privateDnsZones/write", "Microsoft.Compute/virtualMachines/write",
             "Microsoft.Compute/virtualMachines/runCommands/read", "Microsoft.Compute/virtualMachines/runCommands/write",
             "Microsoft.Compute/virtualMachines/runCommands/delete", "Microsoft.Authorization/roleAssignments/write",
@@ -476,7 +487,13 @@ public sealed partial class FabricC1Provisioner
 
     public async Task<JsonObject> DeployArm(string stage, JsonObject template, JsonObject parameters, CancellationToken ct)
     {
-        Guard.Against(stage is not ("foundation" or "private-endpoints"), "c1_deploy_stage", "Unknown ARM stage.", 409);
+        Guard.Against(stage is not ("network-access" or "foundation" or "private-endpoints"), "c1_deploy_stage", "Unknown ARM stage.", 409);
+        if (stage == "network-access")
+            Guard.Against(!JsonNode.DeepEquals(parameters, OperatorNetworkArmParameters()),
+                "c1_deploy_operator_network", "Network parameters must originate from the own verified VPN identity.", 409);
+        if (stage == "foundation" && input.Network?.OperatorAccess is not null)
+            Guard.Against(!JsonNode.DeepEquals(parameters, NetworkedFoundationArmParameters()),
+                "c1_deploy_operator_network", "Foundation must use its recorded firewall, not a supplied DNS or egress address.", 409);
         Owned("resource-group", "ResourceGroup");
         await EnsureResourceGroup(ct);
         var group = FabricC1Deployment.GroupId(input);
@@ -535,7 +552,7 @@ public sealed partial class FabricC1Provisioner
                 return result.Body;
             }
             Guard.Against(status is not ("Accepted" or "Running" or "Creating"), "c1_deploy_arm_failed", "ARM deployment did not succeed.", 409);
-            await Task.Delay(TimeSpan.FromSeconds(5), ct);
+            await Task.Delay(TimeSpan.FromSeconds(stage == "network-access" ? 30 : 5), time, ct);
         }
         throw new DomainException("c1_deploy_arm_timeout", "ARM operation remains pending; resume the same deployment.", 409);
     }
@@ -797,11 +814,27 @@ public sealed partial class FabricC1Provisioner
             Guard.Against(Text(item, "signInAudience") != "AzureADMyOrg", "c1_deploy_app_tenant", "Runtime application must be single-tenant.", 409);
             GuidValue(Text(item, "appId"));
             var owners = await ReadAll(collection + "/" + Text(item, "id") + "/owners?$select=id", true, ct, cleanup);
-            Guard.Against(!owners.Any(owner => owner["id"]?.GetValue<string>() == input.BootstrapIdentity!.PrincipalObjectId),
+            Guard.Against(!owners.Any(owner => string.Equals(owner["id"]?.GetValue<string>(),
+                    input.BootstrapIdentity!.PrincipalObjectId, StringComparison.OrdinalIgnoreCase)),
                 "c1_deploy_app_owner", "Bound creator is not a verified application owner.", 409);
             Guard.Against(cleanup && owners.Length != 1, "c1_deploy_cleanup_ownership", "Additional application owners require review before deletion.", 409);
+            if (request["api"] is not null)
+            {
+                Guard.Against(owners.Length != 1, "c1_deploy_app_owner", "The isolated VPN audience gained another owner.", 409);
+                VerifyOperatorVpnApplication(item, request);
+            }
         }
-        if (kind == "ServicePrincipal") SameId(Text(item, "appId"), Text(request, "appId"));
+        if (kind == "ServicePrincipal")
+        {
+            SameId(Text(item, "appId"), Text(request, "appId"));
+            if (request["appRoleAssignmentRequired"]?.GetValue<bool>() == true)
+            {
+                Guard.Against(item["appRoleAssignmentRequired"]?.GetValue<bool>() != true ||
+                    item["accountEnabled"]?.GetValue<bool>() != true,
+                    "c1_deploy_vpn_application", "The VPN enterprise application no longer requires explicit assignment.", 409);
+                if (cleanup) await ReadOperatorVpnAssignments(Text(item, "id"), ct, true);
+            }
+        }
         if (kind == "SecurityGroup")
         {
             var groupId = Text(item, "id");

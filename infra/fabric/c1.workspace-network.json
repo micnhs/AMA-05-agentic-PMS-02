@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-  "contentVersion": "1.0.0.0",
+  "contentVersion": "2.0.0.0",
   "parameters": {
     "name": { "type": "string" },
     "location": { "type": "string" },
@@ -8,6 +8,13 @@
     "tags": { "type": "object" },
     "workspaces": { "type": "array", "minLength": 1 },
     "endpoints": { "type": "array", "minLength": 1 }
+  },
+  "variables": {
+    "operatorTargets": [
+      "[toLower(resourceId('Microsoft.KeyVault/vaults', concat(parameters('name'), 'kv')))]",
+      "[toLower(resourceId('Microsoft.Storage/storageAccounts', concat(parameters('name'), 'st')))]"
+    ],
+    "workspaceLinkPrefix": "[toLower(concat(resourceGroup().id, '/providers/Microsoft.Fabric/privateLinkServicesForFabric/', parameters('name'), '-'))]"
   },
   "resources": [
     {
@@ -27,7 +34,7 @@
       "location": "[parameters('location')]", "tags": "[parameters('tags')]",
       "dependsOn": ["workspaceLinks"],
       "properties": {
-        "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('name'), '-vnet'), 'endpoints')]" },
+        "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('name'), '-vnet'), if(or(contains(variables('operatorTargets'), toLower(parameters('endpoints')[copyIndex()].resourceId)), startsWith(toLower(parameters('endpoints')[copyIndex()].resourceId), variables('workspaceLinkPrefix'))), 'operator-endpoints', 'endpoints'))]" },
         "privateLinkServiceConnections": [{
           "name": "c1",
           "properties": {

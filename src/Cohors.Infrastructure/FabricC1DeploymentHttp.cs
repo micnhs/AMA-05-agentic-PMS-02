@@ -18,6 +18,7 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         string? ifMatch = null, CancellationToken ct = default)
     {
         var (scope, audience, issuer) = Binding(method, uri);
+        if (uri.IdnHost == "graph.microsoft.com") ValidateOperatorVpnWrite(method, uri, body);
         if (uri.IdnHost == "api.fabric.microsoft.com" &&
             uri.AbsolutePath == "/v1/admin/tenantsettings/" + FabricC1Provisioner.WorkspaceInboundSettingName + "/update")
             Guard.Against(method != HttpMethod.Post || body?["enabled"] is not JsonValue enabled ||
@@ -56,6 +57,33 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         AllowAutoRedirect = false, UseCookies = false, UseProxy = false
     }) { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
 
+    private void ValidateOperatorVpnWrite(HttpMethod method, Uri uri, JsonObject? body)
+    {
+        static string? Value(JsonNode? node) =>
+            node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+        if (method == HttpMethod.Post && uri.AbsolutePath.EndsWith("/appRoleAssignedTo", StringComparison.Ordinal))
+        {
+            var principal = Value(body?["principalId"]);
+            var resource = Value(body?["resourceId"]);
+            Guard.Against(input.BootstrapIdentity?.CredentialKind != "DelegatedAzureCli" ||
+                input.Network?.OperatorAccess is null || body?.Count != 3 ||
+                !Guid.TryParse(principal, out var user) || user == Guid.Empty ||
+                !Guid.TryParse(input.Network.OperatorAccess.OperatorObjectId, out var expectedUser) || user != expectedUser ||
+                !Guid.TryParse(resource, out var target) || target == Guid.Empty ||
+                !Guid.TryParse(uri.AbsolutePath.Split('/')[3], out var pathTarget) || target != pathTarget ||
+                Value(body["appRoleId"]) != Guid.Empty.ToString("D"),
+                "c1_deploy_vpn_assignment_scope", "Only the bound VPN operator's default application assignment is allowed.", 409);
+        }
+        if (method == HttpMethod.Patch)
+        {
+            var identifier = body?["identifierUris"] is JsonArray { Count: 1 } identifiers ? Value(identifiers[0]) : null;
+            Guard.Against(input.Network?.OperatorAccess is null || body?.Count != 1 ||
+                identifier is null || !identifier.StartsWith("api://", StringComparison.Ordinal) ||
+                !Guid.TryParse(identifier[6..], out var id) || id == Guid.Empty,
+                "c1_deploy_vpn_application_scope", "The only Graph PATCH is the isolated VPN API identifier; no consent or credential update.", 409);
+        }
+    }
+
     private (string Scope, string Audience, string? Issuer) Binding(HttpMethod method, Uri uri)
     {
         Guard.Against(uri.Scheme != "https" || uri.Port != 443 || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0,
@@ -71,7 +99,7 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
                 return ("https://management.azure.com/.default", input.ControlTokenBindings!.ArmAudience!, input.ControlTokenBindings.ArmIssuer);
             case "graph.microsoft.com":
                 Guard.Against(!GraphPathAllowed(method, uri.AbsolutePath),
-                    "c1_deploy_graph_scope", "Graph bootstrap does not mutate consent, tenant policy or roles.", 409);
+                    "c1_deploy_graph_scope", "Graph bootstrap permits only its bound object operations, not tenant consent, policy or directory roles.", 409);
                 RequireControlTokenBindings();
                 return ("https://graph.microsoft.com/.default", input.ControlTokenBindings!.GraphAudience!, input.ControlTokenBindings.GraphIssuer);
             case "api.fabric.microsoft.com":
@@ -157,7 +185,10 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         if (parts[1] is not ("applications" or "servicePrincipals" or "groups")) return false;
         if (parts.Length == 2) return method == HttpMethod.Get || method == HttpMethod.Post;
         if (!Guid.TryParse(parts[2], out var id) || id == Guid.Empty) return false;
-        if (parts.Length == 3) return method == HttpMethod.Get || method == HttpMethod.Delete;
+        if (parts.Length == 3) return method == HttpMethod.Get || method == HttpMethod.Delete ||
+            parts[1] == "applications" && method == HttpMethod.Patch;
+        if (parts.Length == 4 && parts[1] == "servicePrincipals" && parts[3] == "appRoleAssignedTo")
+            return method == HttpMethod.Get || method == HttpMethod.Post;
         if (parts.Length == 4 && method == HttpMethod.Get)
             return parts[1] is "applications" or "groups" && parts[3] == "owners" ||
                 parts[1] == "servicePrincipals" && parts[3] == "ownedObjects";
@@ -170,6 +201,10 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
     private static FabricC1GraphOperation GraphOperation(HttpMethod method, Uri uri)
     {
         if (uri.AbsolutePath == "/v1.0/me") return FabricC1GraphOperation.UserRead;
+        if (uri.AbsolutePath.StartsWith("/v1.0/servicePrincipals/", StringComparison.Ordinal) &&
+            uri.AbsolutePath.EndsWith("/appRoleAssignedTo", StringComparison.Ordinal))
+            return method == HttpMethod.Get ? FabricC1GraphOperation.AppRoleAssignmentsRead :
+                FabricC1GraphOperation.AppRoleAssignmentGrant;
         if (uri.AbsolutePath.StartsWith("/v1.0/groups", StringComparison.Ordinal))
             return method == HttpMethod.Get ? FabricC1GraphOperation.GroupRead :
                 uri.AbsolutePath == "/v1.0/groups" && method == HttpMethod.Post ? FabricC1GraphOperation.GroupCreate :

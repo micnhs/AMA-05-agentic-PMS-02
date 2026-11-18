@@ -93,8 +93,9 @@ The R4 package still requires specific egress/operator/runtime-credential/AI-pol
 choices and effective start scopes; it does not require manually created
 runtime resources or repeat the general C1/cost approval.
 
-Package-2 now explicitly allows the verify-only Linux private artifact receiver;
-historical package-1 keeps its exact prior allowlist. Optional operator retention
+Package-2 explicitly allows the verify-only Linux private artifact receiver.
+Package-3 adds only the named `infra/fabric/c1.network-access.json` asset;
+historical package-1/2 keep their exact prior allowlists. Optional operator retention
 preserves the original verified outer ZIP for transport, without uploading or
 executing it. The receiver binds private DNS/socket/TLS, the own VM's app-only
 IMDS identity, an exact isolated Blob path, source/run/archive/tool hashes and
@@ -103,10 +104,21 @@ credential, key or SAS and never executes the extracted payload. These are
 source contracts, not a native private delivery result. The private upload,
 artifact-container RBAC/readback, trusted Guest Agent bootstrap, FQDN egress,
 durable reconciliation and ordered artifact cleanup remain driver gaps.
-B5 separately has no approved complete delegated workstation-to-workspace-PE
-route; no VPN or Relay choice follows from the unanswered access question.
-Public workspace/HTTP Relay/token-copy workarounds are not permitted. No new
-cost/consent question or speculative tunnel is introduced by this increment.
+B5 access selection has now been explicitly extended to an own Point-to-Site
+VPN gateway into this variant's own Azure VNet/private endpoints, together with
+an own Azure Firewall. The earlier unanswered choice is superseded, not a
+functional proof. No gateway, firewall, VNet or implicit peering is shared with
+the primary solution. Gateway/firewall subnets, a nonoverlapping client pool,
+private DNS, restricted routes/egress, separate network authentication and
+cost/stop inventory are being integrated into this same deployment path.
+Client access must not imply direct access to every internal service.
+No automatic VPN-client installation/connection, changed bootstrap actor,
+transferred user bearer, Cohors role grant or tenant networking change follows.
+The original budgets/deadlines remain binding; any concrete conflict must be
+reported rather than silently raising limits. No general VPN/firewall approval
+is requested again. Public workspace/HTTP Relay/token-copy workarounds remain
+forbidden; delegated notebook authoring and native B5 path verification remain
+outstanding.
 
 ARM resume now records and checks the actual operation's parameters,
 correlation and provider template hash, and rechecks the owned resource group.
@@ -135,12 +147,61 @@ write or an authorization result. Existing file arguments retain their semantics
 The component does not close the whole certificate/durable-state driver gap,
 prove a remote task stopped, or constitute a native Blob/recovery result.
 
-The foundation now explicitly attaches its own Standard NAT/static IPv4 to the
-client subnet without a public VM NIC or default outbound access. This fixes
-the missing address-translation component, not the still-unfinished FQDN filter,
-Guest Agent/Managed Run Command or artifact route. NAT/PIP must be priced and
-deleted with the C1 inventory; VM deallocation alone does not stop their charges.
-No inference about the delegated Hosted subnet follows from the VM NAT change.
+The newly selected network graph replaces the earlier NAT candidate, not an
+existing resource: own Standard Firewall with DNS proxy and two fixed default
+instances; own active-passive VpnGw1AZ/OpenVPN with a separate restricted Entra
+audience; two Standard static IPv4 addresses. The first network ARM stage creates
+the gateway/firewall subnets and edge services. Foundation v2 uses the actual
+firewall address to set VNet DNS and workload-only default routes before creating
+VM/Hosted resources. A separate operator-endpoint subnet restricts P2S HTTPS to
+own workspace, Vault and artifact-Blob bootstrap paths. Internal ACR/Hosted
+endpoints and VM remain inaccessible from the P2S pool. No GatewaySubnet NSG or
+default route, TLS termination, DNAT, Relay, peering or shared network is added.
+The own VPN app has no credential or Microsoft API permissions. Its operator
+assignment does not confer business roles; neither it nor its token replaces
+the original Fabric/deployment identity. No directory role, tenant-wide consent
+or Conditional Access change is requested. Actual VPN sign-in/MFA, profile
+import, DNS/socket/TLS and positive/negative access readbacks remain outstanding.
+The source methods and templates are not a functioning Guest Agent/Managed Run
+Command/Hosted path or a completed bootstrap. The full-profile blockers remain.
+Firewall and gateway/IP charges continue after VM deallocation; their ordered
+delete/absence checks remain part of the unfinished full cleanup.
+
+Public FranceCentral retail observations (2026-11-18) separately price Firewall
+Standard deployment at USD1.25/hour, VpnGw1AZ at USD0.21/hour and each dedicated
+Standard static IPv4 at USD0.005/hour. Those new fixed positions total
+USD70.56/48h, before Firewall data processing (USD0.016/GB), bandwidth and the
+rest of the revised BOM. This is neither the complete-package total nor a
+monetary hard cap, and is not simply added to the earlier partial NAT-based sum.
+The Firewall pricing page identifies capacity units as optional prescaling
+charges; the technical prescaling billing section separately excludes the two
+default instances. The bounded C1 profile sets min=max=2 and does not authorize
+additional instances. Its forecast is therefore zero additional CU-hours only
+under those conditions, not an observed invoice or entitlement. Actual resource
+capacity and charged quantities still require readback. The USD0.07/CU-hour
+meter is retained in the cost evidence, not omitted.
+The VpnGw1AZ pricing table includes P2S connections 1-128, then charges per
+connection-hour for 129-250; the observed regional P2S Connection meter is
+USD0.01/hour. The narrow profile selects one named operator but does not equate
+one identity with one enforced concurrent connection. The forecast must track
+`max(0, concurrentConnections - 128)` and observed connection counts; no
+additional-connection allowance is silently purchased. P2S outbound data remains
+subject to bandwidth charges. Data-processing bytes, billing-hour rounding,
+actual subscription prices and the rest of the BOM are not proven by a retail
+lookup or fixed autoscale settings. No quota increase, region/SKU fallback or
+original deadline reset follows.
+Gateway creation may take 45 minutes or longer. Network-stage polling is bounded
+to the existing journal/request/deadline limits, with no recreation or budget
+reset on resume; a limited wait is not guaranteed sufficient capacity or success.
+Sources: [Firewall DNS](https://learn.microsoft.com/azure/firewall/dns-settings),
+[prescaling/billing](https://learn.microsoft.com/azure/firewall/prescaling),
+[VPN gateway constraints](https://learn.microsoft.com/azure/vpn-gateway/vpn-gateway-about-vpn-gateway-settings),
+[custom VPN audience](https://learn.microsoft.com/azure/vpn-gateway/point-to-site-entra-register-custom-app),
+[explicit assignments](https://learn.microsoft.com/azure/vpn-gateway/point-to-site-entra-users-access),
+[Firewall pricing conditions](https://azure.microsoft.com/pricing/details/azure-firewall/),
+[VPN pricing and included connections](https://azure.microsoft.com/pricing/details/vpn-gateway/),
+[public retail API](https://prices.azure.com/api/retail/prices).
+
 Vault purge protection is enabled with seven-day soft-delete retention. Cleanup
 must record the retained deleted vault/name until the service purges it; no
 immediate-purge or all-resources-erased-in-48-hours claim is possible. This is a

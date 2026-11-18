@@ -3,7 +3,11 @@ using Cohors.Domain;
 
 namespace Cohors.Infrastructure;
 
-public enum FabricC1GraphOperation { OwnApplications, ApplicationCreate, UserRead, GroupRead, GroupCreate, GroupDelete, GroupMembers }
+public enum FabricC1GraphOperation
+{
+    OwnApplications, ApplicationCreate, UserRead, GroupRead, GroupCreate, GroupDelete, GroupMembers,
+    AppRoleAssignmentsRead, AppRoleAssignmentGrant
+}
 
 public sealed record FabricC1GraphRights(bool Delegated, string[] Permissions)
 {
@@ -25,6 +29,10 @@ public sealed record FabricC1GraphRights(bool Delegated, string[] Permissions)
             FabricC1GraphOperation.GroupDelete => Has("Group.ReadWrite.All", "Directory.ReadWrite.All"),
             FabricC1GraphOperation.GroupMembers => applicationAll &&
                 Has("GroupMember.ReadWrite.All", "Group.ReadWrite.All", "Directory.ReadWrite.All"),
+            FabricC1GraphOperation.AppRoleAssignmentsRead =>
+                applicationAll || Has("Application.Read.All", "Directory.Read.All"),
+            FabricC1GraphOperation.AppRoleAssignmentGrant => Has("AppRoleAssignment.ReadWrite.All") &&
+                (applicationAll || Has("Application.Read.All", "Directory.Read.All")),
             _ => false
         };
     }
@@ -85,18 +93,34 @@ public sealed partial class FabricC1Provisioner
             ApplicationBody(role), true, ct);
     }
 
-    private JsonObject ApplicationBody(string role) => new()
+    private JsonObject ApplicationBody(string role)
     {
-        ["displayName"] = FabricC1Deployment.Name(input) + "-" + role, ["signInAudience"] = "AzureADMyOrg", ["tags"] = new JsonArray(Marker),
-        ["owners@odata.bind"] = new JsonArray($"https://graph.microsoft.com/v1.0/directoryObjects/{input.BootstrapIdentity!.PrincipalObjectId}")
-    };
+        var body = new JsonObject
+        {
+            ["displayName"] = FabricC1Deployment.Name(input) + "-" + role, ["signInAudience"] = "AzureADMyOrg", ["tags"] = new JsonArray(Marker),
+            ["owners@odata.bind"] = new JsonArray($"https://graph.microsoft.com/v1.0/directoryObjects/{input.BootstrapIdentity!.PrincipalObjectId}")
+        };
+        if (role == FabricC1Deployment.VpnIdentityRole) AddOperatorVpnApplicationFields(body);
+        return body;
+    }
 
     public Task<JsonObject> EnsurePrincipalForRole(string role, CancellationToken ct)
     {
         RequireIdentityRole(role);
         var appId = Text(Owned(role + "-app", "Application"), "appId");
         return EnsureCreated(role + "-sp", "ServicePrincipal", "https://graph.microsoft.com/v1.0/servicePrincipals", appId,
-            new JsonObject { ["appId"] = appId, ["tags"] = new JsonArray(Marker) }, true, ct, "appId");
+            PrincipalBody(role, appId), true, ct, "appId");
+    }
+
+    private JsonObject PrincipalBody(string role, string appId)
+    {
+        var body = new JsonObject { ["appId"] = appId, ["tags"] = new JsonArray(Marker) };
+        if (role == FabricC1Deployment.VpnIdentityRole)
+        {
+            body["appRoleAssignmentRequired"] = true;
+            body["accountEnabled"] = true;
+        }
+        return body;
     }
 
     public Task<JsonObject> EnsureAllowlistGroup(CancellationToken ct)
@@ -191,6 +215,8 @@ public sealed partial class FabricC1Provisioner
         }).ToArray();
     }
 
-    private static void RequireIdentityRole(string role) =>
-        Guard.Against(!IdentityRoles.Contains(role, StringComparer.Ordinal), "c1_deploy_identity_role", "Unknown identity role.", 409);
+    private void RequireIdentityRole(string role) =>
+        Guard.Against(!IdentityRoles.Contains(role, StringComparer.Ordinal) &&
+            !(role == FabricC1Deployment.VpnIdentityRole && input.Network?.OperatorAccess is not null),
+            "c1_deploy_identity_role", "Unknown identity role.", 409);
 }

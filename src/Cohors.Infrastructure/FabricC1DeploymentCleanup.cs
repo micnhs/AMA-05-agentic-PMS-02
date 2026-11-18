@@ -27,7 +27,7 @@ public sealed partial class FabricC1Provisioner
             state = fenced;
         }
 
-        foreach (var role in IdentityRoles)
+        foreach (var role in CleanupIdentityRoles)
         {
             var application = ApplicationCleanupTarget(role);
             await ReconcileIdentityForCleanup(application, ct);
@@ -39,10 +39,10 @@ public sealed partial class FabricC1Provisioner
         var group = GroupCleanupTarget();
         await ReconcileIdentityForCleanup(group, ct);
         if (state.PendingCreates.ContainsKey(group.Key) || !await DeleteKnownIdentity(group, ct)) return IdentityCleanupResult();
-        foreach (var role in IdentityRoles)
+        foreach (var role in CleanupIdentityRoles)
             if (state.Objects.ContainsKey(role + "-sp") && !await DeleteKnownIdentity(PrincipalCleanupTarget(role), ct))
                 return IdentityCleanupResult();
-        foreach (var role in IdentityRoles)
+        foreach (var role in CleanupIdentityRoles)
             if (state.Objects.ContainsKey(role + "-app") && !await DeleteKnownIdentity(ApplicationCleanupTarget(role), ct))
                 return IdentityCleanupResult();
         return IdentityCleanupResult();
@@ -52,12 +52,17 @@ public sealed partial class FabricC1Provisioner
     {
         var kinds = new Dictionary<string, string>(StringComparer.Ordinal)
         { ["fabric-api-group"] = "SecurityGroup", ["fabric-api-members"] = "VerifiedGroupMembers" };
-        foreach (var role in IdentityRoles)
+        foreach (var role in CleanupIdentityRoles)
         {
             kinds.Add(role + "-app", "Application");
             kinds.Add(role + "-sp", "ServicePrincipal");
         }
         foreach (var role in new[] { "runtime", "bootstrap", "negative" }) kinds.Add("fabric-api-member-" + role, "GroupMembership");
+        if (input.Network?.OperatorAccess is not null)
+        {
+            kinds.Add("operator-vpn-configuration", "OperatorVpnConfiguration");
+            kinds.Add("operator-vpn-assignment", "OperatorVpnAssignment");
+        }
         var administration = new HashSet<string>(StringComparer.Ordinal)
         {
             "TenantSettingsReview", "ApprovedTenantPlan", "ScopedTenantSetting",
@@ -76,8 +81,13 @@ public sealed partial class FabricC1Provisioner
                 state.PendingCreates.ContainsKey("fabric-api-member-" + role) || state.Objects.ContainsKey("fabric-api-member-" + role))) &&
             !state.Objects.ContainsKey("fabric-api-group"),
             "c1_deploy_cleanup_journal", "Pending membership has no bound group receipt.", 409);
-        Guard.Against(IdentityRoles.Any(role => state.Objects.ContainsKey(role + "-sp") && !state.Objects.ContainsKey(role + "-app")),
+        Guard.Against(CleanupIdentityRoles.Any(role => state.Objects.ContainsKey(role + "-sp") && !state.Objects.ContainsKey(role + "-app")),
             "c1_deploy_cleanup_journal", "Principal inventory has no parent application receipt.", 409);
+        Guard.Against((state.Objects.ContainsKey("operator-vpn-assignment") || state.PendingCreates.ContainsKey("operator-vpn-assignment")) &&
+            !state.Objects.ContainsKey(FabricC1Deployment.VpnIdentityRole + "-sp") ||
+            (state.Objects.ContainsKey("operator-vpn-configuration") || state.PendingCreates.ContainsKey("operator-vpn-configuration")) &&
+            !state.Objects.ContainsKey(FabricC1Deployment.VpnIdentityRole + "-app"),
+            "c1_deploy_cleanup_journal", "VPN configuration or assignment has no original parent receipt.", 409);
     }
 
     private IdentityCleanupTarget ApplicationCleanupTarget(string role) => new(role + "-app", "Application",
@@ -87,7 +97,7 @@ public sealed partial class FabricC1Provisioner
     {
         var appId = Text(Owned(role + "-app", "Application"), "appId");
         return new(role + "-sp", "ServicePrincipal", "https://graph.microsoft.com/v1.0/servicePrincipals", appId,
-            new() { ["appId"] = appId, ["tags"] = new JsonArray(Marker) }, "appId");
+            PrincipalBody(role, appId), "appId");
     }
 
     private IdentityCleanupTarget GroupCleanupTarget() => new("fabric-api-group", "SecurityGroup",
@@ -199,6 +209,8 @@ public sealed partial class FabricC1Provisioner
         var creates = new Dictionary<string, string>(state.PendingCreates, StringComparer.Ordinal);
         if (target.Kind == "SecurityGroup")
             foreach (var role in new[] { "runtime", "bootstrap", "negative" }) creates.Remove("fabric-api-member-" + role);
+        if (target.Key == FabricC1Deployment.VpnIdentityRole + "-sp") creates.Remove("operator-vpn-assignment");
+        if (target.Key == FabricC1Deployment.VpnIdentityRole + "-app") creates.Remove("operator-vpn-configuration");
         var next = state with
         {
             PendingDeletes = deletes, PendingCreates = creates,
@@ -217,11 +229,12 @@ public sealed partial class FabricC1Provisioner
 
     private FabricC1IdentityCleanupResult IdentityCleanupResult()
     {
-        var keys = IdentityRoles.SelectMany(role => new[] { role + "-app", role + "-sp" }).Append("fabric-api-group").ToArray();
+        var keys = CleanupIdentityRoles.SelectMany(role => new[] { role + "-app", role + "-sp" }).Append("fabric-api-group").ToArray();
         var absent = keys.Where(key => state.CleanupReceipts.ContainsKey(key)).ToArray();
         var unresolved = keys.Where(key => state.PendingCreates.ContainsKey(key) ||
             state.Objects.ContainsKey(key) && !state.CleanupReceipts.ContainsKey(key)).ToList();
         unresolved.AddRange(state.PendingCreates.Keys.Where(key => key.StartsWith("fabric-api-member-", StringComparison.Ordinal)));
+        unresolved.AddRange(state.PendingCreates.Keys.Where(key => key is "operator-vpn-assignment" or "operator-vpn-configuration"));
         var retained = state.Objects.Keys.Concat(state.PendingCreates.Keys)
             .Where(key => key.StartsWith("tenant-", StringComparison.Ordinal)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         return new(unresolved.Count == 0 ? "IdentityInventoryAbsent" : "IdentityCleanupPendingReconciliation",
