@@ -340,7 +340,14 @@ def runtime_lock_candidates(root, commit, run_id, attempt):
         before, after = original["dependencies"], candidate["dependencies"]
         require(set(before) == {"net10.0"} and set(after) == {"net10.0", "net10.0/win-x64", "net10.0/linux-x64"},
                 "Unexpected runtime lock target set")
-        require(before["net10.0"] == after["net10.0"], "RID preparation changed pinned base packages or hashes")
+        if before["net10.0"] != after["net10.0"]:
+            changes = []
+            for name in sorted(set(before["net10.0"]) | set(after["net10.0"])):
+                old, new = before["net10.0"].get(name), after["net10.0"].get(name)
+                if old != new:
+                    changes.append({"package": name, "before": old, "after": new})
+            raise ValueError("RID preparation changed pinned base packages or hashes: " + project + " " +
+                             json.dumps(changes, separators=(",", ":")))
         inspect_content("packages.c1.lock.json", data)
         records.append({"path": "src/" + project + "/packages.c1.lock.json", "length": len(data),
                         "sha256": digest(data), "contentBase64": base64.b64encode(data).decode("ascii")})
