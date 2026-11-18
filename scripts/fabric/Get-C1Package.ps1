@@ -75,7 +75,7 @@ try {
             }
             $stream.Write($buffer, 0, $read)
         }
-        $process.WaitForExitAsync($timeout.Token).GetAwaiter().GetResult()
+        $null = $process.WaitForExitAsync($timeout.Token).GetAwaiter().GetResult()
         $null = $errorRead.GetAwaiter().GetResult()
         if ($process.ExitCode -ne 0) { throw 'Authenticated artifact download failed; no retry or credential fallback.' }
         if ($stream.Length -ne $artifact.size_in_bytes -or $stream.Length -gt 256MB) { throw 'Downloaded archive length differs.' }

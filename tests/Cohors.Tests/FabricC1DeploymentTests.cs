@@ -356,6 +356,7 @@ public sealed class FabricC1DeploymentTests
         run.Seed("workspace-agent", "Workspace", run.Workspace("agent"));
         var before = JsonNode.Parse("""{"inbound":{"publicAccessRules":{"defaultAction":"Allow"}},"outbound":{"publicAccessRules":{"defaultAction":"Allow"}},"future":{"keep":true}}""")!.AsObject();
         var locked = FabricC1Deployment.LockCommunicationPolicy(before);
+        run.Api.List(InboundSetting(true));
         run.Api.Reply(200, before, "\"synthetic-etag\"");
         run.Api.Reply(200, new());
         run.Api.Reply(200, locked);
@@ -375,11 +376,12 @@ public sealed class FabricC1DeploymentTests
     {
         using var run = new Harness();
         run.Seed("workspace-agent", "Workspace", run.Workspace("agent"));
+        run.Api.List(InboundSetting(true));
         run.Api.Reply(200, new(), etag);
         if (etag is not null) run.Api.Reply(status, new());
         Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.DenyWorkspacePublicAccess("agent", default))).Code);
         Assert.False(run.Store.Current!.Objects.ContainsKey("policy-agent"));
-        Assert.Equal(etag is null ? 1 : 2, run.Api.Requests.Count);
+        Assert.Equal(etag is null ? 2 : 3, run.Api.Requests.Count);
     }
 
     [Fact]
@@ -425,6 +427,7 @@ public sealed class FabricC1DeploymentTests
         var definition = new JsonObject { ["parts"] = new JsonArray(
             new JsonObject { ["path"] = "Files/Config/publish_info.json", ["payload"] = "e30=", ["payloadType"] = "InlineBase64" },
             new JsonObject { ["path"] = "Files/Config/published/stage_config.json", ["payload"] = "e30=", ["payloadType"] = "InlineBase64" }) };
+        run.Api.List(InboundSetting(true));
         run.Api.List();
         run.Api.Reply(201, new()
         {
@@ -712,7 +715,7 @@ public sealed class FabricC1DeploymentTests
         setting["excludedSecurityGroups"] = new JsonArray(new JsonObject { ["graphId"] = excludedGroup, ["name"] = "excluded" });
         setting["delegateToCapacity"] = true;
         var result = FabricC1Provisioner.PlanTenantSettings([setting], ["SyntheticFabricApi"], group, "own-generated-group");
-        Assert.False(result.CanAllocatePaidResources);
+        Assert.False(result.CanPrepareEmptyFoundation);
         Assert.Empty(result.Blockers);
         var change = Assert.Single(result.Changes);
         Assert.Equal(Canonical.Hash(setting), change.BeforeHash);
@@ -743,7 +746,7 @@ public sealed class FabricC1DeploymentTests
         setting["tenantSettingGroup"] = "AdminApiSettings";
         setting["enabledSecurityGroups"] = new JsonArray(new JsonObject { ["graphId"] = group, ["name"] = "own" });
         var result = FabricC1Provisioner.PlanTenantSettings([setting], ["SyntheticAdminApi"], group, "own");
-        Assert.False(result.CanAllocatePaidResources);
+        Assert.False(result.CanPrepareEmptyFoundation);
         Assert.Empty(result.Changes);
         Assert.Contains("runtime-group-has-admin-api-scope:SyntheticAdminApi", result.Blockers);
         Assert.Contains("runtime-group-cannot-receive-admin-api-scope:SyntheticAdminApi", result.Blockers);
@@ -754,7 +757,7 @@ public sealed class FabricC1DeploymentTests
     {
         var result = FabricC1Provisioner.PlanTenantSettings([TenantSetting("ExistingWide", true)],
             ["ExistingWide"], Guid.NewGuid().ToString("D"), "own");
-        Assert.True(result.CanAllocatePaidResources);
+        Assert.True(result.SelectedRequirementsObserved);
         Assert.Empty(result.Changes);
         Assert.Equal(new[] { "ExistingWide" }, result.ExistingTenantWideSettings);
     }
@@ -819,7 +822,7 @@ public sealed class FabricC1DeploymentTests
         run.Api.List(appliedFirst, appliedSecond);
         run.Api.List(appliedFirst, appliedSecond);
         var resumed = await run.Provisioner.ApplyScopedTenantSettings(review.ChangeHash, concurrencyReview, default);
-        Assert.True(resumed.CanAllocatePaidResources);
+        Assert.True(resumed.SelectedRequirementsObserved);
         Assert.Empty(run.Store.Current!.PendingCreates);
         Assert.Equal(2, run.Api.Requests.Count(request => request.Method == HttpMethod.Post));
     }
@@ -859,6 +862,203 @@ public sealed class FabricC1DeploymentTests
             run.Provisioner.ApplyScopedTenantSettings(new string('e', 64), new string('f', 64), default))).Code);
         Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
     }
+
+    [Fact]
+    public void EmptyFoundationAndSharedInboundActivationAreDifferentStages()
+    {
+        var original = InboundSetting(false);
+        var review = FabricC1Provisioner.PlanTenantSettings([original], [FabricC1Provisioner.WorkspaceInboundSettingName],
+            Guid.NewGuid().ToString("D"), "own");
+        Assert.True(review.CanPrepareEmptyFoundation);
+        Assert.False(review.SelectedRequirementsObserved);
+        Assert.Empty(review.Changes);
+        Assert.Equal("AwaitingSharedInboundApproval", review.Status);
+        Assert.Equal(FabricC1Provisioner.SharedInboundApprovalBlocker, Assert.Single(review.Blockers));
+        Assert.True(JsonNode.DeepEquals(original, review.SharedInbound!.Original));
+        Assert.False(review.SharedInbound.AutomaticDisableAllowed);
+        Assert.False(review.SharedInbound.PublicDenyProven);
+        original["canSpecifySecurityGroups"] = true;
+        var changed = FabricC1Provisioner.PlanTenantSettings([original], [FabricC1Provisioner.WorkspaceInboundSettingName],
+            Guid.NewGuid().ToString("D"), "own");
+        Assert.False(changed.CanPrepareEmptyFoundation);
+        Assert.Contains("shared-inbound-shape-differs", changed.Blockers);
+    }
+
+    [Fact]
+    public async Task ScopedApprovalCannotImplicitlyEnableTheSharedInboundSetting()
+    {
+        using var run = new Harness(requiredTenantSettingNames: ["SyntheticFabricApi", FabricC1Provisioner.WorkspaceInboundSettingName]);
+        var (group, members) = SeedTenantGroup(run);
+        var scoped = TenantSetting("SyntheticFabricApi", false);
+        var shared = InboundSetting(false);
+        var review = FabricC1Provisioner.PlanTenantSettings([scoped, shared], run.Input.RequiredTenantSettingNames,
+            group["id"]!.GetValue<string>(), group["displayName"]!.GetValue<string>());
+        var applied = AppliedSetting(scoped, Assert.Single(review.Changes));
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.List(scoped, shared);
+        run.Api.List(scoped, shared);
+        run.Api.Reply(200, GroupMembers(group, members));
+        run.Api.Reply(200, new());
+        run.Api.List(applied, shared);
+        run.Api.List(applied, shared);
+        var result = await run.Provisioner.ApplyScopedTenantSettings(review.ChangeHash, new string('f', 64), default);
+        Assert.True(result.CanPrepareEmptyFoundation);
+        Assert.False(result.SelectedRequirementsObserved);
+        Assert.EndsWith("/SyntheticFabricApi/update", Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post).Uri.AbsolutePath,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisabledInboundSettingBlocksPolicyAndDataEvenWithAnOldPolicyReceipt(bool dataSetup)
+    {
+        using var run = new Harness();
+        var purpose = dataSetup ? "released" : "agent";
+        var workspace = run.Workspace(purpose);
+        run.Seed("workspace-" + purpose, "Workspace", workspace);
+        if (dataSetup) run.Seed("policy-released", "CommunicationPolicy", new() { ["id"] = workspace["id"]!.GetValue<string>() });
+        run.Api.List(InboundSetting(false));
+        Assert.Equal("c1_deploy_inbound_approval_required", (await Assert.ThrowsAsync<DomainException>(async () =>
+        {
+            if (dataSetup) await run.Provisioner.EnsureLakehouse("released", default);
+            else await run.Provisioner.DenyWorkspacePublicAccess("agent", default);
+        })).Code);
+        Assert.Equal(HttpMethod.Get, Assert.Single(run.Api.Requests).Method);
+    }
+
+    [Fact]
+    public async Task SharedInboundApprovalRequiresExplicitConsequencesAndCurrentBindingBeforeAnyCall()
+    {
+        using var run = new Harness();
+        var approval = InboundApproval(run, InboundSetting(false));
+        approval.Validate(run.Input, run.Clock.GetUtcNow());
+        foreach (var invalid in new[]
+        {
+            approval with { DirectUserApprovalSha256 = "" },
+            approval with { AcceptsTenantWideWorkspaceAdminAuthority = false },
+            approval with { AcceptsNoAutomaticDisable = false },
+            approval with { DeploymentBindingHash = new string('0', 64) },
+            approval with { ExpiresAtUtc = run.Input.ExpiresAtUtc!.Value.AddSeconds(1) },
+            approval with { ExpiresAtUtc = run.Clock.GetUtcNow() }
+        })
+            Assert.Equal("c1_deploy_inbound_approval", (await Assert.ThrowsAsync<DomainException>(() =>
+                run.Provisioner.ApplyWorkspaceInboundEnable(invalid, default))).Code);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
+    public async Task SharedEnableRetainsItsOriginalDiffAndCannotSilentlyReenableAfterLaterDrift()
+    {
+        using var run = new Harness();
+        SeedPrivateLinkPreparation(run);
+        var before = InboundSetting(false);
+        before["delegateToCapacity"] = false;
+        var after = (JsonObject)before.DeepClone();
+        after["enabled"] = true;
+        var unrelated = TenantSetting("SyntheticUntouchedFirewall", true);
+        var approval = InboundApproval(run, before);
+        run.Api.List(before, unrelated);
+        run.Api.Reply(200, new());
+        run.Api.List(after, unrelated);
+        var result = await run.Provisioner.ApplyWorkspaceInboundEnable(approval, default);
+        Assert.True(result.Enabled);
+        Assert.False(result.PublicDenyProven);
+        var post = Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
+        Assert.EndsWith("/WorkspaceBlockInboundAccess/update", post.Uri.AbsolutePath, StringComparison.Ordinal);
+        Assert.True(post.Body!["enabled"]!.GetValue<bool>());
+        Assert.False(post.Body["delegateToCapacity"]!.GetValue<bool>());
+        Assert.Empty(post.Body["enabledSecurityGroups"]!.AsArray());
+        var effect = run.Store.Current!.Objects["tenant-shared-inbound-enable"];
+        Assert.Equal("SharedTenantSettingEffect", effect.Kind);
+        Assert.True(JsonNode.DeepEquals(before, effect.Response["original"]));
+        Assert.False(effect.Response["automaticDisableAllowed"]!.GetValue<bool>());
+        Assert.Equal("RetainUntilSeparateCurrentAdministrativeDecision", effect.Response["cleanupDisposition"]!.GetValue<string>());
+        run.Restart();
+        run.Api.List(after, unrelated);
+        await run.Provisioner.ApplyWorkspaceInboundEnable(approval, default);
+        run.Api.List(before, unrelated);
+        Assert.Equal("c1_deploy_inbound_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.ApplyWorkspaceInboundEnable(approval, default))).Code);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LostSharedEnableResponseIsReconciledWithoutRepeatingPost(bool observedEnabled)
+    {
+        using var run = new Harness();
+        SeedPrivateLinkPreparation(run);
+        var before = InboundSetting(false);
+        var approval = InboundApproval(run, before);
+        run.Api.List(before);
+        run.Api.Fail(new HttpRequestException("synthetic response loss"));
+        await Assert.ThrowsAsync<HttpRequestException>(() => run.Provisioner.ApplyWorkspaceInboundEnable(approval, default));
+        var started = run.Store.Current!.StartedAtUtc;
+        Assert.Contains("tenant-shared-inbound-enable", run.Store.Current.PendingCreates.Keys);
+        run.Restart();
+        run.Api.List(InboundSetting(observedEnabled));
+        if (observedEnabled)
+            Assert.True((await run.Provisioner.ApplyWorkspaceInboundEnable(approval, default)).Enabled);
+        else
+            Assert.Equal("c1_deploy_inbound_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+                run.Provisioner.ApplyWorkspaceInboundEnable(approval, default))).Code);
+        Assert.Equal(started, run.Store.Current!.StartedAtUtc);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task SharedEnableServiceDenialIsNeitherSuccessNorUnknownMutation(int status)
+    {
+        using var run = new Harness();
+        SeedPrivateLinkPreparation(run);
+        var before = InboundSetting(false);
+        run.Api.List(before);
+        run.Api.Reply(status, new());
+        Assert.Equal("c1_deploy_http_" + status, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.ApplyWorkspaceInboundEnable(InboundApproval(run, before), default))).Code);
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        Assert.Equal(status, run.Store.Current.DeniedRequests["tenant-shared-inbound-enable"].Status);
+        Assert.DoesNotContain("tenant-shared-inbound-enable", run.Store.Current.Objects.Keys);
+        Assert.Contains("tenant-shared-inbound-original", run.Store.Current.Objects.Keys);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task SharedSettingTransportRejectsDisableAndPretendedGroupScopeBeforeCredentials(bool enabled, bool groupScoped)
+    {
+        using var run = new Harness();
+        var credential = new Credential();
+        var api = new FabricC1DeploymentHttp(run.Input, credential, new Dictionary<string, HttpClient>(), run.Clock);
+        var body = new JsonObject { ["enabled"] = enabled, ["enabledSecurityGroups"] = new JsonArray() };
+        if (groupScoped) body["enabledSecurityGroups"]!.AsArray().Add(new JsonObject { ["graphId"] = Guid.NewGuid().ToString("D") });
+        Assert.Equal("c1_deploy_shared_setting_scope", (await Assert.ThrowsAsync<DomainException>(() => api.Send(HttpMethod.Post,
+            new("https://api.fabric.microsoft.com/v1/admin/tenantsettings/WorkspaceBlockInboundAccess/update"), body))).Code);
+        Assert.Equal(0, credential.Requests);
+    }
+
+    private static JsonObject InboundSetting(bool enabled)
+    {
+        var setting = TenantSetting(FabricC1Provisioner.WorkspaceInboundSettingName, enabled);
+        setting["canSpecifySecurityGroups"] = false;
+        return setting;
+    }
+
+    private static FabricC1SharedInboundApproval InboundApproval(Harness run, JsonObject before)
+    {
+        var review = FabricC1Provisioner.PlanTenantSettings([before], [FabricC1Provisioner.WorkspaceInboundSettingName],
+            Guid.NewGuid().ToString("D"), "own").SharedInbound!;
+        return new("cohors-fabric-c1-shared-inbound-approval-1", Canonical.Hash(run.Input), review.ChangeHash,
+            new string('e', 64), new string('f', 64), run.Clock.GetUtcNow().AddMinutes(30), true, true);
+    }
+
+    private static void SeedPrivateLinkPreparation(Harness run) =>
+        run.Seed("arm-private-endpoints", "ArmDeployment", new()
+        { ["id"] = FabricC1Deployment.GroupId(run.Input) + "/providers/Microsoft.Resources/deployments/c1-private-endpoints" });
 
     private static (JsonObject Group, string[] Members) SeedTenantGroup(Harness run)
     {

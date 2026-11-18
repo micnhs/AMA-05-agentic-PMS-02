@@ -67,13 +67,15 @@ foreach ($script in @('Build-C1Package.ps1', 'Get-C1Package.ps1')) {
             @{ Expiry = '2999-11-19T14:35:58Z'; Error = 'Authenticated artifact download failed; no retry or credential fallback.' }
         )) {
             $refused = $false
+            $unexpectedOutput = [Collections.Generic.List[object]]::new()
             try {
-                & (Join-Path $PSScriptRoot 'Get-C1Package.ps1') -RunId 123 -SourceCommit ('b' * 40) -Destination (Join-Path $temporary 'download-fixture-not-created')
+                & (Join-Path $PSScriptRoot 'Get-C1Package.ps1') -RunId 123 -SourceCommit ('b' * 40) -Destination (Join-Path $temporary 'download-fixture-not-created') |
+                    ForEach-Object { $unexpectedOutput.Add($_) }
             } catch {
                 if ($_.Exception.Message -cne $fixture.Error) { throw }
                 $refused = $true
             }
-            if (-not $refused -or (Test-Path -LiteralPath (Join-Path $temporary 'download-fixture-not-created')) -or
+            if (-not $refused -or $unexpectedOutput.Count -ne 0 -or (Test-Path -LiteralPath (Join-Path $temporary 'download-fixture-not-created')) -or
                 @(Get-ChildItem -LiteralPath $temporary -Filter '.c1-artifact-*.zip' -File).Count -ne 0) {
                 throw 'Failed metadata/download must leave no extraction or temporary archive; no alternate executable.'
             }

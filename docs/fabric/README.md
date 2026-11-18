@@ -78,6 +78,39 @@ quality validator must not create a circular pre-provisioning requirement.
 
 ## C1 provisioning increment: partial source implementation
 
+The shared inbound stage is distinct from scoped runtime-group settings.
+`CanPrepareEmptyFoundation` reports tenant-setting prerequisites only, not a
+cost/stop/private-readiness approval: a disabled `WorkspaceBlockInboundAccess`
+does not prohibit empty workspace-level Private Link preparation.
+`SelectedRequirementsObserved` does not prove a working Public-Deny either.
+The source/data and workspace-policy methods freshly require that shared
+setting to be enabled; the exact public-denial probes remain separate.
+
+`ApplyWorkspaceInboundEnable` requires completed private-link preparation and
+a separate deployment/diff-bound, current direct-user approval plus the
+administrative change-window review. The approval explicitly acknowledges
+tenant-wide workspace-admin configuration authority and **no automatic
+disable**. A scoped-group approval cannot execute this change. Original
+snapshot, exact request, approval and observed shared effect remain in the
+journal. Interrupted writes reconcile by GET, never by repeating an uncertain
+POST. C1's transport rejects disabling the setting or fictitious group scope
+before credential acquisition. Own-resource cleanup must retain this shared
+effect; a later reversal requires a separate current administrative decision,
+not unchanged setting values/ETags. Neither other workspace rules,
+tenant-wide `BlockPublicInternetAccess`, IP firewall/trusted resources nor
+cross-geography settings are changed.
+
+This provider stage is not yet a full-installer CLI activation path, and no
+tenant setting has been changed. At the actual activation stage the operator
+must ask the single narrow direct-user question, not ask early for code/CI
+preparation or repeat general C1/cost approval. Allow up to 15 minutes for
+setting propagation; workspace-policy propagation and native Public-Deny
+remain independent evidence. Sources:
+[inbound administration](https://learn.microsoft.com/fabric/security/security-workspace-enable-inbound-access-protection),
+[shared rollback effect](https://learn.microsoft.com/fabric/admin/tenant-settings-index#advanced-networking),
+[list contract](https://learn.microsoft.com/rest/api/fabric/admin/tenants/list-tenant-settings),
+[update contract](https://learn.microsoft.com/rest/api/fabric/admin/tenants/update-tenant-setting).
+
 The new opt-in entry is `Cohors.Api --fabric-c1-deploy plan --manifest FILE`.
 Start with `fabric\c1\deployment.template.json`, not with manually created
 Capacity/Workspace/App/PE IDs. The normal API and the existing `--fabric-c1`

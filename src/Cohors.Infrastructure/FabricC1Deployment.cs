@@ -337,6 +337,7 @@ public sealed partial class FabricC1Provisioner
     public async Task DenyWorkspacePublicAccess(string key, CancellationToken ct)
     {
         var id = Text(Owned("workspace-" + key, "Workspace"), "id");
+        await RequireWorkspaceInboundEnabled(ct);
         var uri = new Uri($"https://api.fabric.microsoft.com/v1/workspaces/{id}/networking/communicationPolicy");
         var before = await Send(HttpMethod.Get, uri, ct: ct);
         RequireStatus(before, 200);
@@ -355,6 +356,7 @@ public sealed partial class FabricC1Provisioner
         Guard.Against(workspace is not ("released" or "denied"), "c1_deploy_source_scope", "No source may share the Contributor agent workspace.", 409);
         var id = Text(Owned("workspace-" + workspace, "Workspace"), "id");
         Owned("policy-" + workspace, "CommunicationPolicy");
+        await RequireWorkspaceInboundEnabled(ct);
         var host = WorkspaceHost(id);
         return await EnsureCreated("lakehouse-" + workspace, "Lakehouse", $"https://{host}/v1/workspaces/{id}/lakehouses",
             "C1_" + workspace, new JsonObject { ["displayName"] = "C1_" + workspace, ["description"] = Marker }, false, ct);
@@ -368,6 +370,7 @@ public sealed partial class FabricC1Provisioner
         Guard.Against(parts is null || !parts.Any(p => p?["path"]?.GetValue<string>() == "Files/Config/publish_info.json") ||
             !parts.Any(p => p?["path"]?.GetValue<string>() == "Files/Config/published/stage_config.json"),
             "c1_deploy_publication", "Published definition parts are required; create alone does not publish evidence.", 409);
+        await RequireWorkspaceInboundEnabled(ct);
         var result = await EnsureCreated("data-agent", "DataAgent", $"https://{WorkspaceHost(id)}/v1/workspaces/{id}/dataAgents",
             "C1_Agent", new JsonObject { ["displayName"] = "C1_Agent", ["description"] = Marker, ["definition"] = definition.DeepClone() }, false, ct);
         var readback = await Send(HttpMethod.Post,

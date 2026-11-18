@@ -77,7 +77,7 @@ public static class FabricC1DeploymentEntry
                     }
                 }
                 var status = identities.Status != "IdentitiesProvisioned" ? identities.Status :
-                    administrativeReadBlocker is not null || settings?.CanAllocatePaidResources != true ?
+                    administrativeReadBlocker is not null || settings?.CanPrepareEmptyFoundation != true ?
                         "AwaitingScopedAdminApproval" : "IdentityPhaseComplete";
                 Console.WriteLine(JsonSerializer.Serialize(new
                 {

@@ -18,6 +18,13 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         string? ifMatch = null, CancellationToken ct = default)
     {
         var (scope, audience, issuer) = Binding(method, uri);
+        if (uri.IdnHost == "api.fabric.microsoft.com" &&
+            uri.AbsolutePath == "/v1/admin/tenantsettings/" + FabricC1Provisioner.WorkspaceInboundSettingName + "/update")
+            Guard.Against(method != HttpMethod.Post || body?["enabled"] is not JsonValue enabled ||
+                !enabled.TryGetValue<bool>(out var value) || !value ||
+                body!["enabledSecurityGroups"] is not (null or JsonArray { Count: 0 }) ||
+                body["excludedSecurityGroups"] is not (null or JsonArray { Count: 0 }),
+                "c1_deploy_shared_setting_scope", "C1 cannot disable shared inbound configuration or pretend it is group-scoped.", 409);
         if (!clients.TryGetValue(uri.IdnHost, out var client))
             throw new DomainException("c1_deploy_private_route", "No approved private/control client for this exact host; no public fallback.", 409);
         var token = await credential.GetTokenAsync(new TokenRequestContext([scope]), ct);

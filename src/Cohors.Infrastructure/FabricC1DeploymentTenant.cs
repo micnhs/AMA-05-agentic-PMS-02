@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Cohors.Domain;
 
 namespace Cohors.Infrastructure;
@@ -18,8 +19,14 @@ public sealed record FabricC1TenantApproval(string Contract, string DeploymentBi
 public sealed record FabricC1TenantReview(string Status, string GroupId, FabricC1TenantChange[] Changes,
     string[] Blockers, string[] ExistingTenantWideSettings)
 {
-    public string ChangeHash => Canonical.Hash(new { GroupId, Changes, Blockers, ExistingTenantWideSettings });
-    public bool CanAllocatePaidResources => Status == "ScopedSettingsObserved";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FabricC1SharedInboundReview? SharedInbound { get; init; }
+    public string ChangeHash => SharedInbound is null
+        ? Canonical.Hash(new { GroupId, Changes, Blockers, ExistingTenantWideSettings })
+        : Canonical.Hash(new { GroupId, Changes, Blockers, ExistingTenantWideSettings, SharedInbound });
+    public bool SelectedRequirementsObserved => Status == "ScopedSettingsObserved";
+    public bool CanPrepareEmptyFoundation => Changes.Length == 0 &&
+        Blockers.All(blocker => blocker == FabricC1Provisioner.SharedInboundApprovalBlocker);
 }
 
 public sealed partial class FabricC1Provisioner
@@ -47,6 +54,7 @@ public sealed partial class FabricC1Provisioner
         var changes = new List<FabricC1TenantChange>();
         var blockers = new List<string>();
         var tenantWide = new List<string>();
+        FabricC1SharedInboundReview? sharedInbound = null;
         var names = requiredNames.Distinct(StringComparer.Ordinal).ToArray();
         if (names.Length != requiredNames.Length || names.Length == 0) blockers.Add("required-tenant-settings-not-unique");
         foreach (var setting in settings.Where(IsAdministrative))
@@ -65,6 +73,14 @@ public sealed partial class FabricC1Provisioner
             { blockers.Add("generated-group-explicitly-excluded:" + name); continue; }
             var enabled = setting["enabled"]?.GetValue<bool>();
             if (enabled is null) { blockers.Add("setting-enabled-state-missing:" + name); continue; }
+            if (name == WorkspaceInboundSettingName)
+            {
+                if (!IsSharedInboundSetting(setting)) { blockers.Add("shared-inbound-shape-differs"); continue; }
+                sharedInbound = DescribeSharedInbound(setting);
+                if (enabled == true) tenantWide.Add(name);
+                else blockers.Add(SharedInboundApprovalBlocker);
+                continue;
+            }
             var allowed = setting["enabledSecurityGroups"] as JsonArray ?? new JsonArray();
             if (enabled == true && (allowed.Count == 0 || ContainsGroup(setting, "enabledSecurityGroups", groupId)))
             {
@@ -83,8 +99,10 @@ public sealed partial class FabricC1Provisioner
             body["enabledSecurityGroups"] = groups;
             changes.Add(new(name, Canonical.Hash(setting), body));
         }
-        return new(blockers.Count == 0 && changes.Count == 0 ? "ScopedSettingsObserved" : "AwaitingScopedAdminApproval",
-            groupId, changes.ToArray(), blockers.ToArray(), tenantWide.ToArray());
+        var status = blockers.Count == 0 && changes.Count == 0 ? "ScopedSettingsObserved" :
+            changes.Count == 0 && blockers.All(blocker => blocker == SharedInboundApprovalBlocker) ?
+                "AwaitingSharedInboundApproval" : "AwaitingScopedAdminApproval";
+        return new(status, groupId, changes.ToArray(), blockers.ToArray(), tenantWide.ToArray()) { SharedInbound = sharedInbound };
     }
 
     public async Task<FabricC1TenantReview> ApplyScopedTenantSettings(string approvedChangeHash,
@@ -106,7 +124,9 @@ public sealed partial class FabricC1Provisioner
                 "c1_deploy_admin_approval", "Administrative execution-window review changed.", 409);
         }
         else review = await ReviewTenantSettings(ct);
-        Guard.Against(review.ChangeHash != approvedChangeHash || review.Blockers.Length != 0,
+        Guard.Against(review.ChangeHash != approvedChangeHash ||
+            review.Blockers.Any(blocker => blocker != SharedInboundApprovalBlocker) ||
+            review.Changes.Any(change => change.SettingName == WorkspaceInboundSettingName),
             "c1_deploy_admin_approval", "The current scoped change differs from the specifically approved request.", 409);
         if (saved is null)
             SaveObject(approvalKey, "ApprovedTenantPlan", review.GroupId, approvedChangeHash, new()
