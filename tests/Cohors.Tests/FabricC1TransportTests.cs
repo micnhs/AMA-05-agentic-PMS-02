@@ -496,6 +496,43 @@ public sealed class FabricC1TransportTests
     }
 
     [Fact]
+    public async Task CheckpointOpeningAndReleaseFailuresAreBothReportedWithoutRetry()
+    {
+        using var blob = new BlobHarness();
+        blob.Handler.Document = blob.Handler.Document with { StorageBindingHash = new string('f', 64) };
+        blob.Handler.FailRelease = true;
+        var failure = await Assert.ThrowsAsync<AggregateException>(() => blob.Open());
+        Assert.Collection(failure.InnerExceptions,
+            error => Assert.Equal("c1_checkpoint_binding", Assert.IsType<DomainException>(error).Code),
+            error => Assert.Equal("c1_checkpoint_http_503", Assert.IsType<DomainException>(error).Code));
+        Assert.Single(blob.Handler.Requests, request => request.Action == "release");
+        Assert.Equal(0, blob.Handler.Writes);
+    }
+
+    [Fact]
+    public async Task ALocallyExpiredLeaseIsNeverRenewedEvenIfTheServiceWouldAllowIt()
+    {
+        using var blob = new BlobHarness();
+        await using var store = await blob.Open();
+        blob.Run.Time.Now = blob.Run.Time.Now.AddSeconds(51);
+        Assert.Equal("c1_checkpoint_lease_lost", (await Assert.ThrowsAsync<DomainException>(() => store.RenewLease())).Code);
+        Assert.True(store.FailureToken.IsCancellationRequested);
+        Assert.DoesNotContain(blob.Handler.Requests, request => request.Action == "renew");
+    }
+
+    [Fact]
+    public async Task ExpiredReservationDoesNotBorrowARequestOrPretendTheLeaseWasReleased()
+    {
+        using var blob = new BlobHarness();
+        var store = await blob.Open();
+        blob.Run.Time.Now = blob.Run.Time.Now.AddSeconds(81);
+        Assert.Equal("c1_checkpoint_deadline", Assert.Throws<DomainException>(() => store.Load()).Code);
+        Assert.Equal("c1_checkpoint_io_limit", (await Assert.ThrowsAsync<DomainException>(() => store.DisposeAsync().AsTask())).Code);
+        Assert.DoesNotContain(blob.Handler.Requests, request => request.Action == "release");
+        Assert.Equal(3, store.Requests);
+    }
+
+    [Fact]
     public void ExecutableRevisionMatchesTheHostedCommitAndRejectsAnotherSource()
     {
         using var run = new Harness();
@@ -632,6 +669,7 @@ public sealed class FabricC1TransportTests
         public bool LoseNextWriteResponse;
         public bool RejectNextWrite;
         public bool LoseLeaseOnRenewal;
+        public bool FailRelease;
         public int Writes { get; private set; }
         private string? lease;
         private int version = 1;
@@ -656,7 +694,12 @@ public sealed class FabricC1TransportTests
                 if (LoseLeaseOnRenewal) { lease = null; return Reply(HttpStatusCode.PreconditionFailed, request); }
                 return Reply(HttpStatusCode.OK, request, includeLease: true);
             }
-            if (action == "release") { lease = null; return Reply(HttpStatusCode.OK, request); }
+            if (action == "release")
+            {
+                if (FailRelease) return Reply(HttpStatusCode.ServiceUnavailable, request);
+                lease = null;
+                return Reply(HttpStatusCode.OK, request);
+            }
             Assert.Null(action);
             if (request.Method == HttpMethod.Get)
             {

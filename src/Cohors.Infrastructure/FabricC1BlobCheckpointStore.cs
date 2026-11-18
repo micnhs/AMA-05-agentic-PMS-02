@@ -146,9 +146,13 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
             finally { store.io.Release(); }
             return store;
         }
-        catch
+        catch (Exception original)
         {
-            await store.DisposeAsync();
+            try { await store.DisposeAsync(); }
+            catch (Exception cleanup)
+            {
+                throw new AggregateException("Checkpoint opening failed and its own lease release was not confirmed.", original, cleanup);
+            }
             throw;
         }
     }

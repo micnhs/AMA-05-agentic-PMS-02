@@ -276,7 +276,8 @@ changes. Metadata and an observed encryption scope are preserved; unexpected
 index tags fail closed rather than being silently erased. Calls and JSON reads
 are bounded to ten seconds or the remaining invocation allowance, whichever is
 shorter. One reserved request is kept for release; a failed/unknown release is
-reported, never replayed. A server lease can remain until expiry, and Azure
+reported, never replayed. Opening and subsequent release failures are retained
+together rather than one hiding the other. A server lease can remain until expiry, and Azure
 documents an additional acquisition wait after expiry; no immediate recovery
 or completed cleanup is inferred.
 
