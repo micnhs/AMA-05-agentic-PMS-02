@@ -8,6 +8,10 @@ param location string
 @description('Internal workload-profiles environment resource ID.')
 param environmentId string
 
+@description('Actual explicitly selected environment profile; omission is not proof of Dedicated hosting.')
+@allowed(['Consumption', 'D4'])
+param workloadProfileName string = 'Consumption'
+
 @description('Full ACR image reference with immutable sha256 digest; tags are rejected by the deployment gate.')
 param image string
 
@@ -48,7 +52,7 @@ resource app 'Microsoft.App/containerApps@2025-07-01' = {
   }
   properties: {
     environmentId: environmentId
-    workloadProfileName: 'Consumption'
+    workloadProfileName: workloadProfileName
     configuration: {
       activeRevisionsMode: 'Single'
       ingress: {

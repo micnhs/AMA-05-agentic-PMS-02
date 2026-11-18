@@ -9,11 +9,31 @@ param namePrefix string = 'cohors'
 @allowed(['westeurope', 'northeurope', 'swedencentral', 'germanywestcentral', 'francecentral'])
 param location string
 
+@description('Explicit independently reviewed Foundry location. Default stays with the workload; no automatic regional fallback.')
+@allowed(['westeurope', 'northeurope', 'swedencentral', 'germanywestcentral', 'francecentral'])
+param foundryLocation string = location
+
 @description('Existing reviewed egress route table; connectivity, UDRs, DNS forwarding and firewall allowlists remain platform prerequisites.')
-param egressRouteTableResourceId string
+param egressRouteTableResourceId string = ''
 
 @description('Existing operational action group, with tested delivery outside the application failure domain.')
-param actionGroupResourceId string
+param actionGroupResourceId string = ''
+
+@description('The automatic primary bootstrap creates its own route table, access subnets and action group.')
+param createOwnedAccess bool = false
+
+@description('Generated network-phase outputs. Empty retains the original standalone network module; never a manually prebuilt target requirement.')
+param networkResourceBindings object = {}
+
+@description('Explicitly reviewed operational email receivers; never infer recipients from the subscription owner.')
+param alertEmailReceivers array = []
+
+@description('Own access-network allocation, bound by the bootstrap manifest and CIDR review.')
+param nvaPrivateIp string = '10.42.4.4'
+param egressSubnetPrefix string = '10.42.4.0/27'
+param operatorSubnetPrefix string = '10.42.4.32/27'
+param clientSubnetPrefix string = '10.42.4.64/27'
+param bastionSubnetPrefix string = '10.42.5.0/26'
 
 @description('Existing Entra SQL administrator GROUP object ID, not a runtime or CI principal.')
 @minLength(36)
@@ -68,6 +88,10 @@ param searchReplicas int = 1
 
 @description('Production HA requires a separately reviewed zonal/replica strategy.')
 param containerAppsZoneRedundant bool = false
+
+@description('Consumption retains the historical candidate. D4 is an explicit additional-cost strict-DNS alternative, with one dedicated node and no HA claim.')
+@allowed(['Consumption', 'D4'])
+param containerAppsWorkloadProfileType string = 'Consumption'
 
 @description('No model is deployed by default. Standard only; never Global, DataZone, auto-upgrade or spillover.')
 param deployModel bool = false
@@ -150,7 +174,7 @@ resource identities 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30
   tags: tags
 }]
 
-module network 'modules/network.bicep' = {
+module network 'modules/network.bicep' = if (empty(networkResourceBindings)) {
   name: 'network-${name}'
   params: {
     name: name
@@ -161,7 +185,39 @@ module network 'modules/network.bicep' = {
     operationsPrefix: operationsSubnetPrefix
     endpointsPrefix: privateEndpointsSubnetPrefix
     egressRouteTableResourceId: egressRouteTableResourceId
+    createOwnedAccess: createOwnedAccess
+    nvaPrivateIp: nvaPrivateIp
+    egressPrefix: egressSubnetPrefix
+    operatorPrefix: operatorSubnetPrefix
+    clientPrefix: clientSubnetPrefix
+    bastionPrefix: bastionSubnetPrefix
     tags: tags
+  }
+}
+
+var networkData = !empty(networkResourceBindings) ? networkResourceBindings : {
+  id: network!.outputs.id
+  endpointsSubnetId: network!.outputs.endpointsSubnetId
+  containerAppsSubnetId: network!.outputs.containerAppsSubnetId
+  workflowsSubnetId: network!.outputs.workflowsSubnetId
+  operationsSubnetId: network!.outputs.operationsSubnetId
+  accessSubnets: network!.outputs.accessSubnets
+  routeTableId: network!.outputs.routeTableId
+  dns: network!.outputs.dns
+}
+
+resource ownedActionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (createOwnedAccess) {
+  name: 'ag-${name}-operations'
+  location: 'global'
+  tags: tags
+  properties: {
+    groupShortName: 'CohorsOps'
+    enabled: true
+    emailReceivers: [for (receiver, i) in alertEmailReceivers: {
+      name: 'receiver-${i}'
+      emailAddress: receiver
+      useCommonAlertSchema: true
+    }]
   }
 }
 
@@ -173,11 +229,11 @@ module monitoring 'modules/monitoring.bicep' = {
     telemetryPrincipalIds: [for i in range(0, 4): identities[i].properties.principalId]
     alertIdentityResourceId: identities[6].id
     alertPrincipalId: identities[6].properties.principalId
-    actionGroupResourceId: actionGroupResourceId
+    actionGroupResourceId: createOwnedAccess ? ownedActionGroup.id : actionGroupResourceId
     enableWatchdogAlert: enableWatchdogAlert
     operationsRoleName: operationsTelemetryRole
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    privateDnsZoneIds: network.outputs.dns.monitor
+    endpointSubnetId: networkData.endpointsSubnetId
+    privateDnsZoneIds: networkData.dns.monitor
     tags: tags
   }
 }
@@ -189,8 +245,8 @@ module platform 'modules/platform-services.bicep' = {
     vaultName: 'kv-${name}'
     location: location
     pullPrincipalIds: [identities[0].properties.principalId, identities[1].properties.principalId]
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    dns: network.outputs.dns
+    endpointSubnetId: networkData.endpointsSubnetId
+    dns: networkData.dns
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -211,8 +267,8 @@ module evidence 'modules/storage.bicep' = {
         roleDefinitionId: blobContributorRole
       }
     ]
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    dns: network.outputs.dns
+    endpointSubnetId: networkData.endpointsSubnetId
+    dns: networkData.dns
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -229,8 +285,8 @@ module workflowStorage 'modules/storage.bicep' = {
       principalId: identities[2].properties.principalId
       roleDefinitionId: role
     }]
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    dns: network.outputs.dns
+    endpointSubnetId: networkData.endpointsSubnetId
+    dns: networkData.dns
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -247,8 +303,8 @@ module operationsStorage 'modules/storage.bicep' = {
       principalId: identities[3].properties.principalId
       roleDefinitionId: role
     }]
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    dns: network.outputs.dns
+    endpointSubnetId: networkData.endpointsSubnetId
+    dns: networkData.dns
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -266,8 +322,8 @@ module packages 'modules/storage.bicep' = {
       { container: 'workflows-package', principalId: identities[2].properties.principalId, roleDefinitionId: blobContributorRole }
       { container: 'operations-package', principalId: identities[3].properties.principalId, roleDefinitionId: blobContributorRole }
     ]
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    dns: network.outputs.dns
+    endpointSubnetId: networkData.endpointsSubnetId
+    dns: networkData.dns
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -286,8 +342,8 @@ module digests 'modules/storage.bicep' = {
     ], enableDigestPublisherGrant ? [
       { container: 'ledger-digests', principalId: identities[4].properties.principalId, roleDefinitionId: blobContributorRole }
     ] : [])
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    dns: network.outputs.dns
+    endpointSubnetId: networkData.endpointsSubnetId
+    dns: networkData.dns
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -308,8 +364,8 @@ module sql 'modules/sql.bicep' = {
     backupRetentionDays: sqlPitrDays
     deployThreatProtection: deploySqlThreatProtection
     securityNotificationEmails: sqlSecurityNotificationEmails
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    privateDnsZoneId: network.outputs.dns.sql
+    endpointSubnetId: networkData.endpointsSubnetId
+    privateDnsZoneId: networkData.dns.sql
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -318,6 +374,7 @@ module sql 'modules/sql.bicep' = {
 module ai 'modules/ai-services.bicep' = {
   name: 'ai-${name}'
   params: {
+    foundryLocation: foundryLocation
     searchName: 'srch-${name}'
     foundryName: 'aif-${name}'
     location: location
@@ -330,8 +387,8 @@ module ai 'modules/ai-services.bicep' = {
     modelVersion: modelVersion
     modelDeploymentName: modelDeploymentName
     modelCapacity: modelCapacity
-    endpointSubnetId: network.outputs.endpointsSubnetId
-    dns: network.outputs.dns
+    endpointSubnetId: networkData.endpointsSubnetId
+    dns: networkData.dns
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -342,10 +399,11 @@ module containerEnvironment 'modules/container-environment.bicep' = {
   params: {
     name: name
     location: location
-    subnetId: network.outputs.containerAppsSubnetId
-    vnetId: network.outputs.id
+    subnetId: networkData.containerAppsSubnetId
+    vnetId: networkData.id
     workspaceId: monitoring.outputs.workspaceId
     zoneRedundant: containerAppsZoneRedundant
+    workloadProfileType: containerAppsWorkloadProfileType
     tags: tags
   }
 }
@@ -356,6 +414,7 @@ module runtime 'modules/runtime.bicep' = if (deployRuntime) {
     name: name
     location: location
     environmentId: containerEnvironment.outputs.id
+    workloadProfileName: containerEnvironment.outputs.workloadProfileName
     images: {
       registry: platform.outputs.registryLoginServer
       api: '${platform.outputs.registryLoginServer}/cohors-api@sha256:${apiImageDigest}'
@@ -391,10 +450,10 @@ module runtime 'modules/runtime.bicep' = if (deployRuntime) {
       boundaryReview: foundryBoundaryReview
     }
     network: {
-      workflowsSubnetId: network.outputs.workflowsSubnetId
-      operationsSubnetId: network.outputs.operationsSubnetId
-      endpointSubnetId: network.outputs.endpointsSubnetId
-      functionsDnsZoneId: network.outputs.dns.functions
+      workflowsSubnetId: networkData.workflowsSubnetId
+      operationsSubnetId: networkData.operationsSubnetId
+      endpointSubnetId: networkData.endpointsSubnetId
+      functionsDnsZoneId: networkData.dns.functions
     }
     functionStorage: {
       workflowsAccount: workflowStorage.outputs.name
@@ -410,7 +469,7 @@ module runtime 'modules/runtime.bicep' = if (deployRuntime) {
 }
 
 output platformResourceIds object = {
-  vnet: network.outputs.id
+  vnet: networkData.id
   registry: platform.outputs.registryId
   vault: platform.outputs.vaultId
   sqlServer: sql.outputs.serverId
@@ -421,7 +480,16 @@ output platformResourceIds object = {
   ledgerDigests: digests.outputs.id
   applicationInsights: monitoring.outputs.insightsId
   watchdogAlert: monitoring.outputs.?watchdogAlertId
+  workspace: monitoring.outputs.workspaceId
+  packages: packages.outputs.id
+  containerEnvironment: containerEnvironment.outputs.id
+  actionGroup: createOwnedAccess ? ownedActionGroup.id : actionGroupResourceId
+  egressRouteTable: networkData.routeTableId
 }
+
+output ownedAccessSubnets object = networkData.accessSubnets
+output workloadName string = name
+output sqlDatabaseName string = sql.outputs.databaseName
 
 output workloadIdentities array = [for (role, i) in identityNames: {
   role: role
@@ -446,3 +514,4 @@ output runtimeUrls object = deployRuntime ? {
   workflows: runtime!.outputs.workflowsUrl
   operations: runtime!.outputs.operationsUrl
 } : {}
+output runtimeResources object = deployRuntime ? runtime!.outputs.resources : {}

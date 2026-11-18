@@ -7,6 +7,9 @@ param foundryName string
 @description('Approved EU candidate region; not a verification of model geography or availability.')
 param location string
 
+@description('Explicit reviewed model-processing region, independent of the private endpoint/VNet region.')
+param foundryLocation string = location
+
 @description('Private-Link capable search SKU candidate.')
 @allowed(['basic', 'standard'])
 param searchSku string
@@ -84,7 +87,7 @@ resource indexing 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 resource foundry 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: foundryName
-  location: location
+  location: foundryLocation
   tags: tags
   kind: 'AIServices'
   sku: {

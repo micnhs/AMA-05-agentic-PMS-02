@@ -7,6 +7,82 @@ Der synthetische Pilot behaelt getrennte menschliche medizinische und regulatori
 Freigaben. Behoerden, Kliniken und FSCA-Versand bleiben Simulatoren; echte oeffentliche
 Quellen sind ausschliesslich lesend und im Standard-CI deaktiviert.
 
+## Automatischer Primaerbootstrap: noch geschlossenes Implementierungspaket
+
+Der neue Pfad `infra/scripts/primary_bootstrap.py` ergaenzt die unten beschriebene
+historische, auf vorhandene Plattformverweise angewiesene `main.bicep`-Schnittstelle.
+Er ist **noch kein fertig abgenommener Gesamtinstaller**. `primary-network.bicep`
+und `primary.bicep` verdrahten eigene Gruppen, Netz, NVA, privaten Operator,
+optionalen Bastion-/Windows-Client, Action Group und Datenplattform aus
+journalisierten Ausgaben statt abzutippender Azure-Ressourcen-IDs.
+Keine bestehende fremde Ressource wird uebernommen; Azure Firewall/VPN bleiben aus.
+Der gewaehlte Initialactor bleibt der separat gebundene delegierte Benutzer.
+`controlTokenBindings` bindet beobachtete ARM-/Graph-Audience und Issuer, nicht
+aus `/.default` abgeleitete Werte. Private Personen-/Tenant-/Subscriptionbindungen
+und echte Alarmempfaenger gehoeren nicht ins Repository.
+
+Der aktuelle **Verpackungskandidat** ist
+`dd112705af2baf6c4e7787794b782f4f8937b1e8` / lokaler Build49, mit dem
+quellgebundenen Vertrag `cohors-operations-write-v1`/Schema3. Die Original-CLI
+lautet `Cohors.Bootstrap sql --expect-server ... --expect-database ... --apply`
+bzw. `search ... --apply`; ohne `--apply` erfolgen echte Remote-Reads.
+Der historische dd112-Vertragsabsatz mit `sql-migrate` bezeichnet **keinen**
+gueltigen CLI-Befehl. Die spaetere Dokumentationskorrektur1429877 ist kein
+Runtime-Neubuild. Migrationen und SQL-Schreibprozedur bleiben ausschliesslich
+in der originalen Anwendung, nicht als zweite Fach-DDL im Infra-Code.
+
+Der lokale Build49-/Native98/99-Nachweis ist kein Entra-/Azure-/FSN-/UI-Pass.
+Er liefert insbesondere noch keine Release-ZIPs oder Images. Der ausschliesslich
+gehostete Workflow `cohors-primary-package.yml` baut die beiden originalen
+Container-Dockerfiles und ruft das originale `scripts/Publish-Functions.ps1`
+auf. Er bindet OCI-Digests, beide ZIPs, echte Trigger-Metadaten, eingebettete
+Originalmigrationen und alle Paketdateien. Er meldet `cloudReleased=false`.
+Die separaten privaten CLI-Ausgaben enthalten die tatsaechlichen SDK-Runtimes,
+kein zweites Fachprogramm und keine erfundenen ACR-/ZIP-URLs.
+Ein solcher Rebuild ist **nicht** das unveraenderte lokale Build49-Binaerpaket.
+
+Die eigene NVA ist eine **zusaetzliche kostenpflichtige Filterkomponente** mit
+eigenem Betrieb: Linux-VM, Disk, Public IP, Updates, Ausfall- und Messverfahren.
+Der gepinnte mitmproxy-Parser/TCP-Mechanismus leitet TLS verschluesselt weiter;
+keine Zertifizierungsstelle, Inhaltsentschluesselung oder TLS-Abschwaechung.
+Ungeprueftes/fehlendes SNI, ECH/eSNI, ALPN, DNS-/IPv6-/UDP-/QUIC-/Direkt-IP-Pfade
+bleiben gesperrt. FQDN/SNI ist keine HTTP-Pfad-/Inhaltskontrolle und kein
+umfassender Exfiltrationsschutz. Der Einzelnachweis in isolierten Linux-Namespaces
+ist ausdruecklich **kein ACA-/Flex-/Operator-/Browser-Cloudnachweis**.
+
+**Offene Profilentscheidung:** Der historische ACA-Kandidat ist Consumption,
+nicht Dedicated. Laut
+[profilbezogener Custom-DNS-Dokumentation](https://learn.microsoft.com/azure/container-apps/private-endpoints-with-dns#custom-dns)
+braucht Consumption `AzurePlatformDNS` auch mit Custom DNS. Eine UDR erzwingt
+diesen Pfad nicht; die Plattform-IP168.63.129.16 umgeht UDRs.
+Der neue Strict-DNS-Bootstrap verweigert daher Network/Foundation mit Consumption,
+statt still einen DNS-Bypass zu oeffnen. `containerAppsWorkloadProfileType=D4`
+ist lediglich ein **expliziter Alternativkandidat** mit einem Dedicated-Knoten
+(Minimum=Maximum=1); beide echten Container Apps bekommen dieselbe explizite
+Profilzuordnung. Kein stiller Defaultwechsel, keine HA-/SLO-Zusage. D4-Region,
+Kapazitaet, Mehrkosten und die obligatorische Aufloesung unter anderem von
+`*.hcp.<region>.azmk8s.io`/`mcr.microsoft.com` sowie deren tatsaechliche Nutzpfade
+muessen gebunden werden. DNS-Aufloesbarkeit allein ist keine HTTPS-Abnahme.
+
+**Modellqualitaet vor Preis:** Der aktuelle Appvertrag hat genau ein gemeinsames
+Foundry-Profil fuer alle sechs Rollen; aus Infra-Metadaten entsteht kein
+Mehrmodellrouting. Modellbereitstellung zur Evaluation und fachliche
+Live-Akzeptanz sind getrennt. `primary_model_gate.py` bindet echte Liveberichte,
+Fachreview, aufgabenspezifische Kriterien und gemessene FP/FN-/unbelegte-Aussagen-/
+Formatfehler an Appcommit, Prompt und tatsaechlichen Modellreadback.
+Dieser Infrastruktur-Envelope ist kein bereits implementierter fachlicher
+Evaluator; Replay, fehlende Werte und Nullfehler-/klinische-Validierungsversprechen
+werden nicht als Qualitaetsnachweis akzeptiert. Billigere Nebenprofile brauchen
+einen kuenftigen versionierten Appvertrag und eigenen Eignungsnachweis.
+
+Noch offen sind insbesondere der fertige eingeschraenkte Operations-Grantadapter,
+echter Entra-Grantreadback, native Plattform-/Ausfallpruefungen, vollstaendiger
+Deadline-/Aktivierungs-/Cleanupabschluss, reale Personen-/Alarm-/Lizenzbindungen,
+vollstaendige aktuelle Kosten und gehostete Sicherheits-/Paketnachweise.
+Runtimephasen bleiben geschlossen; ein bloss passender Manifest-SHA oeffnet sie
+nicht. Die nachfolgenden historischen Voraussetzungen sind kein Beleg, dass
+diese neuen Aufgaben schon abgeschlossen waeren.
+
 ## Artefakte und Architektur
 
 | Pfad | Zweck |

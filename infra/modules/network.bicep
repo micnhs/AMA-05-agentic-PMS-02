@@ -20,8 +20,17 @@ param operationsPrefix string
 param endpointsPrefix string
 
 @description('Existing reviewed route table ID with controlled egress to a reachable firewall/NVA. No hub, peering or routes are invented here.')
-@minLength(1)
-param egressRouteTableResourceId string
+param egressRouteTableResourceId string = ''
+
+@description('Create an isolated route table and operator/NVA/client/Bastion subnets. No external hub or NAT-only fallback.')
+param createOwnedAccess bool = false
+
+@description('Dedicated own NVA address. Must be the fourth usable IPv4 address in egressPrefix.')
+param nvaPrivateIp string = '10.42.4.4'
+param egressPrefix string = '10.42.4.0/27'
+param operatorPrefix string = '10.42.4.32/27'
+param clientPrefix string = '10.42.4.64/27'
+param bastionPrefix string = '10.42.5.0/26'
 
 @description('Non-sensitive cost and ownership tags.')
 param tags object
@@ -32,12 +41,126 @@ var workloadSubnets = [
   { name: 'snet-operations', prefix: operationsPrefix }
 ]
 
+resource ownedRoutes 'Microsoft.Network/routeTables@2024-07-01' = if (createOwnedAccess) {
+  name: 'rt-${name}-filtered'
+  location: location
+  tags: tags
+  properties: {
+    disableBgpRoutePropagation: true
+    routes: [
+      {
+        name: 'default-via-own-filter'
+        properties: {
+          addressPrefix: '0.0.0.0/0'
+          nextHopType: 'VirtualAppliance'
+          nextHopIpAddress: nvaPrivateIp
+        }
+      }
+    ]
+  }
+}
+
+var routeTableId = createOwnedAccess ? ownedRoutes.id : egressRouteTableResourceId
+var filteredOutbound = [
+  {
+    name: 'AllowOwnDns'
+    properties: {
+      priority: 100
+      direction: 'Outbound'
+      access: 'Allow'
+      protocol: '*'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: nvaPrivateIp
+      destinationPortRange: '53'
+    }
+  }
+  {
+    name: 'DenyPlatformDnsBypass'
+    properties: {
+      priority: 110
+      direction: 'Outbound'
+      access: 'Deny'
+      protocol: '*'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: 'AzurePlatformDNS'
+      destinationPortRange: '53'
+    }
+  }
+  {
+    name: 'DenyOtherDns'
+    properties: {
+      priority: 120
+      direction: 'Outbound'
+      access: 'Deny'
+      protocol: '*'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: '*'
+      destinationPortRanges: ['53', '853']
+    }
+  }
+  {
+    name: 'AllowPrivateTlsSql'
+    properties: {
+      priority: 130
+      direction: 'Outbound'
+      access: 'Allow'
+      protocol: 'Tcp'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: addressPrefix
+      destinationPortRanges: ['443', '1433']
+    }
+  }
+  {
+    name: 'AllowTlsSubjectToNvaRoute'
+    properties: {
+      priority: 140
+      direction: 'Outbound'
+      access: 'Allow'
+      protocol: 'Tcp'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: 'Internet'
+      destinationPortRange: '443'
+    }
+  }
+  {
+    name: 'DenyOtherInternetIncludingQuic'
+    properties: {
+      priority: 150
+      direction: 'Outbound'
+      access: 'Deny'
+      protocol: '*'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: 'Internet'
+      destinationPortRange: '*'
+    }
+  }
+  {
+    name: 'DenyIpv6'
+    properties: {
+      priority: 90
+      direction: 'Outbound'
+      access: 'Deny'
+      protocol: '*'
+      sourceAddressPrefix: '*'
+      sourcePortRange: '*'
+      destinationAddressPrefix: '::/0'
+      destinationPortRange: '*'
+    }
+  }
+]
+
 resource workloadNsgs 'Microsoft.Network/networkSecurityGroups@2024-07-01' = [for subnet in workloadSubnets: {
   name: 'nsg-${name}-${replace(subnet.name, 'snet-', '')}'
   location: location
   tags: tags
   properties: {
-    securityRules: []
+    securityRules: createOwnedAccess ? filteredOutbound : []
   }
 }]
 
@@ -94,16 +217,125 @@ var integratedSubnets = [for (subnet, i) in workloadSubnets: {
       id: workloadNsgs[i].id
     }
     routeTable: {
-      id: egressRouteTableResourceId
+      id: routeTableId
     }
   }
 }]
+
+resource accessNsg 'Microsoft.Network/networkSecurityGroups@2024-07-01' = if (createOwnedAccess) {
+  name: 'nsg-${name}-operator'
+  location: location
+  tags: tags
+  properties: {
+    securityRules: concat(filteredOutbound, [
+      {
+        name: 'AllowBastionRdpOnly'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: bastionPrefix
+          sourcePortRange: '*'
+          destinationAddressPrefix: clientPrefix
+          destinationPortRange: '3389'
+        }
+      }
+      {
+        name: 'DenyOtherInbound'
+        properties: {
+          priority: 4096
+          direction: 'Inbound'
+          access: 'Deny'
+          protocol: '*'
+          sourceAddressPrefix: '*'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '*'
+        }
+      }
+    ])
+  }
+}
+
+resource nvaNsg 'Microsoft.Network/networkSecurityGroups@2024-07-01' = if (createOwnedAccess) {
+  name: 'nsg-${name}-filter'
+  location: location
+  tags: tags
+  properties: {
+    securityRules: [
+      {
+        name: 'AllowInspectedTlsAndDnsFromOwnNetwork'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: '*'
+          sourceAddressPrefix: addressPrefix
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRanges: ['443', '53']
+        }
+      }
+      {
+        name: 'DenyOtherInbound'
+        properties: {
+          priority: 4096
+          direction: 'Inbound'
+          access: 'Deny'
+          protocol: '*'
+          sourceAddressPrefix: '*'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '*'
+        }
+      }
+    ]
+  }
+}
+
+var accessSubnets = createOwnedAccess ? [
+  {
+    name: 'snet-egress'
+    properties: {
+      addressPrefix: egressPrefix
+      defaultOutboundAccess: false
+      networkSecurityGroup: { id: nvaNsg.id }
+    }
+  }
+  {
+    name: 'snet-operator'
+    properties: {
+      addressPrefix: operatorPrefix
+      defaultOutboundAccess: false
+      routeTable: { id: ownedRoutes.id }
+      networkSecurityGroup: { id: accessNsg.id }
+    }
+  }
+  {
+    name: 'snet-test-client'
+    properties: {
+      addressPrefix: clientPrefix
+      defaultOutboundAccess: false
+      routeTable: { id: ownedRoutes.id }
+      networkSecurityGroup: { id: accessNsg.id }
+    }
+  }
+  {
+    name: 'AzureBastionSubnet'
+    properties: {
+      addressPrefix: bastionPrefix
+      defaultOutboundAccess: false
+    }
+  }
+] : []
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
   name: 'vnet-${name}'
   location: location
   tags: tags
   properties: {
+    dhcpOptions: createOwnedAccess ? { dnsServers: [nvaPrivateIp] } : {}
     addressSpace: {
       addressPrefixes: [addressPrefix]
     }
@@ -119,7 +351,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-07-01' = {
           }
         }
       }
-    ])
+    ], accessSubnets)
   }
 }
 
@@ -165,6 +397,13 @@ output containerAppsSubnetId string = resourceId('Microsoft.Network/virtualNetwo
 output workflowsSubnetId string = resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, workloadSubnets[1].name)
 output operationsSubnetId string = resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, workloadSubnets[2].name)
 output endpointsSubnetId string = resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'snet-private-endpoints')
+output accessSubnets object = createOwnedAccess ? {
+  egress: resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'snet-egress')
+  operator: resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'snet-operator')
+  client: resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'snet-test-client')
+  bastion: resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, 'AzureBastionSubnet')
+} : {}
+output routeTableId string = routeTableId
 output dns object = {
   blob: zones[0].id
   queue: zones[1].id

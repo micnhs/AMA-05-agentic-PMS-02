@@ -1,0 +1,65 @@
+name: Cohors bound primary package
+
+'on':
+  workflow_dispatch:
+    inputs:
+      application_commit:
+        description: Immutable application candidate, not an Azure release approval
+        required: true
+        default: dd112705af2baf6c4e7787794b782f4f8937b1e8
+        type: string
+  push:
+    branches: [micnhs-cohors-azure-infrastruktur]
+    paths:
+      - infra/**
+      - .github/workflows/cohors-primary-package.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cohors-primary-package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Immutable build only, no Azure credentials
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      APP_COMMIT: ${{ inputs.application_commit || 'dd112705af2baf6c4e7787794b782f4f8937b1e8' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require a complete source SHA
+        shell: pwsh
+        run: |
+          if ($env:APP_COMMIT -cnotmatch '^[0-9a-f]{40}$') { throw 'Application source must be a full immutable SHA.' }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.APP_COMMIT }}
+          path: application
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: application/global.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: application/src/Cohors.Web/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Build bound application, real Flex packages and private bootstrap tools
+        shell: pwsh
+        run: ./infra/scripts/Build-PrimaryPackage.ps1 -ApplicationRoot "$env:GITHUB_WORKSPACE/application" -OutputDirectory "$env:RUNNER_TEMP/cohors-primary-package"
+      - name: Publish only the hash-bound code bundle
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cohors-primary-release
+          path: ${{ runner.temp }}/cohors-primary-package/cohors-primary-release.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

@@ -7,6 +7,10 @@ param location string
 @description('Container Apps environment resource ID.')
 param environmentId string
 
+@description('Profile returned by the created environment, assigned to BOTH actual Container Apps.')
+@allowed(['Consumption', 'D4'])
+param workloadProfileName string = 'Consumption'
+
 @description('Registry FQDN and immutable API/AgentHost image references.')
 param images object
 
@@ -73,6 +77,7 @@ module agents 'container-app.bicep' = {
     name: 'ca-${name}-agents'
     location: location
     environmentId: environmentId
+    workloadProfileName: workloadProfileName
     image: images.agents
     registryServer: images.registry
     identityResourceId: identities.agents.id
@@ -112,6 +117,7 @@ module api 'container-app.bicep' = {
     name: 'ca-${name}-api'
     location: location
     environmentId: environmentId
+    workloadProfileName: workloadProfileName
     image: images.api
     registryServer: images.registry
     identityResourceId: identities.api.id
@@ -198,3 +204,9 @@ output apiUrl string = api.outputs.url
 output agentsUrl string = agents.outputs.url
 output workflowsUrl string = workflows.outputs.url
 output operationsUrl string = operations.outputs.url
+output resources object = {
+  api: api.outputs.id
+  agents: agents.outputs.id
+  workflows: workflows.outputs.id
+  operations: operations.outputs.id
+}

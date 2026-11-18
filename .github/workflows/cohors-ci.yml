@@ -42,6 +42,14 @@ jobs:
       - name: Validate without Azure login
         shell: pwsh
         run: ./infra/scripts/Validate-Infrastructure.ps1 -OutputDirectory "$env:RUNNER_TEMP/cohors-iac"
+      - name: Native owned Linux network fixture, not an Azure platform pass
+        shell: bash
+        run: |
+          if ! command -v dnsdist >/dev/null || ! command -v nft >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq dnsdist nftables
+          fi
+          sudo --preserve-env=GITHUB_ACTIONS "$(command -v python)" -B infra/tests/nva_native.py
 
   acceptance:
     name: SQL, .NET and Chromium acceptance
@@ -51,17 +59,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ (github.head_ref || github.ref_name) == 'micnhs-cohors-azure-infrastruktur' && 'dd112705af2baf6c4e7787794b782f4f8937b1e8' || github.sha }}
+          path: application
+          persist-credentials: false
+      - name: Record actual application source, not a cloud release approval
+        shell: pwsh
+        run: |
+          git -C application rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Application source binding failed.' }
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
-          global-json-file: global.json
+          global-json-file: application/global.json
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
-          cache-dependency-path: src/Cohors.Web/package-lock.json
+          cache-dependency-path: application/src/Cohors.Web/package-lock.json
       - name: Real SQL and browser tests with fresh ephemeral credentials
         shell: pwsh
-        run: ./infra/scripts/Invoke-CohorsCi.ps1 -ArtifactDirectory "$env:RUNNER_TEMP/cohors-test-evidence"
+        run: ./infra/scripts/Invoke-CohorsCi.ps1 -ApplicationRoot "$env:GITHUB_WORKSPACE/application" -ArtifactDirectory "$env:RUNNER_TEMP/cohors-test-evidence"
       - name: Publish only allowlisted synthetic test evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -16,6 +16,10 @@ param workspaceId string
 @description('Enable only after zonal support, replica strategy and cost review.')
 param zoneRedundant bool
 
+@description('Explicit hosting candidate. D4 is not selected implicitly by choosing a workload-profiles environment.')
+@allowed(['Consumption', 'D4'])
+param workloadProfileType string = 'Consumption'
+
 @description('Non-sensitive cost and ownership tags.')
 param tags object
 
@@ -31,7 +35,13 @@ resource environment 'Microsoft.App/managedEnvironments@2025-07-01' = {
       infrastructureSubnetId: subnetId
     }
     workloadProfiles: [
-      { name: 'Consumption', workloadProfileType: 'Consumption' }
+      union({
+        name: workloadProfileType
+        workloadProfileType: workloadProfileType
+      }, workloadProfileType == 'Consumption' ? {} : {
+        minimumCount: 1
+        maximumCount: 1
+      })
     ]
     appLogsConfiguration: {
       destination: 'azure-monitor'
@@ -69,3 +79,4 @@ module ingressDns 'private-ingress-dns.bicep' = {
 
 output id string = environment.id
 output defaultDomain string = environment.properties.defaultDomain
+output workloadProfileName 'Consumption' | 'D4' = workloadProfileType

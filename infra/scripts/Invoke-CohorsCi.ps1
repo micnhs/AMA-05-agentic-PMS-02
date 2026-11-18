@@ -1,9 +1,12 @@
-param([Parameter(Mandatory)][string]$ArtifactDirectory)
+param(
+    [Parameter(Mandatory)][string]$ArtifactDirectory,
+    [string]$ApplicationRoot = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent)
+)
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -or -not $IsLinux) {
     throw 'This integration harness is for an ephemeral GitHub Actions Linux runner, not a developer machine.'
 }
-$root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$root = [IO.Path]::GetFullPath($ApplicationRoot)
 Set-Location $root
 $settingsPath = Join-Path $root '.local/settings.json'
 if (Test-Path -LiteralPath $settingsPath) { throw 'CI requires fresh configuration; existing settings must never be read or reused.' }
