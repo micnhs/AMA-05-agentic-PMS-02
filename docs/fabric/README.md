@@ -208,9 +208,11 @@ against the original lock, emits bounded hash-bound source text only, and
 cannot publish/upload a binary. Candidates must be reviewed and committed
 before a subsequent locked artifact run; no unlocked publish fallback.
 The hosted diagnostic identified .NET 10 framework-package pruning, not a
-package-version upgrade, in `Cohors.Infrastructure`. C1 publishing explicitly
-retains that library's original unpruned lock graph; the API's existing
-pruning remains unchanged. The full base-graph equality check stays enforced.
+package-version upgrade, in `Cohors.Infrastructure`. C1 publishing retains
+only that library's twelve previously locked ASP.NET framework references.
+The existing .NET runtime pruning (including DiagnosticSource and Unsafe)
+and the API's pruning remain unchanged. The full base-graph equality check
+stays enforced; no lock content is synthesized by hand.
 `scripts\fabric\c1_package.py` derives the exact binary allowlist from the
 published dependency graphs; its explicit `SOURCE_ASSETS` lists the only
 IaC/templates, unchanged synthetic source, license and verification-tool files.

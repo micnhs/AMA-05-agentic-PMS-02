@@ -9,7 +9,17 @@
   <PropertyGroup Condition="'$(CohorsC1Publish)' == 'true'">
     <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
     <NuGetLockFilePath>$(MSBuildProjectDirectory)\packages.c1.lock.json</NuGetLockFilePath>
-    <!-- Preserve this library's existing unpruned lock graph; the API keeps its own pruning. -->
-    <RestoreEnablePackagePruning Condition="'$(MSBuildProjectName)' == 'Cohors.Infrastructure'">false</RestoreEnablePackagePruning>
   </PropertyGroup>
+  <Target Name="PreserveC1InfrastructureLockGraph" AfterTargets="AddPrunePackageReferences"
+          Condition="'$(CohorsC1Publish)' == 'true' and '$(MSBuildProjectName)' == 'Cohors.Infrastructure'">
+    <ItemGroup>
+      <!-- Retain exactly the existing ASP.NET references; keep .NET runtime pruning enabled. -->
+      <PrunePackageReference Remove="Microsoft.Extensions.Caching.Abstractions;Microsoft.Extensions.Caching.Memory;
+        Microsoft.Extensions.Configuration.Abstractions;Microsoft.Extensions.DependencyInjection.Abstractions;
+        Microsoft.Extensions.Diagnostics.Abstractions;Microsoft.Extensions.FileProviders.Abstractions;
+        Microsoft.Extensions.Hosting.Abstractions;Microsoft.Extensions.Logging.Abstractions;
+        Microsoft.Extensions.Options;Microsoft.Extensions.Primitives;
+        System.Diagnostics.EventLog;System.Threading.RateLimiting" />
+    </ItemGroup>
+  </Target>
 </Project>
