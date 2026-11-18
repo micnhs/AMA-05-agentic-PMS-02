@@ -78,3 +78,4 @@ $archive = Get-Content -LiteralPath (Join-Path $package 'archive.json') -Raw | C
     '- Cross-RID publish is not native Windows execution, a private route, a deployment or C1 service acceptance.'
 ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
 "package-directory=$package" | Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+exit 0
