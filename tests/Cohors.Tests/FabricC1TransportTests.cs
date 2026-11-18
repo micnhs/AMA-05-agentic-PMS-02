@@ -120,7 +120,7 @@ public sealed class FabricC1TransportTests
         Assert.Equal("c1_unknown_without_cursor", (await run.Execute("resume")).Code);
         await run.Execute("query", "allowed");
         Assert.Equal(4, run.Handler.Requests.Count);
-        Assert.Single(run.Handler.Requests.Where(r => r.RpcMethod == "tools/call"));
+        Assert.Single(run.Handler.Requests, r => r.RpcMethod == "tools/call");
     }
 
     [Fact]
@@ -139,7 +139,7 @@ public sealed class FabricC1TransportTests
         Assert.Equal("GET", resumed.Method);
         Assert.Equal("original-cursor", resumed.Cursor);
         Assert.Equal("synthetic-session", resumed.Session);
-        Assert.Single(run.Handler.Requests.Where(r => r.RpcMethod == "tools/call"));
+        Assert.Single(run.Handler.Requests, r => r.RpcMethod == "tools/call");
     }
 
     [Theory]
@@ -190,7 +190,7 @@ public sealed class FabricC1TransportTests
         Assert.Equal("Observed", (await run.Execute("resume")).Status);
         Assert.Equal(Canonical.Hash(call), Canonical.Hash(run.Store.Value!.OriginalCall!.Value));
         Assert.Equal(new[] { "tasks/get", "tasks/result" }, run.Handler.Requests.TakeLast(2).Select(r => r.RpcMethod));
-        Assert.Single(run.Handler.Requests.Where(r => r.RpcMethod == "tools/call"));
+        Assert.Single(run.Handler.Requests, r => r.RpcMethod == "tools/call");
     }
 
     [Theory]
@@ -325,10 +325,24 @@ public sealed class FabricC1TransportTests
         }
     }
 
+    [Fact]
+    public void ExecutableRevisionMatchesTheHostedCommitAndRejectsAnotherSource()
+    {
+        using var run = new Harness();
+        var source = Environment.GetEnvironmentVariable("GITHUB_SHA")
+            ?? throw new InvalidOperationException("Run the C1 verification on its allocated hosted runner.");
+        FabricC1Execution.RequireSourceBuild(run.Settings with { SourceCommit = source });
+        Assert.Equal("c1_binary_binding", Assert.Throws<DomainException>(() =>
+            FabricC1Execution.RequireSourceBuild(run.Settings with { SourceCommit = new string('0', 40) })).Code);
+    }
+
     private static object ToolResult() => new { content = new[] { new { type = "text", text = "SYNTHETIC-ALLOW-A" } }, isError = false };
     private static object TaskState(string status) => new { taskId = "synthetic-task", status, pollInterval = 0, ttl = 60000 };
-    private static string RequestId(HttpRequestMessage request) =>
-        JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult()).RootElement.GetProperty("id").GetString()!;
+    private static string RequestId(HttpRequestMessage request)
+    {
+        using var document = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+        return document.RootElement.GetProperty("id").GetString()!;
+    }
     private static HttpResponseMessage Rpc(HttpRequestMessage request, object result) =>
         Json(new { jsonrpc = "2.0", id = RequestId(request), result });
     private static HttpResponseMessage Json(object value) => new(HttpStatusCode.OK)
