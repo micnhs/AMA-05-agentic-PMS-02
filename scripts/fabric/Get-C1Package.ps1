@@ -50,7 +50,8 @@ if ($artifact.expired -ne $false -or $expiry -le [DateTimeOffset]::UtcNow -or
     throw 'Artifact expiry, digest, size or source/run binding is invalid.'
 }
 $download = Join-Path $parent ('.c1-artifact-' + [Guid]::NewGuid().ToString('N') + '.zip')
-$start = [Diagnostics.ProcessStartInfo]::new((Get-Command gh -CommandType Application).Source)
+$gh = Get-Command gh -CommandType Application -ErrorAction Stop | Select-Object -First 1
+$start = [Diagnostics.ProcessStartInfo]::new($gh.Source)
 $start.UseShellExecute = $false
 $start.RedirectStandardOutput = $true
 $start.RedirectStandardError = $true

@@ -31,8 +31,16 @@ foreach ($script in @('Build-C1Package.ps1', 'Get-C1Package.ps1')) {
 }
 & {
     $culture = [Threading.Thread]::CurrentThread.CurrentCulture
+    $failureExecutable = (Microsoft.PowerShell.Core\Get-Command false -CommandType Application | Select-Object -First 1).Source
     try {
         [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('de-DE')
+        function Get-Command {
+            [CmdletBinding()]
+            param([string]$Name, [Management.Automation.CommandTypes]$CommandType)
+            if ($Name -ne 'gh' -or $CommandType -ne 'Application') { throw 'Unexpected offline executable lookup.' }
+            [pscustomobject]@{ Source = $failureExecutable }
+            [pscustomobject]@{ Source = '/no-fallback-gh-executable' }
+        }
         function gh {
             $global:LASTEXITCODE = 0
             if ($args[-1] -eq 'repos/micnhs/AMA-05-agentic-PMS-02/actions/runs/123/artifacts?per_page=100') {
@@ -40,7 +48,7 @@ foreach ($script in @('Build-C1Package.ps1', 'Get-C1Package.ps1')) {
                     total_count = 1
                     artifacts = @(@{
                         id = 456; name = 'cohors-fabric-c1-123-1'; expired = $false
-                        expires_at = '2020-11-19T14:35:58Z'; size_in_bytes = 123
+                        expires_at = $fixture.Expiry; size_in_bytes = 123
                         digest = 'sha256:' + ('a' * 64)
                         workflow_run = @{ id = 123; head_sha = 'b' * 40 }
                     })
@@ -54,15 +62,21 @@ foreach ($script in @('Build-C1Package.ps1', 'Get-C1Package.ps1')) {
                 path = '.github/workflows/cohors-fabric-contracts.yml'; event = 'push'; status = 'completed'; conclusion = 'success'
             } | ConvertTo-Json -Depth 4
         }
-        $refused = $false
-        try {
-            & (Join-Path $PSScriptRoot 'Get-C1Package.ps1') -RunId 123 -SourceCommit ('b' * 40) -Destination (Join-Path $temporary 'expired-fixture-not-created')
-        } catch {
-            if ($_.Exception.Message -cne 'Artifact expiry, digest, size or source/run binding is invalid.') { throw }
-            $refused = $true
-        }
-        if (-not $refused -or (Test-Path -LiteralPath (Join-Path $temporary 'expired-fixture-not-created'))) {
-            throw 'Expired artifact must be rejected before download or extraction, including under non-US culture.'
+        foreach ($fixture in @(
+            @{ Expiry = '2020-11-19T14:35:58Z'; Error = 'Artifact expiry, digest, size or source/run binding is invalid.' },
+            @{ Expiry = '2999-11-19T14:35:58Z'; Error = 'Authenticated artifact download failed; no retry or credential fallback.' }
+        )) {
+            $refused = $false
+            try {
+                & (Join-Path $PSScriptRoot 'Get-C1Package.ps1') -RunId 123 -SourceCommit ('b' * 40) -Destination (Join-Path $temporary 'download-fixture-not-created')
+            } catch {
+                if ($_.Exception.Message -cne $fixture.Error) { throw }
+                $refused = $true
+            }
+            if (-not $refused -or (Test-Path -LiteralPath (Join-Path $temporary 'download-fixture-not-created')) -or
+                @(Get-ChildItem -LiteralPath $temporary -Filter '.c1-artifact-*.zip' -File).Count -ne 0) {
+                throw 'Failed metadata/download must leave no extraction or temporary archive; no alternate executable.'
+            }
         }
     } finally { [Threading.Thread]::CurrentThread.CurrentCulture = $culture }
 }
