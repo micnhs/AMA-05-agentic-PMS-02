@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "name": { "type": "string" },
+    "location": { "type": "string" },
+    "tenantId": { "type": "string" },
+    "tags": { "type": "object" },
+    "workspaces": { "type": "array", "minLength": 1 },
+    "endpoints": { "type": "array", "minLength": 1 }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Fabric/privateLinkServicesForFabric", "apiVersion": "2024-06-01",
+      "copy": { "name": "workspaceLinks", "count": "[length(parameters('workspaces'))]" },
+      "name": "[concat(parameters('name'), '-', parameters('workspaces')[copyIndex()].key, '-pls')]",
+      "location": "global", "tags": "[parameters('tags')]",
+      "properties": {
+        "tenantId": "[parameters('tenantId')]",
+        "workspaceId": "[parameters('workspaces')[copyIndex()].id]"
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints", "apiVersion": "2024-05-01",
+      "copy": { "name": "privateEndpoints", "count": "[length(parameters('endpoints'))]" },
+      "name": "[concat(parameters('name'), '-', parameters('endpoints')[copyIndex()].key, '-pe')]",
+      "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "dependsOn": ["workspaceLinks"],
+      "properties": {
+        "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', concat(parameters('name'), '-vnet'), 'endpoints')]" },
+        "privateLinkServiceConnections": [{
+          "name": "c1",
+          "properties": {
+            "privateLinkServiceId": "[parameters('endpoints')[copyIndex()].resourceId]",
+            "groupIds": "[parameters('endpoints')[copyIndex()].groupIds]"
+          }
+        }]
+      }
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups", "apiVersion": "2024-05-01",
+      "copy": { "name": "zoneGroups", "count": "[length(parameters('endpoints'))]" },
+      "name": "[concat(parameters('name'), '-', parameters('endpoints')[copyIndex('zoneGroups')].key, '-pe/c1')]",
+      "dependsOn": ["privateEndpoints"],
+      "properties": {
+        "copy": [{
+          "name": "privateDnsZoneConfigs",
+          "count": "[length(parameters('endpoints')[copyIndex('zoneGroups')].zones)]",
+          "input": {
+            "name": "[concat('zone', copyIndex('privateDnsZoneConfigs'))]",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', parameters('endpoints')[copyIndex('zoneGroups')].zones[copyIndex('privateDnsZoneConfigs')])]"
+            }
+          }
+        }]
+      }
+    }
+  ]
+}

@@ -14,6 +14,12 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
+if (args.FirstOrDefault() == "--fabric-c1-deploy")
+{
+    Environment.ExitCode = FabricC1DeploymentEntry.Run(args[1..]);
+    return;
+}
+
 if (args.FirstOrDefault() == "--fabric-c1")
 {
     Environment.ExitCode = await FabricC1Entry.Run(args[1..]);

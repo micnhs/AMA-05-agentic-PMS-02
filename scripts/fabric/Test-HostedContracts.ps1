@@ -58,7 +58,7 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
 }
 
-$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests', 'FabricC1PreparationTests', 'FabricC1TransportTests')
+$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests', 'FabricC1PreparationTests', 'FabricC1TransportTests', 'FabricC1DeploymentTests')
 $filter = ($classes | ForEach-Object { "FullyQualifiedName~Cohors.Tests.$_" }) -join '|'
 $results = Join-Path $temporary 'test-results'
 dotnet test tests/Cohors.Tests/Cohors.Tests.csproj --configuration Release --no-build --no-restore --filter $filter --logger 'console;verbosity=minimal' --logger 'trx;LogFileName=contracts.trx' --results-directory $results
@@ -71,6 +71,14 @@ if ($preflight.status -cne 'Blocked' -or $preflight.cloudExecutionAllowed -ne $f
     throw 'The C1 executable did not return the expected offline missing-bindings result.'
 }
 $preflightJson | Write-Output
+$deploymentJson = dotnet src/Cohors.Api/bin/Release/net10.0/Cohors.Api.dll --fabric-c1-deploy plan --manifest fabric/c1/deployment.template.json
+if ($LASTEXITCODE -ne 2) { throw 'The incomplete deployment must remain blocked without acquiring credentials or creating resources.' }
+$deploymentPlan = $deploymentJson | ConvertFrom-Json
+if ($deploymentPlan.status -cne 'Blocked' -or $deploymentPlan.canApply -ne $false -or
+    'tenantId' -notin $deploymentPlan.missingInputs -or $deploymentPlan.implementationBlockers.Count -eq 0) {
+    throw 'The deployment entry hid missing inputs or its incomplete bootstrap.'
+}
+$deploymentJson | Write-Output
 [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
 $testSummary = @()
 foreach ($class in $classes) {
@@ -88,6 +96,7 @@ $summary = @(
     '- Standard isolated hosted runner; no SQL, Docker, browser, Azure login, secrets, shared caches or artifact uploads.'
     '- Evidence level: local contract execution only. NOT Fabric/IQ/Hosted Agents/WORM/Ledger/recovery or production acceptance.'
     '- C1 executable unbound-template preflight: Blocked, exit 2, cloudExecutionAllowed=false (expected offline rejection).'
+    '- C1 deployment entry: Blocked, exit 2, canApply=false; incomplete private bootstrap is not a deployment pass.'
 )
 $summary += $testSummary
 foreach ($path in @('fabric/delivery.json', 'docs/fabric/requirement-register.json', 'src/Cohors.Domain/bin/Release/net10.0/Cohors.Domain.dll')) {

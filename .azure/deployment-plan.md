@@ -1,9 +1,45 @@
 # Cohors Fabric deployment preparation
 
-Status: Planning; isolated source implementation, general cost approval and the
-bounded C1 execution request received. Concrete targets, quantified budget,
-resource/role/network/retention/cleanup bindings and native C1 observations
-remain outstanding. NOT Ready for Validation or Validated.
+Status: C1 provisioning components implemented, complete bootstrap blocked (source-only). General cost approval
+and bounded C1 execution approval already exist. The current assignment is to
+automate resource creation, not to require manually created targets. Concrete
+start parameters and authorized deployment identity are supplied by the existing
+infrastructure owner. No cloud mutation is authorized by this source task.
+NOT Ready for Validation or Validated.
+
+## Current C1 automation increment
+
+- Inspect existing deployment patterns and authoritative ARM/Graph/Fabric/
+  Foundry contracts before generating resource or API operations.
+- Implement the isolated minimal C1 resource graph and non-ARM bootstrap;
+  derive IDs and endpoints from actual responses with ownership verification.
+- Require explicit tenant/subscription, start-rights checks, bounded execution,
+  resumable ownership state, secret-safe credential references, private data
+  paths and public access disabled. No silent policy or privilege expansion.
+- Stop before allocating resources if a mandatory platform operation is
+  unsupported; do not emit success-shaped placeholders or reuse primary assets.
+- Validate creation/resume/conflict/rights/output cases only on the existing
+  credential-free hosted lane. Keep all seven native C1 cases NotRun.
+- Finalize the supported executable scope and precise API blockers below after
+  research. Target/IAM/policy effects require a separate visible deployment
+  review; no second planning session and no repeat general approval request.
+
+The first source increment now supplies variant-only ARM JSON, Graph/Fabric
+provider operations, a durable ownership/request journal and an offline
+`--fabric-c1-deploy plan --manifest FILE` entry. `apply` is deliberately blocked
+before credential acquisition and mutations. It is not complete automation.
+See `docs\fabric\README.md` for the remaining private-bootstrap integrations.
+They are implementation gaps, not unsupported-provider claims. No template-only
+or paid partial apply is exposed. Source regression verification uses only the
+existing standard-hosted job; no cloud validation/deployment has occurred.
+
+R4.0 from the existing infrastructure owner was read and hash-checked:
+contract `ee2307d6b4371fdf260230825d43599be8355afbf127f332cce1ff968cb6aaee`,
+binding map `f0301868704a269b58d654230f5695ffbabb2c4f2f727f822ffc79a77dca2da7`.
+Private identities, paths and tenant configuration are not copied here.
+The R4 package still requires specific egress/operator/credential/model
+choices and effective start scopes; it does not require manually created
+runtime resources or repeat the general C1/cost approval.
 
 ## Approval and immutable baseline
 
@@ -113,8 +149,11 @@ remains offline; a separate opt-in C1 execution envelope now binds the executabl
 HTTP/SSE, explicit app credential and Hosted Invocations modes. Normal API and
 adapter registrations are unchanged. Only the existing credential-free hosted
 build/in-process path is used for source validation, not a private cloud runner.
-The existing infrastructure owner supplies
-the private bindings; no second resource plan or cloud allocation is created.
+The existing infrastructure owner supplies the reviewed start-parameter and
+rights package. The C1 automation must create its own resources and derive the
+private bindings, rather than asking for pre-existing resource IDs or portal
+copy steps. No second resource plan or cloud allocation is created by this
+source-only assignment.
 
 Before any deployment: finalize the isolated target plan and obtain target/cost
 approval; invoke azure-validate, then azure-deploy. Do not claim readiness until

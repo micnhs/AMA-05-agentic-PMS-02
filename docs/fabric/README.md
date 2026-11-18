@@ -3,6 +3,81 @@
 Independent alternative based on ALT-FAB-01 v0.2 and FAB-BASELINE-01 v0.2.
 This is an implementation in progress, not an accepted or deployed system.
 
+## C1 provisioning increment: partial source implementation
+
+The new opt-in entry is `Cohors.Api --fabric-c1-deploy plan --manifest FILE`.
+Start with `fabric\c1\deployment.template.json`, not with manually created
+Capacity/Workspace/App/PE IDs. The normal API and the existing `--fabric-c1`
+probe entry are unchanged. `plan` is offline and returns exit 2 / `Blocked`.
+`apply` is deliberately blocked **before credential acquisition or any cloud
+request**: the complete private bootstrap driver is not implemented yet.
+This is not the requested finished automatic C1 deployment.
+
+Implemented source components:
+
+- `infra\fabric\c1.foundation.json` describes an isolated F2 (overage disabled),
+  private VM/VNet/subnets, DNS, Key Vault, private storage/ACR, and a Foundry
+  account with injection at creation plus a separate project identity.
+  `c1.workspace-network.json` binds workspace PLS/PE/DNS from creation outputs.
+- `FabricC1Provisioner` implements journal-before-effect creation, exact
+  manifest/ownership checks, bounded inventory, unknown-create reconciliation
+  without blind POST replay, ARM deployment polling, distinct ARM/Fabric
+  capacity identities, Graph app/SP bootstrap, workspace/Lakehouse/DataAgent
+  APIs, publication readback, and the agent-workspace-only Contributor grant.
+- A policy update first reads its ETag and full body, explicitly writes both
+  inbound and outbound `defaultAction=Deny`, preserves other fields, and
+  checks the readback. Missing ETag, HTTP 412, foreign names, wrong
+  tenant/subscription or incomplete inventories stop the operation.
+- The HTTP component binds each scope to its exact authority, caller and
+  tenant. Public Fabric hosts permit only the documented control operations;
+  item operations require the exact separately configured private workspace
+  client. There is no default HTTP, public, OBO, SQL or other-caller fallback.
+- Durable deployment intent and request budgets use a separate locked,
+  bounded, atomic file journal. Generated preparation **drafts** retain
+  observed IDs but leave missing credentials, ontology, reviews and runtime
+  facts missing. They cannot become runnable by substituting dummy values.
+
+Remaining integration gaps block the **whole** profile, not just its last
+step: scoped identity/group/admin resume; private operator/artifact delivery
+and FQDN-filtered egress; private synthetic materialization and effective
+source-grant readback; protected Hosted certificate delivery and durable
+checkpoint outside upload-writable `HOME`; Hosted image/model/version/session
+and final execution binding; an independent deadline/stop/cleanup executor.
+The foundation
+NSG is only a deny-by-default candidate, **not an implemented FQDN filter or
+working Managed Run Command route**. Do not deploy the template alone and
+leave paid resources waiting for these gaps. Firewall/VPN remain absent/off.
+
+These are explicit **implementation gaps**, not assertions that Microsoft
+lacks the corresponding APIs. Source-grant/ontology-private-link and the
+custom Hosted app-only path may additionally encounter actual provider
+limits during the bounded native probe; no G03/G04 pass is a prerequisite
+disguised as a deployment gate. DataAgent and Ontology creation/definition
+APIs exist; Ontology creation is not Ontology MCP app-only/private support.
+
+R4 separates the existing probe's 40 fields into start policy/limits,
+generated outputs, discovery values and real reviews. The initial user and
+the actually consented OAuth client must both be bound; a successful user
+metadata read does not prove write scopes. Graph `AppRegistration.Create`
+alone does not cover app/SP/key/group lifecycle. A dedicated group and
+scoped admin-resume gate must precede paid capacity where needed; no implicit
+tenant-setting, consent, provider-registration or role escalation is included
+here. Contributor is restricted to the agent workspace, never the source
+workspace; neither broad Viewer membership nor prompt filtering substitutes
+for effective source ACLs. App-only means authenticated service access, not
+anonymous Cohors use. Entra user login and separate Medical/RA approval stay
+unchanged.
+
+`FabricC1DeploymentTests` exercises synthetic API responses, not Azure,
+Graph, Fabric or Foundry services. It covers creation/resume, foreign
+conflicts, missing rights, lost responses, policy concurrency, missing
+publication and incomplete output bindings. The same isolated hosted lane
+builds the Web/Solution and executes these cases and the existing regressions.
+It does not prove ARM schema/provider acceptance, effective permissions,
+network paths, deployment, full output completeness, cleanup or costs.
+All seven real C1 cases remain `NotRun`; no SQL/Docker/browser/cloud or local
+native lane is added.
+
 ## Fork and isolation
 
 The initial clean worktree HEAD and merge base were both

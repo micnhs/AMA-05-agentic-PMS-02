@@ -1,0 +1,38 @@
+{
+  "contract": "cohors-fabric-c1-deployment-1",
+  "deploymentId": null,
+  "sourceCommit": null,
+  "tenantId": null,
+  "subscriptionId": null,
+  "location": null,
+  "namePrefix": null,
+  "expiresAtUtc": null,
+  "bootstrapIdentity": null,
+  "capacityAdministrators": [],
+  "network": {
+    "vnetPrefix": null,
+    "clientPrefix": null,
+    "agentPrefix": null,
+    "endpointPrefix": null,
+    "egressReviewSha256": null,
+    "operatorReviewSha256": null
+  },
+  "compute": {
+    "size": null,
+    "imagePublisher": null,
+    "imageOffer": null,
+    "imageSku": null,
+    "imageVersion": null,
+    "sshPublicKey": null
+  },
+  "reviews": {
+    "startRightsSha256": null,
+    "tenantSettingsSha256": null,
+    "resourcePlanSha256": null,
+    "budgetPlanSha256": null,
+    "dataHandlingAndRetentionSha256": null,
+    "cleanupPlanSha256": null
+  },
+  "maxControlRequests": null,
+  "maxControlDurationSeconds": null
+}
