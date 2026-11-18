@@ -36,7 +36,13 @@ $name = "cohors-fabric-c1-$RunId-$($run.run_attempt)"
 $selected = @($list.artifacts | Where-Object { $_.name -ceq $name })
 if ($selected.Count -ne 1) { throw 'No unique artifact for this exact run attempt.' }
 $artifact = $selected[0]
-if ($artifact.expired -ne $false -or [DateTimeOffset]::Parse($artifact.expires_at) -le [DateTimeOffset]::UtcNow -or
+$expiry = if ($artifact.expires_at -is [DateTime] -or $artifact.expires_at -is [DateTimeOffset]) {
+    [DateTimeOffset]$artifact.expires_at
+} else {
+    [DateTimeOffset]::Parse($artifact.expires_at, [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind)
+}
+if ($artifact.expired -ne $false -or $expiry -le [DateTimeOffset]::UtcNow -or
     $artifact.id.ToString() -cnotmatch '^[1-9][0-9]*$' -or
     $artifact.size_in_bytes -le 0 -or $artifact.size_in_bytes -gt 256MB -or
     $artifact.digest -cnotmatch '^sha256:[0-9a-f]{64}$' -or
@@ -96,7 +102,7 @@ try {
         outerArchiveSha256 = $artifact.digest.Substring(7)
         outerArchiveLength = $artifact.size_in_bytes
         innerArchiveSha256 = $verified.archiveSha256
-        expiresAtUtc = $artifact.expires_at
+        expiresAtUtc = $expiry.ToUniversalTime().ToString('O', [Globalization.CultureInfo]::InvariantCulture)
     }
     $provenancePath = Join-Path $Destination 'download-provenance.json'
     $provenanceFile = [IO.File]::Open($provenancePath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)

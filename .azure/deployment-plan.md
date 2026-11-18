@@ -67,6 +67,17 @@ Fachagent/embedding models and separate assurance execution remain required
 by ALT-FAB-01 sections 9-11 and X-23/X-25/X-27. The existing live AgentRunner
 and optional inherited model IaC have not yet been delivered as the independent
 Fabric Hosted/model path. C1 completion must never be reported as their delivery.
+The 2026-11-18 user decision makes quality-first strong/frontier selection
+mandatory for safety analysis, risk/recommendations and independent assurance;
+cost optimization is task-specific and needs evidence-preserving professional
+evaluation. `FoundryQuality` now specifies an executable activation-review
+contract binding the task/model/prompt/pipeline/identity/private route, separate
+FP/FN and uncertainties, full-chain reference evaluation and independent
+original-based assurance. It is not a real quality evaluation or an activated
+runtime hook. Integrating/enforcing it belongs to the later Fabric agent
+adapter; C1 fields and C1's model-less path remain unchanged.
+Native evaluation resources may precede the quality activation review, never
+the separate private-path, data-residency, resource and authorization review.
 Historical v1 inputs/hashes and all seven NotRun cases remain historical.
 Private identities, paths and tenant configuration are not copied here.
 The R4 package still requires specific egress/operator/runtime-credential/AI-policy

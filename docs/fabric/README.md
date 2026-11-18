@@ -30,6 +30,52 @@ separate assurance execution and native functional/operational acceptance.
 The C1 v2 correction removes only unused fields from the direct MCP probe;
 it neither removes these obligations nor proves any of them delivered.
 
+### Mandatory task-model quality priority (2026-11-18)
+
+The user's quality decision supplements the full pilot, without changing the
+immutable original baseline or adding a model to the model-less C1 transport.
+Medical/technical analysis, causality/risk, recommendations and independent
+assurance require quality-first selection among capable strong/frontier
+candidates. A cheap model is allowed only for a task whose professional
+evaluation demonstrates correct, evidence-preserving execution. Intake,
+extraction and triage must not drop safety signals to save tokens or money.
+Missing or conflicting evidence stays visible as review work; it is not
+silently rejected or automatically approved.
+
+`FoundryTaskBinding` / `FoundryQuality.ValidateActivationReview` specify the
+separate activation evidence contract: exact task/model/version/family,
+prompt bytes/version, complete pipeline configuration, own workload identity,
+private-path and evidence-preservation reviews, and the existing EU boundary.
+Changes require a newly bound regression. Critical roles cannot select the
+cost-optimized policy. No lower-cost, Global, DataZone, region or credential
+fallback is authorized. A capability label alone proves no quality.
+
+The professional reference dataset, evaluation protocol/results and qualified
+review must cover the entire intake-to-retrieval-to-analysis-to-assurance chain.
+FP and FN are separate, with sensitivity, precision, FPR/FNR, case/decision
+denominators, rare critical cases, negation, conflict, missing evidence,
+unsupported claims and fabricated citations. Sample size, coverage, uncertainty
+and limits are explicit. No invented target rates, zero-error guarantee,
+model-confidence threshold or AI-judge-only gold standard is supplied.
+The confusion counts are measurements, not an automatic acceptance threshold.
+The qualified review must define and justify the task-specific criteria.
+
+Assurance additionally binds the actual analysis profile, separate workload
+identity, independent original-read path and a reviewed independence argument,
+including shared failure modes. A second call or a different/same model-family
+label is insufficient. Medical and RA decisions remain distinct authorized
+human approvals through the Cohors API.
+
+This increment validates the **evidence contract only**. Reports, native
+identity/private-path enforcement, separate hosting, original-read execution
+and real model evaluations are not supplied or certified by a successful
+validator result. The validator is not yet a hook in the inherited AgentRunner;
+its reviewed integration is mandatory before the Fabric Fachagent activation.
+No concrete model/version is selected and no existing deployment is activated.
+Model resources for genuine evaluation may be provisioned before live-quality
+approval under their separate resource/privacy/authorization gates; the
+quality validator must not create a circular pre-provisioning requirement.
+
 ## C1 provisioning increment: partial source implementation
 
 The new opt-in entry is `Cohors.Api --fabric-c1-deploy plan --manifest FILE`.
@@ -126,6 +172,18 @@ custom Hosted app-only path may additionally encounter actual provider
 limits during the bounded native probe; no G03/G04 pass is a prerequisite
 disguised as a deployment gate. DataAgent and Ontology creation/definition
 APIs exist; Ontology creation is not Ontology MCP app-only/private support.
+The published `fabric-data-agent-sdk` 0.1.36a0 documents the separate
+`add_staging_ontology` / `list_ontologies` / `publish_staging` authoring path.
+That management path uses delegated notebook-user authentication and workload
+APIs, not an app-only public REST datasource entry. Do not invent ontology
+definition files or copy a user bearer to the private worker. Fabric documents
+REST-triggered notebooks under the triggering identity; private access,
+notebook SDK availability, authorization and effective published ontology
+binding still need an integrated and observed path. This authoring limitation
+does not prove an app-only inference denial.
+Sources: [SDK release](https://pypi.org/project/fabric-data-agent-sdk/0.1.36a0/),
+[notebook security context](https://learn.microsoft.com/fabric/data-engineering/how-to-use-notebook#security-context-of-running-notebook),
+[notebook APIs](https://learn.microsoft.com/fabric/data-engineering/notebook-public-api).
 
 R4 separates the existing probe's 40 fields into start policy/limits,
 generated outputs, discovery values and real reviews. The explicit

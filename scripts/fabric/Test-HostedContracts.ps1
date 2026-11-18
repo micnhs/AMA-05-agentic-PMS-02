@@ -29,6 +29,43 @@ foreach ($script in @('Build-C1Package.ps1', 'Get-C1Package.ps1')) {
     $null = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $script), [ref]$tokens, [ref]$parseErrors)
     if ($parseErrors.Count -ne 0) { throw "C1 operator script is not syntactically valid: $script; $parseErrors" }
 }
+& {
+    $culture = [Threading.Thread]::CurrentThread.CurrentCulture
+    try {
+        [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::GetCultureInfo('de-DE')
+        function gh {
+            $global:LASTEXITCODE = 0
+            if ($args[-1] -eq 'repos/micnhs/AMA-05-agentic-PMS-02/actions/runs/123/artifacts?per_page=100') {
+                return @{
+                    total_count = 1
+                    artifacts = @(@{
+                        id = 456; name = 'cohors-fabric-c1-123-1'; expired = $false
+                        expires_at = '2020-11-19T14:35:58Z'; size_in_bytes = 123
+                        digest = 'sha256:' + ('a' * 64)
+                        workflow_run = @{ id = 123; head_sha = 'b' * 40 }
+                    })
+                } | ConvertTo-Json -Depth 6
+            }
+            if ($args[-1] -ne 'repos/micnhs/AMA-05-agentic-PMS-02/actions/runs/123') { throw 'Unexpected offline fixture request.' }
+            return @{
+                id = 123; head_sha = 'b' * 40; run_attempt = 1; head_branch = 'micnhs-cohors-fabric-umsetzung'
+                repository = @{ full_name = 'micnhs/AMA-05-agentic-PMS-02' }
+                head_repository = @{ full_name = 'micnhs/AMA-05-agentic-PMS-02' }
+                path = '.github/workflows/cohors-fabric-contracts.yml'; event = 'push'; status = 'completed'; conclusion = 'success'
+            } | ConvertTo-Json -Depth 4
+        }
+        $refused = $false
+        try {
+            & (Join-Path $PSScriptRoot 'Get-C1Package.ps1') -RunId 123 -SourceCommit ('b' * 40) -Destination (Join-Path $temporary 'expired-fixture-not-created')
+        } catch {
+            if ($_.Exception.Message -cne 'Artifact expiry, digest, size or source/run binding is invalid.') { throw }
+            $refused = $true
+        }
+        if (-not $refused -or (Test-Path -LiteralPath (Join-Path $temporary 'expired-fixture-not-created'))) {
+            throw 'Expired artifact must be rejected before download or extraction, including under non-US culture.'
+        }
+    } finally { [Threading.Thread]::CurrentThread.CurrentCulture = $culture }
+}
 
 python3 scripts/fabric/baseline.py
 if ($LASTEXITCODE -ne 0) { throw 'Bound baseline validation failed.' }
@@ -64,7 +101,7 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
 }
 
-$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests', 'FabricC1PreparationTests', 'FabricC1TransportTests', 'FabricC1DeploymentTests')
+$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests', 'FabricC1PreparationTests', 'FabricC1TransportTests', 'FabricC1DeploymentTests', 'FoundryBoundaryTests')
 $filter = ($classes | ForEach-Object { "FullyQualifiedName~Cohors.Tests.$_" }) -join '|'
 $results = Join-Path $temporary 'test-results'
 dotnet test tests/Cohors.Tests/Cohors.Tests.csproj --configuration Release --no-build --no-restore --filter $filter --logger 'console;verbosity=minimal' --logger 'trx;LogFileName=contracts.trx' --results-directory $results
