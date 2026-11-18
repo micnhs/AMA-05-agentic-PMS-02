@@ -50,7 +50,7 @@ public sealed class OutboxTests(SqlFixture fixture)
         await MakeDue(id);
         Assert.Null(await fixture.Store.ClaimEvent(id, CaseScenario.Key()));
         Assert.False(await fixture.Store.HasReceipt(id, "test-consumer"));
-        var operations = new OperationsService(fixture.Store, fixture.Store, scenario.Clock);
+        var operations = new OperationsService(fixture.Store, fixture.Store, scenario.Clock, fixture.Store);
         var input = new VersionCommand(0, "Technische Ursache im synthetischen Test behoben; kontrollierte Wiederaufnahme nach Pruefung.");
         await Assert.ThrowsAsync<DomainException>(() => operations.Recover(id, input, SqlFixture.Pms, CaseScenario.Key()));
         var recovery = await operations.Recover(id, input, SqlFixture.Quality, CaseScenario.Key());

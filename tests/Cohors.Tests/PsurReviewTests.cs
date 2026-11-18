@@ -236,13 +236,15 @@ public sealed class PsurReviewTests : IAsyncLifetime
     }
 
     [Fact]
+    [Trait("Category", "OperationsSqlBoundary")]
     public async Task T16_BsWatchdogPreservesAlreadyOverdueAgreementAndDoesNotRepeatOrReschedule()
     {
         var report = await Report();
         var service = Service();
         var due = clock.Now.AddDays(-2);
         var review = await service.Open(Question(report) with { DueAt = due }, SqlFixture.Ra, CaseScenario.Key());
-        var operations = new OperationsService(fixture.Store, fixture.Store, clock);
+        var restricted = await fixture.RestrictedOperations();
+        var operations = new OperationsService(restricted, restricted, clock, restricted);
         await operations.Tick();
         review = await service.Get(review.Id, SqlFixture.Pms);
         Assert.Single(review.Alerts);
@@ -254,6 +256,7 @@ public sealed class PsurReviewTests : IAsyncLifetime
         Assert.Equal(due, review.Questions[0].DueAt);
         Assert.Equal("QuestionOpen", review.Status);
         Assert.Equal(Canonical.Hash(report), Canonical.Hash(await fixture.Store.Get<Psur>("psur", report.Id)));
+        await fixture.Store.Manifest(review.Id, kind: "psurReview");
     }
 
     [Fact]

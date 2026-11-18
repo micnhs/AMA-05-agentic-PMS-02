@@ -16,6 +16,7 @@ public sealed class OperationsFunctions(OperationsService operations, SqlStateSt
     [Function(nameof(DeadlineWatchdog))]
     public async Task DeadlineWatchdog([TimerTrigger("*/30 * * * * *", UseMonitor = true)] TimerInfo timer, CancellationToken ct)
     {
+        await store.RequireOperationsReady(ct);
         await operations.Tick(ct);
         var success = new EventTelemetry("cohors.watchdog.completed");
         success.Context.Cloud.RoleName = "cohors-operations";
@@ -39,7 +40,7 @@ public sealed class OperationsFunctions(OperationsService operations, SqlStateSt
     {
         try
         {
-            await store.RequireReady(ct);
+            await store.RequireOperationsReady(ct);
             var heartbeat = await store.Get<OperationsHeartbeat>("operations", "heartbeat", ct);
             if (OperationsService.HeartbeatMissing(heartbeat, DateTimeOffset.UtcNow))
                 throw new InvalidOperationException("Watchdog heartbeat is absent or stale.");

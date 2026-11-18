@@ -97,7 +97,7 @@ public sealed class LifecycleTests(SqlFixture fixture)
         await s.Create();
         var runner = new BlockingRunner();
         var service = new AgentExecutionService(fixture.Store, runner, s.Clock);
-        var operations = new OperationsService(fixture.Store, fixture.Store, s.Clock);
+        var operations = new OperationsService(fixture.Store, fixture.Store, s.Clock, fixture.Store);
         var key = CaseScenario.Key();
         var pending = service.Run(key, s.Case.ProductId, new(AgentRole.Ingestion, AgentMode.Replay, s.Case,
             null, null, s.Case.Evidence, "Synthetische Quellenzuordnung pruefen.", 0));

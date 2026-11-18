@@ -2952,6 +2952,53 @@ oder Build wurde fuer diese beiden Quellpruefungen gestartet.
 | `tests-93-owned-job.json` | `5e6ef4c20302a9247d03f96d10fc9f1b71e78b4dc1d6c481fca0c7cba90f47ce` |
 | `tests-93-owned-sql.json.journal.jsonl` | `c9ffb4718bcd5053e1a8129ce65351e623a9ea0f97b22d1d0310d5e55cfe2805` |
 
+**Build45 wurde vor jedem Buildaufruf abgewiesen.** Zwei bereits
+vorhandene LF-/CRLF-Unterschiede zwischen Arbeitskopie und sauberem
+Pruefclone passten nicht zum Bytebeleg des ersten Browserquellchecks.
+Die negative Vorstartdatei bleibt erhalten; weder wurden Originalbytes
+normalisiert noch ein Paket oder Buildpass daraus abgeleitet.
+Der neue `fsn-browser-source-02` pruefte anschliessend die tatsaechlichen
+Clonebytes: striktes TypeScript sowie die unveraenderten echten
+Playwright-Auswahlen3/2/11 bestanden in41,089273s/120, weiterhin ohne
+Browser, API oder SQL.
+
+**Build46 auf `0fac3ae5e383da6a677a3c9aea6f7de77771f8f9`** bestand
+alle elf frischen Projektrebuilds, Web-/Solutionbuild, API-Publish,
+alle39 Bootstrapfaelle und Bootstrap-Publish. Die sechs Testassemblies
+und116 Paketdateien sind genau an diesen Quellstand gebunden; alle
+eigenen Buildprozesse und Streams sind geschlossen.
+
+Danach bestanden ausschliesslich seriell mit dieser Buildbindung:
+
+| Auswahl | Tatsaechlicher Nachweis |
+| --- | --- |
+| Native94, FSN-Publikation | Alle neun Faelle ohne Skip in92,1390881s/180; getrennte Freigaben, finale Simulation, Original-/Scopes-/Feedbackbindung, Replay und dringlicher Alternativweg. |
+| Native95, urspruengliches MIR-Paar | Beide Comment-/InformationRequestfaelle gemeinsam in55,6845652s/300, alle46 fachlichen Phasen. |
+| Offline94, Recoveryvertraege | Alle15 SQL-freien Original-/JSON-/Verweisgraph-/Retentionvertraege ohne Skip. |
+| Native97, erweiterte Recoveryfixture | Ein Fall in56,3544385s/180; tatsaechlicher aktueller/historischer SQL-Originalsatz einschliesslich publizierter FSN und spaeterer Dokumentfassung. |
+
+Die drei nativen Laeufe bestaetigen jeweils ihren vollstaendigen eigenen
+Journal-Lifecycle, entfernte Testdatenbank/Objektdateien, unveraenderten
+fremden Before-Satz und geschlossene Prozesse/Streams. Dies ist normaler
+Abschluss, kein erstmaliger Realnachweis des ausserordentlichen
+Gesamtjournal-Cleanups. Native93 und Build45 bleiben negativ.
+
+| Privater Folgebeleg | SHA256 |
+| --- | --- |
+| `build-46-result.json` | `d38f7993042dfdc25551b3843a6a8028261baae36e81210ea361628e4d466522` |
+| `build-46-owned-job.json` | `cdd56b34ff5d4d496ef0a6de0843b83d24ff9288ef0747608ac1cc24cee4ef04` |
+| `tests-94-result.json` | `3cfdd076623c446bf569e1f1fd877e140b4fc7ec4a858b31b4083f55b421fab8` |
+| `tests-94-owned-job.json` | `71c122728ddfc3246c19197068aa98341ce274a65da82f28903ed905dc7ddbaf` |
+| `tests-95-result.json` | `b8755aae0416356b239246fa99aafbe635f16b21c767270ed9e6bd8382751e7c` |
+| `offline-94-result.json` | `fdd63678cd138ce895d8d41615686ace76789e2abcd5ca7aac71b2196005ac8c` |
+| `tests-97-result.json` | `d4543c20d034ee35fc619cdee0992d672c374b3195f62ca0123073eff86d3138` |
+
+Build46 ist damit **kein neuer Browser-, vollstaendiger FSN-Restore-,
+Operations-SQL-Schreibgrenzen- oder Auslieferungsbeleg**. E05, die
+vollstaendige gemeinsame Recovery17/11 und EU-27 bleiben offen.
+Recovery07 belegt weiterhin ausschliesslich b7/Build42. Die alte
+742-Vorschau wurde fuer diese Schritte weder veraendert noch promoviert.
+
 Der eigene Datei-only-Integrationsvertrag
 `preservation-binding-01.json` bestand in38,4495698s/60. Die Einfuegung
 erhaelt reversibel alle bestehenden Ownership-/Pfad-/Prozess-/Fremdsatz-

@@ -32,6 +32,7 @@ builder.Services.AddSingleton(sp => SqlStateStore.Configure(sp.GetRequiredServic
     ?? throw new InvalidOperationException("Cohors SQL connection is required. Run scripts\\Initialize-Local.ps1."),
     builder.Configuration["Cohors:SqlAuthentication"], builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing")));
 builder.Services.AddSingleton<IStateStore>(sp => sp.GetRequiredService<SqlStateStore>());
+builder.Services.AddSingleton<IOperationsStore>(sp => sp.GetRequiredService<SqlStateStore>());
 builder.Services.AddSingleton<IRetentionStateStore>(sp => sp.GetRequiredService<SqlStateStore>());
 builder.Services.AddSingleton<IWorkspaceReadStore>(sp => sp.GetRequiredService<SqlStateStore>());
 var retentionMode = builder.Configuration["Retention:PhysicalMode"] ?? "Disabled";

@@ -119,7 +119,7 @@ public sealed class PsurGroupTests : IAsyncLifetime
             "Running", clock.Now.AddMinutes(-11), null, null, null, Canonical.Serialize(agentInput));
         await fixture.Store.Execute<AgentInvocation>(new(invocation.Id, "agentInvocation", "ortho", 0, CaseScenario.Key(),
             "GroupInvocationFixture", Reason, SqlFixture.Quality, invocation, clock.Now), _ => invocation);
-        var operations = new OperationsService(fixture.Store, fixture.Store, clock);
+        var operations = new OperationsService(fixture.Store, fixture.Store, clock, fixture.Store);
         var limitedQuality = SqlFixture.Quality with { Products = ["ortho"] };
         Assert.Empty(await operations.ListInvocations(limitedQuality));
         Assert.Contains(await operations.ListInvocations(SqlFixture.Quality), i => i.Id == invocation.Id);

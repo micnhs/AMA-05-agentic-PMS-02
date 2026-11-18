@@ -70,7 +70,7 @@ public sealed class CaseSafetyTests(SqlFixture fixture)
         await s.Approve();
         Assert.Equal(ReportState.Frozen, s.Case.CurrentReport!.State);
         Assert.Equal(due, s.Case.Deadlines[0].LegalDue);
-        await new OperationsService(fixture.Store, fixture.Store, s.Clock).Tick();
+        await new OperationsService(fixture.Store, fixture.Store, s.Clock, fixture.Store).Tick();
         var persisted = await fixture.Store.Get<SafetyCase>("case", s.Case.Id);
         Assert.NotEmpty(persisted!.Alerts);
     }
@@ -212,6 +212,7 @@ public sealed class CaseSafetyTests(SqlFixture fixture)
     }
 
     [Fact]
+    [Trait("Category", "OperationsSqlBoundary")]
     public async Task T12_RestartRetainsApprovalsAndAnIndependentWatchdogRecoversMissingHeartbeat()
     {
         var s = new CaseScenario(fixture);
@@ -220,7 +221,9 @@ public sealed class CaseSafetyTests(SqlFixture fixture)
         var persisted = await restarted.Get<SafetyCase>("case", s.Case.Id);
         Assert.Equal(s.Case.Approvals, persisted!.Approvals);
         Assert.Equal(Canonical.Hash(s.Case.Deadlines), Canonical.Hash(persisted.Deadlines));
-        await new OperationsService(restarted, restarted, s.Clock).Tick();
+        var restricted = await fixture.RestrictedOperations();
+        await restricted.RequireOperationsReady();
+        await new OperationsService(restricted, restricted, s.Clock, restricted).Tick();
         var heartbeat = Assert.IsType<OperationsHeartbeat>(await restarted.Get<OperationsHeartbeat>("operations", "heartbeat"));
         Assert.False(OperationsService.HeartbeatMissing(heartbeat, heartbeat.LastTick.AddMinutes(3)));
         Assert.True(OperationsService.HeartbeatMissing(heartbeat, heartbeat.LastTick.AddMinutes(3).AddTicks(1)));
@@ -228,8 +231,13 @@ public sealed class CaseSafetyTests(SqlFixture fixture)
         Assert.True(OperationsService.HeartbeatMissing(null, s.Clock.Now));
         s.Clock.Now = s.Clock.Now.AddMinutes(4);
         Assert.True(OperationsService.HeartbeatMissing(heartbeat, s.Clock.Now));
-        await new OperationsService(restarted, restarted, s.Clock).Tick();
+        await new OperationsService(restricted, restricted, s.Clock, restricted).Tick();
         Assert.False(OperationsService.HeartbeatMissing(await restarted.Get<OperationsHeartbeat>("operations", "heartbeat"), s.Clock.Now));
+        persisted = await restarted.Get<SafetyCase>("case", s.Case.Id);
+        Assert.Equal(Canonical.Hash(s.Case.Approvals), Canonical.Hash(persisted!.Approvals));
+        Assert.Equal(Canonical.Hash(s.Case.Reports), Canonical.Hash(persisted.Reports));
+        await restarted.Manifest(s.Case.Id);
+        await restarted.Manifest("heartbeat", kind: "operations");
     }
 
     [Fact]

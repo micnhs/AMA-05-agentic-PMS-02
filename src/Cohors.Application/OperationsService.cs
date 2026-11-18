@@ -2,7 +2,8 @@ using Cohors.Domain;
 
 namespace Cohors.Application;
 
-public sealed class OperationsService(IStateStore store, IWorkspaceReadStore workspace, TimeProvider clock)
+public sealed class OperationsService(IStateStore store, IWorkspaceReadStore workspace, TimeProvider clock,
+    IOperationsStore operations)
 {
     public async Task<AgentInvocation[]> ListInvocations(Actor actor, CancellationToken ct = default)
     {
@@ -73,10 +74,7 @@ public sealed class OperationsService(IStateStore store, IWorkspaceReadStore wor
             if (alerts.Length == 0) continue;
             try
             {
-                await store.Execute<SafetyCase>(new(c.Id, "case", c.ProductId, c.Version,
-                    "watchdog-" + Canonical.Hash(alerts), "DeadlineEscalated", string.Join(" ", alerts),
-                    CaseService.Workflow, new { alerts }, now), value => CaseService.Require(value) with
-                    { Version = c.Version + 1, Alerts = [.. CaseService.Require(value).Alerts, .. alerts] }, ct);
+                await operations.Escalate(c, alerts, now, ct);
                 escalations += alerts.Length;
             }
             catch (DomainException e) when (e.Code == "version_conflict")
@@ -94,10 +92,7 @@ public sealed class OperationsService(IStateStore store, IWorkspaceReadStore wor
             if (now <= question.DueAt || review.Alerts.Contains(alert)) continue;
             try
             {
-                await store.Execute<PsurReview>(new(review.Id, "psurReview", review.ProductId, review.Version,
-                    "psur-watchdog-" + Canonical.Hash(new { review.Id, question.Round }),
-                    "PsurQuestionEscalated", alert, CaseService.Workflow, new { alert }, now), value =>
-                    value! with { Version = value.Version + 1, Alerts = [.. value.Alerts, alert] }, ct);
+                await operations.Escalate(review, alert, now, ct);
                 escalations++;
             }
             catch (DomainException error) when (error.Code == "version_conflict")
@@ -127,12 +122,7 @@ public sealed class OperationsService(IStateStore store, IWorkspaceReadStore wor
             }).DistinctBy(d => (d.Kind, d.Source.Id)).ToArray();
             try
             {
-                await store.Execute<EudamedDeliveryLedger>(new CommandContext(ledger.Id, "eudamedDelivery", ledger.ProductId, ledger.Version,
-                    "eudamed-watchdog-" + Canonical.Hash(new { ledger.Id, Alerts = alerts.Select(a => a.Id).ToArray() }),
-                    "EudamedCorrespondenceEscalated", string.Join(" ", alerts.Select(a => a.Message)),
-                    CaseService.Workflow, new { alerts }, now) with { Dependencies = dependencies },
-                    value => value! with { Version = value.Version + 1,
-                        CorrespondenceAlerts = [.. value.CorrespondenceAlerts ?? [], .. alerts] }, ct);
+                await operations.Escalate(ledger, alerts, dependencies, now, ct);
                 escalations += alerts.Length;
             }
             catch (DomainException error) when (error.Code is "version_conflict" or "dependency_version")
@@ -145,9 +135,7 @@ public sealed class OperationsService(IStateStore store, IWorkspaceReadStore wor
         var heartbeat = new OperationsHeartbeat("heartbeat", (previous?.Version ?? 0) + 1, now, now,
             cases.Sum(c => c.Deadlines.Count(d => d.Status == "Open")), escalations, "Running",
             cases.Sum(c => (c.FollowUps ?? []).Count(f => f.Status == "Open")));
-        return await store.Execute<OperationsHeartbeat>(new("heartbeat", "operations", "ortho", previous?.Version ?? 0,
-            "heartbeat-" + Guid.NewGuid().ToString("N"), "WatchdogHeartbeat", "Unabhaengige Fristenpruefung abgeschlossen.",
-            CaseService.Workflow, heartbeat, now), _ => heartbeat, ct);
+        return await operations.RecordHeartbeat(heartbeat, ct);
     }
 
     public static bool HeartbeatMissing(OperationsHeartbeat? heartbeat, DateTimeOffset now) =>

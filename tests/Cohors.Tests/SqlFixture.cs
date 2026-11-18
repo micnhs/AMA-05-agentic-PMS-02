@@ -79,6 +79,34 @@ public sealed class SqlFixture : IAsyncLifetime
         new(Store, Objects, Policies, new AgentRunner(new(null, null, null, null)),
             knowledge ?? new KnowledgeSearch(Store, Objects, Store), clock, new MirComposer());
 
+    public async Task<SqlStateStore> RestrictedOperations()
+    {
+        var user = "cohors_ops_" + Guid.NewGuid().ToString("N");
+        await using (var administrator = await Store.Open())
+        {
+            using var create = new SqlCommand(
+                $"CREATE USER [{user}] WITHOUT LOGIN; ALTER ROLE cohors_operations_runtime ADD MEMBER [{user}];", administrator);
+            await create.ExecuteNonQueryAsync();
+        }
+        var connectionString = new SqlConnectionStringBuilder(ConnectionString) { Pooling = false }.ConnectionString;
+        return new SqlStateStore(async ct =>
+        {
+            var connection = new SqlConnection(connectionString);
+            try
+            {
+                await connection.OpenAsync(ct);
+                using var impersonate = new SqlCommand($"EXECUTE AS USER=N'{user}';", connection);
+                await impersonate.ExecuteNonQueryAsync(ct);
+                return connection;
+            }
+            catch
+            {
+                await connection.DisposeAsync();
+                throw;
+            }
+        });
+    }
+
     public async Task DisposeAsync()
     {
         if (!databaseCreated) return;

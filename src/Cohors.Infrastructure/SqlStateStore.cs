@@ -11,7 +11,13 @@ namespace Cohors.Infrastructure;
 
 public sealed partial class SqlStateStore(string connectionString, TokenCredential? credential = null) : IStateStore, IRetentionStateStore
 {
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
+    private readonly Func<CancellationToken, Task<SqlConnection>>? openConnection;
+
+    internal SqlStateStore(Func<CancellationToken, Task<SqlConnection>> openConnection) : this("")
+    {
+        this.openConnection = openConnection;
+    }
     private readonly Func<SqlAuthenticationParameters, CancellationToken, Task<SqlAuthenticationToken>>? tokenCallback =
         credential is null ? null : async (_, ct) =>
         {
@@ -60,6 +66,7 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
 
     public async Task<SqlConnection> Open(CancellationToken ct = default)
     {
+        if (openConnection is not null) return await openConnection(ct);
         var connection = new SqlConnection(connectionString);
         if (tokenCallback is not null) connection.AccessTokenCallback = tokenCallback;
         try { await connection.OpenAsync(ct); return connection; }

@@ -507,6 +507,14 @@ neu freigegebenen Reply schliesst ihre exakt adressierte Rueckfrage;
 andere Fragen bleiben offen. Diese Terminverfolgung belegt keinen echten
 Behoerdenkontakt oder externen Alarmversand.
 
+Ab SQL-Schema3 begrenzt der
+[Operations-Runtimevertrag](sql-runtime-contract.md) diese Schreibseite
+zusaetzlich in der Datenbank: nur quellgebundene neue Hinweise und
+Heartbeat, keine generischen Medical-/RA-/Nachweisupdates. Der eigene
+Functions-Host verlangt einen getrennten eingeschraenkten Principal.
+Das aendert keine historische Build-/Recoveryabnahme und ersetzt keinen
+gesonderten Nachweis der auszuliefernden Fassung.
+
 Die Leseoberflaechen mutieren keine Fachobjekte. Der Browser laedt dort nicht
 zusaetzlich `/cases` oder einzelne Prozessakten fuer Summen. Cockpit und
 Kalender aktualisieren sequenziell alle 30 Sekunden bzw. explizit; keine

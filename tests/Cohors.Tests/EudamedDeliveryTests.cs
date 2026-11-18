@@ -420,6 +420,7 @@ public sealed partial class EudamedConfigurationTests
     }
 
     [Fact]
+    [Trait("Category", "OperationsSqlBoundary")]
     public async Task CorrespondenceWatchdogDeduplicatesAndCalendarClosesOnlyTheBusinessAcceptedReplyTarget()
     {
         var (service, scenario, original) = await FrozenMirDossier();
@@ -449,7 +450,8 @@ public sealed partial class EudamedConfigurationTests
         var signatures = Canonical.Hash(parent.Dossier.Approvals);
         var nativeBefore = (await fixture.Store.Get<SafetyCase>("case", scenario.Case.Id))!;
         clock.Now = first.DueAt.Value.AddMinutes(1);
-        var operations = new OperationsService(fixture.Store, fixture.Store, clock);
+        var restricted = await fixture.RestrictedOperations();
+        var operations = new OperationsService(restricted, restricted, clock, restricted);
         await operations.Tick();
         var ledger = (await fixture.Store.Get<EudamedDeliveryLedger>("eudamedDelivery", parent.Ledger.Id))!;
         var alert = Assert.Single(ledger.CorrespondenceAlerts!);
@@ -511,6 +513,7 @@ public sealed partial class EudamedConfigurationTests
         Assert.Equal(originalBytes, await fixture.Objects.ReadBytes(first.OriginalHash));
         Assert.Equal(nativeHash, Canonical.Hash(await fixture.Store.Get<SafetyCase>("case", native.Id)));
         Assert.Equal(0, gateway.NetworkCalls);
+        await fixture.Store.Manifest(ledger.Id, kind: "eudamedDelivery");
     }
 
     [Fact]
