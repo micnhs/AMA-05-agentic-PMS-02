@@ -63,8 +63,14 @@ $filter = ($classes | ForEach-Object { "FullyQualifiedName~Cohors.Tests.$_" }) -
 $results = Join-Path $temporary 'test-results'
 dotnet test tests/Cohors.Tests/Cohors.Tests.csproj --configuration Release --no-build --no-restore --filter $filter --logger 'console;verbosity=minimal' --logger 'trx;LogFileName=contracts.trx' --results-directory $results
 if ($LASTEXITCODE -ne 0) { throw 'Selected in-process business/commit contract tests failed.' }
-dotnet src/Cohors.Api/bin/Release/net10.0/Cohors.Api.dll --fabric-c1 check --preparation fabric/c1/inputs.template.json
+$preflightJson = dotnet src/Cohors.Api/bin/Release/net10.0/Cohors.Api.dll --fabric-c1 check --preparation fabric/c1/inputs.template.json
 if ($LASTEXITCODE -ne 2) { throw 'The executable C1 entry must reject the unbound public template without starting the API or acquiring credentials.' }
+$preflight = $preflightJson | ConvertFrom-Json
+if ($preflight.status -cne 'Blocked' -or $preflight.cloudExecutionAllowed -ne $false -or
+    'identity.tenantId' -notin $preflight.missingOrInvalid -or 'target.workspaceId' -notin $preflight.missingOrInvalid) {
+    throw 'The C1 executable did not return the expected offline missing-bindings result.'
+}
+$preflightJson | Write-Output
 [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
 $testSummary = @()
 foreach ($class in $classes) {
@@ -81,6 +87,7 @@ $summary = @(
     "- Source: $sha"
     '- Standard isolated hosted runner; no SQL, Docker, browser, Azure login, secrets, shared caches or artifact uploads.'
     '- Evidence level: local contract execution only. NOT Fabric/IQ/Hosted Agents/WORM/Ledger/recovery or production acceptance.'
+    '- C1 executable unbound-template preflight: Blocked, exit 2, cloudExecutionAllowed=false (expected offline rejection).'
 )
 $summary += $testSummary
 foreach ($path in @('fabric/delivery.json', 'docs/fabric/requirement-register.json', 'src/Cohors.Domain/bin/Release/net10.0/Cohors.Domain.dll')) {
@@ -89,3 +96,4 @@ foreach ($path in @('fabric/delivery.json', 'docs/fabric/requirement-register.js
 }
 $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
 $summary | Write-Output
+exit 0

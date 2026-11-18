@@ -273,8 +273,10 @@ public sealed class FabricC1TransportTests
         Assert.All(credential.Scopes, scope => Assert.Equal(FabricC1Execution.HostedScope, scope));
     }
 
-    [Fact]
-    public void HostedStartupRejectsWrongVersionAndUploadWritableConfiguration()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void HostedStartupRejectsWrongVersionAndUploadWritableTrustedFiles(bool trailingHomeSeparator)
     {
         using var run = new Harness();
         var env = new Dictionary<string, string>
@@ -286,15 +288,23 @@ public sealed class FabricC1TransportTests
             ["FOUNDRY_AGENT_SESSION_ID"] = run.Settings.Hosted.SessionId,
             ["HOME"] = Path.Combine(Path.GetTempPath(), "synthetic-upload-home")
         };
+        if (trailingHomeSeparator) env["HOME"] += Path.DirectorySeparatorChar;
         var config = Path.Combine(Path.GetTempPath(), "synthetic-trusted", "config.json");
+        var state = Path.Combine(Path.GetTempPath(), "synthetic-private-state", "checkpoint.json");
         var settings = run.Settings with { Preparation = run.Settings.Preparation with
         { Identity = run.Settings.Preparation.Identity with { CredentialReference = config + ".credential" } } };
-        FabricC1Entry.ValidateHostedEnvironment(settings, name => env.GetValueOrDefault(name), config);
+        FabricC1Entry.ValidateHostedEnvironment(settings, name => env.GetValueOrDefault(name), config, state);
         Assert.Equal("c1_hosted_trust", Assert.Throws<DomainException>(() =>
-            FabricC1Entry.ValidateHostedEnvironment(settings, name => env.GetValueOrDefault(name), Path.Combine(env["HOME"], "config.json"))).Code);
+            FabricC1Entry.ValidateHostedEnvironment(settings, name => env.GetValueOrDefault(name), Path.Combine(env["HOME"], "config.json"), state)).Code);
+        Assert.Equal("c1_hosted_trust", Assert.Throws<DomainException>(() =>
+            FabricC1Entry.ValidateHostedEnvironment(settings, name => env.GetValueOrDefault(name), config, Path.Combine(env["HOME"], "checkpoint.json"))).Code);
+        var writableCredential = settings with { Preparation = settings.Preparation with
+        { Identity = settings.Preparation.Identity with { CredentialReference = Path.Combine(env["HOME"], "credential") } } };
+        Assert.Equal("c1_hosted_trust", Assert.Throws<DomainException>(() =>
+            FabricC1Entry.ValidateHostedEnvironment(writableCredential, name => env.GetValueOrDefault(name), config, state)).Code);
         env["FOUNDRY_AGENT_VERSION"] = "unreviewed-version";
         Assert.Equal("c1_hosted_environment", Assert.Throws<DomainException>(() =>
-            FabricC1Entry.ValidateHostedEnvironment(settings, name => env.GetValueOrDefault(name), config)).Code);
+            FabricC1Entry.ValidateHostedEnvironment(settings, name => env.GetValueOrDefault(name), config, state)).Code);
     }
 
     [Fact]

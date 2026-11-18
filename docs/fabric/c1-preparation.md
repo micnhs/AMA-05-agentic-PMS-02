@@ -97,8 +97,11 @@ For Hosted execution, start the same binary with `--fabric-c1 host` and the thre
 fixed file options. It serves HTTP/1.1 on 8088, `GET /readiness` and
 `POST /invocations`, checks the injected project/agent/version/session variables
 and bound platform caller header, and observes shutdown/request cancellation.
-Configuration and credentials must be outside upload-writable session `HOME`;
-the checkpoint must be in the approved durable private evidence location.
+Configuration, credentials and checkpoints must be outside upload-writable
+session `HOME`; the checkpoint must be in the approved durable private evidence
+location. The owner must independently verify mount permissions, directory
+ownership and absence of writable link redirections; lexical path checks are not
+a native storage-isolation proof.
 The surrounding Foundry endpoint must enforce its separately reviewed Entra/RBAC
 authorization and fixed version routing. Container headers alone are not proof.
 No forwarded user credential or model-directed tool choice is used.

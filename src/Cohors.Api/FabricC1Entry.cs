@@ -99,7 +99,7 @@ public static class FabricC1Entry
         new(path, 8L * settings.Preparation.Limits.MaxResponseBytes!.Value + 2048L * settings.Preparation.Limits.MaxRequests!.Value);
 
     public static void ValidateHostedEnvironment(FabricC1ExecutionSettings settings, Func<string, string?> environment,
-        string configurationPath)
+        string configurationPath, string statePath)
     {
         var hosted = settings.Hosted ?? throw new DomainException("c1_hosted_binding", "Hosted bindings are required.", 409);
         Guard.Against(environment("FOUNDRY_PROJECT_ENDPOINT")?.TrimEnd('/') != settings.Preparation.Runtime.HostedProjectEndpoint?.TrimEnd('/') ||
@@ -108,16 +108,24 @@ public static class FabricC1Entry
             environment("FOUNDRY_AGENT_SESSION_ID") != hosted.SessionId,
             "c1_hosted_environment", "Platform project, agent/version and session differ from the reviewed deployment.", 409);
         var home = environment("HOME");
-        Guard.Against(string.IsNullOrWhiteSpace(home) || !Path.IsPathFullyQualified(configurationPath) ||
-            Path.GetFullPath(configurationPath).StartsWith(Path.GetFullPath(home!) + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
-            !Path.IsPathFullyQualified(settings.Preparation.Identity.CredentialReference!) ||
-            Path.GetFullPath(settings.Preparation.Identity.CredentialReference!).StartsWith(Path.GetFullPath(home!) + Path.DirectorySeparatorChar, StringComparison.Ordinal),
-            "c1_hosted_trust", "Trusted configuration and credential files must be outside upload-writable session HOME.", 409);
+        if (string.IsNullOrWhiteSpace(home) || !Path.IsPathFullyQualified(home))
+            throw new DomainException("c1_hosted_trust", "An absolute session HOME is required.", 409);
+        var homePath = Path.GetFullPath(home);
+        var prefix = Path.EndsInDirectorySeparator(homePath) ? homePath : homePath + Path.DirectorySeparatorChar;
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        foreach (var path in new[] { configurationPath, settings.Preparation.Identity.CredentialReference, statePath })
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path) ||
+                Path.GetFullPath(path).Equals(Path.TrimEndingDirectorySeparator(homePath), comparison) ||
+                Path.GetFullPath(path).StartsWith(prefix, comparison))
+                throw new DomainException("c1_hosted_trust",
+                    "Trusted configuration, credential and checkpoint files must be outside upload-writable session HOME.", 409);
+        }
     }
 
     private static async Task Host(FabricC1ExecutionSettings settings, string fixture, string statePath, string configurationPath)
     {
-        ValidateHostedEnvironment(settings, Environment.GetEnvironmentVariable, configurationPath);
+        ValidateHostedEnvironment(settings, Environment.GetEnvironmentVariable, configurationPath, statePath);
         using (var store = StateStore(settings, statePath)) { store.Load(); }
         var builder = WebApplication.CreateSlimBuilder();
         builder.Configuration.Sources.Clear();
