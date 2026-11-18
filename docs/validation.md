@@ -123,7 +123,7 @@ Ledgerverifikation und keine vollstaendige EUDAMED-Gesamtabnahme.
 
 ## Qualifizierter lokaler Preview-Schnitt
 
-Die aktuell veroeffentlichte **5187-Vorschau** verwendet
+Die zuletzt veroeffentlichte **5187-Vorschau** verwendete
 `.local\app-replay-rfi-742db5d` aus
 **`742db5d7fc11b394436f9524b565fbb6f2b1077f` / Nachforderungen Build02**.
 Benannte Empfaenger, getrennte Freigabe und simulierte Zustellung,
@@ -131,6 +131,11 @@ originalgebundene Ruecklaeufe, menschliche Zuordnung und separate
 Medical-Quellenpruefung sind mit **20/20 gezielten nativen Faellen und
 2/2 vollstaendigen R01-/V01-Faellen im privaten Chromium Headless Shell**
 geprueft. Browserquelle ist `8397fe47e67a861b2efd91fbddafe31cb9a7d06a`.
+Beim rein lesenden Erreichbarkeitscheck am 17.11.2026 um 12:40 UTC wurde
+die Verbindung auf 5187 abgelehnt; ein laufender Host war nicht nachgewiesen.
+Der Grund fuer den Stillstand ist unbekannt. Das erhaltene Paket ist damit
+kein Nachweis eines aktuell erreichbaren Demolinks; ein Neustart oder eine
+Promotion des spaeteren Integrationsstands wurde daraus nicht abgeleitet.
 Die vorherigen Pflichtfeld-, Ablehnungs-/Wiederaufnahme- und
 Kontowechselnachweise bleiben erhalten; ihre 44/44- beziehungsweise
 25/25-Serien sind historische, nicht neu ausgefuehrte Vollumfaenge.
@@ -1500,6 +1505,912 @@ verglichen; kein erneuter Download und keine Uebermittlung.
 geschuetzte PDF-Datei oder deren Build. Herkunft und XSD-Konformitaet sind von
 Mapping-Vollstaendigkeit, IMDRF-Semantik, klinischer Plausibilitaet, Browserbedienung
 und tatsaechlicher Behoerdenannahme getrennt.
+
+## EUDAMED-Korrespondenzfristen: gebundener Zwischenstand
+
+Der Stand `ee4712a96f1c0f54160496659cbfa6ba9a063267` wurde im vorhandenen,
+sauberen Verifikationscheckout reproduziert. Nach dem echten Compilerfehler
+von Build22 und dem unveraenderten 180-Sekunden-Gesamtbuildtimeout von Build23
+wurden alle elf Projekte explizit in Abhaengigkeitsreihenfolge mit `Rebuild`
+neu kompiliert: zusammen 303,642 Sekunden, jeweils innerhalb der separaten
+180-Sekunden-Projektgrenze. Build24 pruefte anschliessend den unveraenderten
+vollstaendigen Buildpfad: frischer Web-Build ohne inkrementellen Cache,
+Locked Restore, Loesungsbuild, API-Publish, 39/39 Bootstrap-Tests ohne Skips
+und Bootstrap-Publish. Der anschliessende Loesungsbuild ist kein unabhaengiger
+kalter Neuaufbau; die expliziten frischen Projektpartitionen gehoeren zu
+seiner Nachweisbasis. Build22/23 bleiben negativ.
+
+Die folgenden getrennten, begrenzten Ausfuehrungen sind an Build24 gebunden.
+Ein zusaetzlich gepruefter eigener Windows-Job schliesst SDK-/Testnachfahren
+ein; Quell-, Paket-, XLSX-, Ergebniszahl-, Timeout- und Fixturebereinigungsgates
+bleiben unveraendert. Native45 bis Native48 entfernten jeweils ihre ganze
+eigene Fixture; die SQL-Baseline war vorher/nachher leer.
+
+| Lauf | Tatsaechlich bestanden, ohne Skips |
+| --- | --- |
+| Offline43 | 12 Kalender-/Korrespondenzregeln, einschliesslich historischer Gruppenrechte und fehlender/widerspruechlicher Termine |
+| Offline44 | 8 Recovery-Diagnose-/SQL-freie Vertragsfaelle; nicht die 17 nativen Recovery-Faelle |
+| Native45 | 4 SQL-Workspacefaelle einschliesslich historischer Originale, PSUR-/BS-Termine und Prozesshistorie |
+| Native46 | 1 Zwei-Rueckfragen-Durchstich: Ueberfaelligkeit, Watchdog-Dedupe und ausschliesslich fachlich quittierter, exakt adressierter Reply-Abschluss |
+| Native47 | 2 MIR-Korrespondenzantworten mit neuen getrennten Freigaben |
+| Native48 | 1 akzeptierte PSR-Vereinbarung, PSRP, Rueckfrage und neu freigegebener Reply; urspruengliche Vereinbarung und exakte Periode bleiben gebunden |
+| Offline49 | 5 Mehrfixture-Journalvertraege, darunter neuer Journal-Elternpfad sowie Bereinigung trotz Journalfehler mit vollstaendigem Fehlererhalt |
+| Offline50 | 15 PSRP-/Remote-Code-Faelle; alte gleiche/hoehere Sequenzen und unkorrelierte Antworten ersetzen keine aktuelle Annahme |
+
+Browser15 verwendete dieselben Anwendungsbinaerdateien und nur die
+Browserquellkorrektur `b5698387f84ce2f260a1da64f32e8601fd69b0af`
+(UTC-Anzeige und UTC-Monat im Kalender). **Der Gesamtlauf ist fehlgeschlagen:**
+E03 ueberschritt die unveraenderte 210-Sekunden-Fallgrenze; E04 bestand in
+82,585 Sekunden mit bytegleichen Originaldownloads und Kontenwechselisolation.
+Die erstmalige Navigation vom Kalender zum Original gelang und der Reply
+erreichte die fachliche Annahme, aber die abschliessende Kalenderpruefung
+wurde nicht vollstaendig ausgefuehrt. Es gibt keinen E03-Erfolgsbeleg.
+327 abgeschlossene E03-Seitenantworten enthalten keine HTTP-Fehler, aber
+19 Antworten ueber fuenf Sekunden; abgebrochene/unvollstaendige Anfragen
+und separate Setup-API-Aufrufe werden damit nicht beurteilt. Daraus folgt
+weder ein fehlerfreier Requestpfad noch eine belegte einzelne Latenzursache.
+Die 600-Sekunden-Aussengrenze wurde nicht erreicht; Executionexit 1 und
+unabhaengiger Cleanupexit 0. Alle exakt erfassten eigenen Ressourcen wurden
+entfernt. Keine Kalender-Browserabnahme und keine Preview-Promotion.
+
+Die unveraenderte versionierte FDA-XLSX ist die Eingangsdatei dieses sauberen
+Checkouts. Die separat erhaltene fremde, rechtegeschuetzte Arbeitskopie bleibt
+ausserhalb der Nachweisbasis unveraendert; der Lauf akzeptiert nicht den
+schmutzigen Ursprungsarbeitsbaum. Es wurden weder Schutzattribute geaendert
+noch Dateien entschluesselt oder Git-Ausnahmen zum Gruenmachen verwendet.
+Die privaten Originalbelege unter `.local/eudamed-integration-01` werden
+nicht als Rohlog-/Konfigurationssammlung veroeffentlicht.
+
+| Beleg | SHA256 |
+| --- | --- |
+| `build-24-project-partitions.json` | `eb4d6072098fd0a4c7c3157e43eedaf5bccc4c53a14be9103878bdf430025aa6` |
+| `build-24-result.json` | `2474a7f9add538d22c50f5665b217e101bcf9adbe4e0e2767743f63a1c6eb330` |
+| `build-24-owned-job.json` | `d270b4992f8889cfc28ed1ce512715c3bdadf4402994f5118ddd2f17e3e1f49a` |
+| `offline-43-result.json` | `dff838226154fb367cb45ca919d21e286c1f130b1dd45bfdfce722e39b0480bf` |
+| `offline-44-result.json` | `2aaf472218cfbe8e8d263ab71982139bc74eb68f43bef4bb560f19e0f2915aa5` |
+| `tests-45-result.json` | `65c1a61dac62c2027573fad011b0158e8d87b28db2b03edac6782b34e69c34a0` |
+| `tests-46-result.json` | `dd9aa3a44cedfa493efcca63abb2626fdb8c7eb33433ad8f6c1b483e8e4379c7` |
+| `tests-47-result.json` | `8c87cec071a23a2507965f6a9f9f4e87e957c702d06f78de48c43fd42f6bd09f` |
+| `tests-48-result.json` | `8a2747df8e0db6d2c116e57b015de22cbc909e096e1ad6bdc6e317e03c022b5d` |
+| `offline-49-result.json` | `0cefe885c0f6bf7e7af2e683575b3d249783ae5495459655d77a905ab0f0f13d` |
+| `offline-50-result.json` | `9b41a92c43eab09bf8b7340976a68bab414caaf2d3b7dcfb529113439fc73dc3` |
+| `browser-15-bounded-result.json` (negativ) | `f801cea3301c0d3bf8d0f02e7705a4e94d9aa53ecf17810e2e14bc6fb3e25661` |
+| `browser-15-bounded-cleanup.json` | `1fd94046a8f7613daa30c2afb7d87e3b3e4caf589d38841309467f3da8710b52` |
+
+### Vollstaendige Workspace-Originale und weiterer negativer Command-Durchstich
+
+`445efc75c0b79dcfa9f23489593df0ddb8be02dc` liest die vollstaendigen
+Workspace-Originale sequentiell in Spaltenreihenfolge. Serializable-Snapshot,
+Versions-/Hashpruefungen und historische Produktberechtigungen bleiben
+erhalten. Build25 ueberschritt trotz erfolgreichem frischem Web und Locked
+Restore die unveraenderte 180-Sekunden-Gesamtbuildgrenze und bleibt negativ.
+Elf explizite frische Projekt-Rebuilds bestanden danach in 518,315 Sekunden,
+jeweils innerhalb 180 Sekunden und insgesamt innerhalb der eigenen
+600-Sekunden-Partitionsgrenze. Build26 bestand anschliessend alle unveraenderten
+Komplettgates einschliesslich erneut frischem Web, Locked Restore, Loesungsbuild,
+beiden Publishes und 39/39 Bootstrap-Tests. Die frischen Partitionen gehoeren
+zu diesem Nachweis; der nachfolgende Loesungsbuild ist kein zweiter kalter Build.
+
+Native51 bestand **4/4 SQL-Workspacefaelle ohne Skips** auf genau Build26.
+Der anschliessende einzelne Zwei-Rueckfragen-/Watchdog-Fall Native52 erreichte
+hingegen die unveraenderte 180-Sekunden-Grenze: **kein abgeschlossener TRX,
+kein Testpass**. Der eigene Prozessbaum und seine Ausgabestroeme waren terminal.
+Die eine dauerhaft journalisierte Fixture blieb zunaechst bestehen.
+
+Ein eng begrenzter read-only Restbefund wurde gespeichert; dessen abschliessende
+Konsolendarstellung schlug wegen eines fehlenden optionalen Diagnosefelds unter
+StrictMode fehl. Die gespeicherten Daten zeigen Fortschritt bis zur fachlichen
+Antwort und Projektion des Originals, nicht den abgeschlossenen Reply-Zyklus
+oder eine bewiesene einzelne Stallursache. Die nachfolgende unabhaengige,
+auf 60 Sekunden begrenzte Bereinigung pruefte Journal, DB-Erstellidentitaet,
+fehlende Benutzerverbindungen, Handlepfade und alle 61 Objektdateihashes.
+Nur diese eigene Datenbank, die einzeln benannten Dateien und die danach leeren
+ganzen Fixtureverzeichnisse wurden entfernt; die fremde SQL-Baseline blieb
+erhalten. Bereinigung macht Native52 nicht nachtraeglich erfolgreich.
+
+Ein anschliessender synthetischer Command-Zeilenvergleich brach am
+Ausfuehrungsgate ab. Weder Messresultat noch aeusserer Ausfuehrungsdatensatz
+wurden gespeichert, weil der Aufrufer vor dessen Serialisierung warf; nur
+leere Ausgabelogs liegen vor. Der konkrete Ausfuehrungsfehler ist nicht
+rekonstruierbar, der zweite Messmodus wurde nicht gestartet. Hieraus folgt
+weder ein Performanceergebnis noch ein erfolgreicher Containmentnachweis.
+Die anschliessende sequentielle Command-Lesekorrektur ist deshalb eine
+quellengestuetzte Vereinheitlichung, kein aus diesem Vergleich belegter
+Latenz-Fix. Neue Quellen benoetigen erneut eigene Build-/Fach-/Browsernachweise.
+
+| Beleg | SHA256 |
+| --- | --- |
+| `build-25-result.json` (negativ) | `e0a78fb28a4c8574e1db67c17e3567eed8170db9b42dc2990a50b68e3274c256` |
+| `build-26-project-partitions.json` | `e043d7243e460f96f396b996d5f1655e8360e7f426b67161a2dfef03083ea75c` |
+| `build-26-result.json` | `80cf27b3171e5848ef0ace747999611f1c9f8fa10269b882033874f11973184f` |
+| `build-26-owned-job.json` | `0a55c4cddd151dc412049f97bd37a97735fe0090cb27e5a584919caec0687d96` |
+| `tests-51-result.json` | `cbe7017763d44c6720602cc21c852117ae16c2d2ca110dc13bd40ee59247bf58` |
+| `tests-52-result.json` (negativ) | `186143c02e12ebf00496cfe0c73dc68f00d1f12db2dc766cf66a087378c9c200` |
+| `tests-52-residue-inspection.json` (Daten; Darstellungsfehler separat) | `6082bf827faabb2e011b5875d6b811fe7226ee25fb63a459ac984e3ec1a882f9` |
+| `tests-52-bounded-cleanup.json` | `fc127f22102b1ba1be7524dc73d488bc79f73ac230a03b92a30d81b0be3139d5` |
+| `tests-52-cleanup-contained.json` | `cab9e3d0b44445e4115a66ef258f1c5ac3c82bb325f5c94208d8dc6f686e193f` |
+
+### Command-Lesungen, Zwei-Rueckfragen-Watchdog und getrennte Diagnosepartitionen
+
+`0ebe7600a8f9ca87272e45641cd36d501aa84a50` erweitert das vollstaendige
+sequentielle Lesen auf aktuelle Command-Aggregate, Abhaengigkeiten und
+gespeicherte Idempotenzantworten. Build27 scheiterte nach fuenf erfolgreichen
+frischen Projekt-Rebuilds an der unveraenderten 180-Sekunden-Grenze des
+API-Projekts. Zwei einzelne API-Diagnosen bestanden danach; erst die zweite
+setzte explizit dieselbe Isolationsumgebung. Diese Messungen beweisen keine
+einzelne Ursache der schwankenden Laufzeit. Build28 blieb wegen seines
+180-Sekunden-Loesungsbuild-Timeouts ebenfalls negativ.
+
+Elf erneut frische Rebuilds bestanden fuer Build29 in **391,069 Sekunden**,
+jeweils innerhalb 180 Sekunden und insgesamt innerhalb 600 Sekunden.
+Der nachfolgende komplette Build29 bestand frisches Web ohne inkrementellen
+Cache, Locked Restore, Loesungsbuild, API-Publish, **39/39 Bootstrap-Tests**
+und Bootstrap-Publish mit terminalem eigenen Prozessbaum. Die vorherigen
+frischen Partitionen gehoeren zu diesem Nachweis, nicht zu einem behaupteten
+zweiten kalten Loesungsbuild.
+
+Native53 bestand auf genau diesem Stand **3/3** Command-/Versions-/
+Idempotenz- und Abhaengigkeitsrennen. Native54 bestand den vollstaendigen
+**einen Zwei-Rueckfragen-/Watchdog-Fall**: RA-Eskalation und Dedupe,
+Produktscope, Queue-/ACK-Nichtabschluss sowie Abschluss nur des fachlich
+angenommenen exakten Reply-Ziels. TRX-Falldauer **49,794524 Sekunden**,
+TRX-Suitenintervall 63,214335 Sekunden, Runnerintervall 75,963223 Sekunden,
+aeusserer eigener Job 89,275354 Sekunden. Der damalige Runner speicherte
+keine separate native Prozessendzeit. Keiner dieser Werte ist deshalb
+eine erfundene exakte Prozessdauer oder reine Rueckfrage-bis-Antwort-Zeit.
+Der 180-Sekunden-Waechter umfasst den gesamten nativen Testprozess,
+einschliesslich Hoststart, Fixture/Migration/Seed, Assertions, Teardown und
+TRX-Erzeugung. Vor-/Nachpruefungen sind davon getrennt; der aeussere
+900-Sekunden-Waechter erweitert nicht die native Grenze. Die Testuhr wird
+fuer die Ueberfaelligkeit vorgestellt, keine reale Behoerdenwartezeit gemessen.
+
+Der andere nachfolgende **MIR-Zweierlauf Native55 blieb ein 180-Sekunden-
+Timeout ohne abgeschlossenen TRX oder Teilpass**. Seine eine exakt
+journalisierte Restfixture wurde read-only erfasst. Der erste unabhaengige
+60-Sekunden-Cleanupversuch lief ebenfalls ab. Ein danach phasenprotokollierter
+Versuch behielt dieselben 60 Sekunden und saemtliche Schutzgates und bestand
+in 33,120 Sekunden: SQL-Erstellung innerhalb des originalen UTC-Journalfensters,
+keine Benutzerverbindung, 72 einzeln hashgepruefte Objekte und ganzer
+Fixture-Elternordner entfernt, alle fuenf anderen Datenbanken und beide
+Workbookbindungen erhalten. Beide negativen Laeufe bleiben negativ.
+
+Die anschliessenden Diagnosepartitionen Native56 (Comment, 40,420774 Sekunden
+TRX-Falldauer) und Native57 (InformationRequest, 31,749269 Sekunden) bestanden
+je **1/1** mit vollstaendiger eigener Bereinigung. Sie ersetzen **keinen**
+bestandenen gemeinsamen Zweierprozess innerhalb 180 Sekunden. Die lediglich
+vorbereitete private Browser-v9-Partitionenzusammenfassung wird dafuer nicht
+verwendet; Browser16 wurde nicht als Anwendungsdurchlauf gestartet.
+Der neue Quellstand `8e70d7f` ergaenzt eine sofort dauerhaft geschriebene,
+monotone Fachzeitspur je Variante, getrennt vom unveraenderten Ressourcenjournal.
+Der erste vollstaendige Build30 dieses Quellstands blieb ein historischer
+180-Sekunden-Buildtimeout. Elf erneut frische Rebuilds bestanden danach in
+462,114 Sekunden innerhalb derselben 600-Sekunden-Partitionsgrenze.
+Build31 bestand anschliessend alle unveraenderten Komplettgates inklusive
+39/39 Bootstrap; Offline58 bestand 7/7 SQL-freie Journal-/Timingvertraege.
+
+Der Nutzer gab danach ausdruecklich **hoechstens 300 Sekunden ausschliesslich
+fuer den gemeinsamen vollstaendigen Native55-Folge-Zweierprozess** frei.
+Andere native Laeufe behalten 180 Sekunden, ebenso bleiben Build-, Browser-,
+Cleanup-, Stop- und Streamgrenzen unveraendert. Native59 bestand auf
+Build31 beide Originalvarianten **2/2 in einem Prozess**:
+OS-Prozessdauer **174,661792 Sekunden**, monotone Wait-Dauer 174,635994 Sekunden,
+Runner mit Vor-/Nachpruefungen 188,895516 Sekunden, aeusserer eigener Job
+199,577415 Sekunden innerhalb unveraenderter 900 Sekunden. Die tatsaechliche
+OS-Endzeit stammt aus `Process.ExitTime`, nicht aus dem Runnerabschluss.
+Die TRX-Falldauern waren 61,541472 Sekunden (InformationRequest) und
+80,338187 Sekunden (Comment). Alle 46 monotonen Fachphasenmarken sind
+vollstaendig; der getrennte sechsphasige Ressourcenjournalvertrag und
+die Abwesenheit des ganzen eigenen Fixture-Elternordners sind nachgewiesen.
+Die Zeit verteilt sich hier auf Dossieraufbau, einzelne Fachschritte und
+Fixture/Host. Weder erklaert dies Native55 rueckwirkend noch macht es aus
+dessen Abbruch einen Pass. Keine Browser- oder reale Behoerdenabnahme.
+
+| Beleg | SHA256 |
+| --- | --- |
+| `build-27-project-partitions.json` (negativ) | `2b6ed93681b168267acb3b5110f3e49368036088ec76d98c1f60f2351dbb8de3` |
+| `build-28-result.json` (negativ) | `ec018e1599b3d9ec40be1bcf7e59647d42b96efcb99dc7d77609b95bdd03983b` |
+| `build-29-project-partitions.json` | `8475026e4576613e0f0a8aaa189b43c335cb31c35fc2647faa62a5ed25142d22` |
+| `build-29-result.json` | `75e0dc5f68a11600ebe5eda3f65f8cdb5b67f82fcdbcd2a1634e76212e663cf4` |
+| `tests-53-result.json` | `81967d1eaa0c8fbb80966e7c00d7cf4a79743f98a84131c6fd3819665c100ab5` |
+| `tests-54-result.json` | `368fcdbd1526367538088364410771fb79767b5e27a6196eeef9647b9805ba76` |
+| `tests-54.trx` | `77361325675395d7a82104fa75cfbcf4857c132316ea2e6d27a0e72b56808301` |
+| `tests-55-result.json` (negativ) | `1aa6d0c1b7e7422cfbf7c8b6cd5988b0b46f511812b0110ac3dc98166b65012d` |
+| `tests-55-bounded-cleanup-02.json` | `b3432a22150e427f047a09c461cad4f8a0dd65765fe10ea5e7042f4623cc88d5` |
+| `tests-55-cleanup-contained-02.json` | `f671e7b641406b53e3ba0fbccd4515c134297189bc61bb851d579bf34558a816` |
+| `tests-56-result.json` (nur einzelne Diagnosepartition) | `ba519d9d5ac9d2309a97b63788be5a6b9dc60ee7f26f9a23f824bd502e0cbbbe` |
+| `tests-57-result.json` (nur einzelne Diagnosepartition) | `1d958bd30418ad2b19e236382d1552e670d9982567fb8e0e07541ca30948d437` |
+| `build-31-project-partitions.json` | `a2e0359fe82305b630cf108b9c9bcec3c611e2dd20d2e2c3cd95e7f3b380c1a0` |
+| `build-31-result.json` | `d7047602050950910181ba97ba946b56de9313765c16fd2d4810669dcf0cbd95` |
+| `offline-58-result.json` | `f8b2d7a0d39d825069c63167344d9d54127145a98a591fac953af0669808210c` |
+| `tests-59-result.json` (vollstaendiger Zweierlauf) | `e9c0f1d2de9e01c9390f84fdbf6393ed13eb89bc64d91211a29abf13eb5b7e5c` |
+| `tests-59.trx` | `db387e82fa279f893e021672e2cd7d983217a15bb68b02f62a0a66cb774e303b` |
+| `tests-59-business-phases.jsonl` (nur private Metazeiten) | `4db8d21757fc939ee1493bfb7cf018e4a2fad01e9805f61e2602b86b7245d359` |
+| `tests-59-phase-summary.json` | `b9902503f606af724b1e2d1425f6a931eb889e8047b9596bf4acb7748e9ff2b0` |
+
+### Browser17: Vorlauf-Timeout und separat abgeschlossene eigene Bereinigung
+
+Der nach Native59 gestartete unveraenderte E03/E04-Ausfuehrungspfad auf
+8e70/Build31 blieb ein **600-Sekunden-Ausfuehrungstimeout**; auch seine
+unabhaengige 60-Sekunden-Bereinigung lief in den Timeout. Es entstanden
+weder Playwright-Log noch Testereignisse oder JUnit: keine
+Browser-Assertion, kein Teilpass und keine UI-Abnahme. Die Paketbindung
+wurde erst spaet gespeichert; API und sieben kleine Seedobjekte wurden
+gestartet/erstellt, die Playwright-Aufrufstelle wurde nicht erreicht.
+
+Nach getrennten negativen Cleanup-Diagnosen bestaetigte der letzte
+unveraendert auf 60 Sekunden begrenzte eigene Job den Abschluss in
+19,3946 Sekunden: die exakt zugeordnete Datenbank war beim Read bereits
+abwesend (dieser Abschluss fuehrte kein DROP aus), alle neun eigenen
+Dateien einschliesslich Zugang/Settings und sieben Objekten sowie der
+gesamte Runtime-Elternordner wurden entfernt. Alle fuenf vorhandenen
+Datenbanken blieben erhalten; keine eigenen Nachkommen/offenen Streams.
+406 Quellfiles, 116 Paketfiles, die Handle-/Ownershipbindung und beide
+unveraenderten XLSX-Bindungen wurden vollstaendig geprueft.
+
+Die Diagnose grenzte Zeit in vollen Quell-/Paketbytepruefungen ein, nicht
+in Git. Ein rein lesender 1-MiB-SequentialScan-Puffer ersetzte den
+4-KiB-Standard bei weiterhin vollstaendigen SHA256-Pruefungen. Kein
+Hash-/Dateisatz-Gate, Budget oder Betriebssystemschutz wurde gelockert;
+keine eindeutige rueckwirkende OS-Ursachenbehauptung. Dispatchfehler,
+Vorprueftimeouts und die spaetere explizite Bereits-abwesend-DB-Ablehnung
+bleiben negative Belege, nicht nachtraegliche Erfolge.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `browser-17-bounded-result.json` (negativ) | `2cdc64a91d38d2ad4d4a4f973e84d3e636dba8469afee639a38e86bd1f177ec8` |
+| `browser-17-bounded-cleanup-06.json` | `1aa9104279afa745ffc7f078775d9b166db24498444167521a6c4e35384dd64d` |
+| `browser-17-cleanup-contained-06.json` | `b4d6469f8d8f9c43b1913aaa26a69ea161b9d6d497121a63522d6c2c63ac34b3` |
+| `browser-17-cleanup-06-phases.jsonl` | `0a71567cd5d5aa741306c82b155d2c316a1c2edf6320f1b354866ea553284068` |
+
+X-12/X-15 waren zu diesem Zeitpunkt anschliessende Quellarbeit. Weder Native59 noch Browser17
+belegen deren neuen Compiler-, SQL-, Export- oder UI-Stand.
+Recovery17, die neue Browserabnahme sowie Security-/Releasegates bleiben offen.
+
+### Build32 und X-12/X-15: Compiler-, Fach- und Exportnachweis
+
+Auf `01345f9ff7bd28b34dd2e884f1d71ee6e809b9c4` bestand Build32 alle
+Komplettgates: frischer Web-/TypeScript-Build, alle elf .NET-Projekte,
+39/39 Bootstrap-Faelle, API-/Bootstrap-Publish, Assemblygleichheit und
+vollstaendige Bindung aller 116 Paketdateien. Die elf vorherigen
+Einzel-Rebuilds benoetigten zusammen 210,0667954 Sekunden bei einem
+600-Sekunden-Gesamtbudget; ihre einzelnen 180-Sekunden-Grenzen blieben
+erhalten. Der anschliessende Web-Build benoetigte 32,6996271 Sekunden,
+der Gesamt-Solution-Build 45,5290609 Sekunden.
+
+Die 28 Abhaengigkeitsmanifeste/Lockfiles waren gegen den tatsaechlich
+erfolgreichen Locked-Restore von Build31 byteidentisch. Deshalb wurde
+dieser vorhandene Restore explizit gebunden wiederverwendet, **kein
+neuer Restore oder Paketinstallationslauf behauptet**. Der gemessene
+Prozessrunner blieb byteidentisch; nur volle SHA256-Lesungen verwenden
+nun den bereits nachgewiesenen 1-MiB-SequentialScan-Puffer. Keine
+Dateisatz-, Quell-, Paket-, XLSX-, Handle- oder Cleanupausnahme.
+
+Offline60 und Native61 bis Native67 bestanden **zehn unterschiedliche
+Faelle ohne Skips**. Native63 bis Native67 besassen jeweils sowohl eine
+Collection- als auch eine eigene Fixture; alle insgesamt zwoelf
+SQL-Fixtures wurden einschliesslich ganzer Elternordner entfernt.
+Jeder Sechsphasenjournalabschluss, die Baselineerhaltung sowie terminale
+eigene Prozesse und geschlossene Streams wurden geprueft.
+
+| Lauf | Tatsaechlicher Umfang | Prozessdauer / Limit |
+| --- | --- | --- |
+| Offline60 | 3 SQL-freie Monats-/Altmanifestfaelle; keine SQL-Fixture | 38,1444535 / 180 s |
+| Native61 | Gebundene Versandvorschau ohne Schreibwirkung; Unknown bleibt abgleichpflichtig | 30,2075022 / 180 s |
+| Native62 | Neue Revision, Empfaenger- oder Profilbindung entwertet die alte Versandbestaetigung | 89,6974509 / 180 s |
+| Native63 | Lesbares PDF, Monatsdaten und Exportpruefsummen; Bericht unveraendert | 40,8448833 / 180 s |
+| Native64 | Falsches Produkt, veraltete Fassung und manipulierte Quellbindung abgewiesen | 54,7181804 / 180 s |
+| Native65 | Historische Quellen unveraendert; unbelegbare Monate explizit nicht verfuegbar | 40,6532315 / 180 s |
+| Native66 | Basic-UDI-Mitglieder durch Review und Export getrennt rekonstruierbar | 35,7829412 / 180 s |
+| Native67 | Leitproduktberechtigung reicht nicht fuer Gruppen- oder Monatszugriff | 27,3409082 / 180 s |
+
+Die Zeiten sind OS-Prozessstart bis OS-Prozessende einschliesslich
+Testhost/Discovery, Fixtureaufbau, Fachschritten, Assertions, TRX und
+Test-Teardown, **keine isolierten fachlichen Antwortzeiten**.
+Wait-Budget, Stop-/Streamnachlauf und aeussere Vor-/Nachpruefungen sind
+in den privaten Ergebnissen separat ausgewiesen.
+
+X-12 liest die exakt freigegebene Vorbereitungsfassung per
+`(Kind, Id, Version)` mit Roh-JSON-Hashpruefung statt Produkthistorien-
+Vollscan. Die UI zeigt Paket, Bericht/XML, Originalbezuege, Empfaenger,
+Jurisdiktion, Kanal/Umgebung und getrennte Freigaben vor der explizit
+simulierten Sendebestaetigung. X-15 projiziert allein eingefrorene
+Quellen: UTC-Ereignismonate, unbekannte Daten, historische Offenstaende,
+Carry-over/Nachtraege und einzelne Basic-UDI-Mitglieder bleiben
+unterschieden. Weder laufende Faelle noch Ersatzereignisdaten werden
+nachtraeglich in genehmigte Monatszahlen aufgenommen; keine
+Inzidenzbehauptung. Unverstaendige historische Manifeste werden nicht
+repariert oder als Nullfallmonate ausgegeben.
+
+Native68 pruefte auf demselben Build32 zudem **beide unveraenderten
+MIR-Korrespondenzvarianten gemeinsam, 2/2 mit 46 sofort persistierten
+Fachphasen**. Tatsaechlicher Prozess:
+`2026-11-17T20:38:02.8876859Z` bis
+`2026-11-17T20:39:14.4449400Z`, also **71,5572541 Sekunden / 300 Sekunden**.
+Die eng begrenzte Zweierlauf-Ausnahme wurde nicht auf andere Laeufe
+uebertragen; Native55 bleibt der historische 180-Sekunden-Timeout.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `build-32-result.json` | `0883c394bda0b9b22627b472269093d42b840e56d7d7d841485cc05e47fd827f` |
+| `build-32-owned-job.json` | `b9e8d83d73b90f780334e16c0a53ba1f6ccd50d99e2a2a77c0f05174761df342` |
+| `x12-x15-native-02.json` (alle acht Einzelbindungen) | `ab1c570eaf436d91b4dc80c20f78281f8d412c6446cac694ba6c5d359d783449` |
+| `tests-68-result.json` | `86005c7758af8d3f8261d218f20c370854f3a2bf8f0885713edc650db7f0ba20` |
+| `tests-68-owned-job.json` | `5831ff47c27a42db1667cca5512c7753c2078a17e8fb6b15acdc9387076c817d` |
+
+Die erste abgeleitete X-12/X-15-Zusammenfassung bleibt erhalten:
+ihr Summenzaehler war durch eine PowerShell-Dictionaryprojektion null.
+Fassung02 summiert ausdruecklich die unveraenderten zehn echten
+Einzelresultate; kein Test wurde dadurch erneut ausgefuehrt oder
+nachtraeglich umgewertet.
+
+Dies ist **keine Browser-/Gesamtabnahme und keine Previewpromotion**.
+Insbesondere sind X-12-Dialog/Abbruch und X-15-Monatssicht trotz
+vorhandener Browserassertions hier noch nicht ausgefuehrt. E03/E04,
+Recovery17, strikte Securitypruefung und weitere Releasegates bleiben offen.
+
+### Browser18: falsche Testauswahl, Timeout und nachgewiesene Nachbereinigung
+
+Browser18 band Anwendung01345/Build32 und Browserquelle0637089, erreichte
+aber die unveraenderte Ausfuehrungsgrenze von **600 Sekunden**. Der
+PowerShell-Auswahlausdruck lieferte fuer das einzelne Projektargument
+einen skalaren String statt eines Arrays; das Splatting uebergab
+`- - p r o j e c t ...` als einzelne Zeichen. Playwright selektierte
+dadurch **31 statt zwei Tests**. Die inkrementellen Events enthalten
+Abschluesse fuer V01, UI01 und UI02, aber keinen E03-/E04-Abschluss.
+Dies ist weder ein bestandener Zweierlauf noch der Nachweis zweier
+fehlgeschlagener EUDAMED-Faelle; keine UI-Teilabnahme wird abgeleitet.
+
+Der eigene Prozess startete um `2026-11-17T21:15:49.0493097Z`.
+Der Zehn-Sekunden-Stop konnte drei eigene Nachfahren nicht rechtzeitig
+als abwesend nachweisen. Der Runner bewahrte deshalb keinen belegten
+OS-Prozessendzeitpunkt und keine abgeschlossene Streambestaetigung;
+sein spaeterer Abschluss ist **keine Prozessdauer**. Die unabhaengige
+60-Sekunden-Bereinigung verweigerte korrekt vor Ressourcenmutation.
+Ein spaeterer Pid-Abwesenheitscheck wertet diese Grenzen nicht um.
+
+Eine separat gebundene Nachbereinigung pruefte alle Quell-/Paketbytes,
+Original-Workbookbindungen und die vor CREATE persistierte Ownership.
+Sie entfernte in 5,035 Sekunden nur die aufgezeichnete UUID-Datenbank,
+den vollstaendigen privaten Runtimeparent und das eine aufgezeichnete
+Chromiumprofil; die fuenf Baseline-Datenbanken blieben erhalten.
+Ihr abschliessender Textformatter endete erst **nach** persistiertem
+Erfolg mit Exit1, weil die optionale `error`-Eigenschaft unter dem
+importierten StrictMode fehlte. Das negative Prozessergebnis bleibt
+erhalten. Eine weitere, ausschliesslich lesende Verifikation bestaetigte
+mit Exit0 nach **2,155 Sekunden / 60 Sekunden** die entfernten Ressourcen,
+alle abwesenden aufgezeichneten Pids und den freien Testport5197.
+Die freigegebene Vorschau5187 wurde nicht veraendert.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `browser-18-bounded-result.json` | `cc7c4bb1a7a8828c94b158c4cc98fad26278a2da51ee213c4531b8118c89d0f1` |
+| `browser-18-recovery-01.json` | `d928027c722b72fff684bf6487dbf461491f75bdc9eccb9b355bf33a51998236` |
+| `browser-18-recovery-owned-01.json` | `87a4452a566810bae26849b9d8771e839985ba873c6c0a0845c60d21bdf5e40e` |
+| `browser-18-recovery-verification-01.json` | `05d54f1386c129f711322822f5b761a08e1ce3c7efa46c8a1ee9e3a2073120b8` |
+| `browser-18-recovery-verification-owned-01.json` | `1b3af5ca4d79fdbb8719de646a9acd376005fdd55ae319427ddad10cbdc71f7e` |
+
+### Browser19: korrektes Zweierprofil, E04 bestanden, E03 noch offen
+
+Auf Anwendung01345/Build32 und Browserquellea951697 wurden nach der
+Auswahlkorrektur tatsaechlich nur E03 und E04 ausgefuehrt.
+**E04 bestand in 105,373 Sekunden**: heruntergeladene PDF- und
+Audit-ZIP-Originale waren bytegleich, historische Originale blieben
+erhalten und der tatsaechlich verzoegerte Originalrequest wurde beim
+echten Logout-/Login-/Produktscopewechsel abgebrochen. Es entstand kein
+spaeter Download; der Server verweigerte dem neuen Konto den Quellzugriff.
+
+**E03 scheiterte vor der eigentlichen Dossierstrecke** in der
+Simulatoraktivierung: Der Actor blieb waehrend der unveraenderten
+25-Sekunden-Pollassertion `Submitted` statt `SimulatedApproved`.
+Ergebnis: 1 Passed, 1 Failed, 0 Skipped; keine EUDAMED-Gesamtabnahme.
+Der eigene Gesamtprozess lief von `2026-11-17T21:46:07.9413234Z`
+bis `2026-11-17T21:55:16.8838607Z`, also **548,943 / 600 Sekunden**,
+ohne Prozess-Timeout. Die unabhaengige Bereinigung bestand mit Exit0
+nach **20,850 / 60 Sekunden**. Beide eigenen Prozessjobs und ihre
+Streams waren geschlossen; DB, Runtimeparent und aufgezeichnete
+private Browserprofile waren entfernt, die fuenf Baseline-Datenbanken
+und saemtliche Quell-/Paket-/Workbookbindungen blieben erhalten.
+
+Die Quellenpruefung fand eine konkrete Abweichung im gemeinsamen
+SQL-Pfad: Der Browserrunner verwendete denselben ConnectionStringBuilder
+fuer Administration und Anwendung. `Pooling=false` fuer `master` wurde
+dadurch unbeabsichtigt in die App-Konfiguration kopiert; die unveraenderte
+Quellkonfiguration verwendet dagegen den normalen Pooling=true-Default.
+Getrennte Builder erhalten jetzt die Anwendungseinstellung, waehrend
+die Administration ungepoolt bleibt. Der private Fuenf-Sekunden-
+Verbindungsaufbaugrenzwert wurde nicht veraendert. Drei SQL-freie
+Regressionen am echten Konstruktorblock bestaetigen Default, explizit
+ein- und ausgeschaltetes Pooling, weiterhin ohne geoeffnete Verbindung.
+Die alleinige Kausalitaet fuer E03 ist damit **noch nicht gemessen**;
+keine Assertion, fachliche Strecke oder Laufzeitgrenze wurde gelockert.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `browser-19-result.json` | `055cf774fdb95cd4656aea319ac06a20e0fe277d9f2fa164d9e3b7c6977a9257` |
+| `browser-19-bounded-result.json` | `d76376221276a17a3c324e82cff1c04604938268787adaf26601783dee7b9fd5` |
+| `browser-19-bounded-cleanup.json` | `8b66278bc441553face14abfab8e3efd93d255722d6ca5796a911489d96a3a28` |
+| `.local\v10\.local\eu-u19\e2e-results.xml` | `8827639818d35c94024f4e749a99ec796890e1905c1fb7d14937169510566352` |
+| `.local\v10\.local\eu-u19\eudamed-original-download-proof.json` | `b847a48847c0dc255748b5294ba3e13e8408b23115355760fa65c3e2b76ad662` |
+| `browser-sql-policy-01.json` | `ff2d5f97704dabfe41bfeab76a774f3c201956d097b0c4db1896b85fbe7ce1a1` |
+| `browser-resource-journal-04.json` | `ce20d2b230add509bf48746726034bbb921b40d011b86e05b449334b76b6187c` |
+| `browser-boundary-check-headless-20.json` | `1133ae61064b29d289acfc3cae72fda92040be4c02e6cdb3e63e828b49b2ec07` |
+
+### Browser20: erster fachlicher Eingang zu langsam, E04 erneut bestanden
+
+Unveraendert Anwendung01345/Build32 und Browserquellea951697; die private
+SQL-Konfiguration erhielt diesmal nachweislich Pooling=true fuer die
+Anwendung und Pooling=false fuer die Administration. E03 durchlief
+Actoraktivierung, Dossiererstellung, getrennte Freigaben und Queue,
+scheiterte jedoch beim ersten `receiveDossierUi` an der unveraenderten
+25-Sekunden-Dialogassertion. Das gelesene Fehlerbild zeigt eine
+ausgefuellte Begruendung mit aktivem Spinner, kein Pflichtfeldproblem.
+
+Der zugehoerige `/simulator`-POST lieferte HTTP200-Header erst nach
+**26,488361 Sekunden**. Der bestehende Browserhook misst ausdruecklich
+`request.timing().responseStart` bei `page.response`: Das ist die Zeit
+bis zu den Antwortheadern, **nicht** das Ende des Responsebodys oder die
+rein fachliche Verarbeitungszeit. Die 206 E03-Beobachtungen enthalten
+keinen HTTP-Status ab400 und 16 Headerzeiten ueber fuenf Sekunden;
+Requests ohne beobachtete Antwort und Abbrueche sind damit nicht
+bewertet. Die Pooling-Korrektur allein schliesst den Engpass nicht.
+Es wurde keine Assertion oder Prozessgrenze vergroessert.
+
+E04 bestand erneut in **128,659 Sekunden**, einschliesslich bytegleicher
+PDF-/ZIP-Originale, historischer Originalerhaltung, tatsaechlichem
+Logout-/Login-/Scopewechsel, abgebrochenem alten Download und
+serverseitiger Verweigerung fuer das neue Konto. Insgesamt weiterhin
+**1 Passed, 1 Failed, 0 Skipped**, keine EUDAMED-Gesamtabnahme.
+Der eigene Prozess lief von `2026-11-17T22:06:25.2208211Z` bis
+`2026-11-17T22:15:11.5863736Z`, also **526,365553 / 600 Sekunden**,
+ohne aeusseren Timeout. Die unabhaengige Bereinigung bestand mit Exit0
+in **16,994985 / 60 Sekunden**. Alle eigenen Prozesse und Streams waren
+geschlossen; Datenbank, Runtimeparent und beide privaten Browserprofile
+waren entfernt, die fuenf Baseline-Datenbanken sowie Quellen, Paket und
+Workbook blieben unveraendert. Keine Vorschaupromotion.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `browser-20-result.json` | `1745f998c4a48bc4124d84da864cbf735521c787416d5aeeb93bab456289b28f` |
+| `browser-20-bounded-result.json` | `0f6ec7e3dd3f8d712a2b036bc4e566bd663e2f7e30866f9dfbf42955678f5c25` |
+| `browser-20-bounded-cleanup.json` | `bb17eb433998b4310a6f1b64565f4c34b8116a37f29d53d62480a7fcfabdebfb` |
+| `.local\v10\.local\eu-u20\e2e-results.xml` | `bf5db75a86f3b52ff7d408f990c5a6c4a305e288b5a63932518953425fca51d3` |
+| `.local\v10\.local\eu-u20\eudamed-request-timings.jsonl` | `2bee358272f6a01197c1c75546824e7dd8c29eb4300a6a698c893716df884091` |
+| `.local\v10\.local\eu-u20\eudamed-original-download-proof.json` | `0d59b9b132b4f77ccb3b5dd06993ee92984aea2f3e2dc5fb53535714623533ac` |
+
+### X-15: numerische Browserassertions und geschlossene Auswahlluecke
+
+Die browserexklusive Quelle `a951697f097cdd2053e305d84f7b09ac375796b2`
+erweitert den bestehenden befuellten Gruppenfall T16: Fuer dieselbe
+Berichtsfassung und das jeweils gewaehlte Mitglied stammen die Sollwerte
+aus `/psurs/{id}/months?version=N&productId=P`. Geprueft werden die
+geordneten Monats-/Periodenzeilen, Basisfallzahlen, offene und unbekannte
+Stichtagsstatus sowie Beschriftungen und Zahlenpunkte im Diagramm.
+Der vorhandene Mitgliederwechsel muss auch die zugehoerigen Zahlen
+wechseln; die vorherige Basic-UDI darf nicht stehenbleiben. Tabellen-
+und Diagrammsichtbarkeit werden ausdruecklich geprueft. Keine zweite
+fachliche Monatsformel und keine neue Fixture ersetzen den Gruppenfall.
+
+Der zusaetzliche strikte E2E-TypeScript-Aufruf scheiterte zuerst an vier
+bereits in01345 vorhandenen DOM-/Node-Timer-Typfehlern in
+`blockReviewPolling`. Eine typisierte `Window`-Referenz erhaelt dieselbe
+Browser-Timerfunktion ohne Cast oder Unterdrueckung. Der anschliessende
+vollstaendige E2E-Typecheck bestand nach **25,289 Sekunden / 120 Sekunden**.
+Die Anwendung selbst bleibt unveraendert01345/Build32.
+
+Der private Runner verwendet jetzt typisierte Argumentarrays und prueft
+vor SQL-/Runtimeerzeugung die tatsaechliche Playwright-`--list`-Antwort:
+genau die beiden erwarteten Titel im ausgewaehlten Projekt, keine
+fremden oder ausgelassenen Faelle. Beide Profilauswahlen wurden
+SQL-/API-/browserfrei mit je zwei echten Testdefinitionen geprueft;
+eine falsche Auswahl wurde abgewiesen. Die vier vorhandenen
+Ownership-/Fehlererhaltungschecks bestanden erneut mit ausschliesslich
+simulierter SQL-Grenze. Das ist **keine Ausfuehrung der UI-Faelle**.
+600/60/10/3-Sekunden-Grenzen, vollstaendige fachliche Faelle und die sechs
+Ressourcenjournalphasen bleiben unveraendert. Neue Runner zeichnen das
+tatsaechliche Prozessende auch unabhaengig von einem Nachfahren-Stopfehler
+auf, soweit der OS-Prozess wirklich beendet ist; historische Belege
+werden nicht nachtraeglich ergaenzt.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `psur-month-browser-typecheck-02.json` | `117ce88c3fccf5942778f5b40eed59b73c44a95ec1d1ca1e9d271059b08e8b3b` |
+| `browser-selection-01.json` | `b018dba9afec684c9481937cfb11592e8eb2facc1ff0704ad9ae31aef99b46db` |
+| `browser-resource-journal-03.json` | `9bbbdfe023dfe4abf0d60d11426229361a7b2e67e7ef1b2781fffcf7c1017dbc` |
+| `browser-boundary-check-headless-19.json` | `7757ab5b827a3f8a4d3ca954b23424bad9d0ac81313bd7e311d0010675af6f58` |
+
+### Browser21: X-12 und X-15 im vollstaendigen Zweierprofil bestanden
+
+Auf derselben Anwendung01345/Build32 und Browserquellea951697 bestand
+das exakt selektierte Profil `PrimaryBaseline`: **2 Passed, 0 Failed,
+0 Skipped**. Der vollstaendige Beschwerde-/Review-/Unknown-/Reconcile-/
+Auditfall bestand in **41,794 Sekunden**, der vollstaendige befuellte
+Gruppen-PSUR-Fall T16 in **68,052 Sekunden**. Die Fallgrenzen blieben
+150 bzw.240 Sekunden; keine Retries oder Ersatzfaelle wurden ergaenzt.
+
+Damit sind die vorstehend beschriebenen numerischen Monatsassertions
+tatsaechlich ausgefuehrt: beide gewaehlten Basic-UDI-Mitglieder, die
+genau gebundene Berichtsversion, geordnete Periodenausschnitte und
+Fall-/Offen-/Unbekanntzahlen sowie alle dazugehoerigen Diagrammwerte.
+Die Werte stammen aus der jeweiligen versionierten API-Antwort;
+mindestens ein Monat ist befuellt. Der Mitgliedswechsel, der
+vollstaendige Gruppenscope, Downloads, kontrollierte Nachbearbeitung,
+unveraenderte Snapshotbytes und erneut getrennte Freigaben bleiben
+Teil desselben Falls. X-12 wurde im unverkuerzten Beschwerdefall
+einschliesslich gebundener Versandvorschau, Abbruch ohne Sendung und
+Unknown-/Reconcile-Schutz geprueft.
+
+Der eigene Gesamtprozess lief von `2026-11-17T22:23:56.7021262Z` bis
+`2026-11-17T22:27:16.2571288Z`, also **199,555003 / 600 Sekunden**.
+Die unabhaengige Bereinigung bestand mit Exit0 in
+**19,933655 / 60 Sekunden**. Beide Prozessjobs und Streams sind
+geschlossen; Datenbank, kompletter Runtimeparent und privates
+Browserprofil wurden entfernt, die fuenf Baseline-Datenbanken sowie
+Quell-/Paket-/Workbookbindungen blieben erhalten.
+
+Dies ist eine isolierte lokale Funktionsabnahme dieses X-12-/X-15-
+Schnitts, **keine Promotion**: Die separate freigegebene Vorschau
+bleibt742db5d. E03/EUDAMED, Recovery17, Security-/CI-/Last- und die
+vollstaendige Baseline-/Betriebsabnahme bleiben getrennte offene Gates.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `browser-21-binding.json` | `6cc5ebf457f016407fcbd7335851c6857eff72ed1f846ce2154f2ac6b467bea8` |
+| `browser-21-result.json` | `378cf4d767dcb6fb24becbbb81de86f8b3166d769b0a82e630bb5317af757660` |
+| `browser-21-bounded-result.json` | `e35c671c0260c42d6ddb3654d45429acd46c6dcb4954865d7a32bf553a39c4da` |
+| `browser-21-bounded-cleanup.json` | `069090d918d64ef12b9e55f56cf45c0c414d7a328abf68f362c2c99e550b6781` |
+| `.local\v10\.local\eu-u21\e2e-results.xml` | `215dba2328230c4ee2ce314fcf3da2e881427766fb088f07db04b4eeec4864f9` |
+| `.local\v10\.local\eu-u21\owned-resources-terminal.json` | `1396a21a47da9144d891015e4324daff67be52854b7f85a13f60240be526ab90` |
+
+### Verbleibender Outbox-Lesepfad und negatives Build33-Gate
+
+Der weitere E03-Ursachenpfad umfasst den gemeinsam genutzten SQL-Pfad,
+nicht nur Rendering oder Polling. Die aktuellen und gezielt historischen
+Aggregatleser verwenden bereits sequenzielles Textlesen; `ApprovedDossier`
+liest das exakt gebundene Original und keine gesamte Produkthistorie.
+`PendingEvents` und `ClaimEvent` lasen dagegen noch gepufferte
+`nvarchar(max)`-Payloads. Der lokale Worker verwendet diese Leser auch
+waehrend der HTTP-Kommandos.
+
+Commit `9845b3f0b696a2e5f83147bdd1d7ac4ce6ccba28` stellt nur diese
+beiden Leser auf den bestehenden `SequentialAccess`-/`ReadText`-Pfad
+um. SQL-Abfragen, Batchgrenze, Spalten, Lease, Backoff, Attempts und
+Idempotenz bleiben unveraendert. Ein gezielter neuer Outboxfall prueft
+eine grosse Mehrpuffer-Payload einschliesslich Unicode/Escapes, die
+nachfolgenden Metadaten, genau eine Lease und das abschliessende Receipt.
+Dies ist eine eingegrenzte Korrekturhypothese, **noch kein gemessener
+E03-Latenz- oder Browsererfolg**.
+
+Build33 auf diesem Stand scheiterte mit Compiler-Exit1 an `xUnit2031`
+im neuen Test (`Assert.Single` mit vorgeschaltetem `Where`), nicht an
+einem Timeout. Zehn Projekt-Rebuilds bestanden, das elfte nicht.
+Alle elf Projektjobs und der aeussere Partitionsjob schlossen ihre
+Streams ohne verbleibende Nachfahren. Publish, native Faelle und
+Browser wurden deshalb nicht gestartet; es entstand keine SQL-Fixture.
+Der eng gekoppelte Teststil ist in
+`19961ee9a1d662b6ec98b12d9fb92e85135ab773` durch den bereits im Test
+verwendeten Praedikat-Overload korrigiert, ohne Erwartung oder Budget
+zu aendern. Build33 bleibt als negativer Beleg erhalten; sein Teilergebnis
+ersetzt keinen erfolgreichen neuen vollstaendigen Build.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `build-33-project-partitions.json` | `2abc4e9fb4e036e0f739b84a2c7ce03210b17e54d45a0e0696ef5e1a175968d7` |
+| `build-33-partitions-owned-job.json` | `4f9108c300b605640f83a6306ee972526fcf96a902f2daff48e05f94e4be97c3` |
+
+Der nachfolgende **Build34 auf19961ee** bestand alle elf neuen
+Projekt-Rebuilds, frischen Web-/TypeScript-Build, Solution-Build,
+API-Publish, **39/39 Bootstrapfaelle** und Bootstrap-Publish.
+Die Anwendung liegt als separat gebundenes Paket mit116 Dateien vor;
+es wurden keine alten Teil-Rebuilds als neuer Gesamtbuild gewertet
+und keine Abhaengigkeiten neu installiert.
+
+**Native69 bestand alle drei Outboxfaelle** auf diesem Paket:
+der neue Mehrpuffer-/Metadatenfall sowie die unveraenderten
+Lease-/Backoff-/Poison-/Recovery-/Receipt- und Stale-Lease-Faelle.
+Der echte Testprozess lief von `2026-11-17T23:00:31.5090024Z` bis
+`2026-11-17T23:00:51.7831265Z`, **20,274124 / 180 Sekunden**;
+der neue Fall selbst dauerte1,843578 Sekunden. Die eine Fixture
+durchlief alle sechs Ressourcenphasen und wurde samt komplettem
+Objektparent entfernt; Baseline, Streams und Prozessjob sind geschlossen.
+Dies belegt den Leser-/Leasevertrag, nicht die Ursache oder Behebung
+der bislang zu langsamen E03-HTTP-Antwort.
+
+| Neuer privater Beleg | SHA256 |
+| --- | --- |
+| `build-34-result.json` | `dd020a413cb93c16a3390dcf4c3959ee42c9f3d462d50e93e31c684f55872d68` |
+| `build-34-owned-job.json` | `707cffeb678e7eb31a5062fc16f36fa11b09ae486b09eeea6c682bfbdcdf07b7` |
+| `build-34-project-partitions.json` | `4171c9776fc7c6047a73ab3e754cc3a6490bca27d37028d6338a47fb6f041587` |
+| `tests-69-result.json` | `8f1ae2cf8b06339b88d2a3cc75b6f5088ee5221dc12f67c21e5d3efad3892911` |
+| `tests-69-owned-job.json` | `1ca62192fccd58df9bfbd9302f64920f501b05f109c6c5856b2637cf4f9ff3c7` |
+| `tests-69.trx` | `a9905528d1b3ad3ab33320a0b861fb17ce77877eddf2213f6c908b24fcdfab93` |
+
+Native70 selektierte anschliessend die unveraenderten zehn
+X-12-/X-15-Faelle gemeinsam, erreichte aber **keinen Abnahmenachweis**:
+Timeout nach180,048163 Sekunden Wait-Budget, kein TRX und kein
+behaupteter Passed-Zaehler. Der echte Prozess begann um
+`2026-11-17T23:02:46.266143Z` und endete nach dem begrenzten Stop um
+`2026-11-17T23:05:51.9511766Z`, also **185,685034 Sekunden**.
+Die Differenz umfasst insbesondere5,422010 Sekunden vor Beginn des
+Wait-Budgets; Stop-/Stream-Nachlauf ist weiterhin separat erfasst.
+Das Ressourcenjournal zeigt zwei Fixtures, deren erste allein
+zwischen `SchemaReady` und `Ready`101,094171 Sekunden benoetigte.
+Das ist kein Messwert einer fachlichen Rueckfrage-Antwort-Zeit.
+
+Nach geschlossenem Testprozess wurden beide exakt journalgebundenen
+Reste zunaechst rein lesend inspiziert und danach in einem getrennten
+unveraenderten60s-Bereinigungsjob entfernt: beide Datenbanken sowie
+52 bzw.35 bytegebundene Objekte einschliesslich beider Objektparents.
+SQL-Erstellungszeit, fehlende aktive Benutzer, vollstaendige
+Journalbindung, Quell-/Paket-/Workbookhashes und alle fuenf anderen
+Datenbanken wurden geprueft. Die acht originalen Journalzeilen bleiben
+unveraendert; externe Bereinigung wird nicht als normaler sechsphasiger
+Testabschluss oder nachtraeglicher Erfolg ausgegeben. Die vorhandene
+742-Vorschau blieb unangetastet. Ein naechster Featurebeleg verwendet
+wieder die bereits etablierten gezielten Selektionen und keine
+unveraenderte blinde Wiederholung dieses180s-Gesamtlaufs.
+
+| Negativer Lauf und separate Bereinigung | SHA256 |
+| --- | --- |
+| `tests-70-result.json` | `2b46d9d5e8bc4f670a4ad7328bde278bb1423ea6260fc2d5c640bc5c9dc8321a` |
+| `tests-70-owned-job.json` | `a57a2beadb9b221688cadb380ea24ff98da0f4c15ed978ba354235430e8fb141` |
+| `tests-70-residue-inspection.json` | `84dc19816718c92626791463b3b592e739d5368aabb5856fe6847c76b05992f4` |
+| `tests-70-inspect-contained.json` | `6f0bf8f6ae59bf7af7d5757b6d85cc5b055e1b90f73e226ec3f8dca55fa96471` |
+| `tests-70-bounded-cleanup.json` | `116de75332fc7563c20e68cd68040555224e24bd28a72532987072dec389623d` |
+| `tests-70-cleanup-contained.json` | `130bf82d507708ac49aaab83fa1eade138030e5aee56d3055f0ad9af4fe2ee55` |
+
+**Native71** pruefte danach auf19961ee/Build34 beide unveraenderten
+vollstaendigen Comment-/InformationRequest-Varianten gemeinsam:
+**2 Passed, 0 Skipped**, mit46 dauerhaft geschriebenen Fachphasen.
+Der echte Prozess lief von `2026-11-17T23:13:57.2191561Z` bis
+`2026-11-17T23:15:28.8786435Z`, **91,659487 / 300 Sekunden**.
+Wait-Budget-Messung91,643881 Sekunden und Streamnachlauf0,035316
+Sekunden bleiben getrennt. Die einzelnen Testkoerper dauerten
+36,369220 bzw.32,034166 Sekunden; sie sind keine isolierte
+Rueckfrage-Antwort-Messung. Dossieraufbau, erste Annahme,
+Rueckfrageeingang, Antwortentwurf, getrennte Freigaben, Queue/Transport,
+fachliche Reply-Annahme und Abschlusspruefungen sind unverkuerzt
+enthalten. Fixture/Seed und TRX/Teardown gehoeren zum Gesamtprozess,
+nicht zu den einzelnen Fachphasen. Die einzige Fixture durchlief
+alle sechs Ressourcenphasen; Datenbank und Objektparent wurden
+entfernt, Job/Streams geschlossen. Dies ist ein neuer gebundener
+Erfolg, keine Umdeutung des historischen Native55-Timeouts und keine
+Addition der frueheren Einzelpartitionen56/57.
+
+| Vollstaendiger Zweiernachweis | SHA256 |
+| --- | --- |
+| `tests-71-result.json` | `2ac6731f99d8142dcc15f38bd318c6dc07bc118ef0e7b30249195c71da1202cb` |
+| `tests-71-owned-job.json` | `6c7a288d0a8b412e63e8d4f7469ebc5f0b1aa1d91e1173c47ce799a74aea80ef` |
+| `tests-71.trx` | `9b7b66f81d865671d3607b0937d6bf2470c70a2d1bf0ad0a23da8eacdc3c0f1e` |
+| `tests-71-business-phases.jsonl` | `9cee2c17a6de12fded1c7e6ad1d36c75c98997b78a45d953fb8c151423e25baa` |
+| `tests-71-owned-sql.json.journal.jsonl` | `5145528507642aa9656e8bf6028dd26bf2fb5b1f400c1b17df9769709a772a5a` |
+
+Die anschliessenden **Offline72 und Native73--79** prueften alle zehn
+unveraenderten X-12-/X-15-Faelle auf19961ee/Build34 erfolgreich. Es
+wurden die bereits zuvor verwendeten acht gezielten Selektionen
+seriell ausgefuehrt, keine Faelle gekuerzt oder Erwartungen entfernt.
+Jeder Prozess behielt sein180s-Limit; der negative gemeinsame Native70
+bleibt separat erhalten und gilt dadurch nicht nachtraeglich als bestanden.
+
+| Lauf | Tatsaechlich bestanden | Echte Prozessdauer / Limit in Sekunden |
+| --- | ---: | ---: |
+| Offline72, Monatsprojektion | 3 | 20,791438 / 180 |
+| Native73, gebundene Versandvorschau/Unknown | 1 | 108,631225 / 180 |
+| Native74, veraltete Revision/Empfaenger/Profil | 1 | 85,878822 / 180 |
+| Native75, PSUR-Export und unveraenderter Bericht | 1 | 74,011916 / 180 |
+| Native76, falsches Produkt/Version/manipulierte Bindung | 1 | 65,004908 / 180 |
+| Native77, unveraenderter historischer Snapshot | 1 | 64,018394 / 180 |
+| Native78, einzelne Basic-UDI-Gruppenmitglieder | 1 | 63,151567 / 180 |
+| Native79, vollstaendige Gruppenberechtigung | 1 | 114,623080 / 180 |
+
+Alle zehn konkreten TRX-Ergebnisse sind `Passed`, keines uebersprungen.
+Jede SQL-Fixture durchlief ihre sechs normalen Ressourcenphasen und
+wurde einschliesslich Objektparent entfernt; alle Prozessjobs und
+Streams schlossen. Der Index bindet exakt dieselben zehn Fallnamen
+wie der fruehere Featurebeleg, jeden einzelnen Resultat-/TRX-/Ownerhash
+und den neuen Build. Dies ist fachliche/native Evidenz, keine neue
+Browser- oder Vorschaufreigabe.
+
+Vor dem naechsten Browserdurchlauf bestanden ausserdem der strikte
+TypeScript-Check der E2E-Quelle und das echte Playwright-Listing beider
+Zweierprofile einschliesslich Ablehnung einer falschen Auswahl.
+Die neue Supervisorbindung bestaetigte den realen Timeout und die
+unabhaengige Bereinigung/Fehlererhaltung ohne SQL, API oder Browser.
+Das tatsaechlich publizierte Bootstrapprogramm aus Build34 gab
+`--help` im eigenen30s-Prozessjob erfolgreich aus. Seine Hilfe weist
+ausdruecklich darauf hin, dass ein SQL-/Search-Aufruf ohne `--apply`
+remote lesend und nicht offline waere. **Hier wurde ausschliesslich
+die Hilfe ausgefuehrt**, kein SQL-/Search-Bootstrap und keine
+Cloudbereitstellung.
+
+| Neuer privater Beleg | SHA256 |
+| --- | --- |
+| `x12-x15-native-03.json` | `58453bd9df15d5e70665c27505fed8de6c6945e3bad902494d2c80a6486d0855` |
+| `psur-month-browser-typecheck-03.json` | `65680f7916a92cc4d4e364764c1c0945ea0f243aee3aeb79413092e913d641fe` |
+| `browser-selection-02.json` | `dac36c422e581c0ffb7bd2e66e50cac8500a99c430ecdd7a31b15812f7af21c6` |
+| `browser-selection-owned-02.json` | `73787629c703443a1845e912dc75c9e60afec9638210eaa543fa8b07fe0c8a7d` |
+| `bootstrap-help-build34-01.json` | `f7d45cc08981ba93f4207c325ebbd9ac115afa2b76e214475643364e4b3b3bd3` |
+| `bootstrap-help-build34-owned-01.json` | `52fd5d3de26a9b73171b6a008a5a83805cc8cc624fcc1db69194059286df513e` |
+
+**Browser22 erreichte keine Browserfaelle.** Das unveraenderte
+Runtime-Preflightgate lehnte vor Ressourcen-Intent/API/SQL/Browser
+eine zusaetzliche Datei im privaten Headless-Paket ab. Der Prozess
+endete mit Exit1 nach35,429947/600 Sekunden, ohne Timeout. Die
+unabhaengige Bereinigung bestaetigte nach21,915526/60 Sekunden,
+dass keine zugeordnete Runtime/Fixture angelegt worden war und
+alle eigenen Nachfahren/Streams geschlossen waren.
+
+Der nachfolgende reine Dateiabgleich fand genau
+`chrome-win\debug.log` mit153 Bytes. Inhalt und Zeitpunkt stimmen
+vollstaendig mit der aufgezeichneten GPU-Fehlerzeile des eigenen
+Browser21-Prozesses ueberein. Alle13 urspruenglichen Archivdateien
+blieben bytegleich. Das Log wurde unveraendert als
+`browser-21-runtime-debug.log` erhalten; eine separate Hash-/Zeit-/
+Prozess-/Stderr-Bindung belegt die Zuordnung und den wieder exakt
+urspruenglichen Dateisatz. Kein Binary, Timeout, Dateisatzgate,
+Browserfall, Zugriffsrecht oder frueheres Ergebnis wurde geaendert.
+Browser22 bleibt ein negativer Preflight, nicht ein neuer E03-Fehler
+oder -Erfolg; die separate Browser08-Abweichung wird nicht umgedeutet.
+
+| Preflight und reine Artefakterhaltung | SHA256 |
+| --- | --- |
+| `browser-22-bounded-result.json` | `4ed2ff9652df3363cc5a9c1678434c6a6f81069e194d725e892fdb55caf89fca` |
+| `browser-22-bounded-cleanup.json` | `09b7abff97402bf042cd1fcee726e94e1489891e1b02c4965f5fd74876a7f886` |
+| `browser-21-runtime-debug.log` | `2f18527dad44e1eafc7c905de0089c71ac290ded9bb8225b50ca72b167a1dabf` |
+| `browser-21-debug-log-preservation.json` | `8067a33e516570fb577d8d42c3e54c8173011f39a9afe1e6fc9e981a627fc78c` |
+
+### Browser23: vollstaendige E03-/E04-Abnahme auf Build34
+
+Auf `19961ee9a1d662b6ec98b12d9fb92e85135ab773`/Build34 bestanden
+beide unveraenderten Faelle: **2 Passed, 0 Fehler/Skips**. E03
+dauerte100,425 Sekunden, E04173,344 Sekunden bei jeweils unveraenderten
+210 Sekunden. Der echte Gesamtprozess lief von
+`2026-11-17T23:50:12.3827254Z` bis
+`2026-11-17T23:56:10.1409056Z`, **357,758180 / 600 Sekunden**.
+Die separate Bereinigung benoetigte15,430304/60 Sekunden;
+Stop10s und Stream3s blieben unveraendert. Alle eigenen Nachfahren,
+Streams, Datenbank, Runtimeparent und aufgezeichneten privaten Profile
+sind entfernt/geschlossen; fuenf Baseline-Datenbanken, Quell-/Paket-
+und beide Workbookbindungen blieben erhalten.
+
+E03 bestaetigt das quellgebundene MIR-Dossier, getrennte neue
+Medical-/RA-Reply-Freigaben, unveraenderte native Meldung/Fristen/alte
+Freigaben sowie einen technischen Ack ohne fachlichen Pflichtabschluss.
+Nur die adressierte Rueckfrage schliesst nach fachlicher Reply-Annahme.
+Der Kalender fuehrt zum exakten Original und zeigt erst danach den
+abgeschlossenen Rueckfragestand. E04 bestaetigt bytegleiches PDF/Archiv,
+historischen Originalerhalt, echten Logout/Login und abgebrochenen
+verspaeteten Originaldownload: keine spaeten Downloads fuer das neue
+Konto, mit serverseitiger Scopeverweigerung.
+
+Die238 erfassten E03-Antworten enthalten keine HTTP-Statuscodes ab400;
+sechs Headerankuenfte lagen ueber5 Sekunden. Die erste Simulatorantwort
+erreichte ihre Header nach3,435594 Sekunden, die drei Simulatorantworten
+nach3,435594/2,130813/6,205570 Sekunden; `/api/status` maximal0,276974
+Sekunden. Dies sind weiterhin **Headerzeiten**, keine Messung des
+vollstaendigen Responsebodys oder abgebrochener Requests. Der erfolgreiche
+unveraenderte Ablauf ist belegt; eine alleinige Ursache der historischen
+Latenz oder ein allgemeiner Last-/SLO-Nachweis ist daraus nicht ableitbar.
+
+Ein waehrend Browser23 erzeugtes153-Byte-GPU-Diagnoselog wurde nach
+geschlossenem Job ebenfalls anhand jeder identischen Stderrzeile und
+seiner Zeitbindung unveraendert erhalten. Der urspruengliche13-Dateien-
+Archivbestand blieb bytegleich, ohne Dateisatz-Ausnahme.
+Alle Kommunikation war simuliert, die Browserbelege enthalten keine
+externen Requests und keine reale Behoerdenannahme. **Keine Promotion
+der bestehenden742-Vorschau und keine Gesamt-/Cloudfreigabe.**
+
+| Browser23-Beleg | SHA256 |
+| --- | --- |
+| `browser-23-binding.json` | `5a88cdd5b1cbaef7f39c49be3208fb27d63aa4b12d49dbc031624b3861a20c78` |
+| `browser-23-result.json` | `510eb93e859e43afc68e0d2630c8724a261f86141f4a0db5f7a1d15c4dc0a506` |
+| `browser-23-bounded-result.json` | `8186ab7511d319c1fea2ad7533c65063ff8e196178f036ac2c870e7fa8848369` |
+| `browser-23-bounded-cleanup.json` | `b8f441aa9cb8c8e98621874cb77d275faf29948a7893be1fd18271248d19ce54` |
+| `.local\v10\.local\eu-u23\e2e-results.xml` | `d62d1a38ddd38588fdbb3d4e134471b4f21128cbcaef2ae7fc563e8aa7fd0c37` |
+| `.local\v10\.local\eu-u23\eudamed-dossier-reply-proof.json` | `94a3c29fa48beae04e9aca5e289d95cf15e4edae5f697f31f9db15f59064ba42` |
+| `.local\v10\.local\eu-u23\eudamed-original-download-proof.json` | `9816485e5e100de1c571f87fb54a55be703de18b4cdc2f845af275290cf74ffa` |
+| `.local\v10\.local\eu-u23\eudamed-request-timings.jsonl` | `bf02253154ffa4a1cd50ccf6612855b09d5b2dbf07dd8f5690028023a549f2de` |
+| `browser-23-debug-log-preservation.json` | `8b91c17b3621845f7e57bcdb3a2080f63cda50cf246376f639dfc93d12526fb3` |
+
+### Browser24: Fachfaelle bestanden, unabhaengiges Cleanupgate fehlgeschlagen
+
+Das unveraenderte vollstaendige `PrimaryBaseline`-Profil auf demselben
+19961ee/Build34 lieferte **2 Passed, 0 Fehler/Skips**:
+Beschwerde/X-12 in47,078 Sekunden und der befuellte vollstaendige
+PSUR-Gruppenfall/X-15 in83,619 Sekunden. Die versions- und
+mitgliedsgebundenen Monatswerte werden unveraendert mit der exakten
+API-Antwort verglichen, einschliesslich Tabellenreihenfolge,
+Periodenausschnitt, offenem/unbekanntem Status und Diagrammwerten.
+Der echte Ausfuehrungsprozess endete mit Exit0 nach252,988664/600
+Sekunden. Sein normaler Abschluss protokolliert alle sechs
+Ressourcenphasen, keine Cleanupfehler sowie entfernte Datenbank,
+Zugangsdaten/Objekte und kompletten Runtimeparent.
+
+**Der gesamte Browser24-Versuch ist dennoch negativ.** Der anschliessende
+unabhaengige Bereinigungs-/Verifikationsprozess erreichte sein unveraendertes
+60s-Limit und wurde nach tatsaechlich60,242105 Sekunden beendet. Er
+hinterliess keine lebenden Nachfahren oder offenen Streams, aber auch
+keinen abschliessenden Cleanupbeleg. Seine Ursache/letzte Arbeitsphase
+ist durch die leeren Ausgabestreams nicht feststellbar. Weder der
+positive JUnit noch die normale innere Bereinigung ersetzen dieses Gate.
+
+Danach wurde ausschliesslich eine neue, getrennt gebundene **lesende
+Verifikation** ausgefuehrt:16,656235/60 Sekunden, mit dauerhaft
+geschriebenen monotonen Metazeiten, ohne neue API/Browser/Fixture oder
+Ressourcenmutation. Sie bestaetigte die exakte negative Vorgeschichte,
+normale sechsphasige Journalbindung, abwesende aufgezeichnete Prozesse,
+Profile, Runtime und Port5197 sowie die entfernte Datenbank und exakt
+fuenf unveraenderte Baseline-Datenbanken. Alle411 gebundenen Quelldateien,
+116 Paketdateien und beide Workbooks wurden erneut geprueft.
+Diese separate Schliessung erlaubt sichere Folgearbeit; sie macht den
+historischen60s-Timeout **nicht nachtraeglich erfolgreich**. Ein allgemeiner
+Cleanup-SLO oder eine vollstaendige neue Releaseabnahme ist nicht belegt.
+Die bestehende742-Vorschau blieb unveraendert.
+
+| Browser24 und separate Verifikation | SHA256 |
+| --- | --- |
+| `.local\v10\.local\eu-u24\e2e-results.xml` | `e1021dab2d0403922ee122077ed690b836831194b081918457d79dd448dcdc2c` |
+| `browser-24-bounded-result.json` | `123044972c6641068487e6f90d1e9abc9af918f83ae4ed533b804cc084c1958b` |
+| `.local\v10\.local\eu-u24\owned-resources-journal.jsonl` | `f686640db197e7309e5233ad87b592a5269c5cfd9dce201cc93c2d794760f217` |
+| `browser-24-cleanup-verification-01.json` | `cd266731759829bfec27ff974a82266ddbbe9605283927171f3771e793741b2f` |
+| `browser-24-cleanup-verification-owned-01.json` | `2ac9602f183370eb7109a9f8004a413ec491e34e302dd977c2d683de2463ea54` |
+| `browser-24-cleanup-verification-01-phases.jsonl` | `2a0d09d9a00611f1d3d42c2bbf173b1c16c9b3d53c295b56c75e412affcb5404` |
+
+### Wiederherstellung ausschliesslich der freigegebenen 742-Vorschau
+
+Der zuvor nicht erreichbare lokale Host wurde nach der bedingten
+Wiederherstellungsfreigabe ausschliesslich aus dem bereits gebundenen
+Paket `.local\app-replay-rfi-742db5d` gestartet:
+Anwendung `742db5d7fc11b394436f9524b565fbb6f2b1077f`,
+historische Browserquelle `8397fe47e67a861b2efd91fbddafe31cb9a7d06a`.
+Alle 116 Paketdateien, bestehenden Konteneinstellungen, 53 Originale
+und sieben vorhandenen DataProtection-Schluessel blieben unveraendert.
+Der alte Prozess war abwesend; ein beabsichtigter Stop war in den
+zugehoerigen eigenen Belegen nicht dokumentiert. Die Ursache des
+frueheren Hostendes bleibt unbekannt; eine vorherige Heartbeatwarnung
+beweist sie nicht.
+
+Restore01 scheiterte **vor Start-Intent und API-Start** an einer
+lokalisierten Zeitstempelkonvertierung. Die unveraenderte negative
+Fassung bleibt erhalten. Restore02 korrigierte ausschliesslich die
+JSON-Lesung mit `-DateKind String`; dieselben Freshness-/Paket- und
+Startgrenzen blieben bestehen. Der neue Host wurde anhand seines
+tatsaechlichen Starts, Images, Besitzers, Kommandozeilenpakets und
+Listeners zugeordnet.
+
+`http://localhost:5187/` war am 17.11.2026 um 20:07:19Z bereit,
+um 20:10:17Z nochmals rein lesend als `ready` bestaetigt.
+HTML sowie referenzierte JS-/CSS-Dateien entsprachen dem alten Paket.
+Ein eigener neuer Browserkontext wurde dafuer nicht geoeffnet;
+der Nutzerbrowser blieb unveraendert. Die unabhaengigen SQL-Aufnahmen
+vor/nach dem Start bestaetigten dieselben 249 aktuellen/historischen
+Fachzeilen mit 30.415.374 Payloadbytes, Schema2, erhaltenen Original-
+versionen und keinem Ruecksetzen aktueller Staende. Operationszeilen
+sind wie im bisherigen Erhaltungsvertrag ausgenommen.
+
+Der beibehaltene Supervisor setzt Seed/AutoMigrate ausdruecklich aus,
+lokale Operations/Agenttransport an und physische Loeschung aus.
+Keine Migration, kein Seed, Backup/Restore oder Kontenreset.
+Zugang erfolgt ueber die vorhandenen getrennten lokalen Demokonten;
+Passwoerter bleiben ausschliesslich in der privaten
+`.local\demo-access.txt`. Generische Neustarts mit den aelteren
+Settings-Defaults sind kein gleichwertiger Wiederanlaufpfad.
+
+| Privater Beleg | SHA256 |
+| --- | --- |
+| `restore-01-preflight-rejection.json` | `0c798f88f4226a6dbd09bfa39e0d4e8350b1f6cdfe6594546ab3e5759f424964` |
+| `Restore-ApprovedPreview-v2.ps1` | `f3e7705d1de6c9b50fbd92df7e583034198416e6607d706a9f28ed66a891f6f5` |
+| `restore-02-ready.json` | `9b0c052ad295a143446699f4e4ab159032757b206bc526f8ca0b22d0ad4d0c30` |
+| `restore-01-before-state.json` | `978993fb549bd170ddc52951abdd344b9e8f63b6ebb17abb59c1db3caed47f10` |
+| `restore-01-after-state.json` | `8d729afad493ee5bc3f41de8bb97b156f3327cb03c1ec909313f91a021bcc380` |
+
+Diese Vorschau bleibt **deterministischer Replay mit simuliertem
+Versand/Quittungen**, nicht Live-Foundry. Die sechs logischen Rollen,
+getrennte Medical-/RA-Reviews, Fristen, Trends/CAPA, eingefrorener PSUR
+und die bereits freigegebene Informationsrueckfrage stehen im alten
+Paket; neuer EUDAMED-Schnitt sowie X-12/X-15 wurden nicht aufgeschaltet.
+Lokale fachliche Demoabnahme und spaetere Azure-/Entra-/Live-KI-/
+Betriebsabnahme bleiben getrennt. Keine Azure-Aktivierung oder
+Cloudkosten-/Zielfreigabe folgt aus dieser Wiederherstellung.
 
 ## Nicht ausgefuehrt / keine Behauptung
 
