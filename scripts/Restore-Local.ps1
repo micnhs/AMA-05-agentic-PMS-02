@@ -118,6 +118,7 @@ WITH MOVE N'$dataName' TO N'$native.mdf',MOVE N'$logName' TO N'$native.ldf',RECO
     Write-RecoveryPhase 'native-database-restored'
     $stage = Open-RecoverySql $config $stageDatabase
     try {
+        Assert-RecoveryEudamedOriginals $stage $stageObjects
         Write-RecoveryPhase 'restored-state-start'
         $state = Get-RecoveryState $stage $config
         Assert-RecoveryCoverage $state $objects

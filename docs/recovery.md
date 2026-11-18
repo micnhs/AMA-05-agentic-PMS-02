@@ -15,8 +15,10 @@ Der vollstaendige EUDAMED-Folgepatch und sein Runner sind in `874bffc`
 integriert. Der aktuelle Runner selektiert `Recovery|RecoveryEudamed` und
 verlangt **17 echte Passed-Ergebnisse** (14 plus 3), keine Skips sowie
 unveraendert alle elf Fixture-Abschlusspruefungen. Sieben
-`RecoveryDiagnostics`-Faelle und ein SQL-freier `RecoveryEudamedContract`
-gehoeren nicht zu diesem Gesamtnachweis.
+`RecoveryDiagnostics`-Faelle und die SQL-freien `RecoveryEudamedContract`-Faelle
+gehoeren nicht zu diesem Gesamtnachweis. Die neue Arbeitsfassung ergaenzt
+einen zweiten Vertrag und einen getrennten nativen `RecoveryPresence`-Fall;
+sie werden nicht zu den17 Gesamtszenarien gezaehlt.
 
 Die ersten zwei begrenzten Windows-Gesamtversuche am integrierten Stand endeten nach
 900 Sekunden ohne abgeschlossenen 17er-TRX. Sie sind **Timeouts, keine
@@ -73,6 +75,55 @@ Sourcejournal wurde nicht veraendert.
 [Aktuelle Einzelbelege](validation.md#build37-recovery04-und-recovery05)
 trennen historische Ergebnisse, Sonderbereinigung und neue Quellarbeit.
 
+Am18.11.2026 wurde fuer den **naechsten vollstaendigen gemeinsamen
+Recovery-Pruefprozess** eine Obergrenze von30 Minuten/1800s erlaubt.
+Die17 Originalfaelle,11 Fixturegates,480s je Fixtureoperation und die
+separate60s-Abschlusspruefung bleiben unveraendert; Stop10s und
+Stream15s bleiben gesonderter Nachlauf. Der neue Versuch bekommt eine
+eigene Quell-/Build-/Runner-/Budgetbindung. Die bisherigen900s-Timeouts
+bleiben negativ. Diese Erlaubnis ist weder Produktions-RTO/SLO noch
+Fachfrist oder Vorschau-/Cloudfreigabe.
+
+**Recovery06 aufdf612545/Build38** endete auch unter der neuen Grenze
+negativ:1800,2169677s/1800, ohne vollstaendigen17er-Nachweis.
+Die normale Abschlusspruefung scheiterte in11,1484533s/60.
+Die separate, exakt zugeordnete Bereinigung entfernte die eigenen
+Ressourcen, erreichte aber nach60,4594741s/60 beim abschliessenden
+Dateivergleich den Timeout. Der vollstaendige Vorher-Hashsatz war nur im
+Prozessspeicher; ein finaler Dateierhaltungsnachweis fehlt.
+**Der bytegleiche Erhalt aller585 anschliessend beobachteten Dateien
+ist damit nicht bewiesen.** Keine Ist-Hashliste ersetzt diesen Verlust.
+
+Die unabhaengige read-only Beobachtung02 bestand danach in25,2625782s/60:
+Ressourcen-/Prozessabwesenheit, unveraenderter fremder Before-Satz,
+413 Quellen,6 Testassemblies,116 Paketdateien, SDK und alle vorgebundenen
+Originalbelege. Der Koordinator gab das Testumfeld anschliessend separat
+fuer neue serielle lokale Validierung frei; das ist weder eine
+Recovery06-Abnahme noch eine nachtraegliche erfolgreiche Bereinigung.
+Die Beobachtung selbst behaelt `allowsNewRuntime=false`.
+[Einzelbelege und Diagnose](validation.md#recovery06-und-getrennte-testumfeldfreigabe)
+trennen diese Entscheidungen und Nachweise.
+
+Die vorhandenen Metazeiten belegen wiederholte vollstaendige
+SQL-/Referenzpruefungen vor dem Abweisen fehlender EUDAMED-Originale.
+Die neue Quellkorrektur prueft deshalb zunaechst die notwendigen
+Originaldateien aus aktuellen **und historischen** EUDAMED-SQL-Zeilen
+mit demselben typisierten Referenzgraphen: vor dem Backupzustand und
+nach dem nativen Restore in die Stagingdatenbank. Nur fehlende Dateien
+werden frueher abgewiesen. Das ist keine Integritaets- oder
+Aktivierungsfreigabe; alle bisherigen Tabellen-, Audit-, Byte-,
+Retention-, Search- und Vorher-/Nachher-Pruefungen erfolgreicher Pfade
+bleiben bestehen. Die17 Originalfaelle und11 Fixturegates bleiben gleich.
+Der neue Code benoetigt seinen eigenen gebundenen Build und Nachweis.
+
+Vor weiterer mutierender Sonderbereinigung muss der vollstaendige
+Vorher-Dateisatz inklusive explizit gebundener Loeschdateien mit
+WriteThrough/Flush-to-disk dauerhaft vorliegen. Eine unvollstaendige
+Hashaufnahme darf keine Mutation erreichen. Ein eigener Datei-Abbruchvertrag
+pruefte Abbruch waehrend der Aufnahme sowie Abbruch nach gespeicherter
+Aufnahme/erster beabsichtigter Entfernung; er ersetzt weder den fehlenden
+Recovery06-Vorhersatz noch eine ausgefuehrte allgemeine SQL-Abbruchbereinigung.
+
 Die Recovery-Quellpraezisierung protokolliert die vorhandenen
 Aufbauschritte einschliesslich PSUR-/EUDAMED-Vorbereitung und beider Backups
 feiner. `private\setup-phases.jsonl` enthaelt nur die Variante
@@ -116,7 +167,8 @@ JSON-Aufbereitung. `private\script-invocations.jsonl` korreliert die
 Invocation und den bekannten Testnamen mit echten OS-Prozessstart/-endwerten;
 ein hart unterbrochener Aufruf bekommt keinen erfundenen Abschluss.
 Diese Metazeiten bleiben vom sechsphasigen Ressourcenjournal,
-480s-Step-Wait,900s-Gesamtlimit sowie Stop-/Stream-Nachlauf getrennt.
+480s-Step-Wait,dem fuer den jeweiligen Versuch gebundenen Gesamtlimit
+sowie Stop-/Stream-Nachlauf getrennt.
 Drei neue SQL-freie `RecoveryJsonContract`-Faelle gehoeren nicht zu den
 unveraenderten17 Gesamtszenarien. Die neue Quellkorrektur braucht einen
 eigenen gebundenen Build und ausgefuehrten Gesamtnachweis; die
@@ -167,8 +219,8 @@ Voraussetzungen: Docker Desktop mit Linux-Engine, das gepinnte .NET-SDK und
 startet selbst Docker; dies gilt auch bei einem allgemeinen SQL-Testfilter.
 Der lokale Runner verlangt `Category=Recovery|Category=RecoveryEudamed`
 vollstaendig: die 14 bisherigen Faelle plus drei EUDAMED-Recoveryfaelle,
-zusammen **17**. Die acht separaten Diagnostik-/SQL-freien Vertragstests
-zaehlen nicht dazu. Die vorherige 13er-Selektion und der urspruengliche
+zusammen **17**. Die separaten Diagnostik-/SQL-freien Vertragstests und
+der neue native Originalpraesenztest zaehlen nicht dazu. Die vorherige 13er-Selektion und der urspruengliche
 9er-Lauf bleiben unten getrennt als historische Nachweise benannt. Der fruehere
 Linux-Runner mit PowerShell 7.5 belegt keine Kompatibilitaet dieses neuen Pfads.
 

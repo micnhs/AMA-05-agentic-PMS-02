@@ -256,7 +256,14 @@ internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDoss
 public sealed class EudamedRecoveryContractTests
 {
     [Fact]
-    public async Task TypedGraphIncludesHistoricalAndNestedOriginalsButNotInlineHashes()
+    public Task TypedGraphIncludesHistoricalAndNestedOriginalsButNotInlineHashes() =>
+        Probe(GraphProbe, "EUDAMED_RECOVERY_GRAPH=Verified");
+
+    [Fact]
+    public Task PresencePreflightRejectsMissingHistoricalAndNestedOriginalsWithoutReplacingByteVerification() =>
+        Probe(GraphProbe + "\n" + PresenceProbe, "EUDAMED_RECOVERY_PRESENCE=Verified");
+
+    private static async Task Probe(string body, string expectedMarker)
     {
         var home = RecoveryFixture.RepositoryRoot();
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("COHORS_RECOVERY_PWSH") ?? "pwsh")
@@ -271,7 +278,7 @@ public sealed class EudamedRecoveryContractTests
         start.ArgumentList.Add("-NoProfile");
         start.ArgumentList.Add("-EncodedCommand");
         start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(
-            "$ErrorActionPreference = 'Stop'\n. $env:COHORS_EUDAMED_RECOVERY_SCRIPT\n" + GraphProbe)));
+            "$ErrorActionPreference = 'Stop'\n. $env:COHORS_EUDAMED_RECOVERY_SCRIPT\n" + body)));
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Typed recovery contract probe could not start.");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
@@ -279,8 +286,39 @@ public sealed class EudamedRecoveryContractTests
         finally { if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); } }
         var output = await stdout + await stderr;
         Assert.True(process.ExitCode == 0, "Typed EUDAMED recovery contract failed; unfiltered child output is not published.");
-        Assert.Contains("EUDAMED_RECOVERY_GRAPH=Verified", output);
+        Assert.Contains(expectedMarker, output);
     }
+
+    private const string PresenceProbe = """
+            $script:presenceRows = $revisions
+            function Invoke-RecoverySql($Connection, [string]$Sql, [switch]$Text) {
+                if (-not $Text) { throw 'Presence probe only supplies a complete synthetic JSON read.' }
+                return Json $script:presenceRows
+            }
+            $home = Split-Path (Split-Path $env:COHORS_EUDAMED_RECOVERY_SCRIPT -Parent) -Parent
+            $root = Assert-RecoveryPath (Join-Path $home ('.local\recovery-presence-contract-' + [Guid]::NewGuid().ToString('N'))) -New
+            [IO.Directory]::CreateDirectory($root) | Out-Null
+            try {
+                foreach ($hash in $references) {
+                    [IO.File]::WriteAllText([IO.Path]::Combine($root, $hash), 'SYNTHETIC presence fixture, not verified original bytes.')
+                }
+                Assert-RecoveryEudamedOriginals $null $root
+                Reject { Get-RecoveryObjects $root } 'recovery_object_hash'
+                foreach ($hash in @($stored['pdf-old'], $stored['approved-snapshot'],
+                    $stored['distribution'], $stored['certificate-group'])) {
+                    $path = [IO.Path]::Combine($root, $hash)
+                    [IO.File]::Delete($path)
+                    Reject { Assert-RecoveryEudamedOriginals $null $root } 'recovery_reference_coverage'
+                    [IO.File]::WriteAllText($path, 'SYNTHETIC presence fixture, not verified original bytes.')
+                }
+                $script:presenceRows = @(@{ Kind = 'eudamedUnknown'; Json = '{}' })
+                Reject { Assert-RecoveryEudamedOriginals $null $root } 'recovery_reference'
+                Write-Output 'EUDAMED_RECOVERY_PRESENCE=Verified'
+            } finally {
+                foreach ($hash in $references) { [IO.File]::Delete([IO.Path]::Combine($root, $hash)) }
+                [IO.Directory]::Delete($root, $false)
+            }
+            """;
 
     internal const string GraphProbe = """
             function Digest([string]$Text) {

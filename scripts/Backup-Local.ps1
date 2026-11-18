@@ -389,6 +389,30 @@ function Get-RecoveryEudamedReferences($Revisions) {
     return ,@($hashes | Sort-Object -CaseSensitive)
 }
 
+function Assert-RecoveryEudamedOriginals($Connection, [string]$ObjectDirectory) {
+    $directory = Assert-RecoveryPath $ObjectDirectory
+    Write-RecoveryPhase 'eudamed-original-presence-start'
+    $json = [string](Invoke-RecoverySql $Connection @"
+SELECT (SELECT Kind,Json FROM (
+    SELECT Kind,Id,Version,Json FROM dbo.Aggregates
+    WHERE Kind COLLATE Latin1_General_100_CI_AS LIKE N'eudamed%'
+    UNION ALL
+    SELECT Kind,Id,Version,Json FROM dbo.AggregateVersions
+    WHERE Kind COLLATE Latin1_General_100_CI_AS LIKE N'eudamed%'
+) revisions ORDER BY Kind,Id,Version FOR JSON PATH,INCLUDE_NULL_VALUES)
+"@ -Text)
+    $revisions = ConvertFrom-Json -InputObject $json -AsHashtable -Depth 100 -DateKind String -NoEnumerate
+    Write-RecoveryPhase 'eudamed-original-presence-read' $revisions.Count $json.Length
+    $references = Get-RecoveryEudamedReferences $revisions
+    foreach ($hash in $references) {
+        if (-not [IO.File]::Exists([IO.Path]::Combine($directory, $hash))) {
+            throw 'recovery_reference_coverage: SQL references bytes absent from this object cut.'
+        }
+    }
+    # Necessary presence only: full SQL, audit, byte, retention and before/after checks still follow.
+    Write-RecoveryPhase 'eudamed-original-presence-complete' $references.Count
+}
+
 function Get-RecoveryReferences([string[]]$Payloads, $RetentionCut, $Revisions = @()) {
     $hashes = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($hash in (Get-RecoveryEudamedReferences $Revisions)) { $hashes.Add($hash) | Out-Null }
@@ -760,6 +784,7 @@ try {
     if ((Invoke-RecoverySql $connection 'SELECT is_read_only FROM sys.databases WHERE database_id=DB_ID()' -Scalar) -ne $true) {
         throw 'recovery_quiescence: The source database must already be READ_ONLY; this script never stops or changes source writers.'
     }
+    Assert-RecoveryEudamedOriginals $connection $config.objectRoot
     Write-RecoveryPhase 'before-state-start'
     $before = Get-RecoveryState $connection $config
     Write-RecoveryPhase 'before-state-complete'

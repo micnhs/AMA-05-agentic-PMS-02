@@ -2635,6 +2635,96 @@ ausgefuehrt oder als bewiesen ausgegeben.** Historisches v2 bleibt unveraendert.
 `slice-runner-12-binding.json` an
 `689bfc8ccc3230f52f8e3d450dd52c6a5e307212f3fd10675b90fa12f49860ab`.
 
+Die anschliessende Nutzerentscheidung vom18.11.2026 erlaubt dem
+naechsten gemeinsamen oeffentlichen Recovery-Pruefprozess **1800s
+statt900s**. Sie aendert weder die17 Originalfaelle/11 Fixturegates noch
+480s-Einzeloperationen,60s-Abschlusspruefung oder10s-/15s-Nachlauf.
+Fruehere900s-Timeouts bleiben negative historische Ergebnisse.
+Eine neue Quell-/Build-/Runner-/Zeitlimitbindung ist erforderlich;
+die Erlaubnis ist kein Laufzeitergebnis, Produktions-RTO/SLO oder
+Vorschau-/Cloudfreigabe.
+
+### Recovery06 und getrennte Testumfeldfreigabe
+
+Auf `df61254598737f5b8524ab2e0a94b638cf745853`/Build38 endete
+Recovery06 **negativ**. Der eigentliche Prozess lief von
+2026-11-18T08:37:07.0809396Z bis09:07:07.2979073Z:
+**1800,2169677s bei1800s Limit**. Stop498ms sowie Stream-/Runnernachlauf
+sind davon getrennt. Es liegt kein vollstaendiger17er-TRX-Erfolg vor.
+Die normale unabhaengige Abschlusspruefung scheiterte in11,1484533s/60
+an der unvollstaendigen Fixturebereinigung.
+
+Der nachfolgende exakte Sondercleanup entfernte nur die gebundenen
+Source-/Target-Container und Volumes sowie zwei erzeugte private
+Konfigurationen. Er endete selbst nach **60,4594741s/60** mit Timeout.
+Letzte persistierte Phase: `preserved-artifacts-verification-start`.
+Der erste vollstaendige Hashsatz wurde nicht dauerhaft gespeichert;
+ein finaler Vergleichsbeleg fehlt. Die anschliessend beobachteten
+585 Dateien/875487725 Bytes sind **nur aktuelle Metadaten**, kein
+Nachweis ihres vollstaendigen historischen Byteerhalts.
+Inventar, echtes sechsstufiges Sourcejournal und negative Ergebnisse
+wurden nicht nachtraeglich umgeschrieben.
+
+Read-only Beobachtung01 scheiterte ebenfalls nach60,3554203s/60.
+Beobachtung02 nutzte denselben bewiesenen uncached seriellen
+Voll-SHA256-Leser auch fuer einzelne Assembly-/Belegdateien, ohne
+Dateimenge oder Pruefungen zu reduzieren. Sie bestand von
+09:29:33.2666627Z bis09:29:58.5292409Z in **25,2625782s/60**:
+exakte Prozess-/Ressourcenabwesenheit, unveraenderter fremder
+Before-Satz,413 Quellen/6 Testassemblies/116 Paketdateien, SDK,
+geschuetzte Workbooks und34 originale Controlbindungen plus14 explizite
+Belegbindungen. Der Koordinator pruefte diese Ergebnisse unabhaengig
+und erteilte **separat** die technische Freigabe fuer neue serielle
+lokale Validierung. Die Beobachtung selbst behaelt
+`testsPassed=false`, `completeCleanupAcceptance=false`,
+`completeHistoricalRunBytePreservationVerified=false` und
+`allowsNewRuntime=false`. Alte negative Ergebnisse bleiben negativ.
+
+Die rein lesende Auswertung der vorhandenen Invocation-/Phasenjournale
+erfasst28 Scriptaufrufe, davon27 mit echtem Prozessende und zusammen
+1419,5734709s. Beim letzten Backup fehlt der Enddatensatz; er wird nicht
+ergaenzt. Sieben spaete abgeschlossene Backups beanspruchten357,082974s.
+Ihr originaler Testname ist `null` und bleibt unzugeordnet.
+Disjunkte benachbarte Phasenintervalle enthalten384,8154364s
+Originalreferenzpruefung,265,4564043s JSON-Aufbereitung/Hashing und
+152,1903629s Auditmanifestpruefung. Diese Teilzeiten werden nicht
+nochmals zu den Prozesszeiten addiert und sind keine Test-Passbelege.
+Die gekoppelte Quellkorrektur weist fehlende typisierte
+EUDAMED-Originale frueher ab; erfolgreiche Backup-/Restorepfade behalten
+saemtliche vollstaendigen Integritaetspruefungen.
+
+Ein neuer Datei-only-Abbruchvertrag bestand in17,3198898s/60:
+unvollstaendiges Hashen erreicht keine Mutation; nach vollstaendig
+dauerhafter Vorher-Aufnahme bleibt diese trotz hartem Abbruch nach
+erster beabsichtigter Entfernung aus einem neuen Prozess lesbar.
+Falscher Digest/Runbezug, veraenderte Bytes und zusaetzliche Dateien
+werden abgewiesen. Beide eigenen Probeprozesse und temporaeren
+Dateifixtures sind beendet/entfernt. Das ist **kein realer
+SQL-/Docker-Abbruchcleanup**. Vor dem naechsten Recoveryvollversuch
+muss diese dauerhafte Vorher-Aufnahme in dessen passenden
+mutierenden Cleanupweg gebunden sein.
+
+Private Belege unter `.local\eudamed-integration-01`:
+
+| Datei | SHA256 |
+|---|---|
+| `build-38-result.json` | `7fc577524152e555c3f865ea95f6ce864e71f5d495e9dcc446d2c07cb445338d` |
+| `recovery-06-bounded-result.json` | `b0d008caeaaca5707814f72331b241c1b2afc6ffd1110c0d93857a9266d3dacb` |
+| `recovery-06-cleanup.json` | `314d139cda446301fa8df35924e730a2f623468aa4228683161d81c5df40423a` |
+| `recovery-06-cleanup-reconciled-owned-01.json` | `e4048f6a1d74493854730ad8ee4b9b1b1b6f246ca8a45fbd57e1bf8af1db1e0d` |
+| `recovery-06-cleanup-reconciled-01.phases.jsonl` | `08b8f9e439b403486c01df1a92d06627450543e0967bcdf345194b5af820510f` |
+| `recovery-06-closure-observation-02.json` | `b7ca611dcfef4d2da9f2a06d19c3dfc39047761de01120b3a7902d87ff003486` |
+| `recovery-06-closure-observation-owned-02.json` | `4fcaff19db9c617474551f4f92f4c2f4a59fb25f5230e54acf64c8e9393b60a1` |
+| `recovery-06-phase-analysis-02.json` | `60c29f99c0ddfa6f6351beef1efb8b26a0fceeaefb6258fdd0da656bf1ad766c` |
+| `preservation-contract-01.json` | `abb44dfdceffa88b72d88eb24ee4e9672efb7f469f80e7a78423b1210ec34f87` |
+| `preservation-contract-owned-01.json` | `f8c5b960924ddcc5764fbbdc789a0c5a2ce387d5f150a251818544990d635366` |
+
+Der neue Originalpraesenzcode, sein zweiter SQL-freier Vertrag und
+der getrennte native `RecoveryPresence`-Fall sind hier noch
+**ungebaut/ungetestet**. Sie duerfen Build38 nicht mitbenutzen.
+Recovery17, FSN/EU-27, gemeinsame X-12/X-15-/Releaseabnahme,
+allgemeiner nativer Abbruchcleanup und Preview-/Cloudpromotion bleiben offen.
+
 ### Wiederherstellung ausschliesslich der freigegebenen 742-Vorschau
 
 Der zuvor nicht erreichbare lokale Host wurde nach der bedingten
