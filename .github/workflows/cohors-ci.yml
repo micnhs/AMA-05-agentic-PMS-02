@@ -25,6 +25,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install pinned local validation tools
+        id: tools
         shell: pwsh
         run: |
           python -m pip install --disable-pip-version-check -r infra/requirements-validation.txt
@@ -43,6 +44,7 @@ jobs:
         shell: pwsh
         run: ./infra/scripts/Validate-Infrastructure.ps1 -OutputDirectory "$env:RUNNER_TEMP/cohors-iac"
       - name: Native owned Linux network fixture, not an Azure platform pass
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
         shell: bash
         run: |
           if ! command -v dnsdist >/dev/null || ! command -v nft >/dev/null; then
@@ -50,6 +52,18 @@ jobs:
             sudo apt-get install -y -qq dnsdist nftables
           fi
           sudo --preserve-env=GITHUB_ACTIONS "$(command -v python)" -B infra/tests/nva_native.py
+      - name: Preserve scanner findings even when the gate is closed
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cohors-infrastructure-evidence
+          path: |
+            ${{ runner.temp }}/cohors-iac/main.json
+            ${{ runner.temp }}/cohors-iac/primary-network.json
+            ${{ runner.temp }}/cohors-iac/primary.json
+            ${{ runner.temp }}/cohors-iac/checkov-*.json
+          if-no-files-found: warn
+          retention-days: 7
 
   acceptance:
     name: SQL, .NET and Chromium acceptance
