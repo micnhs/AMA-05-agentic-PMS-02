@@ -177,6 +177,10 @@ Implemented source components:
   parameter values and first observed correlation/template hash. A replaced
   deployment is not adopted. The resource group is read again before the stage;
   no missing original deployment is silently recreated.
+  Once a successful response is observed, its outputs cannot change on resume,
+  even if subsequent child reconciliation has not yet finished. Explicitly
+  created Private DNS VNet links receive the deployment tags in their template
+  at creation; this is not later retagging of an unknown provider resource.
   Azure-generated PE NICs and the VM OS disk need not acquire fabricated
   ownership tags: their IDs must occur in the original successful parent
   outputs and complete group inventory, with matching fresh parent and child

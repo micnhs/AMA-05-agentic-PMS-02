@@ -114,6 +114,7 @@
     {
       "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks", "apiVersion": "2020-06-01",
       "name": "[concat(variables('dns')[copyIndex()], '/', parameters('name'), '-link')]", "location": "global",
+      "tags": "[parameters('tags')]",
       "copy": { "name": "dnsLinks", "count": "[length(variables('dns'))]" },
       "dependsOn": [
         "dnsZones",

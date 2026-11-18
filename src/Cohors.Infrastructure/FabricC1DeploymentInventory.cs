@@ -27,6 +27,10 @@ public sealed partial class FabricC1Provisioner
              GuidValue(Text((JsonObject)previous.Response["properties"]!, "correlationId")) != correlation ||
              previous.Response["properties"]?["templateHash"]?.GetValue<string>() != templateHash),
             "c1_deploy_arm_replaced", "The recorded ARM deployment was replaced; do not adopt its new outputs.", 409);
+        if (previous?.Response["properties"]?["provisioningState"]?.GetValue<string>() == "Succeeded")
+            Guard.Against(body["properties"]?["provisioningState"]?.GetValue<string>() != "Succeeded" ||
+                !JsonNode.DeepEquals(previous.Response["properties"]?["outputs"], body["properties"]?["outputs"]),
+                "c1_deploy_arm_replaced", "Completed ARM outputs changed; retain the original parent snapshot.", 409);
     }
 
     private async Task<Dictionary<string, FabricC1ProvisionedObject>> VerifyArmInventory(CancellationToken ct,

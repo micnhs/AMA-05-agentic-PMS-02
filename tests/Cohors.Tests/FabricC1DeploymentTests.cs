@@ -75,6 +75,8 @@ public sealed class FabricC1DeploymentTests
         Assert.All(nic["properties"]!["ipConfigurations"]!.AsArray(), configuration => Assert.Null(configuration!["properties"]!["publicIPAddress"]));
         Assert.Equal("[parameters('tags')]", nat["tags"]!.GetValue<string>());
         Assert.Equal("[parameters('tags')]", publicIp["tags"]!.GetValue<string>());
+        var dnsLink = Assert.Single(resources, resource => resource["type"]!.GetValue<string>() == "Microsoft.Network/privateDnsZones/virtualNetworkLinks");
+        Assert.Equal("[parameters('tags')]", dnsLink["tags"]!.GetValue<string>());
         Assert.NotNull(template["outputs"]!["natGateway"]);
         Assert.NotNull(template["outputs"]!["egressPublicIp"]);
         var vault = Assert.Single(resources, resource => resource["type"]!.GetValue<string>() == "Microsoft.KeyVault/vaults");
@@ -791,6 +793,7 @@ public sealed class FabricC1DeploymentTests
     [InlineData("parameters", "c1_deploy_arm_binding")]
     [InlineData("correlationId", "c1_deploy_arm_replaced")]
     [InlineData("templateHash", "c1_deploy_arm_replaced")]
+    [InlineData("outputs", "c1_deploy_arm_replaced")]
     public async Task ArmResumeDoesNotTrustAReplacedDeploymentOrChangedParameters(string field, string code)
     {
         using var run = new Harness();
@@ -799,6 +802,7 @@ public sealed class FabricC1DeploymentTests
         await run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default);
         var changed = (JsonObject)fixture.Deployment.DeepClone();
         if (field == "parameters") changed["properties"]!["parameters"]!["synthetic"]!["value"] = "foreign";
+        else if (field == "outputs") changed["properties"]!["outputs"]!["probe"]!["value"]!["properties"]!["vmId"] = Guid.NewGuid().ToString("D");
         else changed["properties"]![field] = field == "mode" ? "Complete" : Guid.NewGuid().ToString("D");
         run.Restart();
         run.Api.Reply(200, fixture.Group);
@@ -806,6 +810,27 @@ public sealed class FabricC1DeploymentTests
         Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
             run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
         Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put);
+    }
+
+    [Fact]
+    public async Task ObservedSuccessfulOutputsRemainPinnedEvenWhenChildReconciliationHasNotCompleted()
+    {
+        using var run = new Harness();
+        var fixture = ArmFixture(run, network: true);
+        fixture.Child["properties"]!["privateEndpoint"]!["id"] = fixture.Parent["id"]!.GetValue<string>() + "-foreign";
+        QueueArmCreate(run, fixture);
+        Assert.Equal("c1_deploy_arm_child_binding", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("arm-" + fixture.Stage));
+        fixture.Deployment["properties"]!["outputs"]!["privateEndpoints"]!["value"]![0]!["properties"]!["networkInterfaces"]![0]!["id"] =
+            fixture.Child["id"]!.GetValue<string>() + "-replacement";
+        run.Restart();
+        run.Api.Reply(200, fixture.Group);
+        run.Api.Reply(200, fixture.Deployment);
+        Assert.Equal("c1_deploy_arm_replaced", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.DeployArm(fixture.Stage, fixture.Template, fixture.Parameters, default))).Code);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put);
+        Assert.DoesNotContain(run.Store.Current.Objects.Values, value => value.Kind == "ArmGeneratedChild");
     }
 
     [Fact]
