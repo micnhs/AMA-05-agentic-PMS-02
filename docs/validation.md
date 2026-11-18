@@ -3120,6 +3120,115 @@ Lokale fachliche Demoabnahme und spaetere Azure-/Entra-/Live-KI-/
 Betriebsabnahme bleiben getrennt. Keine Azure-Aktivierung oder
 Cloudkosten-/Zielfreigabe folgt aus dieser Wiederherstellung.
 
+## Eingeschraenkter SQL-Operationsvertrag: lokaler Nachweis
+
+Der [Objekt-/Prozedurvertrag](sql-runtime-contract.md)
+`cohors-operations-write-v1`, Schemaversion3, wurde in
+`c13f041b1be009acb696b566eaaf60a9bbef62c6` implementiert und in
+`dd112705af2baf6c4e7787794b782f4f8937b1e8` gegen SQL-Zielaliase
+gehaertet. **Nur dd11270/Build49 ist der nachfolgend nativ gepruefte
+Quell-/Paketstand.** Dieser Dokumentationsnachtrag ist kein Neubuild.
+
+Build47 bestand auf c13f041. Build48 auf dd11270 bleibt dagegen
+**negativ**: neun von elf Projekten,900,4323136s im unveraenderten
+600s-Gesamtbudget. Der Workflows-Rebuild meldete573,621s fuer Delete
+und zwei MSB3231-Warnungen an eigenen generierten Verzeichnissen.
+Sein beobachtetes Ownerintervall betrug647,8722676s; das dortige
+alte `success=true` ist ausdruecklich kein180s-Nachweis.
+Dieselben Warnungen gab es bereits im erfolgreichen Build47 bei
+0,668s Delete. Die Warnung allein beweist daher nicht die Ursache
+der Verzoegerung.
+
+Der separate, unveraenderte Workflows-Rebuildprobe01 bestand danach
+in102,7104856s/180 einschliesslich beobachtetem Ownerintervall;
+alle425 Quelldigests blieben erhalten. Er ist **kein Gesamtbuild**.
+Weder ACLs, OneDrive-Attribute, Quellpruefungen noch Zeitgrenzen
+wurden veraendert. Alte Belege wurden nicht ueberschrieben und
+Teilprojekte nicht zu einem spaeteren Gesamtpass zusammengerechnet.
+
+Der eigenstaendige **Build49** bestand alle elf frischen Projekte
+in418,0795611s/600. Jedes beobachtete Projekt-Ownerintervall lag
+innerhalb seiner180s-Grenze. Auch die fuenf abschliessenden Schritte
+bestanden: Web32,2717826s/120, Solution32,5553975s/180,
+API-Publish8,5007981s/90,39 Bootstrapfaelle ohne Skip
+in9,8108167s/180 und Bootstrap-Publish3,1965294s/90.
+Gebunden sind425 Quelldateien, sechs Testassemblies,116 API- und
+55 Bootstrap-Paketdateien; alle eigenen Buildprozesse und Streams
+sind geschlossen.
+
+**Native98** pruefte die fuenf tatsaechlichen Faelle der Kategorie
+`OperationsSqlBoundary` in58,6053396s/180, ohne Fehler oder Skip:
+
+| Faelle | Tatsaechlicher Nachweis |
+| --- | --- |
+| Case-/PSUR-/Korrespondenz-Watchdog | Echter `Tick` mit eingeschraenktem SQL-Benutzer; Freigaben, Berichte, urspruengliche Fristen und Originalkorrespondenz bleiben erhalten, Hinweise dedupliziert. |
+| `OperationsPrincipalCannotForgeApprovalsIdentitiesOrDirectAuditOutboxAndSchemaWrites` | Medical-/RA-Identitaetsaenderung, Fristmutation, zusaetzliches Freigabefeld, gefaelschter Hinweis, Gross-/Kleinschreibungs-/Leerzeichenalias, direkte DML/DDL, freier Action-Parameter und generischer Schreibversuch mit gefaelschtem menschlichem Actor werden abgewiesen. Auch ein absichtlicher Benutzer-Spalten-GRANT umgeht das Spalten-DENY der Rolle nicht. |
+| `OperationsFailureIsAtomicAndConcurrentExactRetryHasOnlyOneVersionAuditAndOutboxEffect` | Eigener Outbox-Triggerfehler nach Beginn der Fachschreibfolge rollt alles zurueck. Drei gleichzeitige identische Aufrufe und ein spaeterer Retry ergeben nur eine Version/Audit-/Outboxwirkung; abweichender veralteter Vorschlag scheitert. |
+
+Die eingeschraenkten Benutzer sind echte `WITHOUT LOGIN`-Principals
+in den eigenen Testdatenbanken; frische ungepoolte Verbindungen
+verwenden `EXECUTE AS USER`. Es ist keine gemockte Berechtigung und
+kein Test unter einer behaupteten Browserrolle. Das ist zugleich
+**kein Entra-Anmelde- oder Azure-Functions-Hostnachweis**.
+
+**Native99** bestand anschliessend die drei unmittelbar gekoppelten
+Regressionen in62,0646546s/180: beide Varianten von
+`T05_ModelOrSearchFailureLeavesHumanPreliminaryPathAndClockOperational`
+und `T14_PromisedDatesSurviveUnknownReplayEscalateAndFinalOnlyCompletesBoundJurisdiction`.
+Die ausdruecklich gescheiterten Modell-/Searchpfade lassen menschliche
+vorlaeufige Bearbeitung und Watchdog zu; der fest zugesagte Folgetermin
+wird weder neu begonnen noch auf eine andere Jurisdiktion uebertragen.
+Die Tests fuehren keinen echten Foundry-Modellaufruf aus.
+
+Beide nativen Laeufe haben je zwei genau journalgebundene Fixtures
+vollstaendig ueber alle sechs normalen Lifecycle-Stufen beendet.
+Eigene Datenbanken und ganze Objektverzeichnisse sind entfernt,
+der fremde Before-Satz ist erhalten, Testdatenbanksaetze davor/danach
+sind leer und alle eigenen Prozesse/Streams geschlossen.
+Der prospektive Before-Beleg lag vor der ersten Fixturemutation vor.
+Das ist kein nachtraeglicher Pass eines historischen Abbruchs oder
+erstmaliger Realnachweis des ausserordentlichen Cleanups.
+
+Tatsaechliche Build49-Ausgaben:
+
+| Ausgabe | Pfad bzw. SHA256 |
+| --- | --- |
+| API-Paket | `.local\v10\.local\eu-b49` |
+| Bootstrap-Paket | `.local\v10\.local\eu-k49` |
+| Gemeinsame `Cohors.Infrastructure.dll` in API, Bootstrap und Operations | `30a395d987b0541b7b0e96700c1eddd9067091a4f5538b319110450462b5461c` |
+| Operations-Buildausgabe | `.local\v10\src\Cohors.Operations\bin\Debug\net10.0` |
+| `Cohors.Operations.dll` | `d1dc65ef8b6df441a1414a2e3562239e111ba29692430f2bb7367f896acdc0a2` |
+| Operations-`functions.metadata` | `91cbe204f8becb6ad15fb6eb63d69002b91fa6eb1b4067e082818a693db8c305` |
+
+Die Metadaten enthalten `DeadlineWatchdog`, `OperationsLive` und
+`OperationsReady`. Fuer diesen Stand wurde **kein Operations-Release-ZIP
+oder Containerimage** erzeugt; die Debug-Buildausgabe darf nicht als
+bereits ausgerolltes Flexpaket bezeichnet werden. Der vorhandene
+`Publish-Functions.ps1` bleibt der getrennte Release-Publishpfad.
+
+| Privater Beleg unter `.local\eudamed-integration-01` | SHA256 |
+| --- | --- |
+| `build-48-project-partitions.json` | `4c299929100ca4286c8a594733a0b2093bb1817c71f859df0cf89b94c333adb9` |
+| `build-48-partitions-owned-job.json` | `66cdcb176801fbff1c75f182712189c432eedd0b13d69989c709b3ba25b57486` |
+| `build-49-result.json` | `ad99667a11540d97e0041f6501a27bd99139dcd7a57c84093835d94cd98f3f77` |
+| `build-49-owned-job.json` | `94fd8965d76f1c0bbd967e55b6881972de1028b4bc68ec5f237c789c105b7073` |
+| `build-49-source.json` | `552d8a8b61e7d36fa70c0f5d97f75fc01a58b9f6f0da0f4829e5c367a40faccf` |
+| `tests-98-result.json` | `0ea99c2a6f138b7a00156984724483f508c3ef8eebf342bff17db7031f0a2461` |
+| `tests-98-owned-job.json` | `234b51c2566c16d79766b2cd9c78453514a1e1a2ce17975bb1fbb0fdd5ff3977` |
+| `tests-98.trx` | `dcc4bc8ef96cac2ce4cea94c7cc92b2ad281992925114bfc9711953a9022abc4` |
+| `tests-98-owned-sql.json.journal.jsonl` | `b42e746bbf9073c034257b1d34bd75a2ad3228c128094134a8c801d0ad18ffe5` |
+| `tests-99-result.json` | `12f1ff9207adc2231a3c876b74f1781d13cc9d757416efed3b8190c11323a053` |
+| `tests-99-owned-job.json` | `05d752f55498d4d3414d8b1c971ccf5ea858bc5a217c355bc2b0df2a6b0786d4` |
+
+Der Runtimevertrag verlangt getrennte API-, Operations- und
+Bootstrapidentitaeten mit dem versionierten Objektvertrag statt
+generischen Operations-DML-Rechten. Die Azure-/Entra-Runtimefreigabe
+bleibt getrennt und offen.
+Dieser Nachweis akzeptiert weder E05/EU-27 noch eine neue vollstaendige
+FSN-Recovery oder ein rollenabhaengiges Foundry-Modellprofil.
+Recovery07 bleibt auf b7/Build42, Recovery06 und Build48 bleiben
+negativ; die bestehende Vorschau wurde nicht promoviert.
+
 ## Nicht ausgefuehrt / keine Behauptung
 
 Keine Azure-Bereitstellung, keine Entra-Live-Freigabe, kein Foundry-Live-Modellergebnis, keine private Azure-Netzwerkabnahme, kein extern geschuetztes Ledger-Digestpublishing, keine produktive Retention, keine echte Behoerden-/BS-Akzeptanz.
