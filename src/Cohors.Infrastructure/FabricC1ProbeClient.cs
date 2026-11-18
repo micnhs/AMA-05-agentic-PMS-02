@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Cohors.Domain;
 
 namespace Cohors.Infrastructure;
@@ -11,7 +12,13 @@ public sealed record FabricC1Target(string? CapacityResourceId, string? Region, 
 public sealed record FabricC1Source(string? ProductScope, string? ReleaseId, string? MaterializationSha256,
     string? OntologyBindingsSha256, string? SourceGrantReviewSha256, string? FixtureSha256);
 public sealed record FabricC1Runtime(string? PrivateRunnerResourceId, string? HostedProjectEndpoint,
-    string? HostedAgentVersion, string? HostedImageDigest, string? ModelDeployment, string? ModelVersion);
+    string? HostedAgentVersion, string? HostedImageDigest, string? ModelDeployment, string? ModelVersion)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AiExecution { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FabricAiPolicyReviewSha256 { get; init; }
+}
 public sealed record FabricC1Controls(string? ResourcePlanSha256, string? PrivatePathReviewSha256,
     string? DnsAndEgressPlanSha256, string? PublicDenyPlanSha256, string? DataHandlingAndRetentionSha256,
     string? BudgetPlanSha256, string? CleanupPlanSha256, string? RunApprovalReference);
@@ -36,6 +43,9 @@ public sealed record FabricC1TaskAction(string Method, string TaskId, string Bin
 // Offline request preparation only: no HTTP, credentials, DNS, SDK hosting or runtime registration.
 public static class FabricC1ProbeClient
 {
+    public const string Contract = "cohors-fabric-c1-preparation-2";
+    public const string LegacyContract = "cohors-fabric-c1-preparation-1";
+    public const string AiExecution = "FabricManagedDataAgent";
     public const string TokenScope = "https://api.fabric.microsoft.com/.default";
     public const string ProtocolVersion = "2025-11-25";
 
@@ -54,7 +64,7 @@ public static class FabricC1ProbeClient
                 uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 || uri.Query.Length != 0) missing.Add(path);
         }
         void Limit(string path, int? value) { if (value is null or <= 0) missing.Add(path); }
-        if (input.Contract != "cohors-fabric-c1-preparation-1") missing.Add("contract");
+        if (input.Contract is not (Contract or LegacyContract)) missing.Add("contract");
         if (input.DeliveryId != "cohors-fabric") missing.Add("deliveryId");
         if (input.Mode != "PreparationOnly") missing.Add("mode");
         if (!input.GeneralCostApprovalReceived) missing.Add("generalCostApprovalReceived");
@@ -119,8 +129,20 @@ public static class FabricC1ProbeClient
             Https("runtime.hostedProjectEndpoint", runtime.HostedProjectEndpoint);
             Text("runtime.hostedAgentVersion", runtime.HostedAgentVersion);
             Hash("runtime.hostedImageDigest", runtime.HostedImageDigest);
-            Text("runtime.modelDeployment", runtime.ModelDeployment);
-            Text("runtime.modelVersion", runtime.ModelVersion);
+            if (input.Contract == LegacyContract)
+            {
+                Text("runtime.modelDeployment", runtime.ModelDeployment);
+                Text("runtime.modelVersion", runtime.ModelVersion);
+                if (runtime.AiExecution is not null || runtime.FabricAiPolicyReviewSha256 is not null)
+                    missing.Add("runtime.legacyModelContract");
+            }
+            else
+            {
+                if (runtime.AiExecution != AiExecution) missing.Add("runtime.aiExecution");
+                Hash("runtime.fabricAiPolicyReviewSha256", runtime.FabricAiPolicyReviewSha256);
+                if (runtime.ModelDeployment is not null || runtime.ModelVersion is not null)
+                    missing.Add("runtime.unusedModelBinding");
+            }
         }
         var controls = input.Controls;
         if (controls is null) missing.Add("controls");

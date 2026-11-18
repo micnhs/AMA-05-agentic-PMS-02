@@ -35,6 +35,8 @@ public static class FabricC1Execution
         var check = FabricC1ProbeClient.Preflight(settings.Preparation, discoveryOnly: true);
         Guard.Against(check.Status != "PreparedOffline", "c1_inputs_missing",
             "C1 execution requires the reviewed preparation bindings.", 409);
+        Guard.Against(settings.Preparation.Contract != FabricC1ProbeClient.Contract,
+            "c1_model_contract", "Historical model metadata is offline-only; rebind the Fabric-managed AI contract and use a new checkpoint.", 409);
         Guard.Against(settings.Contract != "cohors-fabric-c1-execution-1" ||
             !Guid.TryParse(settings.RunId, out var run) || run == Guid.Empty ||
             !Hex(settings.SourceCommit, 40) || !Hex(settings.AccessReviewSha256, 64) ||

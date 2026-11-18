@@ -2,15 +2,18 @@
 
 Status: C1 provisioning components and unpaid identity phase in implementation;
 complete bootstrap not ready. The complete first C1 deployment has now been
-requested, but the protected startup credential reference is not available.
-No candidate login, credential search/reset, other-caller fallback or isolated
+requested. The coordinator has now explicitly selected the original, observed
+delegated initial profile and its actual OAuth client, not the separate
+privileged SP whose secret reference is unavailable. This is a coordination
+choice within the initial-deployer contract, not a user decision or a new
+tenant/IAM authorization. No candidate login, credential search/reset, other-caller fallback or isolated
 paid foundation is permitted. General cost approval
 and bounded C1 execution approval already exist. The current assignment is to
 automate resource creation and then perform the complete reviewed first C1
 deployment, not to require manually created targets. Concrete
 start parameters and authorized deployment identity are supplied by the existing
-infrastructure owner. Work remains source-only until the protected credential,
-specific administrative authorizations and required validation are bound.
+infrastructure owner. Work remains source-only until the complete executable
+chain, specific administrative authorizations and required validation are bound.
 NOT Ready for Validation or Validated.
 
 ## Current C1 automation increment
@@ -44,10 +47,40 @@ existing standard-hosted job; no cloud validation/deployment has occurred.
 R4.1 from the existing infrastructure owner was read and hash-checked:
 contract `95380dd59de6d3ccf1c5c2cef6ed5a67aa930c9a0af493e24f8749beb126d942`,
 binding map `d7e2c7c942309aa4a704fc435eedb8f74c663778ba14b55f5dadf6cf3a347589`.
+The separate R4.2 amendment is also hash-checked: contract
+`94b60da1bad1fb0896a85cb845a95fb1319569c96822502f3406a9fa398f0c7d`,
+bindings `63f0c4212efe9222a53bd630d6d9e80697e5382ad69cc693fcfe2f099ceb5fd7`.
+It does not replace the historical R4.1 files.
+
+The 2026-11-18 coordination decision selects F2 and FranceCentral as the
+technical C1 work profile, with Foundry and the injected VNet in that same
+region. This is not a user-selected region or a live SKU/quota/cost result.
+There is no automatic region, SKU or cross-geo fallback. Actual provider,
+quota, policy, CIDR and complete-package cost checks still precede paid create.
+
+The same review corrects unused model metadata: the C1 Hosted/Direct code calls
+Fabric MCP and invokes no own Foundry model. Preparation v2 explicitly uses
+Fabric-managed data-agent AI, leaves old model fields null and requires a real
+Fabric AI-policy/geography review. No separate model resource is in the C1 BOM.
+Historical v1 inputs/hashes and all seven NotRun cases remain historical.
 Private identities, paths and tenant configuration are not copied here.
-The R4 package still requires specific egress/operator/credential/model
+The R4 package still requires specific egress/operator/runtime-credential/AI-policy
 choices and effective start scopes; it does not require manually created
 runtime resources or repeat the general C1/cost approval.
+
+The foundation now explicitly attaches its own Standard NAT/static IPv4 to the
+client subnet without a public VM NIC or default outbound access. This fixes
+the missing address-translation component, not the still-unfinished FQDN filter,
+Guest Agent/Managed Run Command or artifact route. NAT/PIP must be priced and
+deleted with the C1 inventory; VM deallocation alone does not stop their charges.
+No inference about the delegated Hosted subnet follows from the VM NAT change.
+Vault purge protection is enabled with seven-day soft-delete retention. Cleanup
+must record the retained deleted vault/name until the service purges it; no
+immediate-purge or all-resources-erased-in-48-hours claim is possible. This is a
+standard vault, not Managed HSM. Under the documented soft-delete billing rule,
+deleted software objects accrue no usage operations, while recovery/purge
+operations are billable; no general zero-residual-cost assumption replaces the
+complete-package cost review.
 
 ## Approval and immutable baseline
 
@@ -89,10 +122,10 @@ primary branch, branding or functional scope.
 
 ## Azure context and execution isolation
 
-A read-only Azure subscription/tenant context was observed privately; it is not
-a chosen deployment destination or a grant of write access. Protection
-subscriptions, regions, Fabric workspaces/capacities, identities, resource
-groups, SKUs, budgets and actual processing geography remain UNAPPROVED.
+A read-only Azure subscription/tenant context was initially observed privately.
+The coordinator has since bound the initial C1 actor/context and F2/FranceCentral
+work profile. These choices do not grant tenant-wide changes, prove quota/policy
+acceptance or approve production protection subscriptions/processing geography.
 Existing primary resources, credentials, containers, SQL instances, volumes,
 ports, fixtures, processes and local directories must not be used.
 The source worktree is isolated; host/compute/quota isolation is not yet proven.
@@ -104,7 +137,8 @@ Fabric branch: .NET 10.0.404, Node 24.10.0, own temporary package/cache paths,
 no SQL/Docker/browser, credentials, Azure login, OIDC, shared caches or uploads.
 The branch-only workflow does not modify the primary/default branch. Inherited
 primary workflows are disabled in this checkout. Azure context was observed
-privately by the coordinator, but no concrete resource target/budget/region is approved;
+privately by the coordinator; actual resource, policy, budget and private-path
+checks remain prerequisites to paid create;
 identity/subscription/host details must not enter this public repository.
 
 ## Hard gates and fail-closed boundary

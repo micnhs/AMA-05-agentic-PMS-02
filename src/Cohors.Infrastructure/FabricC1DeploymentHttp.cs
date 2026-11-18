@@ -17,12 +17,12 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
     public async Task<FabricC1DeploymentReply> Send(HttpMethod method, Uri uri, JsonObject? body = null,
         string? ifMatch = null, CancellationToken ct = default)
     {
-        var (scope, audience) = Binding(method, uri);
+        var (scope, audience, issuer) = Binding(method, uri);
         if (!clients.TryGetValue(uri.IdnHost, out var client))
             throw new DomainException("c1_deploy_private_route", "No approved private/control client for this exact host; no public fallback.", 409);
         var token = await credential.GetTokenAsync(new TokenRequestContext([scope]), ct);
         ValidateBootstrapToken(token, input.BootstrapIdentity!, audience, clock.GetUtcNow(),
-            uri.IdnHost == "graph.microsoft.com", GraphOperation(method, uri));
+            uri.IdnHost == "graph.microsoft.com", GraphOperation(method, uri), issuer);
         using var request = new HttpRequestMessage(method, uri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
         request.Headers.Accept.Add(new("application/json"));
@@ -49,7 +49,7 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         AllowAutoRedirect = false, UseCookies = false, UseProxy = false
     }) { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
 
-    private (string Scope, string Audience) Binding(HttpMethod method, Uri uri)
+    private (string Scope, string Audience, string? Issuer) Binding(HttpMethod method, Uri uri)
     {
         Guard.Against(uri.Scheme != "https" || uri.Port != 443 || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0,
             "c1_deploy_endpoint", "Only exact HTTPS API bindings are permitted.", 409);
@@ -60,11 +60,13 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
                 Guard.Against(!uri.AbsolutePath.Equals(prefix, StringComparison.OrdinalIgnoreCase) &&
                     !uri.AbsolutePath.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase),
                     "c1_deploy_context", "ARM request left the selected subscription.", 409);
-                return ("https://management.azure.com/.default", "https://management.core.windows.net/");
+                RequireControlTokenBindings();
+                return ("https://management.azure.com/.default", input.ControlTokenBindings!.ArmAudience!, input.ControlTokenBindings.ArmIssuer);
             case "graph.microsoft.com":
                 Guard.Against(!GraphPathAllowed(method, uri.AbsolutePath),
                     "c1_deploy_graph_scope", "Graph bootstrap does not mutate consent, tenant policy or roles.", 409);
-                return ("https://graph.microsoft.com/.default", "00000003-0000-0000-c000-000000000000");
+                RequireControlTokenBindings();
+                return ("https://graph.microsoft.com/.default", input.ControlTokenBindings!.GraphAudience!, input.ControlTokenBindings.GraphIssuer);
             case "api.fabric.microsoft.com":
                 Guard.Against(!(uri.AbsolutePath is "/v1/workspaces" or "/v1/capacities" or "/v1/admin/tenantsettings" ||
                     System.Text.RegularExpressions.Regex.IsMatch(uri.AbsolutePath,
@@ -74,7 +76,8 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
                         System.Text.RegularExpressions.RegexOptions.CultureInvariant)),
                     "c1_deploy_public_data_path", "Only documented Fabric control-plane operations may use the public control host.", 409);
                 return (FabricC1ProbeClient.TokenScope, input.BootstrapIdentity!.ExpectedAudience ??
-                    throw new DomainException("c1_deploy_audience", "Explicit Fabric bootstrap token audience is missing.", 409));
+                    throw new DomainException("c1_deploy_audience", "Explicit Fabric bootstrap token audience is missing.", 409),
+                    input.BootstrapIdentity.ExpectedIssuer);
             default:
                 Guard.Against(!System.Text.RegularExpressions.Regex.IsMatch(uri.IdnHost,
                     "^[0-9a-f]{32}\\.z[0-9a-f]{2}\\.w\\.api\\.fabric\\.microsoft\\.com$",
@@ -87,13 +90,14 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
                     !Guid.TryParse(segments[2], out var id) || uri.IdnHost != FabricC1Provisioner.WorkspaceHost(id.ToString("D"))),
                     "c1_deploy_workspace_binding", "Workspace host and item path differ.", 409);
                 return (FabricC1ProbeClient.TokenScope, input.BootstrapIdentity!.ExpectedAudience ??
-                    throw new DomainException("c1_deploy_audience", "Explicit Fabric bootstrap token audience is missing.", 409));
+                    throw new DomainException("c1_deploy_audience", "Explicit Fabric bootstrap token audience is missing.", 409),
+                    input.BootstrapIdentity.ExpectedIssuer);
         }
     }
 
     // Explicit bootstrap user credentials are not used by the app-only Fabric probe or Hosted runtime.
     public static void ValidateBootstrapToken(AccessToken token, FabricC1Identity identity, string audience, DateTimeOffset now,
-        bool graph, FabricC1GraphOperation operation = FabricC1GraphOperation.OwnApplications)
+        bool graph, FabricC1GraphOperation operation = FabricC1GraphOperation.OwnApplications, string? expectedIssuer = null)
     {
         if (token.Token is not { Length: > 0 and <= 65536 } || token.ExpiresOn <= now)
             throw new DomainException("c1_deploy_token", "Missing or expired deployment token.", 401);
@@ -109,6 +113,7 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
             jwt.Audiences.Count() != 1 || jwt.Audiences.Single() != audience ||
             jwt.Issuer != $"https://sts.windows.net/{identity.TenantId}/" &&
             jwt.Issuer != $"https://login.microsoftonline.com/{identity.TenantId}/v2.0" ||
+            expectedIssuer is not null && jwt.Issuer != expectedIssuer ||
             audience == identity.ExpectedAudience && identity.ExpectedIssuer is not null && jwt.Issuer != identity.ExpectedIssuer ||
             jwt.ValidTo <= now.UtcDateTime || jwt.ValidFrom > now.UtcDateTime ||
             delegated != (Claim("scp") is not null),
@@ -123,8 +128,10 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
 
     public async Task<FabricC1GraphRights> GraphRights(CancellationToken ct)
     {
+        RequireControlTokenBindings();
         var token = await credential.GetTokenAsync(new TokenRequestContext(["https://graph.microsoft.com/.default"]), ct);
-        ValidateBootstrapToken(token, input.BootstrapIdentity!, "00000003-0000-0000-c000-000000000000", clock.GetUtcNow(), graph: false);
+        ValidateBootstrapToken(token, input.BootstrapIdentity!, input.ControlTokenBindings!.GraphAudience!, clock.GetUtcNow(),
+            graph: false, expectedIssuer: input.ControlTokenBindings.GraphIssuer);
         var jwt = new JsonWebToken(token.Token);
         var delegated = input.BootstrapIdentity!.CredentialKind == "DelegatedAzureCli";
         return new(delegated, delegated ? jwt.GetClaim("scp").Value.Split(' ', StringSplitOptions.RemoveEmptyEntries) :
@@ -133,6 +140,10 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
             DirectoryRoleIds = delegated ? jwt.Claims.Where(claim => claim.Type == "wids").Select(claim => claim.Value).ToArray() : []
         };
     }
+
+    private void RequireControlTokenBindings() =>
+        Guard.Against(!FabricC1Deployment.ValidControlTokenBindings(input), "c1_deploy_control_token_binding",
+            "ARM and Graph audience/issuer must be explicitly bound to observed service token metadata, not request scopes.", 409);
 
     private static bool GraphPathAllowed(HttpMethod method, string path)
     {

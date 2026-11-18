@@ -36,6 +36,54 @@ public sealed class FabricC1DeploymentTests
     }
 
     [Fact]
+    public void FirstDeploymentCannotSilentlySwitchRegionOrUseTheHostedReservedEndpointRange()
+    {
+        using var run = new Harness();
+        Assert.Contains("location", FabricC1Deployment.Plan(run.Input with { Location = "swedencentral" },
+            run.Clock.GetUtcNow()).MissingInputs);
+        var invalid = run.Input with
+        {
+            Network = run.Input.Network! with
+            {
+                VnetPrefix = "192.168.0.0/20", ClientPrefix = "192.168.1.0/24",
+                AgentPrefix = "192.168.2.0/24", EndpointPrefix = "192.168.0.0/24"
+            }
+        };
+        Assert.Contains("network.prefixes", FabricC1Deployment.Plan(invalid, run.Clock.GetUtcNow()).MissingInputs);
+    }
+
+    [Fact]
+    public void PrivateOperatorHasExplicitNatWithoutPublicNicOrImplicitOutbound()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var template = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "infra", "fabric", "c1.foundation.json")))!;
+        var resources = template["resources"]!.AsArray().OfType<JsonObject>().ToArray();
+        var nat = Assert.Single(resources, resource => resource["type"]!.GetValue<string>() == "Microsoft.Network/natGateways");
+        var publicIp = Assert.Single(resources, resource => resource["type"]!.GetValue<string>() == "Microsoft.Network/publicIPAddresses");
+        var network = Assert.Single(resources, resource => resource["type"]!.GetValue<string>() == "Microsoft.Network/virtualNetworks");
+        var subnets = network["properties"]!["subnets"]!.AsArray().OfType<JsonObject>().ToArray();
+        var client = Assert.Single(subnets, subnet => subnet["name"]!.GetValue<string>() == "client");
+        Assert.False(client["properties"]!["defaultOutboundAccess"]!.GetValue<bool>());
+        var natId = client["properties"]!["natGateway"]!["id"]!.GetValue<string>();
+        Assert.Contains("Microsoft.Network/natGateways", natId, StringComparison.Ordinal);
+        Assert.Contains(network["dependsOn"]!.AsArray(), dependency => dependency?.GetValue<string>() == natId);
+        Assert.Equal("Static", publicIp["properties"]!["publicIPAllocationMethod"]!.GetValue<string>());
+        Assert.Equal("Standard", publicIp["sku"]!["name"]!.GetValue<string>());
+        Assert.Contains("Microsoft.Network/publicIPAddresses", nat["properties"]!["publicIpAddresses"]![0]!["id"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Null(Assert.Single(subnets, subnet => subnet["name"]!.GetValue<string>() == "agents")["properties"]!["natGateway"]);
+        var nic = Assert.Single(resources, resource => resource["type"]!.GetValue<string>() == "Microsoft.Network/networkInterfaces");
+        Assert.All(nic["properties"]!["ipConfigurations"]!.AsArray(), configuration => Assert.Null(configuration!["properties"]!["publicIPAddress"]));
+        Assert.Equal("[parameters('tags')]", nat["tags"]!.GetValue<string>());
+        Assert.Equal("[parameters('tags')]", publicIp["tags"]!.GetValue<string>());
+        Assert.NotNull(template["outputs"]!["natGateway"]);
+        Assert.NotNull(template["outputs"]!["egressPublicIp"]);
+        var vault = Assert.Single(resources, resource => resource["type"]!.GetValue<string>() == "Microsoft.KeyVault/vaults");
+        Assert.True(vault["properties"]!["enablePurgeProtection"]!.GetValue<bool>());
+        Assert.True(vault["properties"]!["enableSoftDelete"]!.GetValue<bool>());
+        Assert.Equal(7, vault["properties"]!["softDeleteRetentionInDays"]!.GetValue<int>());
+    }
+
+    [Fact]
     public async Task WorkspaceCreateUsesGeneratedCapacityAndReturnedIdentity()
     {
         using var run = new Harness();
@@ -218,6 +266,68 @@ public sealed class FabricC1DeploymentTests
         run.Api.List(new JsonObject { ["actions"] = new JsonArray("*/read"), ["notActions"] = new JsonArray() });
         Assert.Equal("c1_deploy_rights", (await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.Preflight(default))).Code);
         Assert.All(run.Api.Requests, r => Assert.Equal(HttpMethod.Get, r.Method));
+    }
+
+    [Fact]
+    public async Task DelegatedGraphUsesObservedUriAudienceRatherThanAssumingTheApplicationId()
+    {
+        using var run = new Harness(delegated: true);
+        var input = run.Input with
+        {
+            ControlTokenBindings = run.Input.ControlTokenBindings! with { GraphAudience = "https://graph.microsoft.com/" }
+        };
+        var credential = new BoundCredential(Token(input, "https://graph.microsoft.com/", run.Clock.GetUtcNow(),
+            "Application.ReadWrite.All", "Group.ReadWrite.All"));
+        var api = new FabricC1DeploymentHttp(input, credential, new Dictionary<string, HttpClient>(), run.Clock);
+        var rights = await api.GraphRights(default);
+        Assert.True(rights.Delegated);
+        rights.Require(FabricC1GraphOperation.OwnApplications);
+        rights.Require(FabricC1GraphOperation.GroupMembers);
+        Assert.Equal("https://graph.microsoft.com/.default", Assert.Single(credential.Scopes));
+
+        var differentAudience = new FabricC1DeploymentHttp(input,
+            new BoundCredential(Token(input, "00000003-0000-0000-c000-000000000000", run.Clock.GetUtcNow(), "Application.ReadWrite.All")),
+            new Dictionary<string, HttpClient>(), run.Clock);
+        Assert.Equal("c1_deploy_token_binding", (await Assert.ThrowsAsync<DomainException>(() =>
+            differentAudience.GraphRights(default))).Code);
+        var differentIssuer = new FabricC1DeploymentHttp(input with
+        {
+            ControlTokenBindings = input.ControlTokenBindings! with
+            { GraphIssuer = $"https://login.microsoftonline.com/{input.TenantId}/v2.0" }
+        }, credential, new Dictionary<string, HttpClient>(), run.Clock);
+        Assert.Equal("c1_deploy_token_binding", (await Assert.ThrowsAsync<DomainException>(() =>
+            differentIssuer.GraphRights(default))).Code);
+    }
+
+    [Fact]
+    public async Task ArmRequestUsesItsOwnObservedAudienceAndCannotTreatDefaultScopeAsAudience()
+    {
+        using var run = new Harness(delegated: true);
+        var input = run.Input with
+        {
+            ControlTokenBindings = run.Input.ControlTokenBindings! with { ArmAudience = "https://management.azure.com/" }
+        };
+        var credential = new BoundCredential(Token(input, "https://management.azure.com/", run.Clock.GetUtcNow(), "user_impersonation"));
+        using var handler = new JsonHandler();
+        using var client = new HttpClient(handler);
+        var api = new FabricC1DeploymentHttp(input, credential, new Dictionary<string, HttpClient>
+        { ["management.azure.com"] = client }, run.Clock);
+        var result = await api.Send(HttpMethod.Get,
+            new($"https://management.azure.com/subscriptions/{input.SubscriptionId}?api-version=2022-12-01"));
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal("https://management.azure.com/.default", Assert.Single(credential.Scopes));
+        Assert.Contains("controlTokenBindings", FabricC1Deployment.Plan(input with
+        {
+            ControlTokenBindings = input.ControlTokenBindings! with { ArmAudience = "https://management.azure.com/.default" }
+        }, run.Clock.GetUtcNow()).MissingInputs);
+
+        var absent = new Credential();
+        var unbound = new FabricC1DeploymentHttp(input with { ControlTokenBindings = null }, absent,
+            new Dictionary<string, HttpClient>(), run.Clock);
+        Assert.Equal("c1_deploy_control_token_binding", (await Assert.ThrowsAsync<DomainException>(() =>
+            unbound.GraphRights(default))).Code);
+        Assert.Equal(0, absent.Requests);
     }
 
     [Fact]
@@ -893,14 +1003,38 @@ public sealed class FabricC1DeploymentTests
     {
         static string Encode(object value) => Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(value))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        return new(Encode(new { alg = "none", typ = "JWT" }) + "." + Encode(new
+        var payload = new JsonObject
         {
-            aud = audience, iss = $"https://sts.windows.net/{input.TenantId}/", tid = input.TenantId,
-            oid = input.BootstrapIdentity!.PrincipalObjectId, appid = input.BootstrapIdentity.ClientId,
-            exp = now.AddHours(1).ToUnixTimeSeconds(), nbf = now.AddMinutes(-1).ToUnixTimeSeconds(), roles
-        }) + ".", now.AddHours(1));
+            ["aud"] = audience, ["iss"] = $"https://sts.windows.net/{input.TenantId}/", ["tid"] = input.TenantId,
+            ["oid"] = input.BootstrapIdentity!.PrincipalObjectId, ["appid"] = input.BootstrapIdentity.ClientId,
+            ["exp"] = now.AddHours(1).ToUnixTimeSeconds(), ["nbf"] = now.AddMinutes(-1).ToUnixTimeSeconds()
+        };
+        if (input.BootstrapIdentity.CredentialKind == "DelegatedAzureCli") payload["scp"] = string.Join(' ', roles);
+        else payload["roles"] = new JsonArray(roles.Select(role => JsonValue.Create(role)).ToArray());
+        return new(Encode(new { alg = "none", typ = "JWT" }) + "." + Encode(payload) + ".", now.AddHours(1));
     }
 
+    private sealed class BoundCredential(AccessToken token) : TokenCredential
+    {
+        public List<string> Scopes { get; } = [];
+        public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
+        {
+            Scopes.AddRange(requestContext.Scopes);
+            return token;
+        }
+        public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(GetToken(requestContext, cancellationToken));
+    }
+    private sealed class JsonHandler : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { RequestMessage = request, Content = new StringContent("{}") });
+        }
+    }
     private sealed class Credential : TokenCredential
     {
         public int Requests { get; private set; }
@@ -963,7 +1097,11 @@ public sealed class FabricC1DeploymentTests
                 new("10.241.0.0/20", "10.241.1.0/24", "10.241.2.0/24", "10.241.3.0/24", hash, hash),
                 new("Standard_B2s", "synthetic", "synthetic", "synthetic", "1.0.0", "ssh-ed25519 synthetic"),
                 new(hash, hash, hash, hash, hash, hash), maxRequests, 600)
-            { RequiredTenantSettingNames = requiredTenantSettingNames ?? [] };
+            {
+                RequiredTenantSettingNames = requiredTenantSettingNames ?? [],
+                ControlTokenBindings = new("https://management.core.windows.net/", $"https://sts.windows.net/{tenant}/",
+                    "00000003-0000-0000-c000-000000000000", $"https://sts.windows.net/{tenant}/")
+            };
             Provisioner = new(Input, Api, Store, Clock);
         }
         public void Capacity() => Seed("fabric-capacity", "FabricCapacity", new() { ["id"] = CapacityId });

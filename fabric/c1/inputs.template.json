@@ -1,5 +1,5 @@
 {
-  "contract": "cohors-fabric-c1-preparation-1",
+  "contract": "cohors-fabric-c1-preparation-2",
   "deliveryId": "cohors-fabric",
   "mode": "PreparationOnly",
   "generalCostApprovalReceived": true,
@@ -40,6 +40,8 @@
     "hostedProjectEndpoint": null,
     "hostedAgentVersion": null,
     "hostedImageDigest": null,
+    "aiExecution": "FabricManagedDataAgent",
+    "fabricAiPolicyReviewSha256": null,
     "modelDeployment": null,
     "modelVersion": null
   },

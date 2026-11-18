@@ -12,12 +12,14 @@ public sealed record FabricC1DeploymentCompute(string? Size, string? ImagePublis
     string? ImageSku, string? ImageVersion, string? SshPublicKey);
 public sealed record FabricC1DeploymentReviews(string? StartRightsSha256, string? TenantSettingsSha256,
     string? ResourcePlanSha256, string? BudgetPlanSha256, string? DataHandlingAndRetentionSha256, string? CleanupPlanSha256);
+public sealed record FabricC1ControlTokenBindings(string? ArmAudience, string? ArmIssuer, string? GraphAudience, string? GraphIssuer);
 public sealed record FabricC1DeploymentInputs(string Contract, string? DeploymentId, string? SourceCommit,
     string? TenantId, string? SubscriptionId, string? Location, string? NamePrefix, DateTimeOffset? ExpiresAtUtc,
     FabricC1Identity? BootstrapIdentity, string[]? CapacityAdministrators, FabricC1DeploymentNetwork? Network,
     FabricC1DeploymentCompute? Compute, FabricC1DeploymentReviews? Reviews, int? MaxControlRequests, int? MaxControlDurationSeconds)
 {
     public string[] RequiredTenantSettingNames { get; init; } = [];
+    public FabricC1ControlTokenBindings? ControlTokenBindings { get; init; }
 }
 public sealed record FabricC1DeploymentPlan(string Status, string BindingHash, string[] MissingInputs,
     string[] ImplementationBlockers, string[] Resources, string[] NonArmOperations)
@@ -34,7 +36,7 @@ public static class FabricC1Deployment
         "private-operator-artifact-delivery-and-fqdn-egress-not-integrated",
         "private-source-materialization-and-source-grant-readback-not-integrated",
         "hosted-certificate-delivery-and-durable-checkpoint-not-integrated",
-        "hosted-image-session-model-and-final-c1-binding-not-integrated",
+        "hosted-image-session-and-final-c1-binding-not-integrated",
         "independent-deadline-stop-and-inventory-cleanup-not-integrated"
     ];
 
@@ -49,7 +51,7 @@ public static class FabricC1Deployment
         Required("sourceCommit", FabricC1Execution.Hex(input.SourceCommit, 40));
         Required("tenantId", Id(input.TenantId));
         Required("subscriptionId", Id(input.SubscriptionId));
-        Required("location", input.Location is not null && Regex.IsMatch(input.Location, "^[a-z][a-z0-9]+$", RegexOptions.CultureInvariant));
+        Required("location", input.Location == "francecentral");
         Required("namePrefix", input.NamePrefix is not null && Regex.IsMatch(input.NamePrefix, "^[a-z][a-z0-9]{2,5}$", RegexOptions.CultureInvariant));
         Required("expiresAtUtc", input.ExpiresAtUtc > now && input.ExpiresAtUtc <= now.AddHours(48));
         Required("capacityAdministrators", input.CapacityAdministrators is { Length: > 0 and <= 3 } &&
@@ -65,6 +67,7 @@ public static class FabricC1Deployment
             (identity.CredentialKind == "DelegatedAzureCli" && identity.CredentialReference is null ||
              identity.CredentialKind is "ServicePrincipalCertificate" or "ServicePrincipalFederation" or "ServicePrincipalSecret" &&
              identity.CredentialReference is not null && Path.IsPathFullyQualified(identity.CredentialReference)));
+        Required("controlTokenBindings", ValidControlTokenBindings(input));
         Required("network", input.Network is not null);
         if (input.Network is { } network)
         {
@@ -95,6 +98,7 @@ public static class FabricC1Deployment
         [
             "Own resource group; one F2, overage disabled",
             "Own VNet, client/agent/private-endpoint subnets; no public VM IP",
+            "Client-subnet Standard NAT gateway and dedicated static Standard IPv4; connectivity only, not a FQDN filter",
             "Private DNS, Fabric workspace PLS/PE, Foundry/ACR/Vault/Blob PE",
             "Foundry account with network injection from creation and separate project identity",
             "Premium ACR, RBAC Key Vault, private Blob evidence storage, private probe VM",
@@ -162,6 +166,16 @@ public static class FabricC1Deployment
             !(permission["notActions"] is JsonArray denied && denied.Any(a => a is not null && Match(a.GetValue<string>()))));
     }
 
+    public static bool ValidControlTokenBindings(FabricC1DeploymentInputs input)
+    {
+        bool Issuer(string? value) => Guid.TryParse(input.TenantId, out var tenant) &&
+            (value == $"https://sts.windows.net/{tenant:D}/" || value == $"https://login.microsoftonline.com/{tenant:D}/v2.0");
+        return input.ControlTokenBindings is { } tokens &&
+            tokens.ArmAudience is "https://management.azure.com/" or "https://management.core.windows.net/" or "797f4846-ba00-4fd7-ba43-dac1f8f63013" &&
+            tokens.GraphAudience is "https://graph.microsoft.com/" or "00000003-0000-0000-c000-000000000000" &&
+            Issuer(tokens.ArmIssuer) && Issuer(tokens.GraphIssuer);
+    }
+
     private static bool ValidPrefixes(FabricC1DeploymentNetwork network)
     {
         if (!IPNetwork.TryParse(network.VnetPrefix, out var parent) || parent.BaseAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
@@ -176,6 +190,9 @@ public static class FabricC1Deployment
                 children.Any(other => other.Contains(child.BaseAddress) || child.Contains(other.BaseAddress))) return false;
             children.Add(child);
         }
+        var hostedReserved = IPNetwork.Parse("192.168.0.0/24");
+        var endpoints = children[2];
+        if (endpoints.Contains(hostedReserved.BaseAddress) || hostedReserved.Contains(endpoints.BaseAddress)) return false;
         return true;
     }
 }
@@ -258,6 +275,7 @@ public sealed partial class FabricC1Provisioner
             "Microsoft.Resources/subscriptions/resourceGroups/write", "Microsoft.Resources/deployments/write",
             "Microsoft.Fabric/capacities/write", "Microsoft.Fabric/privateLinkServicesForFabric/write",
             "Microsoft.Network/virtualNetworks/write", "Microsoft.Network/privateEndpoints/write",
+            "Microsoft.Network/natGateways/write", "Microsoft.Network/publicIPAddresses/write",
             "Microsoft.Network/privateDnsZones/write", "Microsoft.Compute/virtualMachines/write",
             "Microsoft.Compute/virtualMachines/runCommands/read", "Microsoft.Compute/virtualMachines/runCommands/write",
             "Microsoft.Compute/virtualMachines/runCommands/delete", "Microsoft.Authorization/roleAssignments/write",
@@ -527,7 +545,7 @@ public sealed partial class FabricC1Provisioner
                 "c1_deploy_receipt_binding", "Publication receipt belongs to a different item.", 409);
             published = definition.Id;
         }
-        var preparation = new FabricC1Inputs("cohors-fabric-c1-preparation-1", "cohors-fabric", "PreparationOnly", true,
+        var preparation = new FabricC1Inputs(FabricC1ProbeClient.Contract, "cohors-fabric", "PreparationOnly", true,
             FabricC1ProbeClient.TokenScope,
             new(input.TenantId, app, principal, "ServicePrincipalCertificate", null, null, null),
             new(capacity, input.Location, workspace, agent, source, null,
@@ -535,7 +553,7 @@ public sealed partial class FabricC1Provisioner
                     $"https://{WorkspaceHost(workspace)}/v1/mcp/workspaces/{workspace}/dataagents/{published}/agent" : null,
                 FabricC1ProbeClient.ProtocolVersion, null, null, null, null),
             new("ortho", null, null, null, null, null),
-            new(null, null, null, null, null, null),
+            new(null, null, null, null, null, null) { AiExecution = FabricC1ProbeClient.AiExecution },
             new(input.Reviews?.ResourcePlanSha256, null, input.Network?.EgressReviewSha256, null,
                 input.Reviews?.DataHandlingAndRetentionSha256, input.Reviews?.BudgetPlanSha256, input.Reviews?.CleanupPlanSha256, null),
             new(null, null, null, null));

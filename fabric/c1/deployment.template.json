@@ -4,10 +4,16 @@
   "sourceCommit": null,
   "tenantId": null,
   "subscriptionId": null,
-  "location": null,
+  "location": "francecentral",
   "namePrefix": null,
   "expiresAtUtc": null,
   "bootstrapIdentity": null,
+  "controlTokenBindings": {
+    "armAudience": null,
+    "armIssuer": null,
+    "graphAudience": null,
+    "graphIssuer": null
+  },
   "capacityAdministrators": [],
   "requiredTenantSettingNames": [],
   "network": {

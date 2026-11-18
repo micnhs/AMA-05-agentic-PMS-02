@@ -26,6 +26,12 @@ Implemented source components:
 - `infra\fabric\c1.foundation.json` describes an isolated F2 (overage disabled),
   private VM/VNet/subnets, DNS, Key Vault, private storage/ACR, and a Foundry
   account with injection at creation plus a separate project identity.
+  The selected technical work profile is F2/FranceCentral, not a live quota/cost
+  result. Client-subnet NAT plus a dedicated static egress IPv4 provide explicit
+  translation without a public VM NIC; they are not a FQDN filter or a proven
+  artifact/Managed Run Command path. Both remain in the cost/cleanup inventory.
+  Vault purge protection and seven-day soft-delete retention are enabled; the
+  deleted-vault/name tail is retained rather than falsely reported as purged.
   `c1.workspace-network.json` binds workspace PLS/PE/DNS from creation outputs.
 - `FabricC1Provisioner` implements journal-before-effect creation, exact
   manifest/ownership checks, bounded inventory, unknown-create reconciliation
@@ -38,6 +44,9 @@ Implemented source components:
   tenant/subscription or incomplete inventories stop the operation.
 - The HTTP component binds each scope to its exact authority, caller and
   tenant. Public Fabric hosts permit only the documented control operations;
+  `controlTokenBindings` separately binds observed `armAudience`/`armIssuer` and
+  `graphAudience`/`graphIssuer`. A `/.default` request scope is not an audience;
+  URI-vs-application-ID claims are not inferred from the credential kind.
   item operations require the exact separately configured private workspace
   client. There is no default HTTP, public, OBO, SQL or other-caller fallback.
 - Durable deployment intent and request budgets use a separate locked,
@@ -71,7 +80,7 @@ Remaining integration gaps block the **whole** profile, not just its last
 step: private operator/artifact delivery
 and FQDN-filtered egress; private synthetic materialization and effective
 source-grant readback; protected Hosted certificate delivery and durable
-checkpoint outside upload-writable `HOME`; Hosted image/model/version/session
+checkpoint outside upload-writable `HOME`; Hosted image/version/session
 and final execution binding; an independent deadline/stop/cleanup executor.
 The foundation
 NSG is only a deny-by-default candidate, **not an implemented FQDN filter or
@@ -86,11 +95,24 @@ disguised as a deployment gate. DataAgent and Ontology creation/definition
 APIs exist; Ontology creation is not Ontology MCP app-only/private support.
 
 R4 separates the existing probe's 40 fields into start policy/limits,
-generated outputs, discovery values and real reviews. The selected initial
+generated outputs, discovery values and real reviews. The explicit
+[v2 model correction](c1-preparation.md#explicit-c1-model-contract-correction-v2-2026-11-18)
+replaces its unused model-deployment output and model-version start value with
+a real Fabric AI-policy review (39 active mappings: 8/17/3/11).
+The C1 container calls Fabric MCP, not an additional Foundry model; it does not
+invent or assert Fabric's internal model version. The selected initial
 actor and actual OAuth client must both be bound; a successful user metadata
 read does not prove an app-only caller's write access. An existing bootstrap
 secret can be supplied only through its protected file reference, independently
 of the new runtime certificate contract. A credential key ID is not a secret.
+The coordinator has now selected the original observed `DelegatedAzureCli`
+profile for initial setup only; its private IDs are not copied here. No user
+token goes to the private runner or Hosted runtime. Fabric `user_impersonation`
+is not treated as either proven named write scopes or guaranteed denial; the
+authorized endpoint operation must decide. Existing broad directory rights do
+not authorize global setting changes. In particular, disabled
+`WorkspaceBlockInboundAccess` with `canSpecifySecurityGroups=false` cannot be
+made into an allegedly group-scoped change by this installer.
 An observed directory role is neither copied to runtime nor silently used as
 a fallback for an unbound operation-specific permission path.
 Graph `AppRegistration.Create`

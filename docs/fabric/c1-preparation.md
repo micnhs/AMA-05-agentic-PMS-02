@@ -7,11 +7,46 @@ cleanup bindings are still required; their IDs or permissions are not inferred
 from those approvals. No resources, credentials or model calls are created by
 the credential-free validation job. Historical blocked runs remain historical.
 
+## Explicit C1 model-contract correction (v2, 2026-11-18)
+
+The first-deployment coordination review found that `FabricC1Entry.Host` calls
+`InvokeDirect`, which invokes the Fabric MCP transport directly. Neither path
+calls a Foundry model. In v1, `runtime.modelDeployment` and `modelVersion` were
+only nonempty-string checks, not implemented model dependencies. Creating an
+unused deployment or filling those fields with invented versions is prohibited.
+
+`cohors-fabric-c1-preparation-2` therefore binds
+`runtime.aiExecution=FabricManagedDataAgent`. Its generative AI runs inside the
+Fabric data agent; the Hosted container is the deterministic, bounded MCP
+caller. Microsoft's [data-agent concepts](https://learn.microsoft.com/fabric/data-science/concept-data-agent)
+describe that managed LLM and explicitly say it cannot be changed by the caller.
+No exact internal model version is claimed from an MCP server version, agent
+definition, model name in documentation, or successful response.
+
+The two historical model fields stay `null` in v2. A new required
+`runtime.fabricAiPolicyReviewSha256` binds real effective Fabric AI processing,
+storage/cross-geo settings and their approved geographic/data-handling limits.
+This supplements, not replaces, the existing data-handling/retention, private
+path, budget and source/ontology reviews. If policy or service behavior requires
+unapproved cross-geo processing, the stage is blocked: do not enable it or move
+regions automatically. The C1 BOM contains no separate Foundry model deployment.
+
+This is an explicit technical correction to the R4.1 mapping: its model
+deployment output and model-version start value become inactive historical
+fields, and one real AI-policy review is added. There are 39 active mappings:
+8 start, 17 output, 3 discovery and 11 review, plus the fixed AI-execution value.
+All other bindings, the unchanged five-row fixture/three questions,
+seven native cases and acceptance thresholds remain. v1 is still readable for
+offline history with unchanged canonical serialization, but cannot authorize a
+new service run. Build fresh v2 preparation/execution hashes and checkpoints;
+never resume an old checkpoint under the new contract. Migration cannot reset
+already consumed request budgets or extend approved deadlines.
+
 ## Deliverable and exact boundary
 
 | File | Use |
 | --- | --- |
-| [`inputs.template.json`](../../fabric/c1/inputs.template.json) | Machine-readable binding; every `null` is a required missing input, not a default to discover or provision |
+| [`inputs.template.json`](../../fabric/c1/inputs.template.json) | v2 machine-readable binding; null active fields need generated/observed/reviewed values; the two unused historical model fields must remain null |
 | [`synthetic-source.json`](../../fabric/c1/synthetic-source.json) | Five synthetic rows, three fixed questions and an independent expected/forbidden-row oracle |
 | `src/Cohors.Infrastructure/FabricC1ProbeClient.cs` | Network-free .NET preparation kernel: preflight, discovery/request recipes, exact tool/schema checks and bound task resume/cancel intents |
 | [`execution.template.json`](../../fabric/c1/execution.template.json) | Private execution envelope: embed the filled preparation, bind expiry/access evidence, split request budgets, private addresses and exact Hosted session/caller |
@@ -132,12 +167,12 @@ open another planning session or invent resource IDs.
 | `identity` | Exact Entra tenant, application/client ID, service-principal object ID; approved certificate/federation/secret method and a secret-store reference **without secret bytes**; expected token issuer and actual resource audience |
 | `target` | Own capacity resource ID/SKU and region; workspace, published data-agent, source-item and ontology IDs; copied exact private MCP URL; observed supported protocol; tool name, question argument, canonical input-schema hash; reviewed task protocol/SDK revision |
 | `source` | Materialized item/release hash, ontology definition/binding hash and effective source-grant review hash. The fixed `ortho` scope, `C1-RELEASE-1` label and fixture hash describe synthetic intent only, not a deployed release |
-| `runtime` | Allocated private direct-runner resource; Foundry project endpoint, own Hosted Agent version/image digest; approved model deployment/version and processing geography |
+| `runtime` | Allocated private direct-runner resource; Foundry project endpoint, own Hosted Agent version/image digest; `FabricManagedDataAgent` plus real Fabric AI-policy/geography review, no unused model resource |
 | `controls` | Hashes of the isolated resource/region plan, exact app-only private-path review, DNS/egress and public-denial plans, data-handling/retention review, quantified budget/expiry plan and named cleanup plan; separate C1 run approval reference |
 | `limits` | Approved maximum request count, total duration, response size and cleanup timeout; no unlimited/implicit retry or progress-based deadline extension |
 
 The resource plan must bind subscription/RG, capacity SKU/quotas, billing owner,
-cost amount/currency/expiry, model price/version, private endpoint IDs and exact
+quantified cost assumptions/currency/expiry, Fabric AI/Hosted usage, private endpoint IDs and exact
 source grants. The data-handling plan must cover Fabric AI cross-geo settings,
 Foundry/model responses, client evidence, diagnostics and deletion/retention.
 Tenant settings may only use the explicitly approved SP security group; no

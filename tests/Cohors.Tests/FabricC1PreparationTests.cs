@@ -35,6 +35,49 @@ public sealed class FabricC1PreparationTests
         Assert.Equal("c1_inputs_missing", Assert.Throws<DomainException>(() => FabricC1ProbeClient.Discovery(input)).Code);
     }
 
+    [Fact]
+    public void ManagedFabricAiNeedsPolicyEvidenceInsteadOfAnUnusedFoundryModel()
+    {
+        var input = Bound();
+        Assert.Equal("PreparedOffline", FabricC1ProbeClient.Preflight(input).Status);
+        Assert.Null(input.Runtime.ModelDeployment);
+        Assert.Null(input.Runtime.ModelVersion);
+        Assert.Contains("runtime.fabricAiPolicyReviewSha256", FabricC1ProbeClient.Preflight(input with
+        {
+            Runtime = input.Runtime with { FabricAiPolicyReviewSha256 = null }
+        }).MissingOrInvalid);
+        Assert.Contains("runtime.unusedModelBinding", FabricC1ProbeClient.Preflight(input with
+        {
+            Runtime = input.Runtime with { ModelDeployment = "unused", ModelVersion = "not-observed" }
+        }).MissingOrInvalid);
+        Assert.Contains("runtime.aiExecution", FabricC1ProbeClient.Preflight(input with
+        {
+            Runtime = input.Runtime with { AiExecution = "UnimplementedOwnModel" }
+        }).MissingOrInvalid);
+    }
+
+    [Fact]
+    public void HistoricalModelMetadataStaysOfflineAndNullExtensionsDoNotRewriteItsCanonicalPayload()
+    {
+        var input = Bound();
+        var legacy = input with
+        {
+            Contract = FabricC1ProbeClient.LegacyContract,
+            Runtime = new("synthetic-private-runner", "https://hosted.invalid/api/projects/synthetic",
+                "synthetic-version", input.Runtime.HostedImageDigest, "historical-model-label", "historical-version-label")
+        };
+        Assert.Equal("PreparedOffline", FabricC1ProbeClient.Preflight(legacy).Status);
+        Assert.False(FabricC1ProbeClient.Preflight(legacy).CloudExecutionAllowed);
+        var json = Canonical.Serialize(legacy);
+        Assert.DoesNotContain("aiExecution", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("fabricAiPolicyReviewSha256", json, StringComparison.Ordinal);
+        var settings = new FabricC1ExecutionSettings("cohors-fabric-c1-execution-1", legacy, Guid.NewGuid().ToString("D"),
+            new string('b', 40), DateTimeOffset.UtcNow.AddMinutes(10), new string('a', 64), ["10.241.3.4"], "none", 4, 4, 1, null);
+        Assert.Equal("c1_model_contract", Assert.Throws<DomainException>(() =>
+            FabricC1Execution.Validate(settings, DateTimeOffset.UtcNow)).Code);
+        Assert.NotEqual(Canonical.Hash(legacy), Canonical.Hash(input));
+    }
+
     [Theory]
     [InlineData("DefaultAzureCredential")]
     [InlineData("AzureCliCredential")]
@@ -163,7 +206,8 @@ public sealed class FabricC1PreparationTests
             Source = input.Source with { ReleaseId = "C1-RELEASE-1", MaterializationSha256 = hash,
                 OntologyBindingsSha256 = hash, SourceGrantReviewSha256 = hash },
             Runtime = new("synthetic-private-runner", "https://hosted.invalid/api/projects/synthetic",
-                "synthetic-version", hash, "synthetic-model", "synthetic-model-version"),
+                "synthetic-version", hash, null, null)
+            { AiExecution = FabricC1ProbeClient.AiExecution, FabricAiPolicyReviewSha256 = hash },
             Controls = new(hash, hash, hash, hash, hash, hash, hash, "synthetic-run-review"),
             Limits = new(10, 60, 8192, 30)
         };
