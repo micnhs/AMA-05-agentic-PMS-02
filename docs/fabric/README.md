@@ -227,6 +227,13 @@ The foundation
 NSG is only a deny-by-default candidate, **not an implemented FQDN filter or
 working Managed Run Command route**. Do not deploy the template alone and
 leave paid resources waiting for these gaps. Firewall/VPN remain absent/off.
+In particular, B5 uses documented delegated notebook authoring and still lacks
+an approved complete workstation-to-workspace-private-endpoint connection.
+Neither P2S VPN nor Relay has been selected. This is an open access gate, not a
+Fabric product rejection. Managed Run Command, public workspace calls, an
+HTTP-parsing Relay or copying the user's bearer to a worker do not close it.
+Any later connection decision must bind client prerequisites, DNS, unchanged
+Fabric identity, separate network authentication, costs and stop/removal.
 
 These are explicit **implementation gaps**, not assertions that Microsoft
 lacks the corresponding APIs. Source-grant/ontology-private-link and the
@@ -345,6 +352,10 @@ No `.local`/`.env`, private start bindings, keys/PFX, tokens, state, logs, test
 results, PDBs or unknown package files are included. Content checks include
 credential-shaped strings in binary UTF-16 as well as text. Unknown entries,
 unbound dependencies, path aliases/links, or an over-limit archive fail closed.
+Package contract `cohors-fabric-c1-package-2` adds only the explicitly listed
+`scripts/fabric/c1_private_stage.py` operator asset. Historical package-1
+verification retains its original exact allowlist; it does not retroactively
+permit the new file or alter existing archive hashes.
 
 Each included file has a length and SHA256 in `manifest.json`, bound to the
 source SHA, repository/branch/workflow, run/attempt, SDK and source lock hashes.
@@ -359,9 +370,60 @@ reads authenticated GitHub provenance using the existing account, checks the
 exact successful run/attempt, downloads a size-bounded archive, and verifies
 outer/inner digests, the manifest, every file hash and extraction paths.
 It **does not execute** the payload. Cross-publish is not native Windows
-verification. Private VM delivery still needs its separate protected capability,
-FQDN/Guest Agent path and readback; no user bearer or GitHub credential is copied
-to that host. Package delivery is not full installer or native C1 acceptance.
+verification. Optional `-RetainTransportArchive` additionally preserves the
+exact verified outer bytes as `transport.zip`, never a recompressed replacement.
+It performs no upload. Normal download behavior still removes the temporary ZIP.
+
+The source-only private receiver `scripts\fabric\c1_private_stage.py --profile
+PRIVATE_JSON --destination NEW_PRIVATE_DIRECTORY` is a bounded **consumer**
+for the already specified isolated C1 Blob storage and VM system identity:
+
+- It accepts only the versioned private-stage profile, binding deployment hash,
+  source/run/attempt, actual outer archive digest/length, both verified Python
+  source hashes, VM/storage resource IDs in the same subscription/group,
+  tenant/client/object/issuer, private addresses and private-route review.
+  The profile also binds an absolute expiry and at most 300 seconds per invocation.
+  These values must come from real provisioning and the verified operator
+  package, not fabricated review hashes. The driver must cap expiry and request
+  accounting by the original deployment contract; this helper does not create
+  or renew that contract.
+- Before credentials, DNS must return only reviewed RFC1918/ULA addresses.
+  The socket connects to one of those addresses without a second DNS lookup,
+  retains the original storage FQDN for certificate verification/SNI, requires
+  TLS 1.2 or higher, and has no proxy, redirect, alternate trust file or public
+  fallback. It does not configure DNS, VPN, Relay, a public endpoint or a tunnel.
+- Exactly one fixed VM IMDS token request and one Blob GET are allowed by this
+  invocation; there are no retries. The token must bind the VM's own managed
+  identity, tenant, storage audience, issuer and lifetime; delegated `scp`
+  tokens and other callers are rejected. Metadata checks are not a local
+  signature/RBAC verdict: Storage must actually authorize the request.
+  The minimum data role is Storage Blob Data Reader on the own artifact
+  container. No role is granted by this script, and VM managed identity is a
+  VM-wide boundary, not per-process isolation.
+- The only Blob path is
+  `c1-artifacts/{deploymentBindingHash}/{sourceCommit}/{outerArchiveSha256}.zip`.
+  The size-bounded stream and complete package-2 allowlist/hashes are checked
+  before extraction; downloaded tool hashes must match the running receiver
+  and verifier. Neither the binaries nor packaged scripts are executed.
+  Profile/destination directories are owner-only and link-free on Linux.
+  An overall process timer bounds stalled network/verification work, in
+  addition to socket and monotonic/absolute deadlines. Failed partial extraction
+  is never reused or reported as ready; it remains a named cleanup item.
+  Temporary download files are removed. Errors expose codes, not provider
+  bodies, token strings or exception text.
+
+The hosted lane tests this with synthetic files and mocked transport only;
+the real worker CLI refuses GitHub Actions before reading a profile or obtaining
+a token. There has been no private Blob/IMDS request, upload or native execution.
+The operator-to-private-storage upload, exact RBAC/readback, trusted bootstrap
+delivery through the Guest Agent, FQDN egress, durable result reconciliation and
+ordered Blob/VM cleanup are **not integrated** by this receiver. The five
+whole-profile blockers therefore remain. No user bearer, GitHub credential,
+storage key or SAS is accepted by or copied to this worker. This implementation
+does not choose the still-open B5 operator connection or supply a full installer,
+G03/G04 pass, independent cloud stop or monetary hard cap.
+Sources: [VM IMDS identity protocol](https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/how-to-use-vm-token),
+[Blob GET and least-privilege authorization](https://learn.microsoft.com/rest/api/storageservices/get-blob).
 
 ## Fork and isolation
 

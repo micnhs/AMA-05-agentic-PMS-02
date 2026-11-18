@@ -13,7 +13,8 @@ import sys
 import zipfile
 
 
-CONTRACT = "cohors-fabric-c1-package-1"
+LEGACY_CONTRACT = "cohors-fabric-c1-package-1"
+CONTRACT = "cohors-fabric-c1-package-2"
 REPOSITORY = "micnhs/AMA-05-agentic-PMS-02"
 BRANCH = "micnhs-cohors-fabric-umsetzung"
 WORKFLOW = ".github/workflows/cohors-fabric-contracts.yml"
@@ -24,7 +25,7 @@ MAX_FILES = 2048
 RIDS = ("win-x64", "linux-x64")
 PROJECTS = ("Cohors.Api", "Cohors.Agents", "Cohors.Infrastructure", "Cohors.Application", "Cohors.Domain")
 LOCK_NAMES = ("packages.lock.json", "packages.c1.lock.json")
-SOURCE_ASSETS = (
+LEGACY_SOURCE_ASSETS = (
     "infra/fabric/c1.foundation.json",
     "infra/fabric/c1.workspace-network.json",
     "fabric/c1/deployment.template.json",
@@ -35,6 +36,7 @@ SOURCE_ASSETS = (
     "src/Cohors.Api/ReportFonts/PDFsharp.LICENSE",
     "scripts/fabric/c1_package.py",
 )
+SOURCE_ASSETS = (*LEGACY_SOURCE_ASSETS, "scripts/fabric/c1_private_stage.py")
 FORBIDDEN_SUFFIXES = {".pfx", ".p12", ".pem", ".key", ".log", ".trx", ".pdb"}
 SECRET_PATTERNS = (
     re.compile(rb"-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----\s+[A-Za-z0-9+/=\r\n]{64,}-----END "),
@@ -57,6 +59,11 @@ def digest(data):
 
 def encoded(value):
     return (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n").encode()
+
+
+def source_assets(contract):
+    require(contract in (LEGACY_CONTRACT, CONTRACT), "Unsupported package contract")
+    return LEGACY_SOURCE_ASSETS if contract == LEGACY_CONTRACT else SOURCE_ASSETS
 
 
 def object_json(data):
@@ -158,7 +165,7 @@ def validate_provenance(manifest, commit, run_id, attempt):
     require(set(manifest) == {"contract", "repository", "branch", "workflow", "sdkVersion", "sourceCommit", "runId",
                              "runAttempt", "request", "sourceLocks", "evidenceLevel", "files"} and
             manifest.get("evidenceLevel") == "source-build-not-native-windows-or-cloud-evidence", "Unexpected package metadata")
-    require(manifest.get("contract") == CONTRACT and manifest.get("repository") == REPOSITORY and
+    require(manifest.get("contract") in (LEGACY_CONTRACT, CONTRACT) and manifest.get("repository") == REPOSITORY and
             manifest.get("branch") == BRANCH and manifest.get("workflow") == WORKFLOW and
             manifest.get("sdkVersion") == SDK and manifest.get("sourceCommit") == commit and
             manifest.get("runId") == str(run_id) and manifest.get("runAttempt") == str(attempt) and
@@ -257,7 +264,7 @@ def read_zip(data, names=None):
 
 def verify(data, receipt, commit, run_id, attempt):
     require(set(receipt) == {"contract", "sourceCommit", "runId", "runAttempt", "archiveSha256", "archiveLength", "manifestSha256"} and
-            receipt.get("contract") == CONTRACT and receipt.get("sourceCommit") == commit and
+            receipt.get("contract") in (LEGACY_CONTRACT, CONTRACT) and receipt.get("sourceCommit") == commit and
             receipt.get("runId") == str(run_id) and receipt.get("runAttempt") == str(attempt) and
             receipt.get("archiveLength") == len(data) and receipt.get("archiveSha256") == digest(data), "Archive digest/run binding differs")
     payload = read_zip(data)
@@ -266,6 +273,7 @@ def verify(data, receipt, commit, run_id, attempt):
             "Manifest digest differs")
     manifest = object_json(payload.pop("manifest.json"))
     validate_provenance(manifest, commit, run_id, attempt)
+    require(manifest["contract"] == receipt["contract"], "Manifest/archive contract differs")
     records = manifest.get("files")
     require(isinstance(records, list) and len(records) == len(payload), "Manifest file inventory differs")
     expected = {}
@@ -276,7 +284,7 @@ def verify(data, receipt, commit, run_id, attempt):
                 re.fullmatch(r"[0-9a-f]{64}", record["sha256"]), "Invalid file hash/length")
         expected[name] = record
     require(set(expected) == set(payload), "Unknown or missing package file")
-    asset_names = {"assets/" + name for name in SOURCE_ASSETS}
+    asset_names = {"assets/" + name for name in source_assets(manifest["contract"])}
     require(asset_names.issubset(payload), "Required source asset is absent")
     runtime_names = set()
     for rid in RIDS:
@@ -311,18 +319,32 @@ def extract(manifest, payload, receipt, destination):
     (target / "archive.json").write_bytes(encoded(receipt))
 
 
-def receive(archive, outer_sha256, commit, run_id, attempt, destination=None):
+def verify_download(archive, outer_sha256, commit, run_id, attempt):
     archive = no_links(archive)
     require(archive.is_file() and archive.stat().st_size <= MAX_ARCHIVE, "Archive size limit exceeded")
-    data = archive.read_bytes()
+    with archive.open("rb") as file:
+        data = file.read(MAX_ARCHIVE + 1)
+    require(len(data) <= MAX_ARCHIVE, "Archive size limit exceeded")
     require(re.fullmatch(r"[0-9a-f]{64}", outer_sha256) and digest(data) == outer_sha256, "GitHub artifact archive digest differs")
     outer = read_zip(data, {"package.zip", "archive.json"})
     require(set(outer) == {"package.zip", "archive.json"}, "Incomplete GitHub artifact")
     require(len(outer["archive.json"]) <= 4096, "Oversized archive receipt")
     receipt = object_json(outer["archive.json"])
     manifest, payload = verify(outer["package.zip"], receipt, commit, run_id, attempt)
+    return manifest, payload, receipt, data
+
+
+def receive(archive, outer_sha256, commit, run_id, attempt, destination=None, retain_archive=False):
+    require(not retain_archive or destination is not None, "Retaining the archive requires an extraction destination")
+    manifest, payload, receipt, data = verify_download(archive, outer_sha256, commit, run_id, attempt)
     if destination is not None:
         extract(manifest, payload, receipt, destination)
+        if retain_archive:
+            retained = Path(destination) / "transport.zip"
+            with retained.open("xb") as file:
+                file.write(data)
+            if os.name != "nt":
+                retained.chmod(0o600)
     return {"status": "VerifiedNotExecuted", "sourceCommit": commit, "runId": str(run_id), "runAttempt": str(attempt),
             "archiveSha256": receipt["archiveSha256"], "files": len(payload)}
 
@@ -372,6 +394,7 @@ def main():
     get.add_argument("--archive", required=True)
     get.add_argument("--outer-sha256", required=True)
     get.add_argument("--destination")
+    get.add_argument("--retain-archive", action="store_true")
     locks = commands.add_parser("locks")
     locks.add_argument("--root", required=True)
     for command in (create, get, locks):
@@ -383,7 +406,8 @@ def main():
         if args.command == "build":
             result = build(args.root, args.publish_root, args.destination, args.source_commit, args.run_id, args.run_attempt, args.verification_directory)
         elif args.command == "receive":
-            result = receive(args.archive, args.outer_sha256, args.source_commit, args.run_id, args.run_attempt, args.destination)
+            result = receive(args.archive, args.outer_sha256, args.source_commit, args.run_id, args.run_attempt,
+                             args.destination, args.retain_archive)
         else:
             result = runtime_lock_candidates(args.root, args.source_commit, args.run_id, args.run_attempt)
         print(json.dumps(result, sort_keys=True))

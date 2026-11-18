@@ -67,8 +67,47 @@ class C1PackageTests(unittest.TestCase):
         self.assertFalse(any(destination.rglob("*.env")))
         self.assertFalse(any(destination.rglob("*.trx")))
         self.assertFalse(any(destination.rglob("appsettings.json")))
+        self.assertFalse((destination / "transport.zip").exists())
         with self.assertRaisesRegex(ValueError, "new directory"):
             package.receive(path, package.digest(path.read_bytes()), self.commit, self.run_id, "1", destination)
+
+    def test_explicit_transport_retention_preserves_exact_verified_outer_bytes_without_execution(self):
+        path = self.outer()
+        destination = self.root / "retained"
+        result = package.receive(path, package.digest(path.read_bytes()), self.commit, self.run_id, "1",
+                                 destination, retain_archive=True)
+        self.assertEqual("VerifiedNotExecuted", result["status"])
+        self.assertEqual(path.read_bytes(), (destination / "transport.zip").read_bytes())
+        with self.assertRaisesRegex(ValueError, "destination"):
+            package.receive(path, package.digest(path.read_bytes()), self.commit, self.run_id, "1", retain_archive=True)
+
+    def test_historical_package_allowlist_is_not_expanded_by_the_new_worker_asset(self):
+        receipt = self.build()
+        payload = package.read_zip((self.output / "package.zip").read_bytes())
+        asset = "assets/scripts/fabric/c1_private_stage.py"
+        del payload[asset]
+        manifest = package.object_json(payload["manifest.json"])
+        manifest["contract"] = package.LEGACY_CONTRACT
+        manifest["files"] = [item for item in manifest["files"] if item["path"] != asset]
+        payload["manifest.json"] = package.encoded(manifest)
+        legacy = self.root / "legacy.zip"
+        package.write_zip(legacy, payload)
+        data = legacy.read_bytes()
+        receipt.update(contract=package.LEGACY_CONTRACT, archiveSha256=package.digest(data), archiveLength=len(data),
+                       manifestSha256=package.digest(payload["manifest.json"]))
+        verified, _ = package.verify(data, receipt, self.commit, self.run_id, "1")
+        self.assertEqual(package.LEGACY_CONTRACT, verified["contract"])
+
+        payload[asset] = b"unexpected-retroactive-worker"
+        manifest["files"].append({"path": asset, "length": len(payload[asset]), "sha256": package.digest(payload[asset])})
+        payload["manifest.json"] = package.encoded(manifest)
+        expanded = self.root / "expanded-legacy.zip"
+        package.write_zip(expanded, payload)
+        data = expanded.read_bytes()
+        receipt.update(archiveSha256=package.digest(data), archiveLength=len(data),
+                       manifestSha256=package.digest(payload["manifest.json"]))
+        with self.assertRaisesRegex(ValueError, "allowlist"):
+            package.verify(data, receipt, self.commit, self.run_id, "1")
 
     def test_wrong_digest_source_or_attempt_never_creates_destination(self):
         path = self.outer()

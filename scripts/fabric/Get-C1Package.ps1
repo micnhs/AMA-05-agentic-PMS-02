@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory)][ValidatePattern('^[1-9][0-9]*$')][string]$RunId,
     [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
-    [Parameter(Mandatory)][string]$Destination
+    [Parameter(Mandatory)][string]$Destination,
+    [switch]$RetainTransportArchive
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
@@ -86,7 +87,11 @@ try {
     }
     $python = Get-Command python3 -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $python) { $python = Get-Command python -CommandType Application -ErrorAction Stop | Select-Object -First 1 }
-    $verifiedJson = & $python.Source (Join-Path $PSScriptRoot 'c1_package.py') receive --archive $download --outer-sha256 $artifact.digest.Substring(7) --source-commit $SourceCommit --run-id $RunId --run-attempt $run.run_attempt --destination $Destination
+    $verificationArgs = @((Join-Path $PSScriptRoot 'c1_package.py'), 'receive', '--archive', $download,
+        '--outer-sha256', $artifact.digest.Substring(7), '--source-commit', $SourceCommit, '--run-id', $RunId,
+        '--run-attempt', $run.run_attempt.ToString(), '--destination', $Destination)
+    if ($RetainTransportArchive) { $verificationArgs += '--retain-archive' }
+    $verifiedJson = & $python.Source @verificationArgs
     if ($LASTEXITCODE -ne 0) { throw 'Artifact content/provenance/path verification failed. No payload was executed.' }
     $verified = $verifiedJson | ConvertFrom-Json
     $provenance = [ordered]@{
@@ -105,6 +110,7 @@ try {
         innerArchiveSha256 = $verified.archiveSha256
         expiresAtUtc = $expiry.ToUniversalTime().ToString('O', [Globalization.CultureInfo]::InvariantCulture)
     }
+    if ($RetainTransportArchive) { $provenance.transportArchiveName = 'transport.zip' }
     $provenancePath = Join-Path $Destination 'download-provenance.json'
     $provenanceFile = [IO.File]::Open($provenancePath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
     try {

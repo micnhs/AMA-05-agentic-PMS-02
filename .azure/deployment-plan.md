@@ -93,6 +93,21 @@ The R4 package still requires specific egress/operator/runtime-credential/AI-pol
 choices and effective start scopes; it does not require manually created
 runtime resources or repeat the general C1/cost approval.
 
+Package-2 now explicitly allows the verify-only Linux private artifact receiver;
+historical package-1 keeps its exact prior allowlist. Optional operator retention
+preserves the original verified outer ZIP for transport, without uploading or
+executing it. The receiver binds private DNS/socket/TLS, the own VM's app-only
+IMDS identity, an exact isolated Blob path, source/run/archive/tool hashes and
+bounded requests/deadlines. It accepts no transferred user bearer, GitHub
+credential, key or SAS and never executes the extracted payload. These are
+source contracts, not a native private delivery result. The private upload,
+artifact-container RBAC/readback, trusted Guest Agent bootstrap, FQDN egress,
+durable reconciliation and ordered artifact cleanup remain driver gaps.
+B5 separately has no approved complete delegated workstation-to-workspace-PE
+route; no VPN or Relay choice follows from the unanswered access question.
+Public workspace/HTTP Relay/token-copy workarounds are not permitted. No new
+cost/consent question or speculative tunnel is introduced by this increment.
+
 The foundation now explicitly attaches its own Standard NAT/static IPv4 to the
 client subnet without a public VM NIC or default outbound access. This fixes
 the missing address-translation component, not the still-unfinished FQDN filter,
