@@ -525,6 +525,29 @@ public sealed class RecoveryPathTests
                 $overlap = $true
             }
             if (-not $overlap) { throw 'A trailing separator bypassed the overlap boundary.' }
+            $script:dockerInvoked = $false
+            function Invoke-RecoveryDocker([string[]]$Arguments) {
+                $script:dockerInvoked = $true
+                throw 'No Docker operation is permitted by this scope-refusal test.'
+            }
+            $container = 'a' * 64
+            $native = '/var/opt/mssql/data/cohors_recovery_' + ('b' * 32)
+            foreach ($invalid in @(
+                @{ container = 'not-an-owned-id'; path = "$native-backup/database.bak" },
+                @{ container = $container; path = '/var/opt/mssql/data/master.mdf' },
+                @{ container = $container; path = "$native.bak" },
+                @{ container = $container; path = "$native-backup/../database.bak" }
+            )) {
+                $rejected = $false
+                try { Set-RecoverySqlBackupAccess $invalid.container $invalid.path }
+                catch {
+                    if (-not $_.Exception.Message.StartsWith('recovery_ownership:')) { throw }
+                    $rejected = $true
+                }
+                if (-not $rejected -or $script:dockerInvoked) {
+                    throw 'Unowned backup metadata reached a privileged container operation.'
+                }
+            }
             Write-Output 'RECOVERY_PATH_BOUNDARY=Verified'
             """);
         using var process = Process.Start(start) ?? throw new InvalidOperationException("Path-boundary probe could not start.");

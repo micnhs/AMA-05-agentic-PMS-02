@@ -9,8 +9,12 @@ namespace Cohors.Tests;
 [Collection("SQL pilot")]
 [Trait("Category", "Sql")]
 [Trait("Category", "RecoveryPresence")]
-public sealed class RecoveryPresenceTests(SqlFixture fixture)
+public sealed class RecoveryPresenceTests : IAsyncLifetime
 {
+    private readonly SqlFixture fixture = new() { SeedCases = false };
+    public Task InitializeAsync() => fixture.InitializeAsync();
+    public Task DisposeAsync() => fixture.DisposeAsync();
+
     [Fact]
     public async Task OriginalPresenceReadsActualCurrentAndHistoricalSqlWithoutChangingItsCut()
     {

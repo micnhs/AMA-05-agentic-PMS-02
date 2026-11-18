@@ -1,4 +1,3 @@
-import re
 import unittest
 from pathlib import Path
 
@@ -32,8 +31,14 @@ class WorkflowContractTests(unittest.TestCase):
                         self.assertRegex(step["uses"], r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$")
                     if step.get("uses", "").startswith("actions/upload-artifact@"):
                         paths = step["with"]["path"].splitlines()
-                        self.assertEqual(len(paths), 4)
-                        self.assertTrue(all(re.search(r"/(acceptance\.trx|e2e-results\.xml|cohors-cockpit\.png|cohors-workbench\.png)$", item) for item in paths))
+                        expected = {
+                            "${{ runner.temp }}/cohors-test-evidence/" + name
+                            for name in (
+                                "acceptance.trx", "bootstrap.trx", "e2e-results.xml",
+                                "cohors-cockpit.png", "cohors-workbench.png",
+                            )
+                        }
+                        self.assertCountEqual(paths, expected)
                         self.assertNotRegex(step["with"]["path"], r"settings|demo-access|trace|storageState|\*\*")
 
 

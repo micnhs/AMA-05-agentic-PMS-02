@@ -7,8 +7,12 @@ namespace Cohors.Tests;
 
 [Collection("SQL pilot")]
 [Trait("Category", "Sql")]
-public sealed class CaseSafetyTests(SqlFixture fixture)
+public sealed class CaseSafetyTests : IAsyncLifetime
 {
+    private readonly SqlFixture fixture = new();
+    public Task InitializeAsync() => fixture.InitializeAsync();
+    public Task DisposeAsync() => fixture.DisposeAsync();
+
     [Fact]
     public async Task T01_T02_T11_DeduplicationPreservesUnknownIdentityAndOriginalKnowledge()
     {

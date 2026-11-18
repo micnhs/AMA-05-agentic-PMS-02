@@ -6,8 +6,12 @@ using Cohors.Infrastructure;
 namespace Cohors.Tests;
 
 [Collection("SQL pilot")]
-public sealed partial class EudamedConfigurationTests(SqlFixture fixture)
+public sealed partial class EudamedConfigurationTests : IAsyncLifetime
 {
+    private readonly SqlFixture fixture = new();
+    public Task InitializeAsync() => fixture.InitializeAsync();
+    public Task DisposeAsync() => fixture.DisposeAsync();
+
     private const string Reason = "SYNTHETISCH: Der konkrete Teststand wird mit Originalbezug und getrennter menschlicher Verantwortung geprueft. Keine amtliche Registrierung, reale Uebermittlung oder implizite Risikoakzeptanz.";
     private readonly TestClock clock = new(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
     private readonly NoNetworkGateway gateway = new();

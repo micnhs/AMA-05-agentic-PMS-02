@@ -27,9 +27,11 @@ $master = Open-RecoverySql $config 'master'
 $stageDatabase = 'Cohors_Recovery_' + [Guid]::NewGuid().ToString('N') + '_staging'
 $stageObjects = $targetObjects + '.staging-' + [Guid]::NewGuid().ToString('N')
 $native = '/var/opt/mssql/data/cohors_recovery_' + [Guid]::NewGuid().ToString('N')
+$nativeBackupDirectory = "$native-backup"
+$nativeBackup = "$nativeBackupDirectory/database.bak"
 $ownedDatabase = $null
 $ownedObjects = $null
-$nativeCopied = $false
+$nativeBackupDirectoryCreated = $false
 $backupLock = $null
 $manifestLock = $null
 $objects = @()
@@ -89,12 +91,15 @@ try {
         throw 'recovery_object_hash: Staged object bytes differ.'
     }
     Write-RecoveryPhase 'staged-object-copy-verified' $objects.Count
-    Invoke-RecoveryDocker @('cp', $backupFile, "$($config.containerId):$native.bak") | Out-Null
-    $nativeCopied = $true
+    Invoke-RecoveryDocker @('exec', '--user', 'mssql', $config.containerId,
+        'mkdir', '-m', '700', '--', $nativeBackupDirectory) | Out-Null
+    $nativeBackupDirectoryCreated = $true
+    Invoke-RecoveryDocker @('cp', $backupFile, "$($config.containerId):$nativeBackup") | Out-Null
+    Set-RecoverySqlBackupAccess $config.containerId $nativeBackup
     Write-RecoveryPhase 'native-backup-copied'
-    Invoke-RecoverySql $master "RESTORE VERIFYONLY FROM DISK=N'$native.bak' WITH CHECKSUM"
+    Invoke-RecoverySql $master "RESTORE VERIFYONLY FROM DISK=N'$nativeBackup' WITH CHECKSUM"
     Write-RecoveryPhase 'native-backup-verified'
-    $command = [Microsoft.Data.SqlClient.SqlCommand]::new("RESTORE FILELISTONLY FROM DISK=N'$native.bak'", $master)
+    $command = [Microsoft.Data.SqlClient.SqlCommand]::new("RESTORE FILELISTONLY FROM DISK=N'$nativeBackup'", $master)
     $files = [Collections.Generic.List[object]]::new()
     try {
         $reader = $command.ExecuteReader()
@@ -112,7 +117,7 @@ try {
     $ownedDatabase = $stageDatabase
     Write-RecoveryPhase 'native-database-restore-start'
     Invoke-RecoverySql $master @"
-RESTORE DATABASE [$stageDatabase] FROM DISK=N'$native.bak'
+RESTORE DATABASE [$stageDatabase] FROM DISK=N'$nativeBackup'
 WITH MOVE N'$dataName' TO N'$native.mdf',MOVE N'$logName' TO N'$native.ldf',RECOVERY,RESTRICTED_USER,CHECKSUM
 "@
     Write-RecoveryPhase 'native-database-restored'
@@ -155,8 +160,9 @@ WITH MOVE N'$dataName' TO N'$native.mdf',MOVE N'$logName' TO N'$native.ldf',RECO
         }
         Write-RecoveryPhase 'post-search-state-verified'
     } finally { $stage.Dispose() }
-    Invoke-RecoveryDocker @('exec', $config.containerId, 'rm', '--', "$native.bak") | Out-Null
-    $nativeCopied = $false
+    Invoke-RecoveryDocker @('exec', '--user', 'mssql', $config.containerId, 'rm', '--', $nativeBackup) | Out-Null
+    Invoke-RecoveryDocker @('exec', '--user', 'mssql', $config.containerId, 'rmdir', '--', $nativeBackupDirectory) | Out-Null
+    $nativeBackupDirectoryCreated = $false
     Write-RecoveryPhase 'activation-start'
     # Directory.Move and database rename both reject a concurrently created destination.
     [IO.Directory]::Move($stageObjects, $targetObjects)
@@ -190,7 +196,10 @@ WITH MOVE N'$dataName' TO N'$native.mdf',MOVE N'$logName' TO N'$native.ldf',RECO
             Invoke-RecoveryDocker @('exec', $config.containerId, 'rm', '-f', '--', "$native.mdf", "$native.ldf") | Out-Null
         }
         if ($ownedObjects) { Remove-RecoveryObjects $ownedObjects $objects }
-        if ($nativeCopied) { Invoke-RecoveryDocker @('exec', $config.containerId, 'rm', '-f', '--', "$native.bak") | Out-Null }
+        if ($nativeBackupDirectoryCreated) {
+            Invoke-RecoveryDocker @('exec', '--user', 'mssql', $config.containerId, 'rm', '-f', '--', $nativeBackup) | Out-Null
+            Invoke-RecoveryDocker @('exec', '--user', 'mssql', $config.containerId, 'rmdir', '--', $nativeBackupDirectory) | Out-Null
+        }
         if ([IO.File]::Exists($readyTemporary)) { [IO.File]::Delete($readyTemporary) }
     } finally { $master.Dispose() }
     Write-RecoveryPhase 'restore-cleanup-complete'

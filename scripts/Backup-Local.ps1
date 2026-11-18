@@ -86,6 +86,18 @@ function Invoke-RecoveryDocker([string[]]$Arguments) {
     return $output
 }
 
+function Set-RecoverySqlBackupAccess([string]$ContainerId, [string]$Path) {
+    if ($ContainerId -cnotmatch '^[a-f0-9]{64}$' -or
+        $Path -cnotmatch '^/var/opt/mssql/data/cohors_recovery_[a-f0-9]{32}-backup/database\.bak$') {
+        throw 'recovery_ownership: Only the exact generated backup in its private owned directory is eligible.'
+    }
+    $directory = $Path.Substring(0, $Path.LastIndexOf('/'))
+    # docker cp preserves bytes, but its file owner need not be the SQL service identity.
+    Invoke-RecoveryDocker @('exec', '--user', '0', $ContainerId, 'sh', '-c',
+        'set -eu; test -d "$2"; test ! -L "$2"; test "$(stat -c %U:%G:%a -- "$2")" = mssql:mssql:700; test -f "$1"; test ! -L "$1"; test "$(stat -c %h -- "$1")" = 1; chown -- mssql:mssql "$1"; chmod -- 600 "$1"',
+        'cohors-recovery-backup-access', $Path, $directory) | Out-Null
+}
+
 function Read-RecoveryConfiguration([string]$Path) {
     $path = Assert-RecoveryPath $Path
     if ([IO.Path]::GetFileName($path) -in @('settings.json', 'demo-access.txt')) {

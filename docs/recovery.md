@@ -22,6 +22,29 @@ nicht behauptet. Kein ausserordentlicher Cleanup war erforderlich.
 grenzen den neuen Erfolg gegen alle negativen historischen Versuche ab.
 Neuere FSN-Quellergaenzungen sind nicht Bestandteil dieses Build42-Belegs.
 
+Der spaetere integrierte CI-Lauf auf `dd112705` blieb negativ. Eine
+[separate Linux-Kopierdiagnose](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44394598114)
+reproduzierte den frueheren Restore-Abbruch: dieselben nativen Backupbytes
+hatten nach SQL-Backup und Hostkopie die UID/GID10001:10001 bzw.1001:1001;
+die anschliessende unveraenderte Containerkopie behielt1001:1001 und0640.
+Der SQL-Dienst10001 konnte sie nicht lesen; `RESTORE VERIFYONLY WITH CHECKSUM`
+scheiterte mit3201/3013 und separat OS-Code5. Das ist ein beobachteter
+Leserechtefehler, kein Bytehashfehler und kein Nachweis fehlender SQL-GRANTs.
+
+Die aktuelle Quellkorrektur kopiert die Restoredatei in ein zuvor neu
+erzeugtes, dem SQL-Dienst gehoerendes0700-Verzeichnis. Nur die einzelne
+UUID-gebundene regulaere Datei darin erhaelt anschliessend
+`mssql:mssql` und0600. Symlinks, Mehrfach-Hardlinks, fremde Pfade und
+abweichende Verzeichniseigenschaften werden abgewiesen. Der eng begrenzte
+Container-Root-Aufruf aendert keine Hostrechte, SQL-Grants oder anderen
+Dateien; es gibt keine rekursive Rechteaenderung. Das private Verzeichnis
+verhindert auch bei Windows-Kopiermodi einen zwischenzeitlichen Zugriff
+anderer unprivilegierter Benutzer. Datei und leeres Verzeichnis werden vor
+Aktivierung bzw. beim Fehlerabschluss gezielt entfernt. Saemtliche
+Manifest-, SQL-, Objekt-, Historien-, Audit- und Aktivierungsgates bleiben
+bestehen. **Der Linux-Diagnosebeleg ist kein Restore-/App-Pass; die neue
+Quellkorrektur benoetigt ihre eigene Ausfuehrungs- und Paketbindung.**
+
 Der vollstaendige EUDAMED-Folgepatch und sein Runner sind in `874bffc`
 integriert. Der aktuelle Runner selektiert `Recovery|RecoveryEudamed` und
 verlangt **17 echte Passed-Ergebnisse** (14 plus 3), keine Skips sowie
