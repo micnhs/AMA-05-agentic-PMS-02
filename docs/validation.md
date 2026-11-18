@@ -2766,6 +2766,79 @@ Nur kontrollierter Fehlercode, Typ und Zeilennummer werden bei einem
 Unterprozessfehler ausgegeben, keine Originaltexte oder Verbindungsdaten.
 Dieser Folgefix ist hier noch nicht gebaut oder nativ bestaetigt.
 
+**Nachfolgender gebundener Stand:** Der Folgefix ist als
+`b7ced18271ae64599d5fa0aad3d0614524921187` festgeschrieben.
+Build41 erreichte unter dem unveraenderten600s-Projektbudget nur7/11
+Projekte; nach600,6682971s war der achte Prozess mit seinem verbliebenen
+14s-Limit negativ beendet. Alle eigenen Nachkommen/Streams waren
+geschlossen. Beim unveraenderten Domainprojekt stieg die gemessene
+Compilerzeit gegenueber Build40 von4901ms auf42757ms.
+Eine getrennte neue Ausfuehrung nur dieses unveraenderten Projekts
+schloss danach in15,0957024s/180. Keine fremden Prozesse, Hostregeln
+oder Zeitbudgets wurden geaendert. Erst anschliessend wurde **Build42
+vollstaendig neu** ausgefuehrt und bestanden, ohne Uebernahme der sieben
+Teilresultate. Elf Projekte, frisches Web, Solution, beide Publishes
+und39 Bootstrapfaelle waren erfolgreich.
+
+Auf diesem Build bestanden **Offline89:14/14 in18,9512022s/180**,
+**Native90:1/1 in54,8449124s/180** und **Native91:4/4
+in30,0348234s/180**. Native90 pruefte den tatsaechlichen leeren
+EUDAMED-Stand samt vollstaendigem `Get-RecoveryState`, anschliessend
+aktuelle/historische Originale mit gezielten Fehlstellen, Wiederherstellung
+der Originalbytes und unveraendertem SQL-Schnitt. Native91 behielt alle
+vier urspruenglichen Outbox-/Audit-/Manifest-/PSUR-Stichtagsfaelle.
+Eine beziehungsweise zwei Fixtures erreichten ihren regulaeren
+sechsstufigen Journalabschluss; SQL, Objekte, Elternverzeichnis und
+Prozesse waren entfernt, der fremde Before-Satz blieb erhalten.
+
+Boundary05 pruefte erneut Source/Assemblies/Package, enthielt aber
+keinen separaten erneuten SDK-Hash. Der neue Boundary06/Helperv4
+bestaetigte deshalb **414 Source-Dateien, sechs Assemblies,
+116 Paketdateien und den aktuellen SDK-Executable-Hash zusammen in
+6,5094146s/60**. Das ist keine nachtraegliche Erweiterung von05.
+
+Die neue Supervisorv7-Vorbereitung bindet die zusammenhaengenden
+14 Vertraege statt der alten getrennten8+5-Auswahl plus den separaten
+echten SQL-Praesenzfall. Die Originalfaelle sind nicht entfallen.
+Der2700s-Ausfuehrungs-/60s-Abschluss-/17-Faelle-/11-Gates-Teil ist
+gegenueberv6 unveraendert; der neue Read-only-Closurev4 ergaenzt nur
+aktuellen SDK-Hash und den exakten Fremdressourcensatz. Der wirkliche
+Prerequisite-Praefix wurde separat **in13,3772636s/60** ausgefuehrt:
+alle aktuellen Querverbindungen und die34+14 vorgebundenen Originale
+von Recovery06 wurden geprueft, ohne neue Runbindung oder Ressourcen
+anzulegen. Beobachtung02 bleibt selbst ohne Runtimefreigabe; nur die
+separate Entscheidung erlaubt neue serielle lokale Validierung.
+
+Die konkrete zukuenftige ausserordentliche Route verwendet ausschliesslich
+`Complete-Recovery07Cleanup-v1-preserved.ps1` mit vorab dauerhaft
+geschriebenem vollstaendigem Originalmanifest. Der tatsächliche Aufruf
+des enthaltenen60s-Prozesses wurde ohne Start abgefangen; seine
+Vorbereitung pruefte13 Eingabe-/Ablehnungsfaelle. Gesamter frischer
+Source-/SDK-/Assembly-/Package- und Fremdsatz-Preflight, Manifest,
+Mutation und Nachvergleich bleiben **ein**60s-Prozess, keine Addition
+von Teilbudgets. Die Route ist eng begrenzt auf einen beendeten
+Recovery07/Build42-Timeout mit bereits vollstaendig bereinigter
+Quellfixture, zwei exakt belegten lebenden Source-/Targetressourcen
+und einer bereits entfernten Failed-start-Ressource. Unvollstaendige
+oder abweichende Zustaende werden vor Mutation abgewiesen. Dies ist
+Source-/Dateikontraktevidenz, **kein ausgefuehrter generischer
+Pre-Ready-SQL-/Docker-Sondercleanup**. Ein fuer07 konkreter
+Post-exit-Eingabebeleg wurde noch nicht erzeugt.
+
+| Private Datei | SHA256 |
+|---|---|
+| `build-42-result.json` | `8eb1c77e6e9ba0f66d3ca6a6eecd3c9659270fa646b6d1921c591e30988a763e` |
+| `offline-89-result.json` | `b718b6a4cad315b7a32522bcf72353ab447e7a0b6bdfc400b3220e68a29e1f6a` |
+| `tests-90-result.json` | `50b1a09cb69ffcba34687ee74389848e63ede7367cd0e31fd723081e02232b47` |
+| `tests-91-result.json` | `a59083c6e242b4255515b1678bf7b53d61d8cd7cd986f2ecdb9a045a79a79d3c` |
+| `recovery-boundary-proof-06.json` | `9c9df9c47c0a77d85140342ad6d6e835845238fc175a2879651b66d4aa01ab80` |
+| `recovery-07-cleanup-route.json` | `9a6b6d7914d11556e1c100512f16b7bb90340095ccfddb59be77fee2f389cba0` |
+| `recovery-07-preparation-binding.json` | `fff85cb2c4500a6a8e7b97bbc840545d621dbd2f938bd7c3518630813dfd4535` |
+| `recovery-07-preparation-proof-01.json` | `81789a957b689967ea7d67fb879260375db63fc61d28b555febb6f7c421fef73` |
+
+Bis hier wurde noch kein Recovery07-Vollprozess gestartet und nichts
+auf die alte Vorschau oder nach Azure promoviert.
+
 Der eigene Datei-only-Integrationsvertrag
 `preservation-binding-01.json` bestand in38,4495698s/60. Die Einfuegung
 erhaelt reversibel alle bestehenden Ownership-/Pfad-/Prozess-/Fremdsatz-

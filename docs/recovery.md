@@ -138,8 +138,25 @@ liefert SQL-NULL. Der neue Code verwendet deshalb wie der vorhandene
 `SqlStateStore` explizit `COALESCE(...,N'[]')` fuer leere Ergebnismengen
 im Praesenzleser, vollstaendigen Backupzustand und Tabellenorakel.
 Nichtleere Original-JSON-Bytes und alle Integritaetspruefungen bleiben
-unveraendert. Dieser Folgefix benoetigt seinen eigenen gebundenen
-Build-/Nativebeleg; ein Recovery17-Erfolg wird noch nicht behauptet.
+unveraendert. Dieser Folgefix ist alsb7ced182/Build42 separat gebaut. Offline89
+bestaetigt14/14 Vertraege; Native90 bestaetigt den leeren sowie aktuellen
+und historischen SQL-Originalstand, Native91 die vier unveraenderten
+Integritaets-/Outbox-/PSUR-Stichtagsregressionen. Alle eigenen nativen
+Fixtures wurden regulaer entfernt. Ein Recovery17-Erfolg wird noch
+nicht behauptet.
+
+Die neue private Vorbereitung fuer Recovery07 bindet diese Ergebnisse
+an den2700s-Supervisorv7. Der unveraenderte Ausfuehrungsteil fordert
+weiterhin alle17 Faelle/11 Gates und den getrennten60s-Abschluss.
+Closurev4 ergaenzt einen tatsaechlichen SDK-Rehash und einen exakten
+Fremdressourcensatzvergleich. Die vorgebundene ausserordentliche
+Cleanuproute haelt vollstaendigen Source-/SDK-/Package-Preflight,
+dauerhaften Vorherbeleg, Bereinigung und Nachvergleich gemeinsam in60s.
+Sie ist nur fuer ihren exakt nachgewiesenen Timeoutzustand mit bereits
+bereinigter Quellfixture (Disposed) vorbereitet; andere Lebenszykluszustaende
+schliessen vor Mutation fehl. Eine generische reale Pre-Ready-Docker-
+Bereinigung ist damit nicht nachgewiesen. Historischer Recovery06
+und dessen fehlender vollstaendiger Dateivergleich bleiben negativ.
 
 Vor weiterer mutierender Sonderbereinigung muss der vollstaendige
 Vorher-Dateisatz inklusive explizit gebundener Loeschdateien mit
