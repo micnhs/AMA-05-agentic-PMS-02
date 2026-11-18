@@ -97,7 +97,8 @@ function Get-BrowserSelection([ValidateSet('EudamedDossiers','PrimaryBaseline')]
         $project = 'eudamed-dossiers'
         [string[]]$titles = @(
             'E03: source-bound MIR dossier, separate approvals, business receipt and newly approved correspondence reply',
-            'E04: byte-exact dossier PDF and audit originals, historical scope and cancelled download after identity switch'
+            'E04: byte-exact dossier PDF and audit originals, historical scope and cancelled download after identity switch',
+            'E05: separate FSN publication reviews include shared-ledger feedback and preserve simulated recipient evidence'
         )
     } else {
         $project = 'preview'
@@ -123,10 +124,10 @@ function Assert-BrowserSelection($document, $selection) {
         foreach ($child in $suite['suites']) { VisitSuite $child }
     }
     foreach ($suite in $document['suites']) { VisitSuite $suite }
-    if ($cases.Count -ne 2 -or
+    if ($cases.Count -ne $selection.titles.Count -or
         @($cases | Where-Object { $_.project -cne $selection.project -or $_.expectedStatus -cne 'passed' }).Count -or
         @(Compare-Object @($selection.titles) @($cases | ForEach-Object { $_.title })).Count) {
-        throw 'Playwright must list exactly the two declared unskipped cases in the selected project before resources.'
+        throw 'Playwright must list exactly all declared unskipped cases in the selected project before resources.'
     }
     return $cases.ToArray()
 }
@@ -345,7 +346,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Current browser acceptance failed; private diagnostics and JUnit were preserved.' }
     [xml]$junit = Get-Content -LiteralPath (Join-Path $artifacts 'e2e-results.xml') -Raw
     $cases = $junit.SelectNodes('//testcase')
-    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar' -or $Profile -eq 'SignalReview') { 4 } elseif ($Profile -in @('PrimaryBaseline','CaseDocuments','InformationLifecycle','EudamedConfiguration','EudamedDossiers')) { 2 } else { 1 }
+    $expected = if ($Profile -eq 'Preview') { 11 } elseif ($Profile -eq 'CockpitCalendar' -or $Profile -eq 'SignalReview') { 4 } elseif ($Profile -eq 'EudamedDossiers') { 3 } elseif ($Profile -in @('PrimaryBaseline','CaseDocuments','InformationLifecycle','EudamedConfiguration')) { 2 } else { 1 }
     if ($cases.Count -ne $expected -or $junit.SelectNodes('//testcase/skipped | //testcase/failure | //testcase/error').Count) {
         throw 'Browser acceptance requires every named scenario of the explicitly selected profile, without failures or skips.'
     }

@@ -608,7 +608,13 @@ keine erfundene `FSN.PUT`-Operation. Der neue BrowserfallE05 verwendet
 echte authentifizierte synthetische API-Voraussetzungen und prueft
 die gesonderten Veroeffentlichungsaktionen in getrennten UI-Kontexten.
 Sein lesbares PDF ist ein Ablauf-/Bytebindungsfixture, kein amtliches
-oder klinisch vollstaendiges FSN-Muster. Der native Recoveryfall behaelt
+oder klinisch vollstaendiges FSN-Muster. Das oeffentliche
+`EudamedDossiers`-Browserprofil umfasst jetzt E03, E04 und E05;
+die ersten beiden Originalfaelle und ihre Zeitgrenzen bleiben
+unveraendert. E05 wird aus dem allgemeinen Previewprofil ausgeschlossen.
+Die Auswahl muss vor Ressourcenanlage exakt alle drei ungeskippten
+Titel listen; fehlende oder zusaetzliche Faelle werden abgewiesen.
+Der native Recoveryfall behaelt
 die Original17-/11-Auswahl und ergaenzt die konkrete historische
 FSN-Verteilungsfassung; das ist erst nach eigenem Lauf ein Nachweis.
 Die beschriebenen neuen FSN-Ergaenzungen sind noch nicht Bestandteil

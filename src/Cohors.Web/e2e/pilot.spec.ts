@@ -760,7 +760,20 @@ test('E05: separate FSN publication reviews include shared-ledger feedback and p
       return command<EudamedDossier>(ra, raCsrf, `/eudamed/dossiers/${dossier.id}/approve`,
         { expectedVersion: dossier.version, reason: dossierRationale, findingDisposition: null })
     }
-    const fsca = await freeze(await command<EudamedDossier>(pms, pmsCsrf, '/eudamed/dossiers', {
+    async function receive(dossier: EudamedDossier, scenario: string) {
+      let view = await dossierView(ra, dossier.id)
+      await command(ra, raCsrf, `/eudamed/dossiers/${dossier.id}/submit`,
+        { expectedVersion: view.dossier.version, expectedLedgerVersion: view.ledger.version, scenario, reason: dossierRationale })
+      await expect.poll(async () => (await dossierView(ra, dossier.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
+      view = await dossierView(ra, dossier.id)
+      for (const planned of [...view.dossier.plannedResponses].sort((a, b) => a.sequence - b.sequence)) {
+        await expect.poll(() => Date.now() >= Date.parse(planned.dueAt)).toBe(true)
+        view = await command<DossierView>(ra, raCsrf, `/eudamed/dossiers/${dossier.id}/simulator`,
+          { expectedVersion: view.dossier.version, eventId: planned.id, duplicate: false, reason: dossierRationale })
+      }
+      return view
+    }
+    let fsca = await freeze(await command<EudamedDossier>(pms, pmsCsrf, '/eudamed/dossiers', {
       expectedVersion: 0, productId: 'ortho', kind: 'FSCA', reason: dossierRationale,
       sources: [{ kind: 'capa', id: capa.id, version: capa.version }],
       content: { title: 'SYNTHETISCH: FSCA-Original fuer FSN-Browserfall', clinicalRationale: dossierRationale,
@@ -773,6 +786,8 @@ test('E05: separate FSN publication reviews include shared-ledger feedback and p
           rootCauseRationale: dossierRationale, manufacturerActionTypes: ['CUSTOMER_INFORMATION_ONLY'],
           userActionTypes: ['IDENTIFY_DEVICE'], patientFollowUp: dossierRationale } },
     }))
+    fsca = (await receive(fsca, 'Accept')).dossier
+    expect(fsca.businessResponses.some(response => response.applied && response.status === 'BusinessAccepted' && response.dossierCode)).toBe(true)
     const governance = (await (await ra.get('/api/products/profiles')).json() as ProductGovernance[]).find(p => p.productId === 'ortho')!
     function originalPdf(version: number) {
       const lines = [
@@ -815,17 +830,7 @@ test('E05: separate FSN publication reviews include shared-ledger feedback and p
             instructions: dossierRationale, documentHash: document.originalHash, documentName: document.name,
             documentVersion: version.toString(), publicationState: 'Draft', urgent: false, reportType: 'FINAL', documentDate: today } },
       }))
-      let view = await dossierView(ra, dossier.id)
-      await command(ra, raCsrf, `/eudamed/dossiers/${dossier.id}/submit`,
-        { expectedVersion: view.dossier.version, expectedLedgerVersion: view.ledger.version, scenario, reason: dossierRationale })
-      await expect.poll(async () => (await dossierView(ra, dossier.id)).dossier.attempts.at(-1)?.status).toBe('TransportDelivered')
-      view = await dossierView(ra, dossier.id)
-      for (const planned of [...view.dossier.plannedResponses].sort((a, b) => a.sequence - b.sequence)) {
-        await expect.poll(() => Date.now() >= Date.parse(planned.dueAt)).toBe(true)
-        view = await command<DossierView>(ra, raCsrf, `/eudamed/dossiers/${dossier.id}/simulator`,
-          { expectedVersion: view.dossier.version, eventId: planned.id, duplicate: false, reason: dossierRationale })
-      }
-      return { view, bytes }
+      return { view: await receive(dossier, scenario), bytes }
     }
     const predecessor = await preparedFsn(1, 'Comment')
     const prepared = await preparedFsn(2, 'Accept')

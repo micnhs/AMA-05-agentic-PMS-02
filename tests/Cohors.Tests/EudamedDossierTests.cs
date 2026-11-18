@@ -110,7 +110,7 @@ public sealed partial class EudamedConfigurationTests
     public async Task FsnPublicationNeedsSeparateFourEyesAndExplicitConfirmationAndPreservesOriginalEvidence()
     {
         var (service, dossier) = await FrozenFsnDossier(false);
-        var view = await ReceiveFsn(service, dossier, "Accept");
+        var view = await ReceiveDossier(service, dossier, "Accept");
         var original = view.Dossier;
         var frozenBytes = await fixture.Objects.ReadBytes(original.FrozenPackageHash!);
         var legacy = JsonNode.Parse(Canonical.Serialize(original))!.AsObject();
@@ -217,7 +217,7 @@ public sealed partial class EudamedConfigurationTests
     public async Task UrgentFsnAlternativeIsSeparatelyApprovedAndNeverRetriesOrClosesAuthorityWork(string scenario)
     {
         var (service, dossier) = await FrozenFsnDossier(true);
-        var view = await ReceiveFsn(service, dossier, scenario);
+        var view = await ReceiveDossier(service, dossier, scenario);
         var input = FsnPublicationInput(view);
         await Assert.ThrowsAsync<DomainException>(() =>
             service.DraftFsnPublication(dossier.Id, input, SqlFixture.Ra, CaseScenario.Key()));
@@ -285,10 +285,10 @@ public sealed partial class EudamedConfigurationTests
     {
         var (service, first) = await FrozenFsnDossier(false);
         if (boundary == "historical") first = await SetFsnScope(first.Id, ["ortho", "cardio"]);
-        var firstView = await ReceiveFsn(service, first, "Comment");
+        var firstView = await ReceiveDossier(service, first, "Comment");
         first = await SetFsnScope(first.Id, boundary == "current" ? ["ortho", "cardio"] : ["ortho"]);
         var second = await FrozenSiblingFsn(service, first);
-        var view = await ReceiveFsn(service, second, "Accept");
+        var view = await ReceiveDossier(service, second, "Accept");
         Assert.Empty(FsnPublicationRules.Feedback(view.Ledger));
         var feedback = await service.FsnFeedback(second.Id, SqlFixture.Ra);
         Assert.Equal(EudamedContracts.Bind(view.Dossier), feedback.Dossier);
@@ -322,9 +322,9 @@ public sealed partial class EudamedConfigurationTests
     public async Task FsnHistoricalPublicationReplayAndCopiedDistributionKeepTheRelatedCurrentScope()
     {
         var (service, first) = await FrozenFsnDossier(false);
-        first = (await ReceiveFsn(service, first, "Comment")).Dossier;
+        first = (await ReceiveDossier(service, first, "Comment")).Dossier;
         var second = await FrozenSiblingFsn(service, first);
-        var view = await ReceiveFsn(service, second, "Accept");
+        var view = await ReceiveDossier(service, second, "Accept");
         var feedback = await service.FsnFeedback(second.Id, SqlFixture.Pms);
         second = await service.DraftFsnPublication(second.Id, FsnPublicationInput(view) with
         {
@@ -387,6 +387,9 @@ public sealed partial class EudamedConfigurationTests
         var (service, fsca) = await DraftFscaDossier();
         fsca = await service.ApproveDossier(fsca.Id, new(fsca.Version, Reason, Reason), SqlFixture.Medical, CaseScenario.Key());
         fsca = await service.ApproveDossier(fsca.Id, new(fsca.Version, Reason, null), SqlFixture.Ra, CaseScenario.Key());
+        fsca = (await ReceiveDossier(service, fsca, "Accept")).Dossier;
+        Assert.Contains(EudamedRules.CurrentResponses(fsca),
+            response => response.Applied && response.Status == "BusinessAccepted" && !string.IsNullOrWhiteSpace(response.DossierCode));
         var bytes = await fixture.Objects.ReadBytes(Assert.Single(fsca.Package.Attachments).Hash);
         var document = await service.RecordDocument(new("ortho", "synthetic-fsn-byte-binding-fixture.pdf", "application/pdf",
             Convert.ToBase64String(bytes), "SYNTHETISCH: Vorhandene Test-PDF-Bytes pruefen nur den Originalbezug, nicht die klinische FSN-Dokumentgestaltung. " + Reason, Reason),
@@ -402,7 +405,7 @@ public sealed partial class EudamedConfigurationTests
         return (service, dossier);
     }
 
-    private async Task<EudamedDossierView> ReceiveFsn(EudamedService service, EudamedDossier dossier, string scenario)
+    private async Task<EudamedDossierView> ReceiveDossier(EudamedService service, EudamedDossier dossier, string scenario)
     {
         var view = await QueueAndProcess(service, dossier, scenario);
         clock.Now = clock.Now.AddSeconds(2);

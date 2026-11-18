@@ -206,22 +206,24 @@ foreach ($profile in @('EudamedDossiers','PrimaryBaseline')) {
             if ("[preview] pilot.spec.ts > $title" -cnotmatch $selection.arguments[2]) { throw 'Selection must match full Playwright titles, not an incorrect leading anchor.' }
         }
     }
-    foreach ($mutation in @('WrongTitle','Skipped','WrongProject')) {
+    foreach ($mutation in @('WrongTitle','Skipped','WrongProject','MissingCase','ExtraCase')) {
         $bad = $listed | ConvertTo-Json -Depth 15 | ConvertFrom-Json -AsHashtable
         $spec = $bad.suites[0].suites[0].specs[0]
         switch ($mutation) {
             'WrongTitle' { $spec.title = 'Unrelated preview' }
             'Skipped' { $spec.tests[0].expectedStatus = 'skipped' }
             'WrongProject' { $spec.tests[0].projectName = 'unrelated-project' }
+            'MissingCase' { $bad.suites[0].suites[0].specs = @($bad.suites[0].suites[0].specs | Select-Object -Skip 1) }
+            'ExtraCase' { $bad.suites[0].suites[0].specs += $spec }
         }
         $rejected = $false
         try { $null = Assert-BrowserSelection $bad $selection } catch {
-            if ($_.Exception.Message -cne 'Playwright must list exactly the two declared unskipped cases in the selected project before resources.') { throw }
+            if ($_.Exception.Message -cne 'Playwright must list exactly all declared unskipped cases in the selected project before resources.') { throw }
             $rejected = $true
         }
-        if (-not $rejected) { throw 'A wrong or skipped selected case was accepted.' }
+        if (-not $rejected) { throw 'A changed, skipped, missing or additional selected case was accepted.' }
     }
-    $checks.Add(@{ variant = "$profile-selection"; success = $true; rejectedMutations = 3 })
+    $checks.Add(@{ variant = "$profile-selection"; success = $true; rejectedMutations = 5 })
 }
 $proof = [ordered]@{
     success = $true; executionHelperSha256 = HashFile $helper; testHelperSha256 = HashFile $PSCommandPath

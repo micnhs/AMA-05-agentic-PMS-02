@@ -199,45 +199,21 @@ internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDoss
         foreach (var planned in view.Dossier.PlannedResponses.OrderBy(item => item.Sequence).ToArray())
             view = await service.AdvanceSimulator(first.Id, new(view.Dossier.Version, planned.Id, false, Reason),
                 SqlFixture.Ra, CaseScenario.Key());
-        var revised = await service.DraftDossier(first.Id, input with
-        {
-            ExpectedVersion = view.Dossier.Version,
-            Content = content with { Title = "SYNTHETISCH: Neue Recovery-PDF-Fassung", ClinicalRationale = Reason + " Neue Quellenkommentierung." }
-        },
-            SqlFixture.Pms, CaseScenario.Key());
-        revised = await Approve(service, revised);
+        var accepted = view.Dossier;
+        Assert.Contains(EudamedRules.CurrentResponses(accepted),
+            response => response.Applied && response.Status == "BusinessAccepted" && !string.IsNullOrWhiteSpace(response.DossierCode));
         var rendered = await new PsurExportService(source.Store, clock).Render(EudamedDossierKind.FSCA,
             "synthetic-standalone-recovery-document", content with { Title = "SYNTHETISCH: Zusaetzliches binaeres Original" },
             first.Package.Sources, SqlFixture.Pms);
         var documentBytes = rendered.Bytes;
         var document = await service.RecordDocument(new("ortho", "synthetic-recovery-original.pdf", "application/pdf",
             Convert.ToBase64String(documentBytes), Reason, Reason), SqlFixture.Pms, CaseScenario.Key());
-        view = await service.DossierView(revised.Id, SqlFixture.Ra);
-        var entry = Assert.Single(view.Ledger.Entries);
-        var inbox = (await source.Store.List<EudamedInbox>("eudamedInbox", ["ortho"]))
-            .Where(item => item.Original?.DossierId == revised.Id).OrderBy(item => item.Id, StringComparer.Ordinal).ToArray();
-        Assert.Equal(2, inbox.Length);
-        Assert.NotEqual(first.Package.Attachments[0].Hash, document.OriginalHash);
-        Assert.NotEqual(first.Package.Attachments[0].Hash, Assert.Single(revised.Package.Attachments).Hash);
-        Assert.NotEqual(document.OriginalHash, revised.Package.Attachments[0].Hash);
-        var originals = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["certificate"] = references.Certificate.OriginalHash,
-            ["document"] = document.OriginalHash,
-            ["historical-pdf"] = first.Package.Attachments[0].Hash,
-            ["current-pdf"] = Assert.Single(revised.Package.Attachments).Hash,
-            ["historical-package"] = first.FrozenPackageHash!,
-            ["current-package"] = revised.FrozenPackageHash!,
-            ["approved-snapshot"] = entry.ApprovedDossier.Hash,
-            ["transport-receipt"] = entry.Attempt.ReceiptHash!
-        };
-        foreach (var item in inbox) originals.Add("inbox-" + item.Original!.Kind, item.OriginalHash);
         var fsnContent = new EudamedDossierContent("SYNTHETISCH: FSN-Recovery-Originalbindung", Reason, Reason, "de", "EU-IE",
-            ["IE"], "Submit", null, null, null, null, new(revised.Id, revised.Version,
+            ["IE"], "Submit", null, null, null, null, new(accepted.Id, accepted.Version,
                 "SYNTHETISCH: Isolierter Testempfaenger, keine reale Einrichtung", Reason, document.OriginalHash,
                 document.Name, "1", "Draft", false, "FINAL", new(2026, 11, 16)));
         var fsnInput = new DraftEudamedDossierCommand(0, "ortho", EudamedDossierKind.FSN, fsnContent,
-            [new("eudamedDossier", revised.Id, revised.Version), new("eudamedDocument", document.Id, document.Version)], Reason);
+            [new("eudamedDossier", accepted.Id, accepted.Version), new("eudamedDocument", document.Id, document.Version)], Reason);
         var fsn = await Approve(service, await service.DraftDossier(null, fsnInput, SqlFixture.Pms, CaseScenario.Key()));
         var fsnView = await service.DossierView(fsn.Id, SqlFixture.Ra);
         fsnView = await service.QueueDossier(fsn.Id, new(fsn.Version, fsnView.Ledger.Version, "Comment", Reason), SqlFixture.Ra, CaseScenario.Key());
@@ -262,7 +238,33 @@ internal sealed record EudamedRecoveryData(EudamedDocument Document, EudamedDoss
             ExpectedVersion = publishedFsn.Version,
             Content = fsnContent with { Title = "SYNTHETISCH: Spaetere FSN-Dokumentfassung nach simulierter Verteilung" }
         }, SqlFixture.Pms, CaseScenario.Key());
-        originals.Add("fsn-distribution", Assert.Single(publishedFsn.Distributions).EvidenceHash);
+        var revised = await service.DraftDossier(first.Id, input with
+        {
+            ExpectedVersion = accepted.Version,
+            Content = content with { Title = "SYNTHETISCH: Neue Recovery-PDF-Fassung", ClinicalRationale = Reason + " Neue Quellenkommentierung." }
+        }, SqlFixture.Pms, CaseScenario.Key());
+        revised = await Approve(service, revised);
+        view = await service.DossierView(revised.Id, SqlFixture.Ra);
+        var entry = Assert.Single(view.Ledger.Entries);
+        var inbox = (await source.Store.List<EudamedInbox>("eudamedInbox", ["ortho"]))
+            .Where(item => item.Original?.DossierId == revised.Id).OrderBy(item => item.Id, StringComparer.Ordinal).ToArray();
+        Assert.Equal(2, inbox.Length);
+        Assert.NotEqual(first.Package.Attachments[0].Hash, document.OriginalHash);
+        Assert.NotEqual(first.Package.Attachments[0].Hash, Assert.Single(revised.Package.Attachments).Hash);
+        Assert.NotEqual(document.OriginalHash, revised.Package.Attachments[0].Hash);
+        var originals = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["certificate"] = references.Certificate.OriginalHash,
+            ["document"] = document.OriginalHash,
+            ["historical-pdf"] = first.Package.Attachments[0].Hash,
+            ["current-pdf"] = Assert.Single(revised.Package.Attachments).Hash,
+            ["historical-package"] = first.FrozenPackageHash!,
+            ["current-package"] = revised.FrozenPackageHash!,
+            ["approved-snapshot"] = entry.ApprovedDossier.Hash,
+            ["transport-receipt"] = entry.Attempt.ReceiptHash!,
+            ["fsn-distribution"] = Assert.Single(publishedFsn.Distributions).EvidenceHash
+        };
+        foreach (var item in inbox) originals.Add("inbox-" + item.Original!.Kind, item.OriginalHash);
         Assert.All(originals.Values, hash => Assert.Matches("^[a-f0-9]{64}$", hash));
         return new(document, first, view.Dossier, view.Ledger, inbox, await Histories(source.Store), originals, publishedFsn, currentFsn);
     }

@@ -2907,6 +2907,51 @@ abgeleitet. Der Folgefix verwendet explizite nichtnullbare lokale
 Sammlungen mit fachlichem Fehler fuer fehlende Eingaben, keine
 Nullunterdrueckung oder stillschweigende leere Bewertung.
 
+**Build44 auf918e6a5** bestand danach alle elf frischen Projektrebuilds,
+den Web-/Solutionbuild, API-Publish, alle39 Bootstrapfaelle und den
+Bootstrap-Publish. Der gebundene Stand umfasst417 Quelldateien,
+sechs Testassemblies und116 Paketdateien; eigene Prozesse und Streams
+sind geschlossen. **Offline92** bestand alle15 ausgewaehlten SQL-freien
+Recoveryvertraege ohne Skip in31,6060184s/180, darunter den neuen
+FSN-Verweisgraphen fuer historische SQL-Fassungen.
+
+Der anschliessende **Native93 bleibt negativ:0/9 Passed**. Alle neun
+FSN-Faelle scheiterten in32,7543747s/180 bereits an der unveraenderten
+Sperre `eudamed_remote_reference`: Die neue Vorbereitung hatte die
+FSCA nur menschlich eingefroren, aber noch keine korrelierte
+Simulator-Geschaeftsannahme eingeholt. Ihre einzelne eigene Fixture
+durchlief den vollstaendigen Journal-Lifecycle bis `Disposed`;
+Fremdsatz, Datenbank-/Objektabwesenheit und Prozessabschluss wurden
+geprueft. Kein Sondercleanup und kein FSN-Runtimepass daraus.
+
+Die gezielte Quellkorrektur fuehrt vor der FSN-Erstellung die echte
+lokale Queue-/Process-/Simulatorantwortfolge fuer die FSCA aus, statt
+ein Remote-Kennzeichen einzusetzen oder den Produktionsguard zu
+lockern. Auch E05 nutzt diese Voraussetzung. Im Recoveryaufbau wird
+die FSN noch gegen die aktuelle angenommene FSCA freigegeben und
+simuliert verteilt, bevor beide spaetere Dokumentfassungen erhalten;
+die bisherigen historischen/current Assertions und17/11-Gates bleiben.
+Diese Korrektur benoetigt ihren eigenen Build und neue Ausfuehrung.
+
+Die anschliessenden reinen Quellpruefungen sind positiv:
+`public-ui-contracts-05` pruefte alle elf echten Runnervertraege
+in22,6306181s/60, einschliesslich fehlender/zusaetzlicher Auswahlfaelle
+und unveraenderter Ownership-vor-CREATE-/Cleanup-/Umgebungsgrenzen.
+`fsn-browser-source-01` bestand den strikten TypeScriptcheck und
+die tatsaechliche Playwright-Enumeration in35,8422901s/120:
+genau E03/E04/E05 im Dossierprofil, genau zwei PrimaryBaselinefaelle
+und weiterhin elf Previewfaelle ohne E05. Kein Browser, API, SQL
+oder Build wurde fuer diese beiden Quellpruefungen gestartet.
+
+| Privater FSN-Zwischenbeleg | SHA256 |
+| --- | --- |
+| `build-44-result.json` | `f2721cc31ccb8285c71db564d32993700a0c181741b2f507008890d96b62c2f4` |
+| `build-44-owned-job.json` | `fd82febcd2b37936d835064a8fc2ada3ff753387af029873376a2bce747cbea8` |
+| `offline-92-result.json` | `9c875a2de5b51fabb2c1badd7b5ceaf7d02c920e37d07580cf52bb04481237a4` |
+| `tests-93-result.json` | `5f15af86260230cc2520f3ceb61a1ed5641469f35bd4bc7994400896d3b9c73c` |
+| `tests-93-owned-job.json` | `5e6ef4c20302a9247d03f96d10fc9f1b71e78b4dc1d6c481fca0c7cba90f47ce` |
+| `tests-93-owned-sql.json.journal.jsonl` | `c9ffb4718bcd5053e1a8129ce65351e623a9ea0f97b22d1d0310d5e55cfe2805` |
+
 Der eigene Datei-only-Integrationsvertrag
 `preservation-binding-01.json` bestand in38,4495698s/60. Die Einfuegung
 erhaelt reversibel alle bestehenden Ownership-/Pfad-/Prozess-/Fremdsatz-
