@@ -14,6 +14,7 @@ public sealed record FabricC1DeploymentCompute(string? Size, string? ImagePublis
 public sealed record FabricC1DeploymentReviews(string? StartRightsSha256, string? TenantSettingsSha256,
     string? ResourcePlanSha256, string? BudgetPlanSha256, string? DataHandlingAndRetentionSha256, string? CleanupPlanSha256);
 public sealed record FabricC1ControlTokenBindings(string? ArmAudience, string? ArmIssuer, string? GraphAudience, string? GraphIssuer);
+public sealed record FabricC1CleanupLimits(int? ReservedRequests, int? MaxDurationSeconds, DateTimeOffset? VerificationDeadlineUtc);
 public sealed record FabricC1DeploymentInputs(string Contract, string? DeploymentId, string? SourceCommit,
     string? TenantId, string? SubscriptionId, string? Location, string? NamePrefix, DateTimeOffset? ExpiresAtUtc,
     FabricC1Identity? BootstrapIdentity, string[]? CapacityAdministrators, FabricC1DeploymentNetwork? Network,
@@ -23,6 +24,8 @@ public sealed record FabricC1DeploymentInputs(string Contract, string? Deploymen
     public FabricC1ControlTokenBindings? ControlTokenBindings { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? DelegatedGroupOwnerMode { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FabricC1CleanupLimits? Cleanup { get; init; }
 }
 public sealed record FabricC1DeploymentPlan(string Status, string BindingHash, string[] MissingInputs,
     string[] ImplementationBlockers, string[] Resources, string[] NonArmOperations)
@@ -61,6 +64,7 @@ public static class FabricC1Deployment
             input.CapacityAdministrators.All(Text));
         Required("maxControlRequests", input.MaxControlRequests is >= 1 and <= 1000);
         Required("maxControlDurationSeconds", input.MaxControlDurationSeconds is >= 1 and <= 7200);
+        Required("cleanup", ValidCleanupLimits(input));
         Required("requiredTenantSettingNames", input.RequiredTenantSettingNames is { Length: <= 32 } &&
             input.RequiredTenantSettingNames.All(name => name is not null &&
                 Regex.IsMatch(name, "^[a-zA-Z0-9_-]{1,128}$", RegexOptions.CultureInvariant)));
@@ -182,6 +186,14 @@ public static class FabricC1Deployment
             Issuer(tokens.ArmIssuer) && Issuer(tokens.GraphIssuer);
     }
 
+    public static bool ValidCleanupLimits(FabricC1DeploymentInputs input) =>
+        input.Cleanup is { } cleanup && cleanup.ReservedRequests is >= 1 &&
+        cleanup.ReservedRequests < input.MaxControlRequests && cleanup.MaxDurationSeconds is >= 1 and <= 7200 &&
+        cleanup.MaxDurationSeconds <= input.MaxControlDurationSeconds &&
+        input.ExpiresAtUtc is { } expires && input.MaxControlDurationSeconds is >= 1 and <= 7200 &&
+        cleanup.VerificationDeadlineUtc > expires &&
+        cleanup.VerificationDeadlineUtc <= expires.AddSeconds(input.MaxControlDurationSeconds.Value);
+
     private static bool ValidPrefixes(FabricC1DeploymentNetwork network)
     {
         if (!IPNetwork.TryParse(network.VnetPrefix, out var parent) || parent.BaseAddress.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
@@ -225,6 +237,10 @@ public sealed record FabricC1DeploymentJournal(string BindingHash,
     public DateTimeOffset? StartedAtUtc { get; init; }
     public Dictionary<string, string> PendingOperations { get; init; } = new(StringComparer.Ordinal);
     public Dictionary<string, FabricC1DeniedRequest> DeniedRequests { get; init; } = new(StringComparer.Ordinal);
+    public DateTimeOffset? CleanupStartedAtUtc { get; init; }
+    public int CleanupRequests { get; init; }
+    public Dictionary<string, string> PendingDeletes { get; init; } = new(StringComparer.Ordinal);
+    public Dictionary<string, FabricC1ProvisionedObject> CleanupReceipts { get; init; } = new(StringComparer.Ordinal);
 }
 public sealed record FabricC1DeniedRequest(string RequestHash, int Status);
 public interface IFabricC1DeploymentJournal
@@ -252,6 +268,10 @@ public sealed partial class FabricC1Provisioner
         this.time = time ?? TimeProvider.System;
         state = journal.Load() ?? new(Canonical.Hash(input), new(StringComparer.Ordinal), new(StringComparer.Ordinal));
         Guard.Against(state.BindingHash != Canonical.Hash(input), "c1_deploy_journal_binding", "Deployment manifest changed; no adoption or update.", 409);
+        Guard.Against(state.Requests < 0 || state.CleanupRequests < 0 || state.CleanupRequests > state.Requests ||
+            state.Requests > state.CleanupRequests && state.StartedAtUtc is null ||
+            state.CleanupRequests > 0 && state.CleanupStartedAtUtc is null,
+            "c1_deploy_journal_budget", "Persisted counters lack their original start or are inconsistent; do not reset them.", 409);
     }
 
     public async Task Preflight(CancellationToken ct)
@@ -582,16 +602,16 @@ public sealed partial class FabricC1Provisioner
     }
 
     private async Task<JsonObject> EnsureCreated(string key, string kind, string collection, string name, JsonObject body,
-        bool isGraph, CancellationToken ct, string filterProperty = "displayName")
+        bool isGraph, CancellationToken ct, string filterProperty = "displayName", bool reconcileForCleanup = false)
     {
         var hash = Canonical.Hash(body);
         if (state.Objects.TryGetValue(key, out var known))
         {
             Guard.Against(known.Kind != kind || known.RequestHash != hash, "c1_deploy_drift", "A completed create request changed.", 409);
-            var current = await Read(collection + "/" + known.Id, ct);
+            var current = await Read(collection + "/" + known.Id, ct, reconcileForCleanup);
             RequireMarker(current, isGraph && kind != "SecurityGroup");
             SameId(Text(current, "id"), known.Id);
-            await VerifyGraphBinding(kind, collection, current, body, ct);
+            await VerifyGraphBinding(kind, collection, current, body, ct, reconcileForCleanup);
             return current;
         }
         if (state.PendingCreates.TryGetValue(key, out var pending))
@@ -604,7 +624,7 @@ public sealed partial class FabricC1Provisioner
         var listUri = isGraph
             ? collection + "?$filter=" + Uri.EscapeDataString(filterProperty + " eq '" + name.Replace("'", "''") + "'")
             : collection;
-        var all = await ReadAll(listUri, isGraph, ct);
+        var all = await ReadAll(listUri, isGraph, ct, reconcileForCleanup);
         var matches = all.Where(item => item[filterProperty]?.GetValue<string>() == name).ToArray();
         Guard.Against(matches.Length > 1, "c1_deploy_name_conflict", "Ambiguous name; no resource is adopted.", 409);
         if (matches.Length == 1)
@@ -612,12 +632,13 @@ public sealed partial class FabricC1Provisioner
             Guard.Against(pending is null, "c1_deploy_foreign", "Name already exists without a recorded creation intent.", 409);
             RequireMarker(matches[0], isGraph && kind != "SecurityGroup");
             GuidValue(Text(matches[0], "id"));
-            await VerifyGraphBinding(kind, collection, matches[0], body, ct);
+            await VerifyGraphBinding(kind, collection, matches[0], body, ct, reconcileForCleanup);
             SaveObject(key, kind, Text(matches[0], "id"), hash, matches[0]);
             return matches[0];
         }
         Guard.Against(pending is not null, "c1_deploy_unknown",
             "No authoritative create result; absence after interruption is not permission to retry POST.", 409);
+        Guard.Against(reconcileForCleanup, "c1_deploy_cleanup_create", "Cleanup never creates an identity.", 409);
         Pending(key, hash);
         var created = await Send(HttpMethod.Post, new(collection), body, ct: ct);
         RecordDeniedRequest(key, hash, created.Status);
@@ -672,13 +693,13 @@ public sealed partial class FabricC1Provisioner
         throw new DomainException("c1_deploy_operation_pending", "Bounded LRO wait exhausted; resume the same operation.", 409);
     }
 
-    private async Task<JsonObject[]> ReadAll(string uri, bool isGraph, CancellationToken ct)
+    private async Task<JsonObject[]> ReadAll(string uri, bool isGraph, CancellationToken ct, bool cleanup = false)
     {
         var start = new Uri(uri);
         var result = new List<JsonObject>();
         for (var page = 0; page < 20; page++)
         {
-            var data = await Read(uri, ct);
+            var data = await Read(uri, ct, cleanup);
             if (data["value"] is not JsonArray entries)
                 throw new DomainException("c1_deploy_list_shape", "Missing list data.", 409);
             result.AddRange(entries.Select(entry => entry as JsonObject ??
@@ -699,9 +720,9 @@ public sealed partial class FabricC1Provisioner
         throw new DomainException("c1_deploy_paging", "Bounded list incomplete; no create on incomplete inventory.", 409);
     }
 
-    private async Task<JsonObject> Read(string uri, CancellationToken ct)
+    private async Task<JsonObject> Read(string uri, CancellationToken ct, bool cleanup = false)
     {
-        var reply = await Send(HttpMethod.Get, new(uri), ct: ct);
+        var reply = await Send(HttpMethod.Get, new(uri), ct: ct, cleanup: cleanup);
         RequireStatus(reply, 200);
         return reply.Body;
     }
@@ -751,22 +772,23 @@ public sealed partial class FabricC1Provisioner
             !(string.Equals(body["id"]?.GetValue<string>(), FabricC1Deployment.GroupId(input), StringComparison.OrdinalIgnoreCase) ||
               body["id"]?.GetValue<string>()?.StartsWith(FabricC1Deployment.GroupId(input) + "/", StringComparison.OrdinalIgnoreCase) == true),
             "c1_deploy_foreign", "ARM resource is outside the owned C1 manifest.", 409);
-    private async Task VerifyGraphBinding(string kind, string collection, JsonObject item, JsonObject request, CancellationToken ct)
+    private async Task VerifyGraphBinding(string kind, string collection, JsonObject item, JsonObject request, CancellationToken ct, bool cleanup = false)
     {
         if (kind == "Application")
         {
             Guard.Against(Text(item, "signInAudience") != "AzureADMyOrg", "c1_deploy_app_tenant", "Runtime application must be single-tenant.", 409);
             GuidValue(Text(item, "appId"));
-            var owners = await ReadAll(collection + "/" + Text(item, "id") + "/owners?$select=id", true, ct);
+            var owners = await ReadAll(collection + "/" + Text(item, "id") + "/owners?$select=id", true, ct, cleanup);
             Guard.Against(!owners.Any(owner => owner["id"]?.GetValue<string>() == input.BootstrapIdentity!.PrincipalObjectId),
                 "c1_deploy_app_owner", "Bound creator is not a verified application owner.", 409);
+            Guard.Against(cleanup && owners.Length != 1, "c1_deploy_cleanup_ownership", "Additional application owners require review before deletion.", 409);
         }
         if (kind == "ServicePrincipal") SameId(Text(item, "appId"), Text(request, "appId"));
         if (kind == "SecurityGroup")
         {
             var groupId = Text(item, "id");
             var details = await Read(collection + "/" + groupId +
-                "?$select=id,description,securityEnabled,mailEnabled,isAssignableToRole,groupTypes", ct);
+                "?$select=id,description,securityEnabled,mailEnabled,isAssignableToRole,groupTypes", ct, cleanup);
             SameId(Text(details, "id"), groupId);
             RequireMarker(details, false);
             Guard.Against(details["securityEnabled"]?.GetValue<bool>() != true ||
@@ -776,25 +798,55 @@ public sealed partial class FabricC1Provisioner
                 "c1_deploy_group_scope", "Allowlist group must be static, non-mail, non-role-assignable security group.", 409);
             var delegated = input.BootstrapIdentity!.CredentialKind == "DelegatedAzureCli";
             var ownership = await ReadAll(delegated ? collection + "/" + groupId + "/owners?$select=id" :
-                $"https://graph.microsoft.com/v1.0/servicePrincipals/{input.BootstrapIdentity.PrincipalObjectId}/ownedObjects?$select=id", true, ct);
+                $"https://graph.microsoft.com/v1.0/servicePrincipals/{input.BootstrapIdentity.PrincipalObjectId}/ownedObjects?$select=id", true, ct, cleanup);
             var expectedId = delegated ? input.BootstrapIdentity.PrincipalObjectId : groupId;
             Guard.Against(!ownership.Any(owner => owner["id"]?.GetValue<string>() == expectedId),
                 "c1_deploy_group_owner", "Bound creator is not a verified allowlist group owner.", 409);
+            if (cleanup)
+            {
+                var owners = delegated ? ownership : await ReadAll(collection + "/" + groupId + "/owners?$select=id", true, ct, true);
+                Guard.Against(owners.Length != 1 || owners[0]["id"]?.GetValue<string>() != input.BootstrapIdentity.PrincipalObjectId,
+                    "c1_deploy_cleanup_ownership", "Additional or changed group owners require review before deletion.", 409);
+            }
         }
     }
     private async Task<FabricC1DeploymentReply> Send(HttpMethod method, Uri uri, JsonObject? body = null,
-        string? ifMatch = null, CancellationToken ct = default)
+        string? ifMatch = null, CancellationToken ct = default, bool cleanup = false)
     {
+        Guard.Against(!FabricC1Deployment.ValidCleanupLimits(input), "c1_deploy_cleanup_limits",
+            "A reviewed cleanup reserve must be bound before the first control-plane request.", 409);
         var now = time.GetUtcNow();
-        var started = state.StartedAtUtc ?? now;
-        Guard.Against(input.MaxControlRequests is null || state.Requests >= input.MaxControlRequests ||
-            input.ExpiresAtUtc is null || now >= input.ExpiresAtUtc || input.MaxControlDurationSeconds is null ||
-            now >= started.AddSeconds(input.MaxControlDurationSeconds.Value),
-            "c1_deploy_budget", "Persisted control-plane budget or deadline exhausted; no request made.", 409);
-        var next = state with { Requests = state.Requests + 1, StartedAtUtc = started };
+        DateTimeOffset deadline;
+        FabricC1DeploymentJournal next;
+        if (cleanup)
+        {
+            Guard.Against(uri.IdnHost != "graph.microsoft.com" || method != HttpMethod.Get && method != HttpMethod.Delete,
+                "c1_deploy_cleanup_scope", "Identity cleanup can only read or delete its bound Graph inventory.", 409);
+            var started = state.CleanupStartedAtUtc ?? now;
+            deadline = started.AddSeconds(input.Cleanup!.MaxDurationSeconds!.Value);
+            if (input.Cleanup.VerificationDeadlineUtc!.Value < deadline) deadline = input.Cleanup.VerificationDeadlineUtc.Value;
+            Guard.Against(state.Requests >= input.MaxControlRequests || state.CleanupRequests >= input.Cleanup.ReservedRequests ||
+                now >= deadline, "c1_deploy_cleanup_budget", "Persisted cleanup reserve/deadline exhausted; no reset or request.", 409);
+            next = state with { Requests = state.Requests + 1, CleanupRequests = state.CleanupRequests + 1, CleanupStartedAtUtc = started };
+        }
+        else
+        {
+            Guard.Against(state.CleanupStartedAtUtc is not null, "c1_deploy_cleanup_started", "Cleanup has fenced this run; no new provisioning or grants.", 409);
+            var started = state.StartedAtUtc ?? now;
+            deadline = started.AddSeconds(input.MaxControlDurationSeconds!.Value);
+            if (input.ExpiresAtUtc!.Value < deadline) deadline = input.ExpiresAtUtc.Value;
+            Guard.Against(state.Requests >= input.MaxControlRequests - input.Cleanup!.ReservedRequests || now >= deadline,
+                "c1_deploy_budget", "Persisted normal budget/deadline exhausted; the cleanup reserve is not spent on provisioning.", 409);
+            next = state with { Requests = state.Requests + 1, StartedAtUtc = started };
+        }
         journal.Save(next);
         state = next;
-        return await api.Send(method, uri, body, ifMatch, ct);
+        var remaining = deadline - time.GetUtcNow();
+        Guard.Against(remaining <= TimeSpan.Zero, cleanup ? "c1_deploy_cleanup_budget" : "c1_deploy_budget",
+            "Deadline elapsed while persisting intent; no provider call.", 409);
+        using var budget = new CancellationTokenSource(remaining, time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
+        return await api.Send(method, uri, body, ifMatch, linked.Token);
     }
     public static void RequireStatus(FabricC1DeploymentReply reply, params int[] expected) =>
         Guard.Against(!expected.Contains(reply.Status), "c1_deploy_http_" + reply.Status, "Provider operation not confirmed; no retry or fallback.", 409);

@@ -226,7 +226,7 @@ public sealed class FabricC1DeploymentTests
     [Fact]
     public async Task BudgetSurvivesProcessResumeAndRefusesRequestBeforeEffects()
     {
-        using var run = new Harness(maxRequests: 2);
+        using var run = new Harness(maxRequests: 3);
         run.Capacity();
         var item = run.Workspace("agent");
         run.Api.List();
@@ -237,6 +237,180 @@ public sealed class FabricC1DeploymentTests
             run.Provisioner.EnsureWorkspace("agent", default))).Code);
         Assert.Equal(2, run.Api.Requests.Count);
     }
+
+    [Fact]
+    public void CleanupReserveCannotIncreaseTheOriginalRequestCeilingOrExtendActiveUse()
+    {
+        using var run = new Harness();
+        foreach (var invalid in new[]
+        {
+            run.Input with { Cleanup = null },
+            run.Input with { Cleanup = run.Input.Cleanup! with { ReservedRequests = run.Input.MaxControlRequests } },
+            run.Input with { Cleanup = run.Input.Cleanup! with { VerificationDeadlineUtc = run.Input.ExpiresAtUtc } },
+            run.Input with { Cleanup = run.Input.Cleanup! with { VerificationDeadlineUtc = run.Input.ExpiresAtUtc!.Value.AddHours(3) } }
+        })
+            Assert.Contains("cleanup", FabricC1Deployment.Plan(invalid, run.Clock.GetUtcNow()).MissingInputs);
+    }
+
+    [Fact]
+    public async Task IdentityCleanupUsesItsReservedCallsAfterNormalExpiryAndFencesProvisioningWithoutReset()
+    {
+        using var run = new Harness(delegated: true);
+        var application = CleanupApplication(run);
+        run.Seed("runtime-app", "Application", application);
+        run.Store.Save(run.Store.Current! with { StartedAtUtc = run.Clock.GetUtcNow(), Requests = 80 });
+        var afterExpiry = new Clock(run.Input.ExpiresAtUtc!.Value.AddMinutes(1));
+        var cleanup = new FabricC1Provisioner(run.Input, run.Api, run.Store, afterExpiry);
+        run.Api.Reply(200, application);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
+        run.Api.Reply(204, new());
+        run.Api.Reply(404, new());
+        var result = await cleanup.CleanupIdentityPhase(default);
+        Assert.True(result.ActiveIdentityInventoryAbsent);
+        Assert.False(result.CompleteC1Cleanup);
+        Assert.Equal("runtime-app", Assert.Single(result.AbsentIdentityKeys));
+        Assert.Equal(84, run.Store.Current!.Requests);
+        Assert.Equal(4, run.Store.Current.CleanupRequests);
+        Assert.Equal(run.Clock.GetUtcNow(), run.Store.Current.StartedAtUtc);
+        Assert.Equal(afterExpiry.GetUtcNow(), run.Store.Current.CleanupStartedAtUtc);
+        Assert.False(run.Store.Current.CleanupReceipts["runtime-app"].Response["providerRetentionPurged"]!.GetValue<bool>());
+        Assert.Equal("c1_deploy_cleanup_started", (await Assert.ThrowsAsync<DomainException>(() => cleanup.Preflight(default))).Code);
+        run.Api.Reply(404, new());
+        var resumed = new FabricC1Provisioner(run.Input, run.Api, run.Store, new Clock(afterExpiry.GetUtcNow().AddMinutes(1)));
+        Assert.True((await resumed.CleanupIdentityPhase(default)).ActiveIdentityInventoryAbsent);
+        Assert.Equal(afterExpiry.GetUtcNow(), run.Store.Current.CleanupStartedAtUtc);
+        Assert.Equal(85, run.Store.Current.Requests);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LostIdentityDeleteResponseRequiresAbsenceReadbackNotAnotherDelete(bool absent)
+    {
+        using var run = new Harness(delegated: true);
+        var application = CleanupApplication(run);
+        run.Seed("runtime-app", "Application", application);
+        run.Api.Reply(200, application);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
+        run.Api.Fail(new HttpRequestException("synthetic delete response loss"));
+        await Assert.ThrowsAsync<HttpRequestException>(() => run.Provisioner.CleanupIdentityPhase(default));
+        Assert.Contains("runtime-app", run.Store.Current!.PendingDeletes.Keys);
+        run.Restart();
+        run.Api.Reply(absent ? 404 : 200, absent ? new() : application);
+        var result = await run.Provisioner.CleanupIdentityPhase(default);
+        Assert.Equal(absent, result.ActiveIdentityInventoryAbsent);
+        Assert.Equal(!absent, result.UnresolvedIdentityKeys.Contains("runtime-app", StringComparer.Ordinal));
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task UncertainIdentityCreateIsReconciledReadOnlyDuringCleanupAndNeverRecreated()
+    {
+        using var run = new Harness(delegated: true);
+        run.Api.List();
+        run.Api.Fail(new HttpRequestException("synthetic create response loss"));
+        await Assert.ThrowsAsync<HttpRequestException>(() => run.Provisioner.EnsureApplicationForRole("runtime", default));
+        run.Api.List();
+        var unresolved = await run.Provisioner.CleanupIdentityPhase(default);
+        Assert.False(unresolved.ActiveIdentityInventoryAbsent);
+        Assert.Contains("runtime-app", unresolved.UnresolvedIdentityKeys);
+        Assert.Empty(run.Api.Requests.Where(request => request.Method == HttpMethod.Delete));
+        run.Restart();
+        var application = CleanupApplication(run);
+        run.Api.List(application);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
+        run.Api.Reply(200, application);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity.PrincipalObjectId });
+        run.Api.Reply(204, new());
+        run.Api.Reply(404, new());
+        Assert.True((await run.Provisioner.CleanupIdentityPhase(default)).ActiveIdentityInventoryAbsent);
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task IdentityCleanupRefusesForeignOwnershipInitialActorAndPaidConsumers()
+    {
+        using var run = new Harness(delegated: true);
+        var application = CleanupApplication(run);
+        run.Seed("runtime-app", "Application", application);
+        run.Api.Reply(200, application);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId }, new JsonObject { ["id"] = Guid.NewGuid().ToString("D") });
+        Assert.Equal("c1_deploy_cleanup_ownership", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupIdentityPhase(default))).Code);
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+        using var actor = new Harness(delegated: true);
+        var forbidden = CleanupApplication(actor);
+        forbidden["appId"] = actor.Input.BootstrapIdentity!.ClientId!.ToUpperInvariant();
+        actor.Seed("runtime-app", "Application", forbidden);
+        Assert.Equal("c1_deploy_cleanup_actor", (await Assert.ThrowsAsync<DomainException>(() =>
+            actor.Provisioner.CleanupIdentityPhase(default))).Code);
+        Assert.Empty(actor.Api.Requests);
+        using var dependent = new Harness();
+        dependent.Seed("workspace-agent", "Workspace", dependent.Workspace("agent"));
+        Assert.Equal("c1_deploy_cleanup_dependents", (await Assert.ThrowsAsync<DomainException>(() =>
+            dependent.Provisioner.CleanupIdentityPhase(default))).Code);
+        Assert.Empty(dependent.Api.Requests);
+    }
+
+    [Fact]
+    public async Task ExhaustedCleanupReserveAndDeadlineSurviveResumeWithoutAnyLimitIncrease()
+    {
+        using var run = new Harness(maxRequests: 6, delegated: true);
+        var application = CleanupApplication(run);
+        run.Seed("runtime-app", "Application", application);
+        run.Api.Reply(200, application);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupIdentityPhase(default))).Code);
+        var started = run.Store.Current!.CleanupStartedAtUtc;
+        run.Restart();
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupIdentityPhase(default))).Code);
+        Assert.Equal(2, run.Api.Requests.Count);
+        Assert.Equal(2, run.Store.Current.CleanupRequests);
+        Assert.Equal(started, run.Store.Current.CleanupStartedAtUtc);
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+
+        using var expired = new Harness(delegated: true);
+        expired.Seed("runtime-app", "Application", CleanupApplication(expired));
+        var cleanup = new FabricC1Provisioner(expired.Input, expired.Api, expired.Store,
+            new Clock(expired.Input.Cleanup!.VerificationDeadlineUtc!.Value));
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() => cleanup.CleanupIdentityPhase(default))).Code);
+        Assert.Empty(expired.Api.Requests);
+    }
+
+    [Fact]
+    public async Task GroupCleanupRetainsAdministrativeEffectsRatherThanDisablingTenantSettings()
+    {
+        using var run = new Harness(delegated: true);
+        var group = Group(run);
+        run.Seed("fabric-api-group", "SecurityGroup", group);
+        run.Seed("tenant-change-SyntheticApi", "ScopedTenantSetting", new() { ["id"] = "SyntheticApi" });
+        run.Seed("tenant-shared-inbound-enable", "SharedTenantSettingEffect", new() { ["id"] = FabricC1Provisioner.WorkspaceInboundSettingName });
+        run.Api.Reply(200, group);
+        run.Api.Reply(200, group);
+        run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
+        run.Api.Reply(200, GroupMembers(group));
+        run.Api.Reply(204, new());
+        run.Api.Reply(404, new());
+        var result = await run.Provisioner.CleanupIdentityPhase(default);
+        Assert.True(result.ActiveIdentityInventoryAbsent);
+        Assert.False(result.CompleteC1Cleanup);
+        Assert.Contains("tenant-shared-inbound-enable", result.RetainedAdministrativeEffects);
+        Assert.Contains("tenant-change-SyntheticApi", result.RetainedAdministrativeEffects);
+        Assert.All(run.Api.Requests, request => Assert.Equal("graph.microsoft.com", request.Uri.Host));
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    private static JsonObject CleanupApplication(Harness run) => new()
+    {
+        ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = Guid.NewGuid().ToString("D"),
+        ["displayName"] = FabricC1Deployment.Name(run.Input) + "-runtime", ["signInAudience"] = "AzureADMyOrg",
+        ["tags"] = new JsonArray(FabricC1Deployment.Marker(run.Input))
+    };
 
     [Fact]
     public async Task PersistFailurePreventsCreatingResource()
@@ -1329,6 +1503,7 @@ public sealed class FabricC1DeploymentTests
                 new(hash, hash, hash, hash, hash, hash), maxRequests, 600)
             {
                 RequiredTenantSettingNames = requiredTenantSettingNames ?? [],
+                Cleanup = new(Math.Min(20, Math.Max(1, maxRequests / 3)), 600, Clock.GetUtcNow().AddHours(4).AddMinutes(10)),
                 DelegatedGroupOwnerMode = delegated ? delegatedAdministrator ? "ExplicitReviewedAdministrator" : "AutomaticReviewedNonAdministrator" : null,
                 ControlTokenBindings = new("https://management.core.windows.net/", $"https://sts.windows.net/{tenant}/",
                     "00000003-0000-0000-c000-000000000000", $"https://sts.windows.net/{tenant}/")

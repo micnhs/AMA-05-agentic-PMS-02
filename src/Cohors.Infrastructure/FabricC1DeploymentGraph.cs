@@ -82,12 +82,14 @@ public sealed partial class FabricC1Provisioner
         RequireIdentityRole(role);
         var name = FabricC1Deployment.Name(input) + "-" + role;
         return EnsureCreated(role + "-app", "Application", "https://graph.microsoft.com/v1.0/applications", name,
-            new JsonObject
-            {
-                ["displayName"] = name, ["signInAudience"] = "AzureADMyOrg", ["tags"] = new JsonArray(Marker),
-                ["owners@odata.bind"] = new JsonArray($"https://graph.microsoft.com/v1.0/directoryObjects/{input.BootstrapIdentity!.PrincipalObjectId}")
-            }, true, ct);
+            ApplicationBody(role), true, ct);
     }
+
+    private JsonObject ApplicationBody(string role) => new()
+    {
+        ["displayName"] = FabricC1Deployment.Name(input) + "-" + role, ["signInAudience"] = "AzureADMyOrg", ["tags"] = new JsonArray(Marker),
+        ["owners@odata.bind"] = new JsonArray($"https://graph.microsoft.com/v1.0/directoryObjects/{input.BootstrapIdentity!.PrincipalObjectId}")
+    };
 
     public Task<JsonObject> EnsurePrincipalForRole(string role, CancellationToken ct)
     {
@@ -100,6 +102,12 @@ public sealed partial class FabricC1Provisioner
     public Task<JsonObject> EnsureAllowlistGroup(CancellationToken ct)
     {
         var name = FabricC1Deployment.Name(input) + "-fabric-api";
+        return EnsureCreated("fabric-api-group", "SecurityGroup", "https://graph.microsoft.com/v1.0/groups", name, AllowlistGroupBody(), true, ct);
+    }
+
+    private JsonObject AllowlistGroupBody()
+    {
+        var name = FabricC1Deployment.Name(input) + "-fabric-api";
         var body = new JsonObject
         {
             ["displayName"] = name, ["description"] = Marker, ["mailEnabled"] = false,
@@ -107,7 +115,7 @@ public sealed partial class FabricC1Provisioner
         };
         if (ExplicitGroupOwner())
             body["owners@odata.bind"] = new JsonArray($"https://graph.microsoft.com/v1.0/directoryObjects/{input.BootstrapIdentity!.PrincipalObjectId}");
-        return EnsureCreated("fabric-api-group", "SecurityGroup", "https://graph.microsoft.com/v1.0/groups", name, body, true, ct);
+        return body;
     }
 
     private bool ExplicitGroupOwner()
@@ -169,10 +177,10 @@ public sealed partial class FabricC1Provisioner
             new() { ["id"] = group, ["members"] = new JsonArray(expected.Select(id => (JsonNode?)JsonValue.Create(id)).ToArray()) });
     }
 
-    private async Task<string[]> ReadAllowlistMembers(string group, CancellationToken ct)
+    private async Task<string[]> ReadAllowlistMembers(string group, CancellationToken ct, bool cleanup = false)
     {
         // v1.0 list-members omits service principals; the documented group $expand workaround includes them.
-        var response = await Read($"https://graph.microsoft.com/v1.0/groups/{group}?$select=id&$expand=members($select=id)", ct);
+        var response = await Read($"https://graph.microsoft.com/v1.0/groups/{group}?$select=id&$expand=members($select=id)", ct, cleanup);
         SameId(Text(response, "id"), group);
         Guard.Against(response["members@odata.nextLink"] is not null || response["members"] is not JsonArray,
             "c1_deploy_group_readback", "Complete expanded group membership is required.", 409);

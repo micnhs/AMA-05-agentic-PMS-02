@@ -78,6 +78,35 @@ quality validator must not create a circular pre-provisioning requirement.
 
 ## C1 provisioning increment: partial source implementation
 
+The original deployment manifest must now bind `cleanup.reservedRequests`,
+`cleanup.maxDurationSeconds` and `cleanup.verificationDeadlineUtc`. The reserve
+is **part of**, not added to, `maxControlRequests`; normal provisioning cannot
+spend it. Its explicit verification deadline may extend only through the
+original expiry plus at most the already bounded control duration. It does
+not extend C1 use, allow new work after expiry, or promise a monetary cap.
+This must be included in the original resource/budget/cleanup review before
+starting. An older missing reserve is not manufactured on resume.
+
+The operator command `cleanup-identities --manifest PRIVATE_FILE --journal
+EXISTING_PRIVATE_FILE` is an implemented **B1-only** cleanup path. It requires
+the original source-bound manifest/journal and caller, can consume its reserve
+after normal expiry, fences normal provisioning, and persists its own start,
+counter, delete intents and absence readbacks without resetting original
+limits. Uncertain creates are reconciled read-only, not repeated. Deletion
+requires exact journal/marker/identity/ownership checks; group membership and
+parent application ownership are checked before removing dependent identities.
+An uncertain DELETE is observed rather than repeated, a restored object is
+not automatically deleted again, and the initial deployer is never targeted.
+
+This command refuses journals containing workspace, paid-resource or Hosted
+consumers: their stop/cancel/session/item/private-link/resource cleanup must
+precede identity removal in the future full cleanup driver. Directory active
+endpoint absence is **not** retention purge. Shared tenant effects and scoped
+tenant-setting references stay explicitly inventoried for separate current
+administrative review; no tenant reset occurs during identity cleanup.
+The independent cloud deadline executor and full paid-resource cleanup remain
+unimplemented gates. No cleanup or cloud deployment has been executed.
+
 The shared inbound stage is distinct from scoped runtime-group settings.
 `CanPrepareEmptyFoundation` reports tenant-setting prerequisites only, not a
 cost/stop/private-readiness approval: a disabled `WorkspaceBlockInboundAccess`

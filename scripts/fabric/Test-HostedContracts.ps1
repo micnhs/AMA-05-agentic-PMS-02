@@ -146,6 +146,13 @@ if ($applyRefusal.code -cne 'c1_deploy_ci_prohibited' -or
     (Test-Path -LiteralPath (Join-Path $temporary 'not-created.json'))) {
     throw 'The identity entry did not refuse before credential acquisition and journal creation.'
 }
+$cleanupLog = Join-Path $temporary 'identity-cleanup-refusal.log'
+dotnet src/Cohors.Api/bin/Release/net10.0/Cohors.Api.dll --fabric-c1-deploy cleanup-identities --manifest fabric/c1/deployment.template.json --journal (Join-Path $temporary 'not-created-cleanup.json') 2> $cleanupLog
+if ($LASTEXITCODE -ne 2) { throw 'Identity cleanup must also be refused on the credential-free build runner.' }
+$cleanupRefusal = Get-Content -LiteralPath $cleanupLog -Raw | ConvertFrom-Json
+if ($cleanupRefusal.code -cne 'c1_deploy_ci_prohibited' -or (Test-Path -LiteralPath (Join-Path $temporary 'not-created-cleanup.json'))) {
+    throw 'Cleanup acquired credentials or invented an inventory on the build runner.'
+}
 [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
 $testSummary = @()
 foreach ($class in $classes) {

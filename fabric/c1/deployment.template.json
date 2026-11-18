@@ -42,5 +42,10 @@
     "cleanupPlanSha256": null
   },
   "maxControlRequests": null,
-  "maxControlDurationSeconds": null
+  "maxControlDurationSeconds": null,
+  "cleanup": {
+    "reservedRequests": null,
+    "maxDurationSeconds": null,
+    "verificationDeadlineUtc": null
+  }
 }

@@ -78,6 +78,15 @@ runtime hook. Integrating/enforcing it belongs to the later Fabric agent
 adapter; C1 fields and C1's model-less path remain unchanged.
 Native evaluation resources may precede the quality activation review, never
 the separate private-path, data-residency, resource and authorization review.
+The deployment input now reserves cleanup requests inside the original total
+and binds a separate bounded verification tail; it does not extend active C1
+use or manufacture a new budget on resume. The operator's `cleanup-identities`
+path covers B1 directory inventory only, including lost-response reconciliation,
+exclusive ownership checks, a provisioning fence, persisted limits and active
+absence readbacks. Tenant effects are retained for separate administrative
+review. Paid/workspace/Hosted consumers deliberately block this narrow command
+until their own ordered cleanup is implemented; the independent cloud stop
+executor and full cleanup remain open, not supplied by this increment.
 Historical v1 inputs/hashes and all seven NotRun cases remain historical.
 Private identities, paths and tenant configuration are not copied here.
 The R4 package still requires specific egress/operator/runtime-credential/AI-policy
