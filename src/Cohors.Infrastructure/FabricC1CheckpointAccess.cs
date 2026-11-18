@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Cohors.Domain;
 
@@ -74,9 +75,37 @@ public sealed partial class FabricC1Provisioner
         CancellationToken ct)
     {
         var resources = PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        RecordCheckpointAccessIntents(resources);
         foreach (var resource in resources)
             await EnsureCheckpointAccessResource(resource, ct);
         return resources.Select(resource => state.Objects[resource.Key]).ToArray();
+    }
+
+    private void RecordCheckpointAccessIntents(FabricC1CheckpointAccessResource[] resources)
+    {
+        var objects = new Dictionary<string, FabricC1ProvisionedObject>(state.Objects, StringComparer.Ordinal);
+        var changed = false;
+        foreach (var resource in resources)
+        {
+            var key = resource.Key + "-intent";
+            var hash = Canonical.Hash(resource.Request);
+            var response = JsonSerializer.SerializeToNode(resource, Canonical.Json)!.AsObject();
+            if (objects.TryGetValue(key, out var original))
+            {
+                Guard.Against(original.Kind != "CheckpointStorageIntent" || original.Id != resource.Id ||
+                    original.RequestHash != hash || Canonical.Hash(original.Response) != Canonical.Hash(response),
+                    "c1_deploy_drift", "The complete original checkpoint role/grant request cannot change.", 409);
+            }
+            else
+            {
+                Guard.Against(state.Objects.ContainsKey(resource.Key) || state.PendingCreates.ContainsKey(resource.Key) ||
+                    state.DeniedRequests.ContainsKey(resource.Key), "c1_checkpoint_access_intent",
+                    "A missing original role/grant intent cannot be reconstructed after I/O.", 409);
+                objects[key] = new("CheckpointStorageIntent", resource.Id, hash, response);
+                changed = true;
+            }
+        }
+        if (changed) SaveCheckpointJournal(state with { Objects = objects });
     }
 
     private async Task EnsureCheckpointAccessResource(FabricC1CheckpointAccessResource resource, CancellationToken ct)

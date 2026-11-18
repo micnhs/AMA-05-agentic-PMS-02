@@ -964,6 +964,8 @@ public sealed class FabricC1DeploymentTests
         }
         Assert.Equal(3, (await run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default)).Length);
         Assert.Equal(9, run.Store.Current!.Requests);
+        Assert.All(plan, resource => Assert.Equal(Canonical.Hash(resource),
+            Canonical.Hash(run.Store.Current.Objects[resource.Key + "-intent"].Response)));
         Assert.DoesNotContain(run.Store.Current.Objects.Keys, key => key.StartsWith("checkpoint-allocation-", StringComparison.Ordinal));
         run.Restart();
         foreach (var resource in plan) run.Api.Reply(200, CheckpointAccessResponse(resource));
@@ -1137,11 +1139,10 @@ public sealed class FabricC1DeploymentTests
         run.Restart();
         execution = execution with { RunId = Guid.NewGuid().ToString("D") };
         var changed = Canonical.Hash(execution);
-        run.Api.Reply(200, CheckpointAccessResponse(plan[0]));
         Assert.Equal("c1_deploy_drift", (await Assert.ThrowsAsync<DomainException>(() =>
             run.Provisioner.EnsureBlobCheckpointAccess(execution, direct with { ExecutionBindingHash = changed },
                 hosted with { ExecutionBindingHash = changed }, control with { ExecutionBindingHash = changed }, default))).Code);
-        Assert.Equal(6, run.Api.Requests.Count);
+        Assert.Equal(5, run.Api.Requests.Count);
         Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put && request.Uri.AbsolutePath == plan[1].Id);
     }
 

@@ -404,6 +404,9 @@ exclude `Blob.List`. These are service-principal grants, not human VPN or
 Cohors roles. The component verifies each current provider readback against
 the original intent. It never adopts an unjournaled role/grant, replays a lost
 PUT, recreates an unknown missing assignment, or widens a changed condition.
+The complete original role/grant requests are persisted before the first I/O,
+including the exact paths needed for later reconciliation and ordered cleanup;
+their hashes alone are not substituted for recoverable original requests.
 An explicit 401/403 is retained as a rejected original attempt, not retried
 automatically. Ambiguous receipt saves fence this process until journal recovery.
 The start-rights contract now includes role-definition/assignment read, write
