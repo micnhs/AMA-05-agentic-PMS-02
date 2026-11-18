@@ -207,6 +207,10 @@ after validation in the same hosted job. It compares every base package/hash
 against the original lock, emits bounded hash-bound source text only, and
 cannot publish/upload a binary. Candidates must be reviewed and committed
 before a subsequent locked artifact run; no unlocked publish fallback.
+The hosted diagnostic identified .NET 10 framework-package pruning, not a
+package-version upgrade, in `Cohors.Infrastructure`. C1 publishing explicitly
+retains that library's original unpruned lock graph; the API's existing
+pruning remains unchanged. The full base-graph equality check stays enforced.
 `scripts\fabric\c1_package.py` derives the exact binary allowlist from the
 published dependency graphs; its explicit `SOURCE_ASSETS` lists the only
 IaC/templates, unchanged synthetic source, license and verification-tool files.
