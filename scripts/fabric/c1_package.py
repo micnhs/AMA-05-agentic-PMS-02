@@ -1,6 +1,7 @@
 """Bounded C1 deployment archives. Verification never executes their contents."""
 
 import argparse
+import base64
 import hashlib
 import io
 import json
@@ -22,6 +23,7 @@ MAX_EXPANDED = 1024 * 1024 * 1024
 MAX_FILES = 2048
 RIDS = ("win-x64", "linux-x64")
 PROJECTS = ("Cohors.Api", "Cohors.Agents", "Cohors.Infrastructure", "Cohors.Application", "Cohors.Domain")
+LOCK_NAMES = ("packages.lock.json", "packages.c1.lock.json")
 SOURCE_ASSETS = (
     "infra/fabric/c1.foundation.json",
     "infra/fabric/c1.workspace-network.json",
@@ -165,16 +167,16 @@ def validate_provenance(manifest, commit, run_id, attempt):
             re.fullmatch(r"[1-9][0-9]*", str(run_id)) is not None and
             re.fullmatch(r"[1-9][0-9]*", str(attempt)) is not None, "Package source/run/SDK binding differs")
     locks = manifest.get("sourceLocks")
-    require(isinstance(locks, list) and len(locks) == len(PROJECTS), "Source lockfile binding is absent or unexpected")
+    require(isinstance(locks, list) and len(locks) == len(PROJECTS) * len(LOCK_NAMES), "Source lockfile binding is absent or unexpected")
     names = set()
     for item in locks:
         require(isinstance(item, dict) and set(item) == {"path", "sha256", "length"}, "Invalid lockfile metadata")
         name = relative_name(item["path"])
-        require(name not in names and re.fullmatch(r"src/Cohors\.[A-Za-z]+/packages\.lock\.json", name) and
+        require(name not in names and re.fullmatch(r"src/Cohors\.[A-Za-z]+/packages(?:\.c1)?\.lock\.json", name) and
                 re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) and
                 type(item["length"]) is int and item["length"] > 0, "Invalid source lockfile binding")
         names.add(name)
-    require(all("src/" + project + "/packages.lock.json" in names for project in PROJECTS), "Incomplete C1 lockfile set")
+    require(names == {"src/" + project + "/" + lock for project in PROJECTS for lock in LOCK_NAMES}, "Incomplete C1 lockfile set")
 
 
 def write_zip(path, payload):
@@ -201,10 +203,11 @@ def build(root, publish_root, destination, commit, run_id, attempt, verification
         payload["assets/" + name] = path.read_bytes()
     locks = []
     for project in PROJECTS:
-        name = "src/" + project + "/packages.lock.json"
-        data = no_links(root / name).read_bytes()
-        object_json(data)
-        locks.append({"path": name, "length": len(data), "sha256": digest(data)})
+        for lock in LOCK_NAMES:
+            name = "src/" + project + "/" + lock
+            data = no_links(root / name).read_bytes()
+            object_json(data)
+            locks.append({"path": name, "length": len(data), "sha256": digest(data)})
     require(len(payload) <= MAX_FILES and sum(map(len, payload.values())) <= MAX_EXPANDED, "Expanded package limit exceeded")
     for name, data in payload.items():
         inspect_content(name, data)
@@ -324,6 +327,32 @@ def receive(archive, outer_sha256, commit, run_id, attempt, destination=None):
             "archiveSha256": receipt["archiveSha256"], "files": len(payload)}
 
 
+def runtime_lock_candidates(root, commit, run_id, attempt):
+    root = no_links(root)
+    records = []
+    for project in PROJECTS:
+        folder = root / "src" / project
+        original = object_json(no_links(folder / "packages.lock.json").read_bytes())
+        data = no_links(folder / "packages.c1.lock.json").read_bytes()
+        require(len(data) <= 256 * 1024, "Oversized runtime lockfile")
+        candidate = object_json(data)
+        require(candidate.get("version") == original.get("version") == 1, "Unsupported runtime lockfile format")
+        before, after = original["dependencies"], candidate["dependencies"]
+        require(set(before) == {"net10.0"} and set(after) == {"net10.0", "net10.0/win-x64", "net10.0/linux-x64"},
+                "Unexpected runtime lock target set")
+        require(before["net10.0"] == after["net10.0"], "RID preparation changed pinned base packages or hashes")
+        inspect_content("packages.c1.lock.json", data)
+        records.append({"path": "src/" + project + "/packages.c1.lock.json", "length": len(data),
+                        "sha256": digest(data), "contentBase64": base64.b64encode(data).decode("ascii")})
+    for record in records:
+        content = record.pop("contentBase64")
+        chunks = [content[index:index + 4096] for index in range(0, len(content), 4096)]
+        for index, chunk in enumerate(chunks):
+            print("C1_RUNTIME_LOCK " + json.dumps({"sourceCommit": commit, "runId": str(run_id), "runAttempt": str(attempt),
+                **record, "chunk": index, "chunkCount": len(chunks), "contentBase64": chunk}, separators=(",", ":")))
+    return {"status": "CandidateSourceLocksOnly", "files": len(records), "packageCreated": False}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -336,14 +365,20 @@ def main():
     get.add_argument("--archive", required=True)
     get.add_argument("--outer-sha256", required=True)
     get.add_argument("--destination")
-    for command in (create, get):
+    locks = commands.add_parser("locks")
+    locks.add_argument("--root", required=True)
+    for command in (create, get, locks):
         command.add_argument("--source-commit", required=True)
         command.add_argument("--run-id", required=True)
         command.add_argument("--run-attempt", required=True)
     args = parser.parse_args()
     try:
-        result = build(args.root, args.publish_root, args.destination, args.source_commit, args.run_id, args.run_attempt, args.verification_directory) if args.command == "build" else \
-            receive(args.archive, args.outer_sha256, args.source_commit, args.run_id, args.run_attempt, args.destination)
+        if args.command == "build":
+            result = build(args.root, args.publish_root, args.destination, args.source_commit, args.run_id, args.run_attempt, args.verification_directory)
+        elif args.command == "receive":
+            result = receive(args.archive, args.outer_sha256, args.source_commit, args.run_id, args.run_attempt, args.destination)
+        else:
+            result = runtime_lock_candidates(args.root, args.source_commit, args.run_id, args.run_attempt)
         print(json.dumps(result, sort_keys=True))
     except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile) as error:
         print(json.dumps({"status": "Failed", "code": "c1_package_refused", "reason": str(error)}), file=sys.stderr)

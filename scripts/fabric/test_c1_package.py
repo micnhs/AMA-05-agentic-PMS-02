@@ -1,4 +1,5 @@
 import io
+from contextlib import redirect_stdout
 from pathlib import Path
 import stat
 import tempfile
@@ -23,9 +24,10 @@ class C1PackageTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"synthetic-source-asset")
         for project in package.PROJECTS:
-            path = self.source / "src" / project / "packages.lock.json"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('{"version":1,"dependencies":{}}', encoding="utf-8")
+            for lock in package.LOCK_NAMES:
+                path = self.source / "src" / project / lock
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('{"version":1,"dependencies":{}}', encoding="utf-8")
         for rid in package.RIDS:
             folder = self.publish / rid
             folder.mkdir(parents=True)
@@ -174,6 +176,27 @@ class C1PackageTests(unittest.TestCase):
             with self.subTest(field=field):
                 with self.assertRaises(ValueError):
                     package.validate_provenance(dict(manifest, **{field: value}), self.commit, self.run_id, "1")
+
+    def test_explicit_rid_lock_preparation_cannot_upgrade_the_base_graph(self):
+        baseline = {"version": 1, "dependencies": {"net10.0": {
+            "Example": {"type": "Transitive", "resolved": "1.2.3", "contentHash": "fixed-content-hash"}}}}
+        candidate = {"version": 1, "dependencies": {
+            **baseline["dependencies"], "net10.0/win-x64": {}, "net10.0/linux-x64": {}}}
+        for project in package.PROJECTS:
+            folder = self.source / "src" / project
+            (folder / "packages.lock.json").write_bytes(package.encoded(baseline))
+            (folder / "packages.c1.lock.json").write_bytes(package.encoded(candidate))
+        with redirect_stdout(io.StringIO()):
+            result = package.runtime_lock_candidates(self.source, self.commit, self.run_id, "1")
+        self.assertEqual("CandidateSourceLocksOnly", result["status"])
+        self.assertFalse(result["packageCreated"])
+        changed = package.object_json(package.encoded(candidate))
+        changed["dependencies"]["net10.0"]["Example"]["resolved"] = "9.0.0"
+        (self.source / "src" / package.PROJECTS[-1] / "packages.c1.lock.json").write_bytes(package.encoded(changed))
+        output = io.StringIO()
+        with redirect_stdout(output), self.assertRaisesRegex(ValueError, "changed pinned base"):
+            package.runtime_lock_candidates(self.source, self.commit, self.run_id, "1")
+        self.assertEqual("", output.getvalue())
 
 
 if __name__ == "__main__":

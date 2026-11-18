@@ -198,6 +198,15 @@ cannot publish it. The same job must first finish all existing validation.
 
 `scripts\fabric\Build-C1Package.ps1` cross-publishes self-contained win-x64 and
 linux-x64 entries using the pinned SDK and unchanged locked dependencies.
+The first real publish attempt found NU1004: the original generic lockfiles
+have no RID targets. `CohorsC1Publish=true` therefore selects separately
+versioned `packages.c1.lock.json` files for the same five projects; normal
+builds keep their original locks. An explicit, mutually exclusive
+`Cohors-C1-Locks: requested` source-maintenance commit can generate candidates
+after validation in the same hosted job. It compares every base package/hash
+against the original lock, emits bounded hash-bound source text only, and
+cannot publish/upload a binary. Candidates must be reviewed and committed
+before a subsequent locked artifact run; no unlocked publish fallback.
 `scripts\fabric\c1_package.py` derives the exact binary allowlist from the
 published dependency graphs; its explicit `SOURCE_ASSETS` lists the only
 IaC/templates, unchanged synthetic source, license and verification-tool files.

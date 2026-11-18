@@ -52,6 +52,12 @@ jobs:
       - name: Validate exact source without SQL, Docker, browser or cloud
         shell: pwsh
         run: ./scripts/fabric/Test-HostedContracts.ps1
+      - name: Prepare explicitly requested RID lock source without uploading
+        id: c1-locks
+        if: >-
+          ${{ success() && github.repository == 'micnhs/AMA-05-agentic-PMS-02' && github.event_name == 'push' && contains(github.event.head_commit.message, 'Cohors-C1-Locks: requested') }}
+        shell: pwsh
+        run: ./scripts/fabric/Build-C1Package.ps1 -PrepareRuntimeLocks
       - name: Package explicitly requested C1 release after validation
         id: c1-package
         if: >-

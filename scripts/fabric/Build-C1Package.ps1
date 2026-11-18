@@ -1,3 +1,4 @@
+param([switch]$PrepareRuntimeLocks)
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
@@ -10,9 +11,11 @@ Set-Location $root
 $sha = (git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $sha -cne $env:GITHUB_SHA) { throw 'Package source differs from the event source.' }
 $message = (git --no-pager log -1 --format=%B) -join "`n"
+$request = if ($PrepareRuntimeLocks) { 'Cohors-C1-Locks: requested' } else { 'Cohors-C1-Package: requested' }
 if ($LASTEXITCODE -ne 0 -or
-    [regex]::Matches($message, '(?m)^Cohors-C1-Package: requested\r?$').Count -ne 1) {
-    throw 'Exactly one explicit Cohors-C1-Package: requested commit trailer is required.'
+    [regex]::Matches($message, '(?m)^' + [regex]::Escape($request) + '\r?$').Count -ne 1 -or
+    [regex]::Matches($message, '(?m)^Cohors-C1-(?:Locks|Package): requested\r?$').Count -ne 1) {
+    throw 'Exactly one explicit C1 package or RID-lock preparation request is required; never both.'
 }
 $temporary = Join-Path $env:RUNNER_TEMP "cohors-fabric-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 $receiptPath = Join-Path $temporary 'validation.json'
@@ -22,6 +25,16 @@ if ($receipt.sourceCommit -cne $sha -or $receipt.runId -cne $env:GITHUB_RUN_ID -
     (dotnet --version).Trim() -cne '10.0.404') {
     throw 'This exact source/run/SDK must finish the existing validation before packaging.'
 }
+$project = Join-Path $root 'src/Cohors.Api/Cohors.Api.csproj'
+if ($PrepareRuntimeLocks) {
+    # This explicit source-maintenance mode emits candidate lockfile text only.
+    # It cannot publish a package, change versions silently or upload an artifact.
+    dotnet restore $project -p:CohorsC1Publish=true -p:SelfContained=true --use-lock-file --force-evaluate --verbosity minimal
+    if ($LASTEXITCODE -ne 0) { throw 'Explicit RID lock preparation failed.' }
+    python3 scripts/fabric/c1_package.py locks --root $root --source-commit $sha --run-id $env:GITHUB_RUN_ID --run-attempt $env:GITHUB_RUN_ATTEMPT
+    if ($LASTEXITCODE -ne 0) { throw 'Candidate RID locks changed the pinned base graph or have an unexpected scope.' }
+    exit 0
+}
 $publish = Join-Path $temporary 'publish'
 $package = Join-Path $temporary 'package'
 $verification = Join-Path $temporary 'package-verification'
@@ -29,13 +42,12 @@ if ((Test-Path -LiteralPath $publish) -or (Test-Path -LiteralPath $package) -or 
     throw 'Package paths already exist; do not overwrite or automatically retry an upload.'
 }
 New-Item -ItemType Directory -Path $publish, $package | Out-Null
-$project = Join-Path $root 'src/Cohors.Api/Cohors.Api.csproj'
 foreach ($rid in @('win-x64', 'linux-x64')) {
     $output = Join-Path $publish $rid
     $log = Join-Path $temporary "publish-$rid.log"
     $publishArguments = @('publish', $project, '--configuration', 'Release', '--runtime', $rid,
         '--self-contained', 'true', '--no-restore', '--disable-build-servers', '--output', $output,
-        '-m:1', '-p:UseSharedCompilation=false', '-p:ContinuousIntegrationBuild=true',
+        '-m:1', '-p:UseSharedCompilation=false', '-p:ContinuousIntegrationBuild=true', '-p:CohorsC1Publish=true',
         '-p:DebugType=None', '-p:DebugSymbols=false', '--verbosity', 'minimal')
     & dotnet @publishArguments *> $log
     if ($LASTEXITCODE -ne 0) {
@@ -43,7 +55,7 @@ foreach ($rid in @('win-x64', 'linux-x64')) {
             Get-Content -LiteralPath $log -Tail 60
             throw "Cross-RID publish failed without a missing-assets/runtime-pack condition: $rid"
         }
-        dotnet restore $project --runtime $rid --locked-mode -p:SelfContained=true --verbosity minimal
+        dotnet restore $project --runtime $rid --locked-mode -p:SelfContained=true -p:CohorsC1Publish=true --verbosity minimal
         if ($LASTEXITCODE -ne 0) { throw "Locked $rid restore failed; no unpinned dependency fallback." }
         & dotnet @publishArguments *> $log
         if ($LASTEXITCODE -ne 0) {
