@@ -1,4 +1,5 @@
 import ast
+import copy
 import datetime as dt
 import re
 import unittest
@@ -18,8 +19,9 @@ class WorkflowContractTests(unittest.TestCase):
         tree = ast.parse(code)
         compile(tree, "hosted-diagnostic-owner", "exec")
         helpers = ast.Module(body=[node for node in tree.body if isinstance(node, ast.FunctionDef)
-                                  and node.name in ("execution_in_window", "validate_core_result")], type_ignores=[])
-        namespace = {"re": re}
+                                  and node.name in ("execution_in_window", "validate_core_result",
+                                                    "validate_backup_access", "backup_access_complete")], type_ignores=[])
+        namespace = {"re": re, "dt": dt}
         exec(compile(helpers, "offline-diagnostic-helpers", "exec"), namespace)
         return namespace
 
@@ -50,11 +52,92 @@ class WorkflowContractTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     validate(minimal_failure | mutation, digest, image)
 
+    def repair_fixture(self):
+        hashes = {role: {"publishedSha256": letter * 64}
+                  for role, letter in (("extension", "a"), ("backup", "b"), ("restore", "c"))}
+        negative = {"exitCode": 1, "sqlErrors": [3201, 3013], "operatingSystemErrors": [5]}
+        core = {
+            "applicationAcceptance": False, "cloudRelease": False, "scriptSha256": "e" * 64,
+            "image": "synthetic-pinned-image", "permissionFailureReproduced": True,
+            "sqlUserCanRead": False, "verifyOnlyPassed": False, "verifyOnlyExitCode": 1,
+            "sqlErrors": [3201, 3013], "operatingSystemErrors": [5],
+            "sqlUser": "10001", "sqlGroup": "10001", "sqlProcessUidGid": "10001 10001\n10001 10001",
+            "sourceMode": "10001:10001:640:123", "privateDirectoryMode": "10001:10001:700",
+            "targetMode": "1001:1001:640:123", "hostMode": "1001:1001:640:123",
+            "nativeBackupSha256": "d" * 64, "startedUtc": "2026-01-01T00:00:00.000000Z",
+            "executionDeadlineUtc": "2026-01-01T00:03:00.000000Z",
+            "observedAtUtc": "2026-01-01T00:00:30.000000Z",
+            "backupAccessRepair": {
+                "contract": "cohors-hosted-linux-backup-access-1", "passed": True,
+                "applicationAcceptance": False, "recoveryAcceptance": False, "cloudRelease": False,
+                "extensionSha256": "a" * 64, "backupScriptSha256": "b" * 64, "restoreScriptSha256": "c" * 64,
+                "productionFunction": "Set-RecoverySqlBackupAccess",
+                "transport": "Original bounded Linux diagnostic Docker transport; production function body is unchanged.",
+                "sameOriginal180SecondWindow": True, "separateContainerCreated": False,
+                "originalNegativeObservationPreserved": True, "rawOutputPublished": False,
+                "scopeRefusals": 4, "nativeLinkRefusals": 3, "ownedTransientFilesRemoved": True,
+                "sqlUserCanReadAfter": True, "otherUnprivilegedUserCannotReadAfter": True,
+                "beforeMode": "1001:1001:640:123", "afterMode": "10001:10001:600:123",
+                "directoryMode": "10001:10001:700", "hostModeAfter": "1001:1001:640:123",
+                "beforeSha256": "d" * 64, "afterSha256": "d" * 64, "hostSha256After": "d" * 64,
+                "beforeVerification": negative,
+                "afterVerification": {"exitCode": 0, "sqlErrors": [], "operatingSystemErrors": []},
+                "observedAtUtc": "2026-01-01T00:00:29.000000Z"}}
+        return core, hashes
+
+    def test_repair_nested_artifact_still_rejects_raw_data_wrong_sources_and_acceptance(self):
+        core, hashes = self.repair_fixture()
+        validate = self.diagnostic_helpers()["validate_core_result"]
+        self.assertEqual(validate(core, core["scriptSha256"], core["image"], hashes), core)
+        for mutation in ({"rawOutput": "not publishable"}, {"backupScriptSha256": "f" * 64},
+                         {"recoveryAcceptance": True}, {"separateContainerCreated": True},
+                         {"scopeRefusals": True}, {"failurePhase": "unbounded raw error"},
+                         {"afterVerification": {"exitCode": 0, "sqlErrors": [], "operatingSystemErrors": [], "token": "secret"}},
+                         {"beforeVerification": {"exitCode": 1, "sqlErrors": ["3201"], "operatingSystemErrors": [5]}}):
+            with self.subTest(keys=list(mutation)), self.assertRaises(RuntimeError):
+                changed = copy.deepcopy(core)
+                changed["backupAccessRepair"].update(mutation)
+                validate(changed, core["scriptSha256"], core["image"], hashes)
+        with self.assertRaises(RuntimeError):
+            validate(core, core["scriptSha256"], core["image"])
+        for key in ("contract", "productionFunction", "transport"):
+            with self.subTest(missing=key), self.assertRaises(RuntimeError):
+                changed = copy.deepcopy(core)
+                del changed["backupAccessRepair"][key]
+                validate(changed, core["scriptSha256"], core["image"], hashes)
+
+    def test_repair_pass_needs_native_before_after_denials_bytes_and_original_deadline(self):
+        core, _ = self.repair_fixture()
+        complete = self.diagnostic_helpers()["backup_access_complete"]
+        self.assertTrue(complete(core))
+        for mutation in ({"passed": False}, {"afterMode": "10001:10001:644:123"},
+                         {"afterSha256": "f" * 64}, {"hostModeAfter": "10001:10001:600:123"},
+                         {"beforeVerification": {"exitCode": 0, "sqlErrors": [], "operatingSystemErrors": []}},
+                         {"afterVerification": {"exitCode": 1, "sqlErrors": [3013], "operatingSystemErrors": []}},
+                         {"scopeRefusals": 3}, {"nativeLinkRefusals": 2}, {"ownedTransientFilesRemoved": False},
+                         {"observedAtUtc": "2026-01-01T00:03:00.000000Z"},
+                         {"sameOriginal180SecondWindow": False}, {"originalNegativeObservationPreserved": False},
+                         {"failureType": "InvalidOperationException"}):
+            with self.subTest(keys=list(mutation)):
+                changed = copy.deepcopy(core)
+                changed["backupAccessRepair"].update(mutation)
+                self.assertFalse(complete(changed))
+        for key in ("backupAccessRepair", "targetMode", "executionDeadlineUtc"):
+            with self.subTest(missing=key):
+                changed = copy.deepcopy(core)
+                del changed[key]
+                self.assertFalse(complete(changed))
+        self.assertFalse(complete(core | {"permissionFailureReproduced": False}))
+        self.assertFalse(complete(core | {"operatingSystemErrors": [13]}))
+        self.assertFalse(complete(core | {"sqlProcessUidGid": "0 0"}))
+
     def test_recovery_diagnostic_is_a_narrow_read_only_push_workflow(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/cohors-recovery-copy-diagnostic.yml").read_text(encoding="utf-8"))
         self.assertEqual(workflow["on"], {"push": {
             "branches": ["micnhs-cohors-azure-infrastruktur"],
-            "paths": [".github/workflows/cohors-recovery-copy-diagnostic.yml", "diagnostics/recovery-host-copy.ps1"]}})
+            "paths": [".github/workflows/cohors-recovery-copy-diagnostic.yml", "diagnostics/recovery-host-copy.ps1",
+                      "diagnostics/recovery-backup-access.ps1", "diagnostics/recovery-source-1e8acd4/Backup-Local.ps1",
+                      "diagnostics/recovery-source-1e8acd4/Restore-Local.ps1"]}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertFalse(workflow["concurrency"]["cancel-in-progress"])
         self.assertEqual(set(workflow["jobs"]), {"diagnostic"})

@@ -247,10 +247,23 @@ try {
     }
     $result.permissionFailureReproduced = -not $result.sqlUserCanRead -and $verification.exitCode -ne 0
     $result.verifyOnlyPassed = $verification.exitCode -eq 0
+    $operation = 'production-backup-access-regression'
+    $result.backupAccessRepair = & (Join-Path $PSScriptRoot 'recovery-backup-access.ps1') `
+        -BackupScriptPath (Join-Path $PSScriptRoot 'recovery-source-1e8acd4/Backup-Local.ps1') `
+        -BackupScriptSha256 '8bdf2b3644277b00f77793d7232ef715d98f7e19e81ad6c83b9f34c07e03ab87' `
+        -RestoreScriptPath (Join-Path $PSScriptRoot 'recovery-source-1e8acd4/Restore-Local.ps1') `
+        -RestoreScriptSha256 '5a152cf38550b095b2de08dc84484ca38d87cd5f2f64f2d8b9baeb6d74cfdeda' `
+        -ContainerId $container -OwnerId $owner -EvidenceDirectory $evidence -Baseline $result
     $result.diagnosticObservationComplete = $true
 } catch {
     $result.failurePhase = $operation
     $result.failureType = $_.Exception.GetType().FullName
+    $accessObservation = Join-Path $evidence 'access-observation.json'
+    if ($operation -ceq 'production-backup-access-regression' -and (Test-Path -LiteralPath $accessObservation -PathType Leaf)) {
+        Assert-DiagnosticDeadline
+        if ((Get-Item -LiteralPath $accessObservation).Length -gt 16384) { throw 'Excessive private access observation.' }
+        $result.backupAccessRepair = Get-Content -LiteralPath $accessObservation -Raw | ConvertFrom-Json -AsHashtable
+    }
 } finally {
     $result.observedAtUtc = [DateTimeOffset]::UtcNow.ToString('O')
     Save-Diagnostic 'observation.json' $result

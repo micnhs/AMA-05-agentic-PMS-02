@@ -6,6 +6,9 @@ name: Cohors recovery host-copy diagnostic
     paths:
       - .github/workflows/cohors-recovery-copy-diagnostic.yml
       - diagnostics/recovery-host-copy.ps1
+      - diagnostics/recovery-backup-access.ps1
+      - diagnostics/recovery-source-1e8acd4/Backup-Local.ps1
+      - diagnostics/recovery-source-1e8acd4/Restore-Local.ps1
 
 permissions:
   contents: read
@@ -46,7 +49,24 @@ jobs:
 
           IMAGE = "mcr.microsoft.com/mssql/server@sha256:4525e3efac9f3e241cb003bb2ff2a82818b502f37e12049d788b1a9fa7e13b7f"
           SUPPLIED = "2bc4f44be264f52206eed2290309f2b7ccd2d92aee8f2ad83c08a998671cc206"
-          PUBLISHED = "f9a15228fb1e6a2d455d535a9c2a75c0f41953f951e9bde2a9bf859cb5a9375a"
+          BASELINE = "f9a15228fb1e6a2d455d535a9c2a75c0f41953f951e9bde2a9bf859cb5a9375a"
+          PUBLISHED = "21b10bbd00c00ec98b21b16923b12a45197a4194999d8f86e250b000247f6b8e"
+          PRODUCTION_COMMIT = "1e8acd4e65599ea07f1156ea2ff32e8f997fa1ac"
+          REPAIR_SOURCES = {
+              "extension": {
+                  "path": "diagnostics/recovery-backup-access.ps1",
+                  "suppliedSha256": "83e890d48530060b906fd095054b3086b8d585a2d1251340849526ab0c2443a6",
+                  "publishedSha256": "d6cded561e7583b35b02da9659459a49e9204c2a20de5afd52bd0537a98882b0"},
+              "backup": {
+                  "path": "diagnostics/recovery-source-1e8acd4/Backup-Local.ps1",
+                  "productionPath": "scripts/Backup-Local.ps1",
+                  "suppliedSha256": "ed5b631a5f011b1dc6fd533c09d5117eb00782ed8b4b4e94509cf940ef6b3bcb",
+                  "publishedSha256": "8bdf2b3644277b00f77793d7232ef715d98f7e19e81ad6c83b9f34c07e03ab87"},
+              "restore": {
+                  "path": "diagnostics/recovery-source-1e8acd4/Restore-Local.ps1",
+                  "productionPath": "scripts/Restore-Local.ps1",
+                  "suppliedSha256": "7e901664d27a5336a8e5e3269b1949c56861c5186769e7b75ad0b874ffd1174b",
+                  "publishedSha256": "5a152cf38550b095b2de08dc84484ca38d87cd5f2f64f2d8b9baeb6d74cfdeda"}}
           root = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
           temporary = Path(os.environ["RUNNER_TEMP"]).resolve()
           private = temporary / ("cohors-copy-owner-" + uuid.uuid4().hex)
@@ -101,7 +121,94 @@ jobs:
               return (admitted and not backward_clock and start_ns <= ended_us * 1000 <= observed_ns < deadline_ns
                       and observed < deadline)
 
-          def validate_core_result(core, source_hash, image):
+          def validate_backup_access(value, repair_sources):
+              booleans = {"passed", "applicationAcceptance", "recoveryAcceptance", "cloudRelease",
+                          "sameOriginal180SecondWindow", "separateContainerCreated",
+                          "originalNegativeObservationPreserved", "rawOutputPublished", "ownedTransientFilesRemoved",
+                          "sqlUserCanReadAfter", "otherUnprivilegedUserCannotReadAfter"}
+              hashes = {"backupScriptSha256", "restoreScriptSha256", "extensionSha256",
+                        "beforeSha256", "afterSha256", "hostSha256After"}
+              patterns = {
+                  "contract": r"cohors-hosted-linux-backup-access-1",
+                  "productionFunction": r"Set-RecoverySqlBackupAccess",
+                  "transport": re.escape("Original bounded Linux diagnostic Docker transport; production function body is unchanged."),
+                  "beforeMode": r"\d+:\d+:[0-7]{3,4}:\d+", "afterMode": r"\d+:\d+:[0-7]{3,4}:\d+",
+                  "hostModeAfter": r"\d+:\d+:[0-7]{3,4}:\d+", "directoryMode": r"\d+:\d+:[0-7]{3,4}",
+                  "observedAtUtc": r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{1,7}(?:Z|\+00:00)",
+                  "failurePhase": r"scope-refusals|production-path-copy|production-helper|native-link-refusals|unchanged-source-and-host|exact-file-cleanup",
+                  "failureType": r"[A-Za-z0-9_.]{1,120}"}
+              if not isinstance(value, dict) or not isinstance(repair_sources, dict):
+                  raise RuntimeError("access-result-or-source-binding-missing")
+              if (value.get("contract") != "cohors-hosted-linux-backup-access-1"
+                      or value.get("productionFunction") != "Set-RecoverySqlBackupAccess"
+                      or value.get("transport") !=
+                      "Original bounded Linux diagnostic Docker transport; production function body is unchanged."):
+                  raise RuntimeError("access-production-contract-missing")
+              for key, item in value.items():
+                  if key in ("beforeVerification", "afterVerification"):
+                      valid = (isinstance(item, dict) and set(item) == {"exitCode", "sqlErrors", "operatingSystemErrors"}
+                               and type(item["exitCode"]) is int and 0 <= item["exitCode"] <= 65535
+                               and all(isinstance(item[field], list) and len(item[field]) <= 16
+                                       and all(type(code) is int and 0 <= code <= 65535 for code in item[field])
+                                       for field in ("sqlErrors", "operatingSystemErrors")))
+                  else:
+                      valid = (key in booleans and type(item) is bool
+                               or key in hashes and isinstance(item, str) and re.fullmatch(r"[0-9a-f]{64}", item)
+                               or key in ("scopeRefusals", "nativeLinkRefusals") and type(item) is int and 0 <= item <= 4
+                               or key in patterns and isinstance(item, str) and re.fullmatch(patterns[key], item))
+                  if not valid:
+                      raise RuntimeError("access-result-not-allowlisted")
+              if any(value.get(key) is not False for key in
+                     ("applicationAcceptance", "recoveryAcceptance", "cloudRelease",
+                      "separateContainerCreated", "rawOutputPublished")):
+                  raise RuntimeError("access-result-cannot-authorize-acceptance")
+              for role, field in (("extension", "extensionSha256"), ("backup", "backupScriptSha256"),
+                                  ("restore", "restoreScriptSha256")):
+                  expected = repair_sources.get(role, {}).get("publishedSha256")
+                  if not expected or value.get(field) != expected:
+                      raise RuntimeError("access-source-binding-mismatch")
+              return value
+
+          def backup_access_complete(core):
+              access = core.get("backupAccessRepair", {})
+              before = access.get("beforeVerification", {})
+              try:
+                  observed = dt.datetime.fromisoformat(access.get("observedAtUtc", ""))
+                  started = dt.datetime.fromisoformat(core.get("startedUtc", ""))
+                  ended = dt.datetime.fromisoformat(core.get("observedAtUtc", ""))
+                  deadline = dt.datetime.fromisoformat(core.get("executionDeadlineUtc", ""))
+                  target = core.get("targetMode", "").split(":")
+                  private_after = "10001:10001:600:" + target[3]
+                  sql_processes = [line.split() for line in core.get("sqlProcessUidGid", "").splitlines() if line.strip()]
+              except (ValueError, TypeError, IndexError):
+                  return False
+              return (all(access.get(key) is True for key in
+                          ("passed", "sameOriginal180SecondWindow", "originalNegativeObservationPreserved",
+                           "ownedTransientFilesRemoved", "sqlUserCanReadAfter", "otherUnprivilegedUserCannotReadAfter"))
+                      and "failurePhase" not in access and "failureType" not in access
+                      and started <= observed <= ended < deadline
+                      and core.get("permissionFailureReproduced") is True
+                      and core.get("sqlUserCanRead") is False and core.get("verifyOnlyPassed") is False
+                      and core.get("sqlUser") == "10001" and core.get("sqlGroup") == "10001"
+                      and bool(sql_processes) and all(row == ["10001", "10001"] for row in sql_processes)
+                      and core.get("sourceMode") == "10001:10001:640:" + target[3]
+                      and core.get("hostMode") == core.get("targetMode")
+                      and core.get("privateDirectoryMode") == "10001:10001:700"
+                      and core.get("verifyOnlyExitCode", 0) != 0
+                      and set(core.get("sqlErrors", [])) == {3201, 3013}
+                      and set(core.get("operatingSystemErrors", [])) == {5}
+                      and access.get("scopeRefusals") == 4 and access.get("nativeLinkRefusals") == 3
+                      and access.get("directoryMode") == "10001:10001:700"
+                      and access.get("beforeMode") == core.get("targetMode")
+                      and access.get("afterMode") == private_after
+                      and access.get("hostModeAfter") == core.get("hostMode")
+                      and all(access.get(key) == core.get("nativeBackupSha256") for key in
+                              ("beforeSha256", "afterSha256", "hostSha256After"))
+                      and before.get("exitCode", 0) != 0 and set(before.get("sqlErrors", [])) == {3201, 3013}
+                      and set(before.get("operatingSystemErrors", [])) == {5}
+                      and access.get("afterVerification") == {"exitCode": 0, "sqlErrors": [], "operatingSystemErrors": []})
+
+          def validate_core_result(core, source_hash, image, repair_sources=None):
               boolean_keys = {
                   "diagnosticObservationComplete", "applicationAcceptance", "cloudRelease",
                   "exactHostFileToContainerFile", "tarStdinTransfer", "metadataProjection",
@@ -125,6 +232,9 @@ jobs:
               if not isinstance(core, dict):
                   raise RuntimeError("core-result-not-an-object")
               for key, value in core.items():
+                  if key == "backupAccessRepair":
+                      validate_backup_access(value, repair_sources)
+                      continue
                   valid = (key in boolean_keys and type(value) is bool or
                            key in numeric_keys and type(value) is int and 0 <= value <= 65535 or
                            key in ("sqlErrors", "operatingSystemErrors") and isinstance(value, list)
@@ -350,16 +460,25 @@ jobs:
                     "sourceCommit": os.environ["GITHUB_SHA"], "repository": os.environ["GITHUB_REPOSITORY"],
                     "runId": int(os.environ["GITHUB_RUN_ID"]), "runAttempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
                     "platform": {"os": platform.system(), "architecture": platform.machine(), "uid": uid, "gid": gid},
-                    "suppliedProbeSha256": SUPPLIED, "sourceNormalization": "CRLF-to-LF-only",
+                    "suppliedProbeSha256": SUPPLIED, "baselineProbeSha256": BASELINE,
+                    "sourceNormalization": "CRLF-to-LF-only for imported extension and production snapshots",
+                    "probeIntegration": "One production-helper extension plus bounded failure-observation readback; original copy observation preserved",
+                    "productionCommit": PRODUCTION_COMMIT, "repairSources": REPAIR_SOURCES,
                     "probeSha256": hashlib.sha256(script.read_bytes()).hexdigest(),
                     "workflowSha256": hashlib.sha256(workflow.read_bytes()).hexdigest(), "image": IMAGE, "phases": []}
           try:
               if (os.environ.get("GITHUB_ACTIONS") != "true" or platform.system() != "Linux"
                       or not Path("/sys/fs/cgroup/cgroup.controllers").is_file()
-                      or report["probeSha256"] != PUBLISHED
-                      or hashlib.sha256(script.read_bytes().replace(b"\n", b"\r\n")).hexdigest() != SUPPLIED or
+                      or report["probeSha256"] != PUBLISHED or
                       command(["git", "rev-parse", "HEAD"]).strip() != report["sourceCommit"]):
                   raise RuntimeError("hosted-source-or-cgroup-admission-failed")
+              for binding in REPAIR_SOURCES.values():
+                  source = root / binding["path"]
+                  raw = source.read_bytes()
+                  if (source.is_symlink() or b"\r" in raw
+                          or hashlib.sha256(raw).hexdigest() != binding["publishedSha256"]
+                          or hashlib.sha256(raw.replace(b"\n", b"\r\n")).hexdigest() != binding["suppliedSha256"]):
+                      raise RuntimeError("repair-source-normalization-or-hash-mismatch")
               for tool in ("sudo", "systemd-run", "systemctl", "docker", "pwsh", "python3"):
                   if not shutil.which(tool):
                       raise RuntimeError("required-hosted-tool-missing")
@@ -382,7 +501,7 @@ jobs:
                   source = evidence / "result.json"
                   if not source.is_file() or source.stat().st_size > 16384:
                       raise RuntimeError("missing-or-excessive-core-result")
-                  core = validate_core_result(json.loads(source.read_text()), report["probeSha256"], IMAGE)
+                  core = validate_core_result(json.loads(source.read_text()), report["probeSha256"], IMAGE, REPAIR_SOURCES)
                   report["observation"] = core
                   for name, prefix in (("Probe", ""), ("Cleanup", "cleanup")):
                       owned = next(item for item in report["phases"] if item["phase"] == name)
@@ -402,6 +521,8 @@ jobs:
                       and core.get("ownedContainerAbsent") is True and core.get("originalDockerSetPreserved") is True
                       and core.get("executionLimitSeconds") == 180 and core.get("cleanupLimitSeconds") == 60
                       and core.get("containerMaximumLifetimeSeconds") == 120
+                      and backup_access_complete(core)
+                      and core.get("hostMode", "").split(":")[:2] == [str(uid), str(gid)]
                       and all(core.get(key) is True for key in ("identicalSourceHostTargetBytes",
                           "exactHostFileToContainerFile", "otherUnprivilegedUserCannotRead",
                           "noHostMounts", "noPublishedPorts", "noExistingResourceMutation",
@@ -421,7 +542,8 @@ jobs:
                   cleanup = next((item for item in report["phases"] if item["phase"] == "Cleanup"), None)
                   file_deadline = dt.datetime.fromisoformat(cleanup["deadlineUtc"]) if cleanup else utc() + dt.timedelta(seconds=60)
                   report["privateFileCleanupDeadlineUtc"] = iso(file_deadline)
-                  for name in ("database.bak", "before.json", "created.json", "observation.json", "result.json"):
+                  for name in ("database.bak", "before.json", "created.json", "observation.json",
+                               "access-observation.json", "result.json"):
                       if utc() >= file_deadline:
                           raise RuntimeError("private-cleanup-deadline")
                       path = evidence / name
