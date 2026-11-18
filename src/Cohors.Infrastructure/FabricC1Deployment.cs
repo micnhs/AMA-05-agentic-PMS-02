@@ -269,7 +269,7 @@ public sealed partial class FabricC1Provisioner
         state = journal.Load() ?? new(Canonical.Hash(input), new(StringComparer.Ordinal), new(StringComparer.Ordinal));
         Guard.Against(state.BindingHash != Canonical.Hash(input), "c1_deploy_journal_binding", "Deployment manifest changed; no adoption or update.", 409);
         Guard.Against(state.Requests < 0 || state.CleanupRequests < 0 || state.CleanupRequests > state.Requests ||
-            state.Requests > state.CleanupRequests && state.StartedAtUtc is null ||
+            (state.Requests > state.CleanupRequests || PrepaidCheckpointRequests() > 0) && state.StartedAtUtc is null ||
             state.CleanupRequests > 0 && state.CleanupStartedAtUtc is null,
             "c1_deploy_journal_budget", "Persisted counters lack their original start or are inconsistent; do not reset them.", 409);
     }
@@ -666,7 +666,7 @@ public sealed partial class FabricC1Provisioner
                 "Creation remains pending without a supported operation URL; reconcile inventory without POST replay.", 409);
             ValidateOperation(created.OperationUrl!, collection);
             var next = state with { PendingOperations = new(state.PendingOperations, StringComparer.Ordinal) { [key] = created.OperationUrl! } };
-            journal.Save(next);
+            SaveJournal(next);
             state = next;
             if (created.RetryAfterSeconds is > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(created.RetryAfterSeconds.Value, 30)), time, ct);
             return await ConfirmCreation(key, kind, collection, await AwaitOperation(created.OperationUrl!, collection, ct), body, hash, isGraph, ct);
@@ -750,7 +750,7 @@ public sealed partial class FabricC1Provisioner
     private void Pending(string key, string hash)
     {
         var next = state with { PendingCreates = new(state.PendingCreates, StringComparer.Ordinal) { [key] = hash } };
-        journal.Save(next);
+        SaveJournal(next);
         state = next;
     }
     private void RecordDeniedRequest(string key, string hash, int status)
@@ -763,7 +763,7 @@ public sealed partial class FabricC1Provisioner
             PendingCreates = pending,
             DeniedRequests = new(state.DeniedRequests, StringComparer.Ordinal) { [key] = new(hash, status) }
         };
-        journal.Save(next);
+        SaveJournal(next);
         state = next;
     }
     private void SaveObject(string key, string kind, string id, string hash, JsonObject body)
@@ -775,7 +775,7 @@ public sealed partial class FabricC1Provisioner
         var operations = new Dictionary<string, string>(state.PendingOperations, StringComparer.Ordinal);
         operations.Remove(key);
         var next = state with { Objects = objects, PendingCreates = pending, PendingOperations = operations };
-        journal.Save(next);
+        SaveJournal(next);
         state = next;
     }
     private void RequireMarker(JsonObject body, bool isGraph)
@@ -831,6 +831,7 @@ public sealed partial class FabricC1Provisioner
     private async Task<FabricC1DeploymentReply> Send(HttpMethod method, Uri uri, JsonObject? body = null,
         string? ifMatch = null, CancellationToken ct = default, bool cleanup = false)
     {
+        RequireCertainCheckpointJournal();
         Guard.Against(!FabricC1Deployment.ValidCleanupLimits(input), "c1_deploy_cleanup_limits",
             "A reviewed cleanup reserve must be bound before the first control-plane request.", 409);
         var now = time.GetUtcNow();
@@ -843,21 +844,16 @@ public sealed partial class FabricC1Provisioner
             var started = state.CleanupStartedAtUtc ?? now;
             deadline = started.AddSeconds(input.Cleanup!.MaxDurationSeconds!.Value);
             if (input.Cleanup.VerificationDeadlineUtc!.Value < deadline) deadline = input.Cleanup.VerificationDeadlineUtc.Value;
-            Guard.Against(state.Requests >= input.MaxControlRequests || state.CleanupRequests >= input.Cleanup.ReservedRequests ||
+            Guard.Against((long)state.Requests + PrepaidCheckpointRequests() >= input.MaxControlRequests ||
+                state.CleanupRequests >= input.Cleanup.ReservedRequests ||
                 now >= deadline, "c1_deploy_cleanup_budget", "Persisted cleanup reserve/deadline exhausted; no reset or request.", 409);
             next = state with { Requests = state.Requests + 1, CleanupRequests = state.CleanupRequests + 1, CleanupStartedAtUtc = started };
         }
         else
         {
-            Guard.Against(state.CleanupStartedAtUtc is not null, "c1_deploy_cleanup_started", "Cleanup has fenced this run; no new provisioning or grants.", 409);
-            var started = state.StartedAtUtc ?? now;
-            deadline = started.AddSeconds(input.MaxControlDurationSeconds!.Value);
-            if (input.ExpiresAtUtc!.Value < deadline) deadline = input.ExpiresAtUtc.Value;
-            Guard.Against(state.Requests >= input.MaxControlRequests - input.Cleanup!.ReservedRequests || now >= deadline,
-                "c1_deploy_budget", "Persisted normal budget/deadline exhausted; the cleanup reserve is not spent on provisioning.", 409);
-            next = state with { Requests = state.Requests + 1, StartedAtUtc = started };
+            (next, deadline) = PlanNormalRequests(1);
         }
-        journal.Save(next);
+        SaveJournal(next);
         state = next;
         var remaining = deadline - time.GetUtcNow();
         Guard.Against(remaining <= TimeSpan.Zero, cleanup ? "c1_deploy_cleanup_budget" : "c1_deploy_budget",

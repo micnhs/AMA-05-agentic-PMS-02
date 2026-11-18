@@ -241,6 +241,141 @@ public sealed class FabricC1DeploymentTests
     }
 
     [Fact]
+    public void CheckpointAllocationKeepsItsOriginalSeedAndPrepaidBudgetAfterRestart()
+    {
+        using var run = new Harness();
+        var (execution, binding) = CheckpointFixture(run);
+        var original = run.Provisioner.PrepareBlobCheckpoint(execution, binding);
+        Assert.Equal(0, run.Store.Current!.Requests);
+        var persisted = Canonical.Hash(run.Store.Current);
+        var resumed = new FabricC1Provisioner(run.Input, run.Api, run.Store, new Clock(run.Clock.GetUtcNow().AddSeconds(5)));
+        Assert.Equal(Canonical.Hash(original), Canonical.Hash(resumed.PrepareBlobCheckpoint(execution, binding)));
+        Assert.Equal(persisted, Canonical.Hash(run.Store.Current));
+        Assert.Equal("c1_deploy_checkpoint_drift", Assert.Throws<DomainException>(() =>
+            resumed.PrepareBlobCheckpoint(execution, binding with { AllocatedRequests = 41 })).Code);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
+    public void LaterRuntimeAllocationCannotStartAnotherExecutionOrAnotherClock()
+    {
+        using var run = new Harness();
+        var (execution, binding) = CheckpointFixture(run);
+        var first = run.Provisioner.PrepareBlobCheckpoint(execution, binding);
+        var later = new FabricC1Provisioner(run.Input, run.Api, run.Store, new Clock(run.Clock.GetUtcNow().AddSeconds(5)));
+        var changed = execution with { RunId = Guid.NewGuid().ToString("D") };
+        Assert.Equal("c1_deploy_checkpoint_drift", Assert.Throws<DomainException>(() =>
+            later.PrepareBlobCheckpoint(changed, binding with { Runtime = "hosted", ExecutionBindingHash = Canonical.Hash(changed) })).Code);
+        var second = later.PrepareBlobCheckpoint(execution, binding with { Runtime = "hosted" });
+        Assert.Equal(first.Seed.Checkpoint.StartedAtUtc, second.Seed.Checkpoint.StartedAtUtc);
+        Assert.Equal(first.Seed.Checkpoint.DeadlineUtc, second.Seed.Checkpoint.DeadlineUtc);
+        Assert.Equal(first.IoDeadlineUtc, second.IoDeadlineUtc);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Theory]
+    [InlineData("budget", "c1_deploy_budget")]
+    [InlineData("source", "c1_deploy_checkpoint_binding")]
+    [InlineData("account", "c1_deploy_checkpoint_storage")]
+    [InlineData("caller", "c1_deploy_context")]
+    public void CheckpointAllocationRequiresOriginalBudgetSourceAndOwnedResources(string invalid, string code)
+    {
+        using var run = new Harness();
+        var (execution, binding) = CheckpointFixture(run);
+        if (invalid == "budget") binding = binding with { AllocatedRequests = 81 };
+        if (invalid == "account") binding = binding with { StorageAccountResourceId = binding.StorageAccountResourceId + "other" };
+        if (invalid == "source") execution = execution with { SourceCommit = new string('c', 40) };
+        if (invalid == "caller") execution = execution with
+        {
+            Preparation = execution.Preparation with
+            {
+                Identity = execution.Preparation.Identity with { PrincipalObjectId = Guid.NewGuid().ToString("D") }
+            }
+        };
+        binding = binding with
+        {
+            ExecutionBindingHash = Canonical.Hash(execution),
+            Identity = execution.Preparation.Identity with { ExpectedAudience = "https://storage.azure.com/" }
+        };
+        var original = Canonical.Hash(run.Store.Current!);
+        Assert.Equal(code, Assert.Throws<DomainException>(() => run.Provisioner.PrepareBlobCheckpoint(execution, binding)).Code);
+        Assert.Equal(original, Canonical.Hash(run.Store.Current!));
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
+    public void CheckpointReservationsAreDurableOneUseClaimsAndAreNeverRefundedOnRestart()
+    {
+        using var run = new Harness();
+        var (execution, binding) = CheckpointFixture(run);
+        var allocation = run.Provisioner.PrepareBlobCheckpoint(execution, binding);
+        var id = Guid.NewGuid().ToString("D");
+        var first = run.Provisioner.ReserveBlobCheckpoint(execution, binding, id, 24, allocation.IoDeadlineUtc);
+        run.Restart();
+        Assert.Equal(first, run.Provisioner.ReserveBlobCheckpoint(execution, binding, id, 24, allocation.IoDeadlineUtc));
+        Assert.Equal("c1_deploy_checkpoint_drift", Assert.Throws<DomainException>(() =>
+            run.Provisioner.ReserveBlobCheckpoint(execution, binding, id, 20, allocation.IoDeadlineUtc)).Code);
+        Assert.Equal("c1_deploy_checkpoint_reservation", Assert.Throws<DomainException>(() =>
+            run.Provisioner.ReserveBlobCheckpoint(execution, binding, Guid.NewGuid().ToString("D"), 20, allocation.IoDeadlineUtc)).Code);
+        var second = run.Provisioner.ReserveBlobCheckpoint(execution, binding, Guid.NewGuid().ToString("D"), 16, allocation.IoDeadlineUtc);
+        Assert.NotEqual(first.JournalReceiptSha256, second.JournalReceiptSha256);
+        Assert.Equal(0, run.Store.Current!.Requests);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
+    public async Task OrdinaryControlCallsCannotBorrowPrepaidCheckpointIoOrCleanupReserve()
+    {
+        using var run = new Harness();
+        run.Capacity();
+        var (execution, binding) = CheckpointFixture(run);
+        run.Provisioner.PrepareBlobCheckpoint(execution, binding);
+        run.Store.Save(run.Store.Current! with { Requests = 40 });
+        run.Restart();
+        Assert.Equal("c1_deploy_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureWorkspace("agent", default))).Code);
+        Assert.Empty(run.Api.Requests);
+        Assert.Equal(0, run.Store.Current!.CleanupRequests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CheckpointDebitCannotResetOriginalTimeOrProceedAfterCleanupFencing(bool cleanup)
+    {
+        using var run = new Harness();
+        var (execution, binding) = CheckpointFixture(run);
+        run.Store.Save(run.Store.Current! with
+        {
+            StartedAtUtc = run.Clock.GetUtcNow().AddMinutes(-11),
+            CleanupStartedAtUtc = cleanup ? run.Clock.GetUtcNow() : null
+        });
+        run.Restart();
+        Assert.Equal(cleanup ? "c1_deploy_cleanup_started" : "c1_deploy_budget",
+            Assert.Throws<DomainException>(() => run.Provisioner.PrepareBlobCheckpoint(execution, binding)).Code);
+        Assert.DoesNotContain("checkpoint-allocation-direct", run.Store.Current!.Objects.Keys);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
+    public void LostJournalCommitResponseFencesTheWriterAndResumeRecoversTheSameDebit()
+    {
+        using var run = new Harness();
+        var (execution, binding) = CheckpointFixture(run);
+        run.Store.FailAfterSave = true;
+        Assert.Throws<IOException>(() => run.Provisioner.PrepareBlobCheckpoint(execution, binding));
+        var original = Canonical.Hash(run.Store.Current!);
+        run.Store.FailAfterSave = false;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", Assert.Throws<DomainException>(() =>
+            run.Provisioner.PrepareBlobCheckpoint(execution, binding)).Code);
+        run.Restart();
+        var allocation = run.Provisioner.PrepareBlobCheckpoint(execution, binding);
+        Assert.Equal(original, Canonical.Hash(run.Store.Current!));
+        Assert.Equal(run.Clock.GetUtcNow(), allocation.Seed.Checkpoint.StartedAtUtc);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
     public void CleanupReserveCannotIncreaseTheOriginalRequestCeilingOrExtendActiveUse()
     {
         using var run = new Harness();
@@ -1751,13 +1886,60 @@ public sealed class FabricC1DeploymentTests
     {
         public FabricC1DeploymentJournal? Current;
         public bool FailSave;
+        public bool FailAfterSave;
         public FabricC1DeploymentJournal? Load() => Current is null ? null :
             JsonSerializer.Deserialize<FabricC1DeploymentJournal>(JsonSerializer.Serialize(Current, Canonical.Json), Canonical.Json);
         public void Save(FabricC1DeploymentJournal state)
         {
             if (FailSave) throw new IOException("synthetic journal failure");
             Current = JsonSerializer.Deserialize<FabricC1DeploymentJournal>(JsonSerializer.Serialize(state, Canonical.Json), Canonical.Json);
+            if (FailAfterSave) throw new IOException("synthetic lost journal acknowledgement");
         }
+    }
+    private static (FabricC1ExecutionSettings Execution, FabricC1BlobCheckpointBinding Binding) CheckpointFixture(Harness run)
+    {
+        var preparation = FabricC1PreparationTests.Bound();
+        var identity = preparation.Identity with
+        {
+            TenantId = run.Input.TenantId, ClientId = Guid.NewGuid().ToString("D"),
+            PrincipalObjectId = Guid.NewGuid().ToString("D"), ExpectedIssuer = $"https://sts.windows.net/{run.Input.TenantId}/"
+        };
+        preparation = preparation with { Identity = identity, Limits = new(70, 60, 32768, 30) };
+        var execution = new FabricC1ExecutionSettings("cohors-fabric-c1-execution-1", preparation, Guid.NewGuid().ToString("D"),
+            run.Input.SourceCommit!, run.Clock.GetUtcNow().AddMinutes(4), new string('b', 64), ["10.0.0.4"], "none", 24, 24, 20,
+            new("99999999-9999-9999-9999-999999999999", "synthetic-agent", "synthetic-hosted-session", "synthetic-platform-user",
+                new string('c', 64), preparation.Runtime.HostedProjectEndpoint!.TrimEnd('/') +
+                    "/agents/synthetic-agent/endpoint/protocols/invocations?api-version=v1&agent_session_id=synthetic-hosted-session",
+                identity with { ExpectedAudience = "https://ai.azure.com" }, ["10.0.0.5"]));
+        var storage = FabricC1Deployment.GroupId(run.Input) + "/providers/Microsoft.Storage/storageAccounts/c1synthetic";
+        var binding = new FabricC1BlobCheckpointBinding(FabricC1BlobCheckpointStore.Contract, Canonical.Hash(run.Input),
+            Canonical.Hash(execution), "direct", storage, identity with { ExpectedAudience = "https://storage.azure.com/" },
+            ["10.0.0.6"], new string('e', 64), run.Input.Reviews!.BudgetPlanSha256!, 40);
+        var marker = FabricC1Deployment.Marker(run.Input);
+        run.Seed("runtime-app", "Application", new()
+        {
+            ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = identity.ClientId, ["tags"] = new JsonArray(marker)
+        });
+        run.Seed("runtime-sp", "ServicePrincipal", new()
+        {
+            ["id"] = identity.PrincipalObjectId, ["appId"] = identity.ClientId, ["tags"] = new JsonArray(marker)
+        });
+        run.Seed("arm-foundation", "ArmDeployment", new()
+        {
+            ["id"] = FabricC1Deployment.GroupId(run.Input) + "/providers/Microsoft.Resources/deployments/foundation",
+            ["properties"] = new JsonObject
+            {
+                ["provisioningState"] = "Succeeded", ["outputs"] = new JsonObject
+                {
+                    ["storage"] = new JsonObject { ["value"] = new JsonObject
+                    {
+                        ["id"] = storage, ["type"] = "Microsoft.Storage/storageAccounts", ["location"] = run.Input.Location,
+                        ["tags"] = FabricC1Deployment.Tags(run.Input)
+                    }}
+                }
+            }
+        });
+        return (execution, binding);
     }
     private sealed class Harness : IDisposable
     {

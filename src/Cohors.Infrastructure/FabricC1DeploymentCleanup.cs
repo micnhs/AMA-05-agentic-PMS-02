@@ -23,7 +23,7 @@ public sealed partial class FabricC1Provisioner
         if (state.CleanupStartedAtUtc is null)
         {
             var fenced = state with { CleanupStartedAtUtc = time.GetUtcNow() };
-            journal.Save(fenced);
+            SaveJournal(fenced);
             state = fenced;
         }
 
@@ -164,7 +164,7 @@ public sealed partial class FabricC1Provisioner
                 "c1_deploy_cleanup_members", "The owned group contains another principal; do not delete it.", 409);
         }
         var intended = state with { PendingDeletes = new(state.PendingDeletes, StringComparer.Ordinal) { [target.Key] = hash } };
-        journal.Save(intended);
+        SaveJournal(intended);
         state = intended;
         var deleted = await Send(HttpMethod.Delete, uri, ct: ct, cleanup: true);
         if (deleted.Status is 401 or 403)
@@ -176,7 +176,7 @@ public sealed partial class FabricC1Provisioner
                 PendingDeletes = deletes,
                 DeniedRequests = new(state.DeniedRequests, StringComparer.Ordinal) { ["cleanup-" + target.Key] = new(hash, deleted.Status) }
             };
-            journal.Save(denied);
+            SaveJournal(denied);
             state = denied;
         }
         RequireStatus(deleted, 204, 404);
@@ -211,7 +211,7 @@ public sealed partial class FabricC1Provisioner
                 })
             }
         };
-        journal.Save(next);
+        SaveJournal(next);
         state = next;
     }
 

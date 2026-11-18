@@ -286,7 +286,22 @@ reservation from the original approved deployment allocation. The consumer
 records successful reservations under the lease, rejects reuse or excess,
 and does not refund unused quota or allocate a replacement after ambiguity.
 The receipt/review hashes are references, not proof that this upstream debit
-happened. The durable reservation producer, initial conditional blob seed,
+happened. The provisioner's source-only `PrepareBlobCheckpoint` now atomically
+records a fixed allocation and initial seed in the original exclusive local
+journal. It binds the original own Storage output, generated runtime/control
+app identities, source revision and existing budget-review hash. Prepaid
+allocations count against both normal and total control ceilings; ordinary
+calls cannot borrow them or the cleanup reserve. `Requests` continues to mean
+control attempts; prepaid requests remain separately visible in allocation
+receipts, not invented HTTP traffic.
+
+`ReserveBlobCheckpoint` durably issues individual claims from that fixed pool.
+Resume returns the original seed, clock and claim, never a new allocation;
+direct/Hosted/control allocations share that original execution and clock.
+Unused/uncertain claims are not refunded. An ambiguous journal write fences
+all further provider calls and journal writes in that process until its
+original journal is reopened. The generated seed is a **plan**, not a
+confirmed Blob create. Initial conditional Blob creation/reconciliation,
 scoped RBAC/readback, protected profile/credential delivery and explicit CLI/
 Hosted selection are still **not integrated**. `--state FILE` retains its file
 meaning; no blob URI is hidden in it. The existing 39 preparation mappings,

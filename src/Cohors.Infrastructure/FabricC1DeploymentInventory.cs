@@ -195,7 +195,7 @@ public sealed partial class FabricC1Provisioner
             pending.Remove("arm-" + stage);
         }
         var next = state with { Objects = objects, PendingCreates = pending };
-        journal.Save(next);
+        SaveJournal(next);
         state = next;
     }
 }

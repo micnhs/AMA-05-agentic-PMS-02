@@ -124,9 +124,14 @@ strict original-state/clock binding, private app-only transport and cancellation
 of in-flight MCP/Hosted reads when authority is lost. It cannot create missing
 state, break another lease, retry an uncertain write or renew a budget. A
 one-use I/O reservation must be debited upstream before opening it; successful
-reservations are retained under the lease. Reservation/seed production,
-RBAC/readback, protected credential/profile delivery and CLI/Hosted selection
-are not integrated. Existing file checkpoint arguments retain their semantics.
+reservations are retained under the lease. The provisioner's journal producer
+now atomically preallocates this I/O from the original control budget and
+binds immutable seed/claim records to the own observed account and identities.
+Unused or unknown claims remain charged; ambiguous journal writes fence the
+process until original-state recovery. Actual conditional Blob seeding and
+reconciliation, RBAC/readback, protected credential/profile delivery and
+CLI/Hosted selection remain unintegrated. The seed plan alone is not a storage
+write or an authorization result. Existing file arguments retain their semantics.
 The component does not close the whole certificate/durable-state driver gap,
 prove a remote task stopped, or constitute a native Blob/recovery result.
 
