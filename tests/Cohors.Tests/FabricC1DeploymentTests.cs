@@ -896,26 +896,7 @@ public sealed class FabricC1DeploymentTests
     public async Task HostedAllowanceBindsSeparateOriginalControlAndServerDebitsToOneInvocation()
     {
         using var run = new Harness(maxRequests: 300);
-        var (execution, original) = CheckpointFixture(run);
-        var originalHosted = execution.Hosted!;
-        var controlIdentity = originalHosted.Caller with
-        { ClientId = Guid.NewGuid().ToString("D"), PrincipalObjectId = Guid.NewGuid().ToString("D") };
-        execution = execution with { Hosted = originalHosted with { Caller = controlIdentity } };
-        var hosted = original with { Runtime = "hosted", ExecutionBindingHash = Canonical.Hash(execution) };
-        var control = original with
-        {
-            Runtime = "hosted-control", ExecutionBindingHash = Canonical.Hash(execution),
-            Identity = controlIdentity with { ExpectedAudience = "https://storage.azure.com/" }
-        };
-        var marker = FabricC1Deployment.Marker(run.Input);
-        run.Seed("hosted-control-app", "Application", new()
-        {
-            ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = controlIdentity.ClientId, ["tags"] = new JsonArray(marker)
-        });
-        run.Seed("hosted-control-sp", "ServicePrincipal", new()
-        {
-            ["id"] = controlIdentity.PrincipalObjectId, ["appId"] = controlIdentity.ClientId, ["tags"] = new JsonArray(marker)
-        });
+        var (execution, _, hosted, control) = CheckpointRuntimes(run);
         foreach (var binding in new[] { hosted, control })
         {
             using var handler = new SeedHandler();
@@ -941,6 +922,227 @@ public sealed class FabricC1DeploymentTests
                 command with { HostedCheckpointReservation = local }, local, hosted)).Code);
         Assert.Equal(6, run.Store.Current!.Requests);
         Assert.Equal(0, run.Store.Current.CleanupRequests);
+    }
+
+    [Fact]
+    public async Task CheckpointStorageAccessSeparatesExactPathsWithoutManagementDeleteOrHumanGrants()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var plan = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        Assert.Empty(run.Api.Requests);
+        var permissions = plan[0].Request["properties"]!["permissions"]![0]!;
+        Assert.Empty(permissions["actions"]!.AsArray());
+        Assert.Equal(new[]
+        {
+            "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/read",
+            "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write"
+        }, permissions["dataActions"]!.AsArray().Select(value => value!.GetValue<string>()));
+        Assert.Equal(FabricC1Deployment.GroupId(run.Input), plan[0].Request["properties"]!["assignableScopes"]![0]!.GetValue<string>());
+        var runtimeCondition = plan[1].Request["properties"]!["condition"]!.GetValue<string>();
+        var controlCondition = plan[2].Request["properties"]!["condition"]!.GetValue<string>();
+        Assert.Contains("/direct.json", runtimeCondition);
+        Assert.Contains("/hosted.json", runtimeCondition);
+        Assert.DoesNotContain("/hosted-control.json", runtimeCondition);
+        Assert.Contains("/hosted-control.json", controlCondition);
+        Assert.DoesNotContain("/direct.json", controlCondition);
+        Assert.DoesNotContain("/hosted.json", controlCondition);
+        Assert.All(plan.Skip(1), resource =>
+        {
+            var properties = resource.Request["properties"]!;
+            Assert.Equal("ServicePrincipal", properties["principalType"]!.GetValue<string>());
+            Assert.Contains("AND NOT SubOperationMatches{'Blob.List'}", properties["condition"]!.GetValue<string>());
+            Assert.DoesNotContain("*", properties["condition"]!.GetValue<string>());
+            Assert.Contains("/containers/c1-checkpoints/providers/Microsoft.Authorization/roleAssignments/", resource.Id);
+            Assert.NotEqual(run.Input.BootstrapIdentity!.PrincipalObjectId, properties["principalId"]!.GetValue<string>());
+        });
+        foreach (var resource in plan)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, CheckpointAccessResponse(resource));
+            run.Api.Reply(200, CheckpointAccessResponse(resource));
+        }
+        Assert.Equal(3, (await run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default)).Length);
+        Assert.Equal(9, run.Store.Current!.Requests);
+        Assert.DoesNotContain(run.Store.Current.Objects.Keys, key => key.StartsWith("checkpoint-allocation-", StringComparison.Ordinal));
+        run.Restart();
+        foreach (var resource in plan) run.Api.Reply(200, CheckpointAccessResponse(resource));
+        await run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default);
+        Assert.Equal(3, run.Api.Requests.Count(request => request.Method == HttpMethod.Put));
+        Assert.Equal(12, run.Store.Current.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+    }
+
+    [Theory]
+    [InlineData("management")]
+    [InlineData("data-delete")]
+    [InlineData("scope")]
+    [InlineData("condition")]
+    [InlineData("human")]
+    public async Task CheckpointAccessReadbackRejectsBroaderRolesScopesConditionsAndHumanAssignments(string changed)
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var plan = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        var index = changed is "management" or "data-delete" ? 0 : 1;
+        if (index == 1)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, CheckpointAccessResponse(plan[0]));
+            run.Api.Reply(200, CheckpointAccessResponse(plan[0]));
+        }
+        var response = CheckpointAccessResponse(plan[index]);
+        var properties = response["properties"]!;
+        if (changed == "management") properties["permissions"]![0]!["actions"]!.AsArray().Add("Microsoft.Storage/storageAccounts/listKeys/action");
+        if (changed == "data-delete") properties["permissions"]![0]!["dataActions"]!.AsArray().Add("Microsoft.Storage/storageAccounts/blobServices/containers/blobs/delete");
+        if (changed == "scope") properties["scope"] = direct.StorageAccountResourceId;
+        if (changed == "condition") properties["condition"] = null;
+        if (changed == "human") properties["principalType"] = "User";
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, CheckpointAccessResponse(plan[index]));
+        run.Api.Reply(200, response);
+        Assert.Equal("c1_checkpoint_access_readback", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default))).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey(plan[index].Key));
+        Assert.True(run.Store.Current.PendingCreates.ContainsKey(plan[index].Key));
+    }
+
+    [Fact]
+    public async Task ExistingUnjournaledCheckpointRoleIsNotAdoptedOrUpdated()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var role = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control)[0];
+        run.Api.Reply(200, CheckpointAccessResponse(role));
+        Assert.Equal("c1_deploy_foreign", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default))).Code);
+        Assert.Single(run.Api.Requests);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Put);
+    }
+
+    [Fact]
+    public async Task UnknownCheckpointRoleWriteOnlyReconcilesItsOriginalIntentWithoutPutReplay()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var plan = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        run.Api.Reply(404, new());
+        run.Api.Fail(new IOException("synthetic lost role create"));
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default));
+        run.Restart();
+        run.Api.Reply(404, new());
+        Assert.Equal("c1_deploy_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default))).Code);
+        run.Restart();
+        run.Api.Reply(200, CheckpointAccessResponse(plan[0]));
+        foreach (var resource in plan.Skip(1))
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, CheckpointAccessResponse(resource));
+            run.Api.Reply(200, CheckpointAccessResponse(resource));
+        }
+        await run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put && request.Uri.AbsolutePath == plan[0].Id);
+        Assert.Empty(run.Store.Current!.PendingCreates);
+    }
+
+    [Fact]
+    public async Task ExplicitCheckpointRoleDenialRetainsTheOriginalRequestForALaterAuthorizedInvocation()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var plan = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        run.Api.Reply(404, new());
+        run.Api.Reply(403, new());
+        Assert.Equal("c1_deploy_http_403", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default))).Code);
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        Assert.Equal(403, run.Store.Current.DeniedRequests[plan[0].Key].Status);
+        run.Restart();
+        foreach (var resource in plan)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, CheckpointAccessResponse(resource));
+            run.Api.Reply(200, CheckpointAccessResponse(resource));
+        }
+        await run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default);
+        var attempts = run.Api.Requests.Where(request => request.Method == HttpMethod.Put && request.Uri.AbsolutePath == plan[0].Id).ToArray();
+        Assert.Equal(2, attempts.Length);
+        Assert.Equal(Canonical.Hash(attempts[0].Body), Canonical.Hash(attempts[1].Body));
+        Assert.Equal(11, run.Store.Current.Requests);
+    }
+
+    [Fact]
+    public void CheckpointAccessRejectsAliasedControlIdentityBeforeAnyRoleRequest()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        execution = execution with { Hosted = execution.Hosted! with
+            { Caller = execution.Preparation.Identity with { ExpectedAudience = "https://ai.azure.com" } } };
+        var hash = Canonical.Hash(execution);
+        direct = direct with { ExecutionBindingHash = hash };
+        hosted = hosted with { ExecutionBindingHash = hash };
+        control = control with { ExecutionBindingHash = hash, Identity = direct.Identity };
+        run.Seed("hosted-control-app", "Application", (JsonObject)run.Store.Current!.Objects["runtime-app"].Response.DeepClone());
+        run.Seed("hosted-control-sp", "ServicePrincipal", (JsonObject)run.Store.Current.Objects["runtime-sp"].Response.DeepClone());
+        Assert.Equal("c1_checkpoint_access_binding", Assert.Throws<DomainException>(() =>
+            run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control)).Code);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Fact]
+    public async Task UnknownCheckpointAccessReadbackSaveFencesFurtherWorkUntilOriginalJournalRecovery()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var plan = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, CheckpointAccessResponse(plan[0]));
+        run.Api.ReplyComputed(200, () =>
+        {
+            run.Store.FailAfterSave = true;
+            return CheckpointAccessResponse(plan[0]);
+        });
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default));
+        Assert.True(run.Store.Current!.Objects.ContainsKey(plan[0].Key));
+        run.Store.FailAfterSave = false;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default))).Code);
+        Assert.Equal(3, run.Api.Requests.Count);
+        run.Restart();
+        run.Api.Reply(200, CheckpointAccessResponse(plan[0]));
+        foreach (var resource in plan.Skip(1))
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, CheckpointAccessResponse(resource));
+            run.Api.Reply(200, CheckpointAccessResponse(resource));
+        }
+        await run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put && request.Uri.AbsolutePath == plan[0].Id);
+    }
+
+    [Fact]
+    public async Task DeniedCheckpointGrantCannotMoveToANewExecutionPathOnResume()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var plan = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, CheckpointAccessResponse(plan[0]));
+        run.Api.Reply(200, CheckpointAccessResponse(plan[0]));
+        run.Api.Reply(404, new());
+        run.Api.Reply(403, new());
+        await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default));
+        run.Restart();
+        execution = execution with { RunId = Guid.NewGuid().ToString("D") };
+        var changed = Canonical.Hash(execution);
+        run.Api.Reply(200, CheckpointAccessResponse(plan[0]));
+        Assert.Equal("c1_deploy_drift", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct with { ExecutionBindingHash = changed },
+                hosted with { ExecutionBindingHash = changed }, control with { ExecutionBindingHash = changed }, default))).Code);
+        Assert.Equal(6, run.Api.Requests.Count);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put && request.Uri.AbsolutePath == plan[1].Id);
     }
 
     [Theory]
@@ -2881,6 +3083,41 @@ public sealed class FabricC1DeploymentTests
             started.TrySetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
         }
+    }
+
+    private static JsonObject CheckpointAccessResponse(FabricC1CheckpointAccessResource resource)
+    {
+        var response = (JsonObject)resource.Request.DeepClone();
+        response["id"] = resource.Id;
+        response["name"] = resource.Id.Split('/')[^1];
+        response["type"] = "Microsoft.Authorization/" + (resource.Kind == "CheckpointStorageRole" ? "roleDefinitions" : "roleAssignments");
+        if (resource.Kind == "CheckpointStorageGrant")
+            response["properties"]!["scope"] = resource.Id[..resource.Id.LastIndexOf("/providers/", StringComparison.Ordinal)];
+        return response;
+    }
+
+    private static (FabricC1ExecutionSettings Execution, FabricC1BlobCheckpointBinding Direct,
+        FabricC1BlobCheckpointBinding Hosted, FabricC1BlobCheckpointBinding Control) CheckpointRuntimes(Harness run)
+    {
+        var (execution, original) = CheckpointFixture(run);
+        var originalHosted = execution.Hosted!;
+        var controlIdentity = originalHosted.Caller with
+        { ClientId = Guid.NewGuid().ToString("D"), PrincipalObjectId = Guid.NewGuid().ToString("D") };
+        execution = execution with { Hosted = originalHosted with { Caller = controlIdentity } };
+        var direct = original with { ExecutionBindingHash = Canonical.Hash(execution) };
+        var hosted = direct with { Runtime = "hosted" };
+        var control = direct with
+        { Runtime = "hosted-control", Identity = controlIdentity with { ExpectedAudience = "https://storage.azure.com/" } };
+        var marker = FabricC1Deployment.Marker(run.Input);
+        run.Seed("hosted-control-app", "Application", new()
+        {
+            ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = controlIdentity.ClientId, ["tags"] = new JsonArray(marker)
+        });
+        run.Seed("hosted-control-sp", "ServicePrincipal", new()
+        {
+            ["id"] = controlIdentity.PrincipalObjectId, ["appId"] = controlIdentity.ClientId, ["tags"] = new JsonArray(marker)
+        });
+        return (execution, direct, hosted, control);
     }
 
     private static (FabricC1ExecutionSettings Execution, FabricC1BlobCheckpointBinding Binding) CheckpointFixture(Harness run)

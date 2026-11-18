@@ -120,6 +120,7 @@ public static partial class FabricC1Deployment
             "Private DNS, Fabric workspace PLS/PE, Foundry/ACR/Vault/Blob PE",
             "Foundry account with network injection from creation and separate project identity",
             "Premium ACR, RBAC Key Vault, private Blob evidence storage, private probe VM",
+            "Own checkpoint read/write-only custom role limited to this group; separate exact-path runtime/control container grants",
             "No Bastion, Relay, C2 archive, SQL journal or production resource in the narrow C1 profile"
         ],
         [
@@ -315,7 +316,10 @@ public sealed partial class FabricC1Provisioner
             "Microsoft.Network/routeTables/write", "Microsoft.Network/networkSecurityGroups/write", "Microsoft.Network/publicIPAddresses/write",
             "Microsoft.Network/privateDnsZones/write", "Microsoft.Compute/virtualMachines/write",
             "Microsoft.Compute/virtualMachines/runCommands/read", "Microsoft.Compute/virtualMachines/runCommands/write",
-            "Microsoft.Compute/virtualMachines/runCommands/delete", "Microsoft.Authorization/roleAssignments/write",
+            "Microsoft.Compute/virtualMachines/runCommands/delete",
+            "Microsoft.Authorization/roleAssignments/read", "Microsoft.Authorization/roleAssignments/write",
+            "Microsoft.Authorization/roleAssignments/delete", "Microsoft.Authorization/roleDefinitions/read",
+            "Microsoft.Authorization/roleDefinitions/write", "Microsoft.Authorization/roleDefinitions/delete",
             "Microsoft.CognitiveServices/accounts/write", "Microsoft.ContainerRegistry/registries/write",
             "Microsoft.KeyVault/vaults/write", "Microsoft.Storage/storageAccounts/write"
         })
@@ -630,7 +634,8 @@ public sealed partial class FabricC1Provisioner
         foreach (var key in new[] { "runtime-app", "runtime-sp", "arm-foundation", "arm-private-endpoints",
             "workspace-agent", "workspace-released", "workspace-denied", "lakehouse-released", "lakehouse-denied",
             "published-definition", "runtime-agent-grant", "source-grants", "materialization",
-            "runtime-credential", "hosted-version", "hosted-session", "private-path", "caller-access" })
+            "runtime-credential", "hosted-version", "hosted-session", "private-path", "caller-access",
+            "checkpoint-storage-role", "checkpoint-storage-runtime-grant", "checkpoint-storage-control-grant" })
             Guard.Against(!state.Objects.ContainsKey(key), "c1_deploy_binding_incomplete",
                 "Deployment receipts are incomplete; no runnable C1 inputs may be emitted.", 409);
         Guard.Against(state.PendingCreates.Count != 0 || state.PendingOperations.Count != 0, "c1_deploy_unknown", "Unresolved creates prevent C1 binding.", 409);

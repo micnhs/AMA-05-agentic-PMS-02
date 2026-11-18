@@ -160,6 +160,22 @@ Existing file arguments retain their semantics.
 The component does not close the whole certificate/durable-state driver gap,
 prove a remote task stopped, or constitute a native Blob/recovery result.
 
+The checkpoint-access component now prepares and reconciles an own Azure custom role with
+only Blob read/write data actions, no management, delete or delegation actions,
+and assignable scope limited to this deployment's resource group. Two own
+container-scoped assignments separate the runtime's direct/Hosted paths from
+the control caller's path through exact ABAC conditions; no list or wildcard
+access is intended. This requires explicit role-definition as well as
+role-assignment start rights and original-intent/readback ownership. It adds
+no rights to the four human VPN accounts. Source preparation is not a grant,
+an effective-access verdict or approval to start a paid partial deployment.
+Native condition enforcement, privilege propagation and ordered assignment/
+role-definition cleanup remain required before full-driver acceptance. Existing
+unjournaled roles/grants, changed permissions/scope/conditions and unknown missing
+write outcomes block progression rather than being adopted or reissued. A fresh
+readback is required after creation. This path does not start the C1 checkpoint
+clock or borrow its prepaid I/O; all IAM calls use the original control budget.
+
 The newly selected network graph replaces the earlier NAT candidate, not an
 existing resource: own Standard Firewall with DNS proxy and two fixed default
 instances; own active-passive VpnGw1AZ/OpenVPN with a separate restricted Entra

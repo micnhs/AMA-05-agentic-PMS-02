@@ -395,6 +395,31 @@ Example argument shapes for the exact source-bound binary (not native evidence):
 Scoped RBAC/readback, protected native profile/certificate delivery and the full
 orchestrated runtime driver remain **not integrated**. These hashes do not
 replace a trusted delivery path or demonstrate an upstream native deployment.
+The checkpoint access component now prepares and reconciles one own Azure
+custom role with only Blob `read`/`write` data actions and no management,
+delete or delegation actions. Its assignable scope is the own resource group;
+the two assignments target only the own checkpoint container. Exact ABAC paths
+separate the runtime's direct/Hosted files from the control caller's file and
+exclude `Blob.List`. These are service-principal grants, not human VPN or
+Cohors roles. The component verifies each current provider readback against
+the original intent. It never adopts an unjournaled role/grant, replays a lost
+PUT, recreates an unknown missing assignment, or widens a changed condition.
+An explicit 401/403 is retained as a rejected original attempt, not retried
+automatically. Ambiguous receipt saves fence this process until journal recovery.
+The start-rights contract now includes role-definition/assignment read, write
+and delete. Grant creation does not allocate or restart the C1 checkpoint clock.
+
+This source path has not created a role or demonstrated effective Azure access.
+Inherited grants, condition enforcement/propagation, private lease/read/write
+access and cross-path denials still need native evidence. It does not prove a
+checkpoint is immutable against a compromised writer or replace the separate
+Ledger/WORM contract. Ordered removal of both assignments and the own role
+definition remains part of the unfinished full cleanup; removing the resource
+group alone is not proof that the role definition is gone.
+Provider references: [custom role creation](https://learn.microsoft.com/rest/api/authorization/role-definitions/create-or-update?view=rest-authorization-2022-04-01),
+[role assignments](https://learn.microsoft.com/rest/api/authorization/role-assignments/create?view=rest-authorization-2022-04-01),
+[Blob path conditions](https://learn.microsoft.com/azure/storage/blobs/storage-auth-abac-examples#blob-container-names-or-paths)
+and [lease authorization](https://learn.microsoft.com/rest/api/storageservices/lease-blob#authorization).
 The existing 39 preparation mappings,
 18 execution fields and seven caller fields are unchanged; these additional
 storage documents are a separate implementation contract. All five full-driver
