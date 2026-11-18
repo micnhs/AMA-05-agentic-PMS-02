@@ -33,7 +33,9 @@ public static class FabricC1DeploymentEntry
                 Guard.Against(Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true",
                     "c1_deploy_ci_prohibited", "The credential-free build runner cannot deploy.", 409);
                 Guard.Against(plan.MissingInputs.Any(field => !cleanup ||
-                    field != "expiresAtUtc" && !(field == "network.operatorAccess" && input.Network?.OperatorAccess is null)),
+                    field != "expiresAtUtc" && !(field == "network.operatorAccess" && input.Network?.OperatorAccess is null) &&
+                    !(field.StartsWith("network.operatorAccess.vpnUsers.", StringComparison.Ordinal) &&
+                      input.Network?.OperatorAccess?.VpnUsers is null)),
                     "c1_deploy_inputs", "Start inputs are incomplete.", 409);
                 if (!cleanup && args.Length < 7) FabricC1Deployment.RequireComplete(plan);
                 FabricC1Execution.RequireSourceBuild(input.SourceCommit!);

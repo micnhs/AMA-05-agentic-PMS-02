@@ -175,9 +175,12 @@ public sealed class FabricC1DeploymentTests
     [Fact]
     public void NetworkParametersExcludeOperatorIdentityAndLocalRouteEvidence()
     {
-        using var run = new Harness(operatorNetwork: true);
+        using var run = new Harness(operatorNetwork: true, vpnUserCount: 4);
         var parameters = FabricC1Deployment.ArmParameters(run.Input).ToJsonString();
         Assert.DoesNotContain(run.Input.Network!.OperatorAccess!.OperatorObjectId!, parameters, StringComparison.Ordinal);
+        Assert.All(run.Input.Network.OperatorAccess.VpnUsers!.ObjectIds!, id =>
+            Assert.DoesNotContain(id, parameters, StringComparison.Ordinal));
+        Assert.DoesNotContain("vpnUsers", parameters, StringComparison.Ordinal);
         Assert.DoesNotContain("excludedPrefixes", parameters, StringComparison.Ordinal);
         Assert.DoesNotContain("clientPrerequisitesReviewSha256", parameters, StringComparison.Ordinal);
     }
@@ -260,6 +263,119 @@ public sealed class FabricC1DeploymentTests
     }
 
     [Fact]
+    public async Task FourSelectedVpnUsersAreIndividuallyJournaledWithoutChangingTheOperatorOrCohorsRights()
+    {
+        using var run = new Harness(delegated: true, operatorNetwork: true, vpnUserCount: 4);
+        var fixture = QueueOperatorVpn(run);
+        var assignments = QueueAdditionalVpnUsers(run, fixture);
+        await run.Provisioner.EnsureOperatorNetworkIdentity(VpnRights(), default);
+        var grants = run.Api.Requests.Where(request => request.Method == HttpMethod.Post &&
+            request.Uri.AbsolutePath.EndsWith("/appRoleAssignedTo", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(4, grants.Length);
+        Assert.Equal(run.Input.Network!.OperatorAccess!.VpnUsers!.ObjectIds!.Order(StringComparer.Ordinal),
+            grants.Select(request => request.Body!["principalId"]!.GetValue<string>()).Order(StringComparer.Ordinal));
+        Assert.All(grants, request =>
+        {
+            Assert.Equal(3, request.Body!.Count);
+            Assert.Equal(Guid.Empty.ToString("D"), request.Body["appRoleId"]!.GetValue<string>());
+            Assert.Equal(fixture.Principal["id"]!.GetValue<string>(), request.Body["resourceId"]!.GetValue<string>());
+        });
+        Assert.True(fixture.Principal["appRoleAssignmentRequired"]!.GetValue<bool>());
+        Assert.Empty(fixture.App["appRoles"]!.AsArray());
+        Assert.Empty(fixture.App["requiredResourceAccess"]!.AsArray());
+        Assert.Equal(4, run.Store.Current!.Objects.Values.Count(item => item.Kind == "OperatorVpnAssignment"));
+        Assert.Equal(run.Input.BootstrapIdentity!.PrincipalObjectId, run.Input.Network.OperatorAccess.OperatorObjectId);
+        Assert.Empty(run.Store.Current.PendingCreates);
+        var writes = run.Api.Requests.Count(request => request.Method != HttpMethod.Get);
+        run.Restart();
+        QueueOperatorVpnResume(run, fixture);
+        run.Api.List(assignments);
+        await run.Provisioner.EnsureOperatorNetworkIdentity(VpnRights(), default);
+        Assert.Equal(writes, run.Api.Requests.Count(request => request.Method != HttpMethod.Get));
+        var parameters = run.Provisioner.OperatorNetworkArmParameters().ToJsonString();
+        Assert.All(run.Input.Network.OperatorAccess.VpnUsers.ObjectIds!, id => Assert.DoesNotContain(id, parameters, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("duplicate")]
+    [InlineData("operator-removed")]
+    [InlineData("missing-authorization")]
+    [InlineData("missing-evidence")]
+    public async Task InvalidVpnUserSelectionCannotSilentlyFallBackToTheOperator(string fault)
+    {
+        using var run = new Harness(delegated: true, operatorNetwork: true, vpnUserCount: 4);
+        var access = run.Input.Network!.OperatorAccess!;
+        var selected = access.VpnUsers!;
+        selected = fault switch
+        {
+            "duplicate" => selected with { ObjectIds = [selected.ObjectIds![0], selected.ObjectIds[0]] },
+            "operator-removed" => selected with { ObjectIds = selected.ObjectIds![1..] },
+            "missing-authorization" => selected with { AuthorizationSha256 = null },
+            "missing-evidence" => selected with { DirectoryEvidenceSha256 = null },
+            _ => selected
+        };
+        var input = run.Input with { Network = run.Input.Network with
+        { OperatorAccess = access with { VpnUsers = fault == "missing" ? null : selected } } };
+        var provisioner = new FabricC1Provisioner(input, run.Api, run.Store, run.Clock);
+        Assert.Equal("c1_deploy_operator_network", (await Assert.ThrowsAsync<DomainException>(() =>
+            provisioner.EnsureOperatorNetworkIdentity(VpnRights(), default))).Code);
+        Assert.Empty(run.Api.Requests);
+        if (fault == "missing")
+        {
+            Assert.DoesNotContain("vpnUsers", JsonSerializer.Serialize(input.Network.OperatorAccess, Canonical.Json), StringComparison.Ordinal);
+            Assert.Empty(FabricC1Deployment.VpnUserObjectIds(input));
+            Assert.Equal([access.OperatorObjectId!], FabricC1Deployment.VpnUserObjectIds(input, allowHistoricalCleanup: true));
+        }
+    }
+
+    [Fact]
+    public async Task UnjournaledSelectedVpnUserBlocksFurtherGrantsAsWellAsCleanup()
+    {
+        using var run = new Harness(delegated: true, operatorNetwork: true, vpnUserCount: 4);
+        var fixture = QueueOperatorVpn(run, lostAssignment: true);
+        await Assert.ThrowsAsync<HttpRequestException>(() => run.Provisioner.EnsureOperatorNetworkIdentity(VpnRights(), default));
+        var other = VpnAssignment(fixture.Principal, run.Input.Network!.OperatorAccess!.VpnUsers!.ObjectIds![1], 1);
+        run.Restart();
+        QueueOperatorVpnResume(run, fixture);
+        run.Api.List(other);
+        Assert.Equal("c1_deploy_foreign", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureOperatorNetworkIdentity(VpnRights(), default))).Code);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post &&
+            request.Uri.AbsolutePath.EndsWith("/appRoleAssignedTo", StringComparison.Ordinal));
+        run.Api.Reply(200, fixture.Principal);
+        run.Api.List(other);
+        Assert.Equal("c1_deploy_foreign", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupIdentityPhase(default))).Code);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task UncertainFourthUserGrantCannotBeReplayedAndParentAbsenceSettlesItsOriginalIntent()
+    {
+        using var run = new Harness(delegated: true, operatorNetwork: true, vpnUserCount: 4);
+        var fixture = QueueOperatorVpn(run);
+        var assignments = QueueAdditionalVpnUsers(run, fixture, loseLast: true);
+        await Assert.ThrowsAsync<HttpRequestException>(() => run.Provisioner.EnsureOperatorNetworkIdentity(VpnRights(), default));
+        var key = "operator-vpn-assignment-" + run.Input.Network!.OperatorAccess!.VpnUsers!.ObjectIds![3];
+        Assert.Contains(key, run.Store.Current!.PendingCreates.Keys);
+        run.Restart();
+        QueueOperatorVpnResume(run, fixture);
+        run.Api.List(assignments[..3]);
+        Assert.Equal("c1_deploy_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureOperatorNetworkIdentity(VpnRights(), default))).Code);
+        Assert.Equal(4, run.Api.Requests.Count(request => request.Method == HttpMethod.Post &&
+            request.Uri.AbsolutePath.EndsWith("/appRoleAssignedTo", StringComparison.Ordinal)));
+        run.Api.Reply(404, new());
+        run.Api.Reply(404, new());
+        var result = await run.Provisioner.CleanupIdentityPhase(default);
+        Assert.True(result.ActiveIdentityInventoryAbsent);
+        Assert.False(result.CompleteC1Cleanup);
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
     public async Task VpnGrantTransportUsesAssignmentPermissionsRatherThanJustApplicationOwnership()
     {
         using var run = new Harness(delegated: true, operatorNetwork: true);
@@ -281,6 +397,31 @@ public sealed class FabricC1DeploymentTests
             api.Send(HttpMethod.Post, uri, body))).Code);
         Assert.Equal(1, handler.Requests);
         body["appRoleId"] = Guid.NewGuid().ToString("D");
+        Assert.Equal("c1_deploy_vpn_assignment_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            api.Send(HttpMethod.Post, uri, body))).Code);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task VpnGrantTransportAllowsASelectedNonOperatorButRejectsAnUnselectedUser()
+    {
+        using var run = new Harness(delegated: true, operatorNetwork: true, vpnUserCount: 4);
+        using var handler = new JsonHandler();
+        using var client = new HttpClient(handler);
+        var credential = new BoundCredential(Token(run.Input, run.Input.ControlTokenBindings!.GraphAudience!,
+            run.Clock.GetUtcNow(), "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All"));
+        var api = new FabricC1DeploymentHttp(run.Input, credential, new Dictionary<string, HttpClient>
+        { ["graph.microsoft.com"] = client }, run.Clock);
+        var target = Guid.NewGuid().ToString("D");
+        var uri = new Uri($"https://graph.microsoft.com/v1.0/servicePrincipals/{target}/appRoleAssignedTo");
+        var body = new JsonObject
+        {
+            ["resourceId"] = target, ["principalId"] = run.Input.Network!.OperatorAccess!.VpnUsers!.ObjectIds![1],
+            ["appRoleId"] = Guid.Empty.ToString("D")
+        };
+        await api.Send(HttpMethod.Post, uri, body);
+        Assert.Equal(1, handler.Requests);
+        body["principalId"] = Guid.NewGuid().ToString("D");
         Assert.Equal("c1_deploy_vpn_assignment_scope", (await Assert.ThrowsAsync<DomainException>(() =>
             api.Send(HttpMethod.Post, uri, body))).Code);
         Assert.Equal(1, handler.Requests);
@@ -342,14 +483,17 @@ public sealed class FabricC1DeploymentTests
         Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
     }
 
-    [Fact]
-    public async Task VpnIdentityCleanupDeletesOnlyItsOwnObjectsAndReadsTheirAbsence()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    public async Task VpnIdentityCleanupDeletesOnlyItsOwnObjectsAndReadsTheirAbsence(int userCount)
     {
-        using var run = new Harness(delegated: true, operatorNetwork: true);
+        using var run = new Harness(delegated: true, operatorNetwork: true, vpnUserCount: userCount);
         var fixture = QueueOperatorVpn(run);
+        var assignments = QueueAdditionalVpnUsers(run, fixture);
         await run.Provisioner.EnsureOperatorNetworkIdentity(VpnRights(), default);
         run.Api.Reply(200, fixture.Principal);
-        run.Api.List(fixture.Assignment);
+        run.Api.List(assignments);
         run.Api.Reply(200, fixture.App);
         run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
         run.Api.Reply(204, new());
@@ -2410,6 +2554,29 @@ public sealed class FabricC1DeploymentTests
         run.Api.Reply(200, fixture.Principal);
     }
 
+    private static JsonObject VpnAssignment(JsonObject principal, string user, int index) => new()
+    {
+        ["id"] = "synthetic-opaque-assignment-" + index, ["resourceId"] = principal["id"]!.GetValue<string>(),
+        ["principalId"] = user, ["appRoleId"] = Guid.Empty.ToString("D"), ["principalType"] = "User"
+    };
+
+    private static JsonObject[] QueueAdditionalVpnUsers(Harness run, VpnCase fixture, bool loseLast = false)
+    {
+        var assignments = new List<JsonObject> { fixture.Assignment };
+        var users = run.Input.Network!.OperatorAccess!.VpnUsers!.ObjectIds!;
+        for (var index = 1; index < users.Length; index++)
+        {
+            assignments.Add(VpnAssignment(fixture.Principal, users[index], index));
+            if (loseLast && index == users.Length - 1) run.Api.Fail(new HttpRequestException("synthetic lost fourth-user assignment"));
+            else
+            {
+                run.Api.Reply(201, assignments[^1]);
+                run.Api.List(assignments.ToArray());
+            }
+        }
+        return assignments.ToArray();
+    }
+
     private static JsonObject Group(Harness run) => new()
     {
         ["id"] = Guid.NewGuid().ToString("D"), ["displayName"] = FabricC1Deployment.Name(run.Input) + "-fabric-api",
@@ -2674,7 +2841,7 @@ public sealed class FabricC1DeploymentTests
         public FabricC1Provisioner Provisioner { get; private set; }
         public string CapacityId { get; } = Guid.NewGuid().ToString("D");
         public Harness(int maxRequests = 100, string[]? requiredTenantSettingNames = null, bool delegated = false,
-            bool delegatedAdministrator = true, bool operatorNetwork = false)
+            bool delegatedAdministrator = true, bool operatorNetwork = false, int vpnUserCount = 1)
         {
             var tenant = Guid.NewGuid().ToString("D");
             var hash = new string('a', 64);
@@ -2696,13 +2863,17 @@ public sealed class FabricC1DeploymentTests
                     "00000003-0000-0000-c000-000000000000", $"https://sts.windows.net/{tenant}/")
             };
             if (operatorNetwork)
+            {
+                var original = delegated ? Input.BootstrapIdentity!.PrincipalObjectId! : Guid.NewGuid().ToString("D");
+                var users = new[] { original }.Concat(Enumerable.Range(1, vpnUserCount - 1).Select(_ => Guid.NewGuid().ToString("D"))).ToArray();
                 Input = Input with { Network = Input.Network! with
                 {
                     OperatorAccess = new(FabricC1Deployment.OperatorNetworkContract, "10.241.4.0/27", "10.241.5.0/26",
-                        "10.241.6.0/27", "172.30.240.0/24",
-                        delegated ? Input.BootstrapIdentity!.PrincipalObjectId : Guid.NewGuid().ToString("D"),
-                        ["192.168.10.0/24"], ["login.microsoftonline.com", "management.azure.com"], hash, hash)
+                        "10.241.6.0/27", "172.30.240.0/24", original,
+                        ["192.168.10.0/24"], ["login.microsoftonline.com", "management.azure.com"], hash, hash,
+                        new(users, new string('b', 64), new string('c', 64)))
                 }};
+            }
             Provisioner = new(Input, Api, Store, Clock);
         }
         public void Capacity() => Seed("fabric-capacity", "FabricCapacity", new() { ["id"] = CapacityId });

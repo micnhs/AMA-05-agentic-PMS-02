@@ -66,13 +66,13 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
             var principal = Value(body?["principalId"]);
             var resource = Value(body?["resourceId"]);
             Guard.Against(input.BootstrapIdentity?.CredentialKind != "DelegatedAzureCli" ||
-                input.Network?.OperatorAccess is null || body?.Count != 3 ||
+                FabricC1Deployment.OperatorNetworkMissingInputs(input).Length != 0 || body?.Count != 3 ||
                 !Guid.TryParse(principal, out var user) || user == Guid.Empty ||
-                !Guid.TryParse(input.Network.OperatorAccess.OperatorObjectId, out var expectedUser) || user != expectedUser ||
+                !FabricC1Deployment.VpnUserObjectIds(input).Contains(user.ToString("D"), StringComparer.Ordinal) ||
                 !Guid.TryParse(resource, out var target) || target == Guid.Empty ||
                 !Guid.TryParse(uri.AbsolutePath.Split('/')[3], out var pathTarget) || target != pathTarget ||
                 Value(body["appRoleId"]) != Guid.Empty.ToString("D"),
-                "c1_deploy_vpn_assignment_scope", "Only the bound VPN operator's default application assignment is allowed.", 409);
+                "c1_deploy_vpn_assignment_scope", "Only explicitly selected existing users may receive this default VPN application assignment.", 409);
         }
         if (method == HttpMethod.Patch)
         {

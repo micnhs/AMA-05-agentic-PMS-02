@@ -61,7 +61,7 @@ public sealed partial class FabricC1Provisioner
         if (input.Network?.OperatorAccess is not null)
         {
             kinds.Add("operator-vpn-configuration", "OperatorVpnConfiguration");
-            kinds.Add("operator-vpn-assignment", "OperatorVpnAssignment");
+            foreach (var key in OperatorVpnAssignmentKeys) kinds.Add(key, "OperatorVpnAssignment");
         }
         var administration = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -83,7 +83,7 @@ public sealed partial class FabricC1Provisioner
             "c1_deploy_cleanup_journal", "Pending membership has no bound group receipt.", 409);
         Guard.Against(CleanupIdentityRoles.Any(role => state.Objects.ContainsKey(role + "-sp") && !state.Objects.ContainsKey(role + "-app")),
             "c1_deploy_cleanup_journal", "Principal inventory has no parent application receipt.", 409);
-        Guard.Against((state.Objects.ContainsKey("operator-vpn-assignment") || state.PendingCreates.ContainsKey("operator-vpn-assignment")) &&
+        Guard.Against(OperatorVpnAssignmentKeys.Any(key => state.Objects.ContainsKey(key) || state.PendingCreates.ContainsKey(key)) &&
             !state.Objects.ContainsKey(FabricC1Deployment.VpnIdentityRole + "-sp") ||
             (state.Objects.ContainsKey("operator-vpn-configuration") || state.PendingCreates.ContainsKey("operator-vpn-configuration")) &&
             !state.Objects.ContainsKey(FabricC1Deployment.VpnIdentityRole + "-app"),
@@ -209,7 +209,8 @@ public sealed partial class FabricC1Provisioner
         var creates = new Dictionary<string, string>(state.PendingCreates, StringComparer.Ordinal);
         if (target.Kind == "SecurityGroup")
             foreach (var role in new[] { "runtime", "bootstrap", "negative" }) creates.Remove("fabric-api-member-" + role);
-        if (target.Key == FabricC1Deployment.VpnIdentityRole + "-sp") creates.Remove("operator-vpn-assignment");
+        if (target.Key == FabricC1Deployment.VpnIdentityRole + "-sp")
+            foreach (var key in OperatorVpnAssignmentKeys) creates.Remove(key);
         if (target.Key == FabricC1Deployment.VpnIdentityRole + "-app") creates.Remove("operator-vpn-configuration");
         var next = state with
         {
@@ -234,7 +235,8 @@ public sealed partial class FabricC1Provisioner
         var unresolved = keys.Where(key => state.PendingCreates.ContainsKey(key) ||
             state.Objects.ContainsKey(key) && !state.CleanupReceipts.ContainsKey(key)).ToList();
         unresolved.AddRange(state.PendingCreates.Keys.Where(key => key.StartsWith("fabric-api-member-", StringComparison.Ordinal)));
-        unresolved.AddRange(state.PendingCreates.Keys.Where(key => key is "operator-vpn-assignment" or "operator-vpn-configuration"));
+        unresolved.AddRange(state.PendingCreates.Keys.Where(key => key == "operator-vpn-configuration" ||
+            OperatorVpnAssignmentKeys.Contains(key, StringComparer.Ordinal)));
         var retained = state.Objects.Keys.Concat(state.PendingCreates.Keys)
             .Where(key => key.StartsWith("tenant-", StringComparison.Ordinal)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         return new(unresolved.Count == 0 ? "IdentityInventoryAbsent" : "IdentityCleanupPendingReconciliation",

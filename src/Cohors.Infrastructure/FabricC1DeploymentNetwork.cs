@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Cohors.Domain;
 
@@ -10,7 +11,10 @@ namespace Cohors.Infrastructure;
 public sealed record FabricC1OperatorNetwork(string Contract, string? GatewayPrefix, string? FirewallPrefix,
     string? OperatorEndpointPrefix, string? VpnClientPrefix, string? OperatorObjectId,
     string[]? ExcludedPrefixes, string[]? HttpsEgressFqdns, string? AddressPlanReviewSha256,
-    string? ClientPrerequisitesReviewSha256);
+    string? ClientPrerequisitesReviewSha256,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] FabricC1VpnUsers? VpnUsers = null);
+
+public sealed record FabricC1VpnUsers(string[]? ObjectIds, string? AuthorizationSha256, string? DirectoryEvidenceSha256);
 
 public static partial class FabricC1Deployment
 {
@@ -28,6 +32,12 @@ public static partial class FabricC1Deployment
         Required("operatorObjectId", Guid.TryParse(access.OperatorObjectId, out var user) && user != Guid.Empty &&
             (input.BootstrapIdentity?.CredentialKind != "DelegatedAzureCli" ||
              Guid.TryParse(input.BootstrapIdentity.PrincipalObjectId, out var actor) && user == actor));
+        Required("vpnUsers.objectIds", access.VpnUsers?.ObjectIds is { Length: > 0 and <= 4 } users &&
+            users.All(id => Guid.TryParseExact(id, "D", out var value) && value != Guid.Empty && id == value.ToString("D")) &&
+            users.Distinct(StringComparer.Ordinal).Count() == users.Length &&
+            users.Contains(access.OperatorObjectId, StringComparer.OrdinalIgnoreCase));
+        Required("vpnUsers.authorizationSha256", FabricC1Execution.Hex(access.VpnUsers?.AuthorizationSha256, 64));
+        Required("vpnUsers.directoryEvidenceSha256", FabricC1Execution.Hex(access.VpnUsers?.DirectoryEvidenceSha256, 64));
         Required("addressPlanReviewSha256", FabricC1Execution.Hex(access.AddressPlanReviewSha256, 64));
         Required("clientPrerequisitesReviewSha256", FabricC1Execution.Hex(access.ClientPrerequisitesReviewSha256, 64));
         Required("prefixes", ValidOperatorPrefixes(input.Network));
@@ -86,12 +96,21 @@ public static partial class FabricC1Deployment
 
     public static string VpnScopeId(FabricC1DeploymentInputs input) =>
         new Guid(Convert.FromHexString(Canonical.Hash(new { input.DeploymentId, purpose = "operator-vpn-connect" }))[..16]).ToString("D");
+
+    public static string[] VpnUserObjectIds(FabricC1DeploymentInputs input, bool allowHistoricalCleanup = false) =>
+        input.Network?.OperatorAccess?.VpnUsers is { } users ? users.ObjectIds ?? [] :
+        allowHistoricalCleanup && input.Network?.OperatorAccess?.OperatorObjectId is { } original ? [original] : [];
 }
 
 public sealed partial class FabricC1Provisioner
 {
     private string[] CleanupIdentityRoles => input.Network?.OperatorAccess is null
         ? IdentityRoles : [.. IdentityRoles, FabricC1Deployment.VpnIdentityRole];
+    private string[] OperatorVpnUsers => FabricC1Deployment.VpnUserObjectIds(input, allowHistoricalCleanup: true);
+    private string OperatorVpnAssignmentKey(string user) =>
+        string.Equals(user, input.Network?.OperatorAccess?.OperatorObjectId, StringComparison.OrdinalIgnoreCase)
+            ? "operator-vpn-assignment" : "operator-vpn-assignment-" + GuidValue(user).ToString("D");
+    private string[] OperatorVpnAssignmentKeys => OperatorVpnUsers.Select(OperatorVpnAssignmentKey).ToArray();
 
     public async Task EnsureOperatorNetworkIdentity(FabricC1GraphRights rights, CancellationToken ct)
     {
@@ -103,12 +122,12 @@ public sealed partial class FabricC1Provisioner
         var app = await EnsureApplicationForRole(FabricC1Deployment.VpnIdentityRole, ct);
         var principal = await EnsurePrincipalForRole(FabricC1Deployment.VpnIdentityRole, ct);
         Guard.Against(string.Equals(Text(app, "appId"), input.BootstrapIdentity!.ClientId, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(Text(principal, "id"), input.Network!.OperatorAccess!.OperatorObjectId, StringComparison.OrdinalIgnoreCase) ||
+            OperatorVpnUsers.Contains(Text(principal, "id"), StringComparer.OrdinalIgnoreCase) ||
             IdentityRoles.Any(role => state.Objects.TryGetValue(role + "-app", out var other) &&
                 string.Equals(other.Response["appId"]?.GetValue<string>(), Text(app, "appId"), StringComparison.OrdinalIgnoreCase)),
             "c1_deploy_identity_alias", "The network audience must not alias a Fabric caller or the original deployer.", 409);
         await EnsureOperatorVpnIdentifier(app, ct);
-        await EnsureOperatorVpnAssignment(principal, ct);
+        await EnsureOperatorVpnAssignments(principal, ct);
     }
 
     private void AddOperatorVpnApplicationFields(JsonObject body)
@@ -188,54 +207,75 @@ public sealed partial class FabricC1Provisioner
         SaveObject(key, "OperatorVpnConfiguration", id, hash, body);
     }
 
-    private async Task EnsureOperatorVpnAssignment(JsonObject principal, CancellationToken ct)
+    private static JsonObject OperatorVpnAssignmentBody(string user, string resource) => new()
     {
-        const string key = "operator-vpn-assignment";
+        ["principalId"] = GuidValue(user).ToString("D"),
+        ["resourceId"] = resource, ["appRoleId"] = Guid.Empty.ToString("D")
+    };
+
+    private async Task EnsureOperatorVpnAssignments(JsonObject principal, CancellationToken ct)
+    {
         var resource = Text(principal, "id");
-        var body = new JsonObject
-        {
-            ["principalId"] = GuidValue(input.Network!.OperatorAccess!.OperatorObjectId!).ToString("D"),
-            ["resourceId"] = resource, ["appRoleId"] = Guid.Empty.ToString("D")
-        };
-        var hash = Canonical.Hash(body);
-        state.Objects.TryGetValue(key, out var known);
-        state.PendingCreates.TryGetValue(key, out var pending);
-        Guard.Against(known is not null && (known.Kind != "OperatorVpnAssignment" || known.RequestHash != hash) ||
-            pending is not null && pending != hash, "c1_deploy_drift", "The original VPN operator assignment changed.", 409);
         var assignments = await ReadOperatorVpnAssignments(resource, ct);
-        if (assignments.Length == 0)
+        foreach (var user in OperatorVpnUsers)
         {
-            Guard.Against(known is not null || pending is not null, "c1_deploy_unknown",
-                "The original VPN assignment is missing or uncertain; no repeated POST.", 409);
-            Pending(key, hash);
-            var reply = await Send(HttpMethod.Post, new($"https://graph.microsoft.com/v1.0/servicePrincipals/{resource}/appRoleAssignedTo"),
-                body, ct: ct);
-            RecordDeniedRequest(key, hash, reply.Status);
-            RequireStatus(reply, 201);
-            assignments = await ReadOperatorVpnAssignments(resource, ct);
-            Guard.Against(assignments.Length != 1, "c1_deploy_vpn_assignment",
-                "The VPN operator assignment is not yet confirmed; retain its original intent.", 409);
+            var key = OperatorVpnAssignmentKey(user);
+            var body = OperatorVpnAssignmentBody(user, resource);
+            var hash = Canonical.Hash(body);
+            state.Objects.TryGetValue(key, out var known);
+            state.PendingCreates.TryGetValue(key, out var pending);
+            Guard.Against(known is not null && (known.Kind != "OperatorVpnAssignment" || known.RequestHash != hash) ||
+                pending is not null && pending != hash, "c1_deploy_drift", "An original VPN user assignment changed.", 409);
+            var assignment = assignments.SingleOrDefault(item =>
+                string.Equals(item["principalId"]?.GetValue<string>(), user, StringComparison.OrdinalIgnoreCase));
+            if (assignment is null)
+            {
+                Guard.Against(known is not null || pending is not null, "c1_deploy_unknown",
+                    "The original VPN assignment is missing or uncertain; no repeated POST.", 409);
+                Pending(key, hash);
+                var reply = await Send(HttpMethod.Post, new($"https://graph.microsoft.com/v1.0/servicePrincipals/{resource}/appRoleAssignedTo"),
+                    body, ct: ct);
+                RecordDeniedRequest(key, hash, reply.Status);
+                RequireStatus(reply, 201);
+                assignments = await ReadOperatorVpnAssignments(resource, ct);
+                assignment = assignments.SingleOrDefault(item =>
+                    string.Equals(item["principalId"]?.GetValue<string>(), user, StringComparison.OrdinalIgnoreCase));
+                Guard.Against(assignment is null, "c1_deploy_vpn_assignment",
+                    "The selected VPN user's assignment is not yet confirmed; retain the original intent.", 409);
+            }
+            var assignmentId = Text(assignment!, "id");
+            Guard.Against(known is not null && known.Id != assignmentId,
+                "c1_deploy_vpn_assignment", "An original VPN user assignment was replaced.", 409);
+            SaveObject(key, "OperatorVpnAssignment", assignmentId, hash, assignment!);
         }
-        else Guard.Against(known is null && pending is null, "c1_deploy_foreign",
-            "An unjournaled VPN operator assignment is not adopted.", 409);
-        var assignment = assignments[0];
-        var assignmentId = Text(assignment, "id");
-        Guard.Against(known is not null && known.Id != assignmentId,
-            "c1_deploy_vpn_assignment", "The original VPN operator assignment was replaced.", 409);
-        SaveObject(key, "OperatorVpnAssignment", assignmentId, hash, assignment);
     }
 
     private async Task<JsonObject[]> ReadOperatorVpnAssignments(string principal, CancellationToken ct, bool cleanup = false)
     {
         var assignments = await ReadAll($"https://graph.microsoft.com/v1.0/servicePrincipals/{principal}/appRoleAssignedTo",
             true, ct, cleanup);
-        Guard.Against(assignments.Length > 1 || assignments.Any(item =>
-            !string.Equals(item["principalId"]?.GetValue<string>(), input.Network!.OperatorAccess!.OperatorObjectId, StringComparison.OrdinalIgnoreCase) ||
+        Guard.Against(assignments.Length > OperatorVpnUsers.Length ||
+            assignments.Select(item => item["principalId"]?.GetValue<string>()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != assignments.Length ||
+            assignments.Select(item => item["id"]?.GetValue<string>()).Distinct(StringComparer.Ordinal).Count() != assignments.Length ||
+            assignments.Any(item =>
+            !OperatorVpnUsers.Contains(item["principalId"]?.GetValue<string>(), StringComparer.OrdinalIgnoreCase) ||
             !string.Equals(item["resourceId"]?.GetValue<string>(), principal, StringComparison.OrdinalIgnoreCase) ||
             item["appRoleId"]?.GetValue<string>() != Guid.Empty.ToString("D") ||
             item["principalType"]?.GetValue<string>() != "User" ||
             !Regex.IsMatch(Text(item, "id"), @"\A[A-Za-z0-9_-]{1,256}\z", RegexOptions.CultureInvariant)),
             "c1_deploy_vpn_assignment", "The VPN audience contains an unexpected user, group or application assignment.", 409);
+        foreach (var assignment in assignments)
+        {
+            var key = OperatorVpnAssignmentKey(Text(assignment, "principalId"));
+            var hash = Canonical.Hash(OperatorVpnAssignmentBody(Text(assignment, "principalId"), principal));
+            state.Objects.TryGetValue(key, out var known);
+            state.PendingCreates.TryGetValue(key, out var pending);
+            Guard.Against(known is null && pending is null, "c1_deploy_foreign",
+                "Even a selected user's assignment cannot be adopted without the original journaled intent.", 409);
+            Guard.Against(known is not null && (known.Kind != "OperatorVpnAssignment" || known.RequestHash != hash ||
+                known.Id != Text(assignment, "id")) || pending is not null && pending != hash,
+                "c1_deploy_vpn_assignment", "A VPN assignment differs from the original user/resource/role binding.", 409);
+        }
         return assignments;
     }
 
@@ -246,9 +286,15 @@ public sealed partial class FabricC1Provisioner
         var app = Owned(FabricC1Deployment.VpnIdentityRole + "-app", "Application");
         var principal = Owned(FabricC1Deployment.VpnIdentityRole + "-sp", "ServicePrincipal");
         SameId(Text(principal, "appId"), Text(app, "appId"));
-        var assignment = Owned("operator-vpn-assignment", "OperatorVpnAssignment");
-        SameId(Text(assignment, "resourceId"), Text(principal, "id"));
-        SameId(Text(assignment, "principalId"), input.Network!.OperatorAccess!.OperatorObjectId!);
+        foreach (var user in OperatorVpnUsers)
+        {
+            var assignment = Owned(OperatorVpnAssignmentKey(user), "OperatorVpnAssignment");
+            SameId(Text(assignment, "resourceId"), Text(principal, "id"));
+            SameId(Text(assignment, "principalId"), user);
+            Guard.Against(assignment["appRoleId"]?.GetValue<string>() != Guid.Empty.ToString("D") ||
+                assignment["principalType"]?.GetValue<string>() != "User", "c1_deploy_vpn_assignment",
+                "Network parameters require all explicitly selected default user assignments.", 409);
+        }
         var configuration = Owned("operator-vpn-configuration", "OperatorVpnConfiguration");
         Guard.Against(!JsonNode.DeepEquals(configuration["identifierUris"], new JsonArray("api://" + Text(app, "appId"))),
             "c1_deploy_vpn_application", "The original API identifier binding is missing.", 409);
@@ -310,7 +356,7 @@ public sealed partial class FabricC1Provisioner
     {
         var value = JsonSerializer.SerializeToNode(network, Canonical.Json);
         if (value?["operatorAccess"] is JsonObject access)
-            foreach (var name in new[] { "operatorObjectId", "excludedPrefixes", "addressPlanReviewSha256", "clientPrerequisitesReviewSha256" })
+            foreach (var name in new[] { "operatorObjectId", "vpnUsers", "excludedPrefixes", "addressPlanReviewSha256", "clientPrerequisitesReviewSha256" })
                 access.Remove(name);
         return value;
     }

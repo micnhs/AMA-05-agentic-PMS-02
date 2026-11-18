@@ -185,8 +185,21 @@ Implemented source components:
   preserves historic deployment hashes; legacy identity cleanup does not
   require retroactively inserting a VPN profile.
   `EnsureOperatorNetworkIdentity` creates a separate, credential-free custom
-  Entra audience and assignment-required SP. Only the bound original operator
-  gets the default application assignment; this is not a Cohors/Fabric role.
+  Entra audience and assignment-required SP. The separate VPN-access decision
+  now selects all four named pilot accounts, using their already resolved
+  private object IDs. `vpnUsers` binds the exact individual set, the answered
+  authorization and original directory-evidence hashes; no new directory
+  search, user creation, group/wildcard grant or actor switch follows.
+  Each selected user receives only the default assignment on the own VPN
+  audience, not a Cohors/Fabric/administrative role. The original operator
+  remains separately pinned for deployment and delegated notebook authoring.
+  Missing new selection inputs block writes rather than defaulting to that
+  operator. Historic null selections retain their serialized hashes and are
+  accepted only for the already bound identity-cleanup path.
+  Each assignment has its own intent/readback; even a selected user's
+  unjournaled grant blocks further work. Unknown creates are not replayed,
+  and only confirmed own-SP absence settles their dependent pending intents.
+  Private user IDs and authorization evidence are excluded from ARM parameters.
   The Microsoft-registered Azure VPN Client is preauthorized for that own scope.
   It does not change the deployment client's OAuth context, grant Microsoft API
   access, create tenant consent or modify Conditional Access. Client MFA and
@@ -280,7 +293,8 @@ an own Azure Firewall and own Point-to-Site VPN gateway into the own Azure VNet,
 not into Fabric SaaS and not a shared primary network. B5 still uses documented
 delegated notebook authoring. Its transport selection is resolved; installation,
 configuration and native private access are not thereby proven.
-The implementation binds an isolated VPN Entra audience and operator assignment,
+The implementation binds an isolated VPN Entra audience and four individually
+selected pilot-user assignments,
 separate from the unchanged Fabric/deployment OAuth client and Cohors roles.
 Client prerequisites, private DNS, narrow service access, costs and stop/removal
 must be bound before activation. No automatic client install or connection is

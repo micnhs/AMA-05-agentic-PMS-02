@@ -156,7 +156,13 @@ prove a remote task stopped, or constitute a native Blob/recovery result.
 The newly selected network graph replaces the earlier NAT candidate, not an
 existing resource: own Standard Firewall with DNS proxy and two fixed default
 instances; own active-passive VpnGw1AZ/OpenVPN with a separate restricted Entra
-audience; two Standard static IPv4 addresses. The first network ARM stage creates
+audience; two Standard static IPv4 addresses. The separately answered VPN-user
+decision selects all four existing pilot accounts for individual default
+assignments on that own audience. Their original private resolution and decision
+hashes are required; no directory re-query, group/wildcard assignment, deployment
+actor change or Cohors/clinical/platform-role grant is inferred. Actual
+assignment/login readbacks remain absent. Four assigned users do not enforce a
+four-connection ceiling or prove billing quantities. The first network ARM stage creates
 the gateway/firewall subnets and edge services. Foundation v2 uses the actual
 firewall address to set VNet DNS and workload-only default routes before creating
 VM/Hosted resources. A separate operator-endpoint subnet restricts P2S HTTPS to

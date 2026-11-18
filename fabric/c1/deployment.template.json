@@ -31,6 +31,11 @@
       "operatorEndpointPrefix": null,
       "vpnClientPrefix": null,
       "operatorObjectId": null,
+      "vpnUsers": {
+        "objectIds": [],
+        "authorizationSha256": null,
+        "directoryEvidenceSha256": null
+      },
       "excludedPrefixes": [],
       "httpsEgressFqdns": [],
       "addressPlanReviewSha256": null,
