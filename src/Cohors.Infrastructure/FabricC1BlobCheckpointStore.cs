@@ -42,6 +42,7 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
     private readonly ITimer leaseExpiry;
     private readonly ITimer invocationExpiry;
     private readonly IDisposable[] owned;
+    private readonly FabricC1BlobCheckpointProfile? profile;
     private readonly Dictionary<string, string> metadata = new(StringComparer.OrdinalIgnoreCase);
     private FabricC1BlobCheckpointDocument document = null!;
     private EntityTagHeaderValue etag = null!;
@@ -85,19 +86,21 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
     }
 
     public static async Task<FabricC1BlobCheckpointStore> OpenNative(FabricC1ExecutionSettings settings,
-        FabricC1BlobCheckpointBinding binding, FabricC1CheckpointReservation reservation, CancellationToken ct = default)
+        FabricC1BlobCheckpointProfile profile, FabricC1CheckpointReservation reservation, CancellationToken ct = default)
     {
-        var endpoint = Endpoint(settings, binding, DateTimeOffset.UtcNow);
         Guard.Against(Environment.GetEnvironmentVariable("GITHUB_ACTIONS") == "true",
             "c1_cloud_ci_prohibited", "The credential-free build runner is not a checkpoint service runner.", 409);
+        var binding = FabricC1CheckpointProfiles.Validate(settings, profile, profile.Allocation?.Binding?.Runtime ?? "", DateTimeOffset.UtcNow);
+        var endpoint = Endpoint(settings, binding, DateTimeOffset.UtcNow);
         FabricC1Execution.RequireSourceBuild(settings);
         ValidateReservation(settings, binding, reservation, DateTimeOffset.UtcNow);
+        FabricC1PrivateFiles.RequireFile(binding.Identity.CredentialReference!);
         var credential = new FabricC1Credential(binding.Identity, 10);
         var client = FabricC1Execution.PrivateHttpClient(endpoint, binding.PrivateAddresses, 10);
         try
         {
             return await OpenCore(settings, binding, reservation, client, credential.Credential, TimeProvider.System,
-                [credential, client], ct);
+                [credential, client], ct, profile);
         }
         catch
         {
@@ -112,13 +115,24 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
         HttpClient client, TokenCredential credential, TimeProvider time, CancellationToken ct = default) =>
         OpenCore(settings, binding, reservation, client, credential, time, [], ct);
 
+    public static Task<FabricC1BlobCheckpointStore> OpenWithTransport(FabricC1ExecutionSettings settings,
+        FabricC1BlobCheckpointProfile profile, FabricC1CheckpointReservation reservation,
+        HttpClient client, TokenCredential credential, TimeProvider time, CancellationToken ct = default)
+    {
+        var binding = FabricC1CheckpointProfiles.Validate(settings, profile, profile.Allocation?.Binding?.Runtime ?? "", time.GetUtcNow());
+        return OpenCore(settings, binding, reservation, client, credential, time, [], ct, profile);
+    }
+
     private static async Task<FabricC1BlobCheckpointStore> OpenCore(FabricC1ExecutionSettings settings,
         FabricC1BlobCheckpointBinding binding, FabricC1CheckpointReservation reservation,
-        HttpClient client, TokenCredential credential, TimeProvider time, IDisposable[] owned, CancellationToken ct)
+        HttpClient client, TokenCredential credential, TimeProvider time, IDisposable[] owned, CancellationToken ct,
+        FabricC1BlobCheckpointProfile? profile = null)
     {
         var endpoint = Endpoint(settings, binding, time.GetUtcNow());
         ValidateReservation(settings, binding, reservation, time.GetUtcNow());
-        var store = new FabricC1BlobCheckpointStore(settings, binding, reservation, endpoint, client, credential, time, owned);
+        Guard.Against(profile is not null && reservation.ExpiresAtUtc > profile.Allocation.IoDeadlineUtc,
+            "c1_checkpoint_deadline", "A profile cannot extend the original reserved I/O window.", 409);
+        var store = new FabricC1BlobCheckpointStore(settings, binding, reservation, endpoint, client, credential, time, owned, profile);
         try
         {
             await store.io.WaitAsync(ct);
@@ -159,12 +173,13 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
 
     private FabricC1BlobCheckpointStore(FabricC1ExecutionSettings settings, FabricC1BlobCheckpointBinding binding,
         FabricC1CheckpointReservation reservation, Uri endpoint, HttpClient client, TokenCredential credential,
-        TimeProvider time, IDisposable[] owned)
+        TimeProvider time, IDisposable[] owned, FabricC1BlobCheckpointProfile? profile)
     {
         this.binding = binding;
         this.reservation = reservation;
         this.time = time;
         this.owned = owned;
+        this.profile = profile;
         blobUri = endpoint;
         leaseUri = new(endpoint.AbsoluteUri + "?comp=lease");
         blobHttp = new(client, credential, binding.Identity, Scope, blobUri, time);
@@ -183,7 +198,7 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
             reservation.ExpiresAtUtc - time.GetUtcNow(), Timeout.InfiniteTimeSpan);
     }
 
-    private static void ValidateReservation(FabricC1ExecutionSettings settings, FabricC1BlobCheckpointBinding binding,
+    internal static void ValidateReservation(FabricC1ExecutionSettings settings, FabricC1BlobCheckpointBinding binding,
         FabricC1CheckpointReservation reservation, DateTimeOffset now) =>
         Guard.Against(!Guid.TryParseExact(reservation.Id, "D", out var id) || id == Guid.Empty ||
             reservation.Id != id.ToString("D") ||
@@ -266,6 +281,11 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
             Guard.Against(string.IsNullOrWhiteSpace(scope), "c1_checkpoint_metadata", "Encryption scope readback is ambiguous.", 409);
             metadata.Add("x-ms-encryption-scope", scope!);
         }
+        if (profile is not null)
+            Guard.Against(metadata.GetValueOrDefault("x-ms-meta-cohors_seed_id") != profile.SeedReceipt.CreationId ||
+                metadata.GetValueOrDefault("x-ms-meta-cohors_allocation") != profile.SeedReceipt.AllocationReceiptSha256 ||
+                metadata.GetValueOrDefault("x-ms-meta-cohors_seed_sha256") != profile.SeedReceipt.SeedSha256,
+                "c1_checkpoint_seed_binding", "The current blob is not the original journaled seed lineage.", 409);
         await using var raw = await response.Content.ReadAsStreamAsync(bounded.Token);
         using var limited = new FabricC1LimitedStream(raw, maximumBytes);
         document = await JsonSerializer.DeserializeAsync<FabricC1BlobCheckpointDocument>(limited, Json, bounded.Token)
@@ -278,6 +298,10 @@ public sealed class FabricC1BlobCheckpointStore : IFabricC1CheckpointStore, IDis
             checkpoint.DeadlineUtc - checkpoint.StartedAtUtc > maximumDuration ||
             checkpoint.Requests < 0 || checkpoint.Requests > requestBudget,
             "c1_checkpoint_binding", "The pre-existing checkpoint belongs to another storage/run/runtime or invalid original clock.", 409);
+        if (profile is not null)
+            Guard.Against(checkpoint.StartedAtUtc != profile.Allocation.Seed.Checkpoint.StartedAtUtc ||
+                checkpoint.DeadlineUtc != profile.Allocation.Seed.Checkpoint.DeadlineUtc,
+                "c1_checkpoint_seed_binding", "The current checkpoint cannot move its original allocation clock.", 409);
         etag = StrongEtag(response);
     }
 

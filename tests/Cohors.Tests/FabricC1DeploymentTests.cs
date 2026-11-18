@@ -865,6 +865,107 @@ public sealed class FabricC1DeploymentTests
     }
 
     [Fact]
+    public async Task RuntimeProfileAndInvocationExportRequireActualSeedAndOriginalOneUseDebitReceipts()
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        run.Provisioner.PrepareBlobCheckpoint(seed.Execution, seed.Binding);
+        Assert.Equal("c1_deploy_checkpoint_profile", Assert.Throws<DomainException>(() =>
+            run.Provisioner.ExportBlobCheckpointProfile(seed.Execution, seed.Binding)).Code);
+        await seed.Materialize();
+        var profile = run.Provisioner.ExportBlobCheckpointProfile(seed.Execution, seed.Binding);
+        var id = Guid.NewGuid().ToString("D");
+        var reservation = run.Provisioner.ReserveBlobCheckpoint(seed.Execution, seed.Binding, id, 8, run.Clock.GetUtcNow().AddSeconds(80));
+        var command = new FabricC1Invocation(Canonical.Hash(seed.Execution), "status", InvocationId: id);
+        var allowance = run.Provisioner.ExportBlobCheckpointAllowance(seed.Execution, seed.Binding, command, reservation);
+        Assert.Equal(command, FabricC1CheckpointProfiles.ValidateAllowance(seed.Execution, profile, allowance,
+            "direct", "status", null, run.Clock.GetUtcNow()));
+        run.Restart();
+        Assert.Equal(Canonical.Hash(allowance), Canonical.Hash(run.Provisioner.ExportBlobCheckpointAllowance(
+            seed.Execution, seed.Binding, command, reservation)));
+        Assert.Equal("c1_deploy_checkpoint_drift", Assert.Throws<DomainException>(() =>
+            run.Provisioner.ExportBlobCheckpointAllowance(seed.Execution, seed.Binding,
+                command with { Operation = "discover" }, reservation)).Code);
+        Assert.Equal("c1_deploy_checkpoint_reservation", Assert.Throws<DomainException>(() =>
+            run.Provisioner.ExportBlobCheckpointAllowance(seed.Execution, seed.Binding, command,
+                reservation with { JournalReceiptSha256 = new string('f', 64) })).Code);
+        Assert.Equal(3, seed.Handler.Methods.Count);
+    }
+
+    [Fact]
+    public async Task HostedAllowanceBindsSeparateOriginalControlAndServerDebitsToOneInvocation()
+    {
+        using var run = new Harness(maxRequests: 300);
+        var (execution, original) = CheckpointFixture(run);
+        var controlIdentity = execution.Hosted!.Caller with
+        { ClientId = Guid.NewGuid().ToString("D"), PrincipalObjectId = Guid.NewGuid().ToString("D") };
+        execution = execution with { Hosted = execution.Hosted with { Caller = controlIdentity } };
+        var hosted = original with { Runtime = "hosted", ExecutionBindingHash = Canonical.Hash(execution) };
+        var control = original with
+        {
+            Runtime = "hosted-control", ExecutionBindingHash = Canonical.Hash(execution),
+            Identity = controlIdentity with { ExpectedAudience = "https://storage.azure.com/" }
+        };
+        var marker = FabricC1Deployment.Marker(run.Input);
+        run.Seed("hosted-control-app", "Application", new()
+        {
+            ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = controlIdentity.ClientId, ["tags"] = new JsonArray(marker)
+        });
+        run.Seed("hosted-control-sp", "ServicePrincipal", new()
+        {
+            ["id"] = controlIdentity.PrincipalObjectId, ["appId"] = controlIdentity.ClientId, ["tags"] = new JsonArray(marker)
+        });
+        foreach (var binding in new[] { hosted, control })
+        {
+            using var handler = new SeedHandler();
+            using var client = new HttpClient(handler);
+            var credential = new BoundCredential(Token(run.Input with { BootstrapIdentity = binding.Identity },
+                binding.Identity.ExpectedAudience!, run.Clock.GetUtcNow()));
+            await run.Provisioner.MaterializeBlobCheckpointWithTransport(execution, binding, client, credential, default);
+        }
+        var id = Guid.NewGuid().ToString("D");
+        var expiry = run.Clock.GetUtcNow().AddSeconds(80);
+        var local = run.Provisioner.ReserveBlobCheckpoint(execution, control, id, 8, expiry);
+        var remote = run.Provisioner.ReserveBlobCheckpoint(execution, hosted, id, 8, expiry);
+        var command = new FabricC1Invocation(Canonical.Hash(execution), "status", InvocationId: id)
+            { HostedCheckpointReservation = remote };
+        var allowance = run.Provisioner.ExportBlobCheckpointAllowance(execution, control, command, local, hosted);
+        Assert.Equal(local, allowance.Reservation);
+        Assert.Equal(remote, allowance.Command.HostedCheckpointReservation);
+        Assert.NotEqual(local.JournalReceiptSha256, remote.JournalReceiptSha256);
+        var profile = run.Provisioner.ExportBlobCheckpointProfile(execution, hosted);
+        Assert.Equal(remote, FabricC1CheckpointProfiles.HostedReservation(execution, profile, allowance.Command, run.Clock.GetUtcNow()));
+        Assert.Equal("c1_deploy_checkpoint_reservation", Assert.Throws<DomainException>(() =>
+            run.Provisioner.ExportBlobCheckpointAllowance(execution, control,
+                command with { HostedCheckpointReservation = local }, local, hosted)).Code);
+        Assert.Equal(6, run.Store.Current!.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+    }
+
+    [Theory]
+    [InlineData("operation")]
+    [InlineData("profile")]
+    [InlineData("invocation")]
+    [InlineData("runtime")]
+    public async Task InvocationAllowanceCannotBeMovedBetweenCommandsProfilesIdentitiesOrRuntimes(string changed)
+    {
+        using var run = new Harness();
+        using var seed = new SeedHarness(run);
+        await seed.Materialize();
+        var profile = run.Provisioner.ExportBlobCheckpointProfile(seed.Execution, seed.Binding);
+        var id = Guid.NewGuid().ToString("D");
+        var reservation = run.Provisioner.ReserveBlobCheckpoint(seed.Execution, seed.Binding, id, 8, run.Clock.GetUtcNow().AddSeconds(80));
+        var command = new FabricC1Invocation(Canonical.Hash(seed.Execution), "status", InvocationId: id);
+        var allowance = run.Provisioner.ExportBlobCheckpointAllowance(seed.Execution, seed.Binding, command, reservation);
+        if (changed == "profile") allowance = allowance with { ProfileSha256 = new string('f', 64) };
+        if (changed == "invocation") allowance = allowance with { Command = command with { InvocationId = Guid.NewGuid().ToString("D") } };
+        Assert.Equal(changed == "runtime" ? "c1_checkpoint_profile" : "c1_checkpoint_allowance",
+            Assert.Throws<DomainException>(() => FabricC1CheckpointProfiles.ValidateAllowance(seed.Execution, profile,
+                allowance, changed == "runtime" ? "hosted-control" : "direct",
+                changed == "operation" ? "discover" : "status", null, run.Clock.GetUtcNow())).Code);
+    }
+
+    [Fact]
     public async Task LostBlobSeedCreateResponseReconcilesTheSameMarkerWithoutAnotherPut()
     {
         using var run = new Harness();

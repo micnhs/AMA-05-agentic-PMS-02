@@ -9,7 +9,7 @@ public sealed record FabricC1CheckpointAllocation(string Contract, FabricC1BlobC
 
 public sealed partial class FabricC1Provisioner
 {
-    private const string CheckpointAllocationContract = "cohors-fabric-c1-checkpoint-allocation-1";
+    internal const string CheckpointAllocationContract = "cohors-fabric-c1-checkpoint-allocation-1";
     private const string AllocationPrefix = "checkpoint-allocation-";
     private const string ReservationPrefix = "checkpoint-reservation-";
     private bool checkpointJournalUncertain;
@@ -84,12 +84,15 @@ public sealed partial class FabricC1Provisioner
                 "An issued reservation cannot change; retrieving it is not permission to replay its consumer.", 409);
             return new(reservationId, Canonical.Hash(known), requests, expiresAtUtc);
         }
-        var previous = state.Objects.Where(pair => pair.Key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
+        var previous = state.Objects.Where(pair => pair.Key.StartsWith(ReservationPrefix, StringComparison.Ordinal)).ToArray();
         var consumed = previous.Sum(pair =>
         {
+            Guard.Against(!new[] { "direct", "hosted", "hosted-control" }.Any(runtime =>
+                    pair.Key == ReservationPrefix + runtime + "-" + pair.Value.Id),
+                "c1_deploy_checkpoint_reservation", "Reservation key and original runtime/identity differ.", 409);
+            // A hosted-control key also starts with hosted-; only the full runtime/key owns this debit.
+            if (pair.Key != prefix + pair.Value.Id) return 0;
             VerifyCheckpointReservation(pair.Value, Canonical.Hash(allocated!));
-            Guard.Against(pair.Key != prefix + pair.Value.Id, "c1_deploy_checkpoint_reservation",
-                "Reservation key and original identity differ.", 409);
             return pair.Value.Response["requests"]!.GetValue<int>();
         });
         Guard.Against(consumed + requests > binding.AllocatedRequests, "c1_deploy_checkpoint_reservation",

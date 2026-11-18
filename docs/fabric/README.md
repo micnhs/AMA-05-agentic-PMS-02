@@ -363,10 +363,39 @@ it does not reinitialize or attest the current runtime state. The consumer
 still rejects missing state instead of importing or reconstructing it.
 
 The native factory uses the explicit app-only/private transport and refuses
-the hosted source-build runner. Protected native execution, scoped RBAC/readback,
-profile/credential delivery and explicit CLI/Hosted selection are still
-**not integrated** by this component. `--state FILE` retains its file
-meaning; no blob URI is hidden in it. The existing 39 preparation mappings,
+the hosted source-build runner. `ExportBlobCheckpointProfile` now exports
+only the already journaled allocation and confirmed original seed receipt.
+The profile pins the original clock and seed-lineage metadata, not the current
+mutable ETag. `ExportBlobCheckpointAllowance` requires actual one-use reservation
+receipts from that journal and binds their original invocation/operation. Hosted
+control and server I/O use separate allocation receipts; neither borrows the
+other's budget. Re-export is not permission to replay a used claim.
+
+The CLI now explicitly selects Blob state with `--checkpoint-profile FILE
+--allowance FILE`; the original `--state FILE` retains its file meaning and is
+never a fallback. The selected profile, execution and fixture inputs must be
+protected files. The Blob invocation ID comes from its original allowance,
+not a new GUID on retry. For the Hosted server, startup uses only
+`--checkpoint-profile FILE`, outside upload-writable `HOME`; it has no reusable
+startup allowance. Every authenticated invocation carries its own Hosted
+reservation. Missing/mismatched/reused claims fail closed. Readiness describes
+configuration only; it does not consume I/O or prove Storage access.
+Original execution hashes remain independent of these sidecar profiles, avoiding
+a self-referential binding hash. Historical invocations omit the absent new
+reservation property and retain their canonical hashes.
+
+Example argument shapes for the exact source-bound binary (not native evidence):
+
+```text
+--fabric-c1 discover --inputs EXECUTION --fixture FIXTURE --checkpoint-profile DIRECT_PROFILE --allowance INVOCATION
+--fabric-c1 hosted --inputs EXECUTION --fixture FIXTURE --checkpoint-profile CONTROL_PROFILE --allowance INVOCATION --operation status
+--fabric-c1 host --inputs EXECUTION --fixture FIXTURE --checkpoint-profile HOSTED_PROFILE
+```
+
+Scoped RBAC/readback, protected native profile/certificate delivery and the full
+orchestrated runtime driver remain **not integrated**. These hashes do not
+replace a trusted delivery path or demonstrate an upstream native deployment.
+The existing 39 preparation mappings,
 18 execution fields and seven caller fields are unchanged; these additional
 storage documents are a separate implementation contract. All five full-driver
 gaps and seven native `NotRun` cases remain. No live Blob/lease, permission,

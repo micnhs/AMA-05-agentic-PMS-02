@@ -146,8 +146,15 @@ only a conditional initial PUT and verifies bounded exact bytes/metadata/strong
 ETag. Lost writes reconcile without replay; 404 after an uncertain create never
 reconstructs state. Seed attempts consume normal control requests, not prepaid
 consumer I/O or cleanup. A confirmed original receipt cannot reset a later
-runtime state. Native execution, RBAC/readback, protected credential/profile
-delivery and CLI/Hosted selection remain unintegrated. The seed plan or
+runtime state. The CLI now explicitly selects a protected original Blob profile
+and a per-invocation allowance; Hosted startup consumes no shared reservation.
+Each Hosted request carries its own server claim, separate from the caller's
+control claim. Profile export requires the original seed receipt; invocation
+export verifies and fixes the upstream debit, operation and identity. Runtime
+reads check the original clock and seed lineage while allowing the live ETag
+to advance. There is no Blob-to-file fallback or new GUID on replay. Native
+RBAC/readback, protected credential/profile delivery and the full orchestrated
+runtime driver remain unintegrated. The seed plan or
 fake-transport result is not a live storage write or an authorization result.
 Existing file arguments retain their semantics.
 The component does not close the whole certificate/durable-state driver gap,

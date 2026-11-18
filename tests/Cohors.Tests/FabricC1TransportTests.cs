@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Azure.Core;
@@ -364,6 +365,106 @@ public sealed class FabricC1TransportTests
     }
 
     [Fact]
+    public async Task BoundRuntimeProfileKeepsTheOriginalSeedLineageWhileCheckpointEtagsAndRequestsAdvance()
+    {
+        using var blob = new BlobHarness();
+        await using (var first = await blob.OpenProfile())
+            first.Save(first.Load() with { Requests = 1 });
+        await using var resumed = await blob.OpenProfile();
+        Assert.Equal(1, resumed.Load().Requests);
+        Assert.Equal(blob.Profile.Allocation.Seed.Checkpoint.StartedAtUtc, resumed.Load().StartedAtUtc);
+        Assert.Equal(2, blob.Handler.Document.Reservations.Length);
+        Assert.Equal(blob.Profile.SeedReceipt.CreationId, blob.Handler.Metadata["x-ms-meta-cohors_seed_id"]);
+        Assert.Contains(blob.Handler.Requests, request => request.Method == "PUT" && request.IfMatch != blob.Profile.SeedReceipt.ETag);
+    }
+
+    [Theory]
+    [InlineData("marker")]
+    [InlineData("clock")]
+    public async Task ProfileRejectsReplacedSeedLineageOrARebasedClockBeforeAnyCheckpointWrite(string changed)
+    {
+        using var blob = new BlobHarness();
+        if (changed == "marker") blob.Handler.Metadata["x-ms-meta-cohors_seed_id"] = Guid.NewGuid().ToString("D");
+        else blob.Handler.Document = blob.Handler.Document with
+        {
+            Checkpoint = blob.Handler.Document.Checkpoint with
+            {
+                StartedAtUtc = blob.Handler.Document.Checkpoint.StartedAtUtc.AddSeconds(-1),
+                DeadlineUtc = blob.Handler.Document.Checkpoint.DeadlineUtc.AddSeconds(-1)
+            }
+        };
+        Assert.Equal("c1_checkpoint_seed_binding", (await Assert.ThrowsAsync<DomainException>(() => blob.OpenProfile())).Code);
+        Assert.Equal(0, blob.Handler.Writes);
+        Assert.Single(blob.Handler.Requests, request => request.Action == "release");
+        Assert.Empty(blob.Run.Handler.Requests);
+    }
+
+    [Theory]
+    [InlineData("seed")]
+    [InlineData("allocation")]
+    [InlineData("receipt")]
+    public void RuntimeProfileCannotReplaceTheOriginalSeedAllocationOrReadback(string changed)
+    {
+        using var blob = new BlobHarness();
+        var profile = blob.Profile;
+        if (changed == "seed") profile = profile with { Allocation = profile.Allocation with
+            { Seed = profile.Allocation.Seed with { Checkpoint = profile.Allocation.Seed.Checkpoint with { Requests = 1 } } } };
+        if (changed == "allocation") profile = profile with { Allocation = profile.Allocation with
+            { Binding = profile.Allocation.Binding with { AllocatedRequests = 1000 } } };
+        if (changed == "receipt") profile = profile with
+            { SeedReceipt = profile.SeedReceipt with { AllocationReceiptSha256 = new string('f', 64) } };
+        Assert.Equal("c1_checkpoint_profile", Assert.Throws<DomainException>(() =>
+            FabricC1CheckpointProfiles.Validate(blob.Run.Settings, profile, "direct", blob.Run.Time.Now)).Code);
+        Assert.Empty(blob.Handler.Requests);
+        Assert.Empty(blob.Credential.Scopes);
+    }
+
+    [Fact]
+    public async Task HostedProfileRequiresAFreshInvocationBoundReservationRatherThanReusingStartupState()
+    {
+        using var blob = new BlobHarness(hosted: true);
+        var first = blob.Reservation();
+        var command = blob.Run.Command("status") with
+            { InvocationId = first.Id, HostedCheckpointReservation = first };
+        Assert.Equal(first, FabricC1CheckpointProfiles.HostedReservation(blob.Run.Settings, blob.Profile, command, blob.Run.Time.Now));
+        await using (var store = await blob.OpenProfile(first)) { store.Load(); }
+        Assert.Equal("c1_checkpoint_reservation", (await Assert.ThrowsAsync<DomainException>(() => blob.OpenProfile(first))).Code);
+        var second = blob.Reservation();
+        var next = command with { InvocationId = second.Id, HostedCheckpointReservation = second };
+        Assert.Equal(second, FabricC1CheckpointProfiles.HostedReservation(blob.Run.Settings, blob.Profile, next, blob.Run.Time.Now));
+        await using (var store = await blob.OpenProfile(second)) { store.Load(); }
+        Assert.Equal(2, blob.Handler.Document.Reservations.Length);
+        Assert.Equal("c1_checkpoint_allowance", Assert.Throws<DomainException>(() =>
+            FabricC1CheckpointProfiles.HostedReservation(blob.Run.Settings, blob.Profile,
+                next with { HostedCheckpointReservation = first }, blob.Run.Time.Now)).Code);
+        Assert.Equal("c1_checkpoint_allowance", Assert.Throws<DomainException>(() =>
+            FabricC1CheckpointProfiles.HostedReservation(blob.Run.Settings, blob.Profile,
+                next with { HostedCheckpointReservation = null }, blob.Run.Time.Now)).Code);
+    }
+
+    [Fact]
+    public void LegacyInvocationCanonicalHashesDoNotAcquireANullCheckpointField()
+    {
+        using var run = new Harness();
+        var command = run.Command("status");
+        Assert.Equal(Canonical.Hash(new { command.BindingHash, command.Operation, command.ProbeId, command.InvocationId }),
+            Canonical.Hash(command));
+    }
+
+    [Fact]
+    public async Task HostedBlobClaimCannotOpenAFileCheckpointInstead()
+    {
+        using var blob = new BlobHarness(hosted: true);
+        var path = Path.Combine(Environment.CurrentDirectory, "unused-c1-" + Guid.NewGuid().ToString("N") + ".json");
+        var command = blob.Run.Command("status") with { HostedCheckpointReservation = blob.Reservation() };
+        Assert.Equal("c1_checkpoint_allowance", (await Assert.ThrowsAsync<DomainException>(() =>
+            FabricC1Entry.InvokeDirect(blob.Run.Settings, FabricC1PreparationTests.Fixture, command,
+                path, "hosted", CancellationToken.None))).Code);
+        Assert.False(File.Exists(path));
+        Assert.Empty(blob.Handler.Requests);
+    }
+
+    [Fact]
     public async Task ASecondBlobOwnerCannotBreakAnActiveLeaseOrWriteCheckpointState()
     {
         using var blob = new BlobHarness();
@@ -637,25 +738,42 @@ public sealed class FabricC1TransportTests
     {
         public Harness Run { get; } = new();
         public FabricC1BlobCheckpointBinding Binding { get; }
+        public FabricC1BlobCheckpointProfile Profile { get; }
         public SyntheticCredential Credential { get; }
         public BlobHandler Handler { get; }
         private readonly HttpClient client;
-        public BlobHarness(int allocated = 256, bool hostedControl = false)
+        public BlobHarness(int allocated = 256, bool hostedControl = false, bool hosted = false)
         {
             var identity = hostedControl ? Run.Settings.Hosted!.Caller : Run.Settings.Preparation.Identity;
             Binding = new(FabricC1BlobCheckpointStore.Contract, new string('d', 64), Canonical.Hash(Run.Settings),
-                hostedControl ? "hosted-control" : "direct",
+                hostedControl ? "hosted-control" : hosted ? "hosted" : "direct",
                 "/subscriptions/77777777-7777-7777-7777-777777777777/resourceGroups/c1-synthetic/providers/Microsoft.Storage/storageAccounts/c1synthetic",
                 identity with { ExpectedAudience = "https://storage.azure.com/" }, ["10.0.0.6"], new string('e', 64), new string('a', 64), allocated);
             Credential = new(Binding.Identity, Run.Time);
             Handler = new(new(FabricC1BlobCheckpointStore.DocumentContract, Canonical.Hash(Binding),
                 Run.Store.Value! with { Runtime = Binding.Runtime }, []));
+            var allocation = new FabricC1CheckpointAllocation("cohors-fabric-c1-checkpoint-allocation-1", Binding,
+                Handler.Document, Handler.Document.Checkpoint.DeadlineUtc.AddSeconds(Run.Settings.Preparation.Limits.CleanupTimeoutSeconds!.Value));
+            var endpoint = FabricC1BlobCheckpointStore.Endpoint(Run.Settings, Binding, Run.Time.Now);
+            var node = JsonSerializer.SerializeToNode(allocation, Canonical.Json)!.AsObject();
+            var allocationReceipt = new FabricC1ProvisionedObject("CheckpointIoAllocation", endpoint.AbsoluteUri, Canonical.Hash(node), node);
+            var seedReceipt = new FabricC1CheckpointSeedReceipt(endpoint.AbsoluteUri, Guid.NewGuid().ToString("D"),
+                Canonical.Hash(allocationReceipt),
+                Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(Handler.Document, Canonical.Json))),
+                "\"v1\"", Run.Time.Now);
+            Profile = new(FabricC1CheckpointProfiles.Contract, allocation, seedReceipt);
+            Handler.Metadata["x-ms-meta-cohors_seed_id"] = seedReceipt.CreationId;
+            Handler.Metadata["x-ms-meta-cohors_allocation"] = seedReceipt.AllocationReceiptSha256;
+            Handler.Metadata["x-ms-meta-cohors_seed_sha256"] = seedReceipt.SeedSha256;
             client = new(Handler);
         }
         public FabricC1CheckpointReservation Reservation(int requests = 64) =>
             new(Guid.NewGuid().ToString("D"), new string('c', 64), requests, Run.Time.Now.AddSeconds(80));
         public Task<FabricC1BlobCheckpointStore> Open(FabricC1CheckpointReservation? reservation = null) =>
             FabricC1BlobCheckpointStore.OpenWithTransport(Run.Settings, Binding, reservation ?? Reservation(),
+                client, Credential, Run.Time);
+        public Task<FabricC1BlobCheckpointStore> OpenProfile(FabricC1CheckpointReservation? reservation = null) =>
+            FabricC1BlobCheckpointStore.OpenWithTransport(Run.Settings, Profile, reservation ?? Reservation(),
                 client, Credential, Run.Time);
         public void Dispose() { client.Dispose(); Run.Dispose(); }
     }
@@ -665,6 +783,8 @@ public sealed class FabricC1TransportTests
     {
         public FabricC1BlobCheckpointDocument Document = document;
         public List<BlobRequest> Requests { get; } = [];
+        public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase)
+            { ["x-ms-meta-ownership"] = "synthetic-owned-metadata" };
         public bool Missing;
         public bool LoseNextWriteResponse;
         public bool RejectNextWrite;
@@ -707,13 +827,13 @@ public sealed class FabricC1TransportTests
                 response.Content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(Document, Canonical.Json));
                 response.Content.Headers.ContentType = new("application/json");
                 response.Headers.Add("x-ms-blob-type", "BlockBlob");
-                response.Headers.Add("x-ms-meta-ownership", "synthetic-owned-metadata");
+                foreach (var header in Metadata) response.Headers.Add(header.Key, header.Value);
                 response.Headers.Add("x-ms-encryption-scope", "synthetic-scope");
                 return response;
             }
             Assert.Equal(HttpMethod.Put, request.Method);
             Assert.Equal("BlockBlob", Header("x-ms-blob-type"));
-            Assert.Equal("synthetic-owned-metadata", Header("x-ms-meta-ownership"));
+            foreach (var header in Metadata) Assert.Equal(header.Value, Header(header.Key));
             Assert.Equal("synthetic-scope", Header("x-ms-encryption-scope"));
             if (RejectNextWrite || request.Headers.IfMatch.SingleOrDefault()?.ToString() != $"\"v{version}\"")
             {

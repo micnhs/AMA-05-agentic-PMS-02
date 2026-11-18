@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Azure.Core;
 using Azure.Core.Pipeline;
 using Azure.Identity;
@@ -19,7 +20,11 @@ public sealed record FabricC1ExecutionSettings(string Contract, FabricC1Inputs P
     string SourceCommit, DateTimeOffset ExpiresAtUtc, string AccessReviewSha256, string[] FabricPrivateAddresses,
     string TaskDialect, int DirectMaxRequests, int HostedMaxRequests, int HostedControlMaxRequests,
     FabricC1HostedBinding? Hosted);
-public sealed record FabricC1Invocation(string BindingHash, string Operation, string? ProbeId = null, string? InvocationId = null);
+public sealed record FabricC1Invocation(string BindingHash, string Operation, string? ProbeId = null, string? InvocationId = null)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FabricC1CheckpointReservation? HostedCheckpointReservation { get; init; }
+}
 public sealed record FabricC1Observation(string Status, string? Code, string BindingHash, string StateHash,
     int Requests, string Runtime, JsonElement? Result = null, string? InvocationId = null);
 
