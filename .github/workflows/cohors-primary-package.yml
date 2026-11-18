@@ -12,6 +12,7 @@ name: Cohors bound primary package
     branches: [micnhs-cohors-azure-infrastruktur]
     paths:
       - infra/**
+      - '!infra/tests/test_workflow_contract.py'
       - .github/workflows/cohors-primary-package.yml
 
 permissions:

@@ -1,0 +1,463 @@
+name: Cohors recovery host-copy diagnostic
+
+'on':
+  push:
+    branches: [micnhs-cohors-azure-infrastruktur]
+    paths:
+      - .github/workflows/cohors-recovery-copy-diagnostic.yml
+      - diagnostics/recovery-host-copy.ps1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cohors-recovery-copy-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    name: Synthetic Linux host-copy observation, not application acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Own separate preparation, absolute 180-second probe and cleanup
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import platform
+          import pwd
+          import grp
+          import re
+          import selectors
+          import shutil
+          import signal
+          import stat
+          import subprocess
+          import time
+          import uuid
+
+          IMAGE = "mcr.microsoft.com/mssql/server@sha256:4525e3efac9f3e241cb003bb2ff2a82818b502f37e12049d788b1a9fa7e13b7f"
+          SUPPLIED = "2bc4f44be264f52206eed2290309f2b7ccd2d92aee8f2ad83c08a998671cc206"
+          PUBLISHED = "f9a15228fb1e6a2d455d535a9c2a75c0f41953f951e9bde2a9bf859cb5a9375a"
+          root = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          temporary = Path(os.environ["RUNNER_TEMP"]).resolve()
+          private = temporary / ("cohors-copy-owner-" + uuid.uuid4().hex)
+          private.mkdir(mode=0o700)
+          evidence = private / "probe"
+          target = temporary / "cohors-recovery-copy-result.json"
+          script = root / "diagnostics/recovery-host-copy.ps1"
+          workflow = root / ".github/workflows/cohors-recovery-copy-diagnostic.yml"
+          uid, gid = os.getuid(), os.getgid()
+          interrupted = False
+
+          def interrupted_by_signal(number, frame):
+              global interrupted
+              interrupted = True
+
+          for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+              signal.signal(number, interrupted_by_signal)
+
+          def utc():
+              return dt.datetime.now(dt.timezone.utc)
+
+          def iso(value):
+              return value.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+          def command(arguments, timeout=5, allow_missing_unit=None):
+              result = subprocess.run(arguments, stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout)
+              output = result.stdout.decode("utf-8", "strict")
+              if result.returncode and not (allow_missing_unit and result.returncode in (1, 4)
+                      and {"Id=" + allow_missing_unit, "LoadState=not-found", "ActiveState=inactive"}
+                      <= set(output.splitlines())):
+                  raise RuntimeError("owner-control-command-failed")
+              return output
+
+          def unit_state(unit, timeout=5):
+              properties = ("Id,LoadState,ActiveState,SubState,ControlGroup,ExecMainPID,ExecMainCode,ExecMainStatus,"
+                            "ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic,"
+                            "Type,User,Group,KillMode,SendSIGKILL,Delegate,ProtectControlGroups,RemainAfterExit")
+              raw = command(["systemctl", "show", "--no-pager", "--property=" + properties, unit],
+                            timeout, allow_missing_unit=unit)
+              return dict(line.split("=", 1) for line in raw.splitlines() if "=" in line)
+
+          def unit_is_bound(state, unit):
+              expected = {"Id": unit, "Type": "exec",
+                          "KillMode": "control-group", "SendSIGKILL": "yes", "Delegate": "no",
+                          "ProtectControlGroups": "yes", "RemainAfterExit": "yes"}
+              return (all(state.get(key) == value for key, value in expected.items())
+                      and state.get("User") in (str(uid), pwd.getpwuid(uid).pw_name)
+                      and state.get("Group") in (str(gid), grp.getgrgid(gid).gr_name))
+
+          def execution_in_window(start_ns, deadline_ns, ended_us, observed_ns, deadline, observed,
+                                  admitted, backward_clock):
+              return (admitted and not backward_clock and start_ns <= ended_us * 1000 <= observed_ns < deadline_ns
+                      and observed < deadline)
+
+          def validate_core_result(core, source_hash, image):
+              boolean_keys = {
+                  "diagnosticObservationComplete", "applicationAcceptance", "cloudRelease",
+                  "exactHostFileToContainerFile", "tarStdinTransfer", "metadataProjection",
+                  "permissionRepairApplied", "noHostMounts", "noPublishedPorts", "noExistingResourceMutation",
+                  "identicalSourceHostTargetBytes", "otherUnprivilegedUserCannotRead", "sqlUserCanRead",
+                  "permissionFailureReproduced", "verifyOnlyPassed", "ownedContainerAbsent",
+                  "originalDockerSetPreserved", "outerLinuxProcessContainmentProofRequired"}
+              numeric_keys = {"executionLimitSeconds", "containerMaximumLifetimeSeconds",
+                              "verifyOnlyExitCode", "cleanupLimitSeconds"}
+              patterns = {
+                  "contract": r"cohors-hosted-linux-backup-copy-1", "host": r"Linux",
+                  "image": re.escape(image), "imageId": r"sha256:[0-9a-f]{64}", "owner": r"[0-9a-f]{32}",
+                  "scriptSha256": r"[0-9a-f]{64}", "nativeBackupSha256": r"[0-9a-f]{64}",
+                  "sqlUser": r"\d+", "sqlGroup": r"\d+", "sqlProcessUidGid": r"[\d \r\n]+",
+                  "sourceMode": r"\d+:\d+:[0-7]{3,4}:\d+", "hostMode": r"\d+:\d+:[0-7]{3,4}:\d+",
+                  "targetMode": r"\d+:\d+:[0-7]{3,4}:\d+", "privateDirectoryMode": r"\d+:\d+:[0-7]{3,4}",
+                  "failurePhase": r"[a-z-]{1,80}", "failureType": r"[A-Za-z0-9_.]{1,120}"}
+              for key in ("startedUtc", "executionDeadlineUtc", "observedAtUtc", "cleanupStartedUtc",
+                          "cleanupDeadlineUtc", "cleanupObservedAtUtc"):
+                  patterns[key] = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{1,7}(?:Z|\+00:00)"
+              if not isinstance(core, dict):
+                  raise RuntimeError("core-result-not-an-object")
+              for key, value in core.items():
+                  valid = (key in boolean_keys and type(value) is bool or
+                           key in numeric_keys and type(value) is int and 0 <= value <= 65535 or
+                           key in ("sqlErrors", "operatingSystemErrors") and isinstance(value, list)
+                           and len(value) <= 16 and all(type(item) is int and 0 <= item <= 65535 for item in value) or
+                           key in patterns and isinstance(value, str) and re.fullmatch(patterns[key], value))
+                  if not valid:
+                      raise RuntimeError("core-result-not-allowlisted")
+              if core.get("applicationAcceptance") is not False or core.get("cloudRelease") is not False:
+                  raise RuntimeError("diagnostic-cannot-authorize-acceptance")
+              if core.get("scriptSha256") != source_hash or core.get("image") != image:
+                  raise RuntimeError("core-source-binding-mismatch")
+              return core
+
+          admission_code = """
+          import datetime,json,os,sys,time
+          from pathlib import Path
+          record = {'pid':os.getpid(),'processGroup':os.getpgrp(),'session':os.getsid(0),
+                    'cgroup':Path('/proc/self/cgroup').read_text().strip(),
+                    'atUtc':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    'monotonicNs':time.monotonic_ns(),'uid':os.getuid(),'gid':os.getgid()}
+          with open(sys.argv[1]+'.pending','x',encoding='utf-8') as stream:
+              json.dump(record,stream);stream.flush();os.fsync(stream.fileno())
+          os.rename(sys.argv[1]+'.pending',sys.argv[1])
+          now=datetime.datetime.now(datetime.timezone.utc)
+          if (now < datetime.datetime.fromisoformat(os.environ['COHORS_OWNED_STARTED_UTC'])
+                  or now >= datetime.datetime.fromisoformat(os.environ['COHORS_OWNED_DEADLINE_UTC'])
+                  or time.monotonic_ns() >= int(os.environ['COHORS_OWNED_DEADLINE_MONOTONIC_NS'])):
+              raise SystemExit(125)
+          os.execv(sys.argv[2],sys.argv[2:])
+          """
+
+          # A transient systemd cgroup owns every worker descendant, including a changed process group.
+          # It never contains the Docker daemon; the separately owned container has its own 120s lifetime.
+          def phase(name, limit, arguments):
+              unit = "cohors-copy-" + uuid.uuid4().hex + ".service"
+              admission = private / (name.lower() + "-admission.json")
+              start, start_ns = utc(), time.monotonic_ns()
+              deadline, deadline_ns = start + dt.timedelta(seconds=limit), start_ns + limit * 1000000000
+              result = {"phase": name, "limitSeconds": limit, "startedUtc": iso(start),
+                        "deadlineUtc": iso(deadline), "unit": unit, "mechanism": "systemd-cgroup-v2",
+                        "executionWithinDeadline": False, "mainExitCode": None, "mainExitStatus": None,
+                        "ownedDescendantsAbsent": False, "streamsClosed": False,
+                        "stopLimitSeconds": 15, "streamLimitSeconds": 15, "passed": False}
+              state, binding, process = {}, None, None
+              selector = selectors.DefaultSelector()
+              stream_bytes = 0
+              backward_clock = False
+              previous = start
+              cgroup = Path("/sys/fs/cgroup/system.slice") / unit
+
+              def remaining(end_ns, end_utc):
+                  seconds = min((end_ns - time.monotonic_ns()) / 1000000000, (end_utc - utc()).total_seconds())
+                  if seconds <= 0:
+                      raise RuntimeError("owner-absolute-deadline")
+                  return min(5, seconds)
+
+              def drain():
+                  nonlocal stream_bytes
+                  for key, _ in selector.select(0):
+                      block = os.read(key.fd, 65536)
+                      if not block:
+                          selector.unregister(key.fileobj)
+                          key.fileobj.close()
+                      else:
+                          stream_bytes += len(block)
+                          if stream_bytes > 1048576:
+                              raise RuntimeError("owner-stream-size-limit")
+
+              try:
+                  if interrupted or unit_state(unit, remaining(deadline_ns, deadline)).get("LoadState") != "not-found":
+                      raise RuntimeError("owner-admission-refused")
+                  environment = {"GITHUB_ACTIONS": "true", "RUNNER_TEMP": str(temporary),
+                                 "PATH": os.environ["PATH"], "COHORS_OWNED_STARTED_UTC": iso(start),
+                                 "COHORS_OWNED_DEADLINE_UTC": iso(deadline),
+                                 "COHORS_OWNED_DEADLINE_MONOTONIC_NS": str(deadline_ns)}
+                  launch = ["sudo", "-n", "systemd-run", "--quiet", "--pipe", "--wait", "--remain-after-exit",
+                            "--expand-environment=no", "--unit=" + unit, "--service-type=exec",
+                            "--uid=" + str(uid), "--gid=" + str(gid), "--working-directory=" + str(root),
+                            "--property=KillMode=control-group", "--property=SendSIGKILL=yes",
+                            "--property=TimeoutStopSec=10s", "--property=TimeoutStartSec=10s",
+                            "--property=RuntimeMaxSec=" + str(limit) + "s", "--property=Delegate=no",
+                            "--property=ProtectControlGroups=yes"]
+                  launch += ["--setenv=" + key + "=" + value for key, value in environment.items()]
+                  launch += [shutil.which("python3"), "-c", admission_code, str(admission), *arguments]
+                  process = subprocess.Popen(launch, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE, start_new_session=True)
+                  for pipe in (process.stdout, process.stderr):
+                      os.set_blocking(pipe.fileno(), False)
+                      selector.register(pipe, selectors.EVENT_READ)
+                  while not interrupted:
+                      now = utc()
+                      backward_clock |= now < previous
+                      previous = now
+                      if backward_clock or now >= deadline or time.monotonic_ns() >= deadline_ns:
+                          break
+                      drain()
+                      state = unit_state(unit, remaining(deadline_ns, deadline))
+                      if state.get("LoadState") == "not-found":
+                          if process.poll() is not None:
+                              raise RuntimeError("owner-unit-not-started")
+                          time.sleep(0.05)
+                          continue
+                      if not unit_is_bound(state, unit):
+                          raise RuntimeError("owner-unit-binding-changed")
+                      if admission.is_file() and binding is None:
+                          if admission.stat().st_size > 2048:
+                              raise RuntimeError("owner-admission-size")
+                          binding = json.loads(admission.read_text())
+                          if (set(binding) != {"pid", "processGroup", "session", "cgroup", "atUtc",
+                                              "monotonicNs", "uid", "gid"}
+                                  or binding["cgroup"] != "0::/system.slice/" + unit or binding["uid"] != uid
+                                  or binding["gid"] != gid or binding["pid"] != int(state["ExecMainPID"])
+                                  or not start_ns <= binding["monotonicNs"] < deadline_ns):
+                              raise RuntimeError("owner-kernel-binding-changed")
+                          result["admission"] = binding
+                      ended_us = int(state.get("ExecMainExitTimestampMonotonic", "0"))
+                      if ended_us:
+                          result["mainExitCode"] = int(state["ExecMainCode"])
+                          result["mainExitStatus"] = int(state["ExecMainStatus"])
+                          result["executionElapsedSeconds"] = (ended_us * 1000 - start_ns) / 1000000000
+                          ended_at = utc()
+                          backward_clock |= ended_at < previous
+                          result["executionWithinDeadline"] = execution_in_window(
+                              start_ns, deadline_ns, ended_us, time.monotonic_ns(), deadline, ended_at,
+                              binding is not None and not interrupted, backward_clock)
+                          break
+                      time.sleep(0.05)
+              except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
+                  result["failureType"] = type(error).__name__
+                  if isinstance(error, RuntimeError) and re.fullmatch("[a-z-]+", str(error)):
+                      result["failureCode"] = str(error)
+              finally:
+                  result["executionObservedAtUtc"] = iso(utc())
+                  stop_started, stop_ns = utc(), time.monotonic_ns()
+                  stop_deadline = stop_ns + 15000000000
+                  stop_deadline_utc = stop_started + dt.timedelta(seconds=15)
+                  result["stopStartedUtc"] = iso(stop_started)
+                  result["stopDeadlineUtc"] = iso(stop_deadline_utc)
+                  try:
+                      state = unit_state(unit, remaining(stop_deadline, stop_deadline_utc))
+                      result["ownedProcessesAtStop"] = (len((cgroup / "cgroup.procs").read_text().splitlines())
+                                                       if cgroup.exists() else 0)
+                      if state.get("LoadState") != "not-found":
+                          if not unit_is_bound(state, unit):
+                              raise RuntimeError("owner-stop-binding-changed")
+                          command(["sudo", "-n", "systemctl", "stop", "--no-block", unit],
+                                  remaining(stop_deadline, stop_deadline_utc))
+                      while time.monotonic_ns() < stop_deadline and utc() < stop_deadline_utc:
+                          drain()
+                          state = unit_state(unit, remaining(stop_deadline, stop_deadline_utc))
+                          empty = not cgroup.exists() or (
+                              "populated 0" in (cgroup / "cgroup.events").read_text().splitlines()
+                              and not (cgroup / "cgroup.procs").read_text().strip())
+                          if empty and state.get("ActiveState") in ("inactive", "failed"):
+                              result["ownedDescendantsAbsent"] = binding is not None
+                              break
+                          time.sleep(0.05)
+                      result["stopWithinDeadline"] = (
+                          time.monotonic_ns() < stop_deadline and stop_started <= utc() < stop_deadline_utc)
+                  except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+                      result["stopFailureType"] = type(error).__name__
+                  result["stopObservedAtUtc"] = iso(utc())
+                  stream_started, stream_ns = utc(), time.monotonic_ns()
+                  result["streamStartedUtc"] = iso(stream_started)
+                  stream_deadline = stream_ns + 15000000000
+                  stream_deadline_utc = stream_started + dt.timedelta(seconds=15)
+                  result["streamDeadlineUtc"] = iso(stream_deadline_utc)
+                  try:
+                      while time.monotonic_ns() < stream_deadline and utc() < stream_deadline_utc:
+                          drain()
+                          if process is not None and process.poll() is not None and not selector.get_map():
+                              result["streamsClosed"] = True
+                              result["launcherExitCode"] = process.returncode
+                              break
+                          time.sleep(0.05)
+                      if process is not None and process.poll() is None:
+                          if os.getpgid(process.pid) != process.pid:
+                              raise RuntimeError("owner-launcher-group-changed")
+                          os.killpg(process.pid, signal.SIGKILL)
+                          process.wait(timeout=2)
+                  except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                      result["streamFailureType"] = type(error).__name__
+                  result["streamObservedAtUtc"] = iso(utc())
+                  result["streamBytesDiscarded"] = stream_bytes
+                  try:
+                      if process is not None:
+                          members = []
+                          for entry in Path("/proc").iterdir():
+                              if entry.name.isdecimal():
+                                  try:
+                                      fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+                                      if int(fields[3]) == process.pid:
+                                          members.append(int(entry.name))
+                                  except (FileNotFoundError, ProcessLookupError):
+                                      continue
+                          result["launcherSessionAbsent"] = not members
+                  except (OSError, ValueError, IndexError) as error:
+                      result["launcherReadbackFailureType"] = type(error).__name__
+                  for key in list(selector.get_map().values()):
+                      selector.unregister(key.fileobj)
+                      key.fileobj.close()
+                  selector.close()
+                  if state.get("ActiveState") == "failed" and unit_is_bound(state, unit):
+                      try:
+                          command(["sudo", "-n", "systemctl", "reset-failed", unit],
+                                  remaining(stream_deadline, stream_deadline_utc))
+                      except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                          result["unitReleaseFailureType"] = type(error).__name__
+                  result["streamWithinDeadline"] = (
+                      time.monotonic_ns() < stream_deadline and stream_started <= utc() < stream_deadline_utc)
+                  result["streamObservedAtUtc"] = iso(utc())
+                  result["passed"] = (result["executionWithinDeadline"] and result["mainExitCode"] == 1
+                      and result["mainExitStatus"] == 0 and result["ownedDescendantsAbsent"]
+                      and result.get("stopWithinDeadline") is True and result["streamsClosed"]
+                      and result.get("ownedProcessesAtStop") == 0 and result.get("launcherSessionAbsent") is True
+                      and result.get("launcherExitCode") == 0
+                      and result["streamWithinDeadline"]
+                      and not any("Failure" in key or key == "failureType" for key in result))
+              return result
+
+          report = {"contract": "cohors-hosted-recovery-copy-diagnostic-1", "applicationAcceptance": False,
+                    "recoveryAcceptance": False, "cloudRelease": False, "diagnosticEvidenceComplete": False,
+                    "sourceCommit": os.environ["GITHUB_SHA"], "repository": os.environ["GITHUB_REPOSITORY"],
+                    "runId": int(os.environ["GITHUB_RUN_ID"]), "runAttempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                    "platform": {"os": platform.system(), "architecture": platform.machine(), "uid": uid, "gid": gid},
+                    "suppliedProbeSha256": SUPPLIED, "sourceNormalization": "CRLF-to-LF-only",
+                    "probeSha256": hashlib.sha256(script.read_bytes()).hexdigest(),
+                    "workflowSha256": hashlib.sha256(workflow.read_bytes()).hexdigest(), "image": IMAGE, "phases": []}
+          try:
+              if (os.environ.get("GITHUB_ACTIONS") != "true" or platform.system() != "Linux"
+                      or not Path("/sys/fs/cgroup/cgroup.controllers").is_file()
+                      or report["probeSha256"] != PUBLISHED
+                      or hashlib.sha256(script.read_bytes().replace(b"\n", b"\r\n")).hexdigest() != SUPPLIED or
+                      command(["git", "rev-parse", "HEAD"]).strip() != report["sourceCommit"]):
+                  raise RuntimeError("hosted-source-or-cgroup-admission-failed")
+              for tool in ("sudo", "systemd-run", "systemctl", "docker", "pwsh", "python3"):
+                  if not shutil.which(tool):
+                      raise RuntimeError("required-hosted-tool-missing")
+              prepare = ["bash", "-euo", "pipefail", "-c",
+                         'docker info >/dev/null; if ! docker image inspect "$1" >/dev/null 2>&1; then '
+                         'docker pull "$1" >/dev/null; fi; docker image inspect "$1" >/dev/null',
+                         "cohors-image-preparation", IMAGE]
+              prepare[0] = shutil.which("bash")
+              report["phases"].append(phase("Preparation", 300, prepare))
+              if report["phases"][-1]["passed"]:
+                  report["phases"].append(phase("Probe", 180, [shutil.which("pwsh"), "-NoLogo", "-NoProfile",
+                      "-File", str(script), "-EvidenceDirectory", str(evidence), "-Phase", "Probe"]))
+          except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+              report["ownerFailureType"] = type(error).__name__
+          finally:
+              if any(item["phase"] == "Probe" for item in report["phases"]):
+                  report["phases"].append(phase("Cleanup", 60, [shutil.which("pwsh"), "-NoLogo", "-NoProfile",
+                      "-File", str(script), "-EvidenceDirectory", str(evidence), "-Phase", "Cleanup"]))
+              try:
+                  source = evidence / "result.json"
+                  if not source.is_file() or source.stat().st_size > 16384:
+                      raise RuntimeError("missing-or-excessive-core-result")
+                  core = validate_core_result(json.loads(source.read_text()), report["probeSha256"], IMAGE)
+                  report["observation"] = core
+                  for name, prefix in (("Probe", ""), ("Cleanup", "cleanup")):
+                      owned = next(item for item in report["phases"] if item["phase"] == name)
+                      observed_start = core.get("startedUtc" if not prefix else "cleanupStartedUtc")
+                      observed_deadline = core.get("executionDeadlineUtc" if not prefix else "cleanupDeadlineUtc")
+                      observed_end = core.get("observedAtUtc" if not prefix else "cleanupObservedAtUtc")
+                      if (not all((observed_start, observed_deadline, observed_end))
+                              or dt.datetime.fromisoformat(observed_start) != dt.datetime.fromisoformat(owned["startedUtc"])
+                              or dt.datetime.fromisoformat(observed_deadline) != dt.datetime.fromisoformat(owned["deadlineUtc"])
+                              or not dt.datetime.fromisoformat(observed_start) <= dt.datetime.fromisoformat(observed_end)
+                              < dt.datetime.fromisoformat(observed_deadline)):
+                          raise RuntimeError("core-absolute-deadline-binding-mismatch")
+                  report["diagnosticEvidenceComplete"] = (
+                      [item["phase"] for item in report["phases"]] == ["Preparation", "Probe", "Cleanup"]
+                      and all(item["passed"] for item in report["phases"])
+                      and core.get("diagnosticObservationComplete") is True
+                      and core.get("ownedContainerAbsent") is True and core.get("originalDockerSetPreserved") is True
+                      and core.get("executionLimitSeconds") == 180 and core.get("cleanupLimitSeconds") == 60
+                      and core.get("containerMaximumLifetimeSeconds") == 120
+                      and all(core.get(key) is True for key in ("identicalSourceHostTargetBytes",
+                          "exactHostFileToContainerFile", "otherUnprivilegedUserCannotRead",
+                          "noHostMounts", "noPublishedPorts", "noExistingResourceMutation",
+                          "outerLinuxProcessContainmentProofRequired"))
+                      and all(core.get(key) is False for key in ("tarStdinTransfer", "metadataProjection", "permissionRepairApplied"))
+                      and all(key in core for key in ("sourceMode", "hostMode", "targetMode", "privateDirectoryMode",
+                          "sqlUser", "sqlGroup", "sqlProcessUidGid", "nativeBackupSha256", "sqlUserCanRead"))
+                      and (core.get("verifyOnlyPassed") is True and core.get("verifyOnlyExitCode") == 0
+                           and core.get("sqlErrors") == [] and core.get("operatingSystemErrors") == []
+                           or core.get("verifyOnlyPassed") is False and core.get("verifyOnlyExitCode", 0) != 0
+                           and set(core.get("sqlErrors", [])) == {3201, 3013} and bool(core.get("operatingSystemErrors"))))
+              except (OSError, ValueError, RuntimeError, StopIteration) as error:
+                  report["resultFailureType"] = type(error).__name__
+                  if isinstance(error, RuntimeError) and re.fullmatch("[a-z-]+", str(error)):
+                      report["resultFailureCode"] = str(error)
+              try:
+                  cleanup = next((item for item in report["phases"] if item["phase"] == "Cleanup"), None)
+                  file_deadline = dt.datetime.fromisoformat(cleanup["deadlineUtc"]) if cleanup else utc() + dt.timedelta(seconds=60)
+                  report["privateFileCleanupDeadlineUtc"] = iso(file_deadline)
+                  for name in ("database.bak", "before.json", "created.json", "observation.json", "result.json"):
+                      if utc() >= file_deadline:
+                          raise RuntimeError("private-cleanup-deadline")
+                      path = evidence / name
+                      if path.exists():
+                          if path.is_symlink() or not stat.S_ISREG(path.stat().st_mode):
+                              raise RuntimeError("unexpected-private-file-type")
+                          path.unlink()
+                  if evidence.exists():
+                      evidence.rmdir()
+                  for name in ("preparation-admission.json", "probe-admission.json", "cleanup-admission.json"):
+                      for suffix in ("", ".pending"):
+                          path = private / (name + suffix)
+                          if path.exists():
+                              path.unlink()
+                  private.rmdir()
+                  report["ownedPrivateFilesRemoved"] = not private.exists()
+                  report["privateFileCleanupWithinDeadline"] = utc() < file_deadline
+              except (OSError, RuntimeError) as error:
+                  report["ownedPrivateFilesRemoved"] = False
+                  report["privateCleanupFailureType"] = type(error).__name__
+              report["privateFileCleanupObservedAtUtc"] = iso(utc())
+              report["diagnosticEvidenceComplete"] &= (report.get("ownedPrivateFilesRemoved") is True
+                                                       and report.get("privateFileCleanupWithinDeadline") is True)
+              raw = (json.dumps(report, indent=2) + "\n").encode()
+              if len(raw) > 32768:
+                  raise RuntimeError("sanitized-result-size-limit")
+              with target.open("xb") as stream:
+                  stream.write(raw)
+              print("Sanitized diagnostic result written; application/recovery/cloud acceptance remain false.")
+          raise SystemExit(0 if report["diagnosticEvidenceComplete"] else 1)
+          PY
+      - name: Publish only the bounded sanitized diagnostic JSON
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cohors-recovery-copy-diagnostic
+          path: ${{ runner.temp }}/cohors-recovery-copy-result.json
+          if-no-files-found: error
+          retention-days: 1
