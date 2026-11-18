@@ -23,6 +23,12 @@ $env:TMPDIR = Join-Path $temporary 'tmp'
 New-Item -ItemType Directory -Force -Path $env:TMPDIR | Out-Null
 if ((dotnet --version).Trim() -ne '10.0.404') { throw 'The exact approved .NET SDK is required.' }
 if ((node --version).Trim() -ne 'v24.10.0') { throw 'The exact approved Node version is required.' }
+foreach ($script in @('Build-C1Package.ps1', 'Get-C1Package.ps1')) {
+    $tokens = $null
+    $parseErrors = $null
+    $null = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $script), [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -ne 0) { throw "C1 operator script is not syntactically valid: $script; $parseErrors" }
+}
 
 python3 scripts/fabric/baseline.py
 if ($LASTEXITCODE -ne 0) { throw 'Bound baseline validation failed.' }
@@ -101,7 +107,7 @@ foreach ($class in $classes) {
 $summary = @(
     '# Cohors Fabric: build and local contracts'
     "- Source: $sha"
-    '- Standard isolated hosted runner; no SQL, Docker, browser, Azure login, secrets, shared caches or artifact uploads.'
+    '- Standard isolated hosted runner; no SQL, Docker, browser, Azure login, secrets or shared caches. This validation step uploads nothing.'
     '- Evidence level: local contract execution only. NOT Fabric/IQ/Hosted Agents/WORM/Ledger/recovery or production acceptance.'
     '- C1 executable unbound-template preflight: Blocked, exit 2, cloudExecutionAllowed=false (expected offline rejection).'
     '- C1 deployment entry: Blocked, exit 2, canApply=false; incomplete private bootstrap is not a deployment pass.'
@@ -114,4 +120,10 @@ foreach ($path in @('fabric/delivery.json', 'docs/fabric/requirement-register.js
 }
 $summary | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8
 $summary | Write-Output
+@{
+    sourceCommit = $sha
+    runId = $env:GITHUB_RUN_ID
+    runAttempt = $env:GITHUB_RUN_ATTEMPT
+    sourceContractsPassed = $true
+} | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $temporary 'validation.json') -Encoding utf8NoBOM
 exit 0

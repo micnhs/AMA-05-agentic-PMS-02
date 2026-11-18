@@ -8,6 +8,7 @@
   "namePrefix": null,
   "expiresAtUtc": null,
   "bootstrapIdentity": null,
+  "delegatedGroupOwnerMode": null,
   "controlTokenBindings": {
     "armAudience": null,
     "armIssuer": null,

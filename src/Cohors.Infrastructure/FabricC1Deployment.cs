@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Cohors.Domain;
 
@@ -20,6 +21,8 @@ public sealed record FabricC1DeploymentInputs(string Contract, string? Deploymen
 {
     public string[] RequiredTenantSettingNames { get; init; } = [];
     public FabricC1ControlTokenBindings? ControlTokenBindings { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DelegatedGroupOwnerMode { get; init; }
 }
 public sealed record FabricC1DeploymentPlan(string Status, string BindingHash, string[] MissingInputs,
     string[] ImplementationBlockers, string[] Resources, string[] NonArmOperations)
@@ -68,6 +71,9 @@ public static class FabricC1Deployment
              identity.CredentialKind is "ServicePrincipalCertificate" or "ServicePrincipalFederation" or "ServicePrincipalSecret" &&
              identity.CredentialReference is not null && Path.IsPathFullyQualified(identity.CredentialReference)));
         Required("controlTokenBindings", ValidControlTokenBindings(input));
+        Required("delegatedGroupOwnerMode", input.BootstrapIdentity?.CredentialKind == "DelegatedAzureCli"
+            ? input.DelegatedGroupOwnerMode is "ExplicitReviewedAdministrator" or "AutomaticReviewedNonAdministrator"
+            : input.DelegatedGroupOwnerMode is null);
         Required("network", input.Network is not null);
         if (input.Network is { } network)
         {

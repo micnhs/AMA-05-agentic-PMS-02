@@ -31,6 +31,13 @@ path, budget and source/ontology reviews. If policy or service behavior requires
 unapproved cross-geo processing, the stage is blocked: do not enable it or move
 regions automatically. The C1 BOM contains no separate Foundry model deployment.
 
+This applies only to the bounded MCP test. It is not a decision to replace
+Cohors' own Foundry Fachagent or embedding models with Fabric-managed AI.
+ALT-FAB-01 v0.2 sections 9-11 and X-23/X-25/X-27 remain binding for the complete
+pilot. The inherited live `AgentRunner`/`FoundryBoundary`/`AgentHost` model path
+is retained, but its independent Fabric Hosted/model provisioning and native
+acceptance are still open; see [the full-pilot boundary](README.md#own-fachagent-models-remain-in-the-full-pilot).
+
 This is an explicit technical correction to the R4.1 mapping: its model
 deployment output and model-version start value become inactive historical
 fields, and one real AI-policy review is added. There are 39 active mappings:

@@ -3,6 +3,33 @@
 Independent alternative based on ALT-FAB-01 v0.2 and FAB-BASELINE-01 v0.2.
 This is an implementation in progress, not an accepted or deployed system.
 
+## Own Fachagent models remain in the full pilot
+
+The model-less **C1 MCP test is not the full Cohors application**. Its Fabric
+data agent is the controlled `ExplainDomainContext` knowledge path, not a
+replacement for Cohors' own assessment, assurance, authoring or embedding models.
+ALT-FAB-01 v0.2 sections 9-11 and baseline X-23/X-25/X-27 still require own
+.NET/Agent-Framework agents in Foundry, separately controlled model deployments,
+Fabric-based retrieval/embeddings and independently executed assurance.
+
+The isolated fork already contains the live model call in
+`Cohors.Agents\AgentRunner.cs` (`AzureOpenAIClient` / `GetChatClient` /
+`AsAIAgent` / `RunAsync`), six bounded drafting roles, explicit Replay/Failure
+modes, `FoundryBoundary` model/version/EU-review binding and
+`AgentExecutionService` invocation/input/result persistence. `Cohors.AgentHost`
+provides a separate caller-authenticated `/internal/run` service. These are
+retained implementation components, not deployed Fabric Hosted agents.
+The inherited `infra\modules\ai-services.bicep` optional Standard/no-auto-upgrade
+model and old AgentHost settings are not the Fabric delivery installer.
+
+The full Fabric pilot still needs its own concrete model/version/SKU/region/
+quota/cost/privacy binding, explicitly selected workload credentials instead of
+the inherited model client's `DefaultAzureCredential` chain, private model
+access, Hosted invocation/reentry integration, knowledge/embedding adapters,
+separate assurance execution and native functional/operational acceptance.
+The C1 v2 correction removes only unused fields from the direct MCP probe;
+it neither removes these obligations nor proves any of them delivered.
+
 ## C1 provisioning increment: partial source implementation
 
 The new opt-in entry is `Cohors.Api --fabric-c1-deploy plan --manifest FILE`.
@@ -61,6 +88,12 @@ Implemented source components:
   permission checks; `AppRegistration.Create` alone is not the whole path.
   Graph v1.0 group SP omissions are addressed with the documented expanded
   members query and the creator SP's `ownedObjects` ownership read.
+  Deleting the owned non-role-assignable group uses the separate Group.ReadWrite.All
+  contract, not the additional application permission needed for SP membership.
+  Delegated `delegatedGroupOwnerMode` is bound by the reviewed start rights:
+  `ExplicitReviewedAdministrator` or `AutomaticReviewedNonAdministrator`.
+  Missing optional `wids` never implies non-admin status; the selected reviewed
+  administrator binds its own owner explicitly and still needs actual readback.
 - Tenant policy planning uses observed setting keys, preserves exclusions and
   delegations, refuses admin-API membership for the runtime group, and never
   enables an unscopable setting or reactivates unrelated disabled groups.
@@ -113,6 +146,19 @@ authorized endpoint operation must decide. Existing broad directory rights do
 not authorize global setting changes. In particular, disabled
 `WorkspaceBlockInboundAccess` with `canSpecifySecurityGroups=false` cannot be
 made into an allegedly group-scoped change by this installer.
+That disabled setting does not prevent an Azure workspace Private Link from
+being prepared. Enabling it is a separate shared tenant-wide permission for
+workspace admins to restrict their own workspaces, not an action that makes
+every workspace private. Before actual data setup/public-deny evidence, the
+specific activation requires its direct approval; no early approval question
+is needed for code, CI or resource-free preparation. Allow up to 15 minutes
+for this setting's propagation, separately from workspace-policy propagation.
+The [tenant-settings index](https://learn.microsoft.com/fabric/admin/tenant-settings-index#advanced-networking)
+states that disabling it restores all workspaces to their earlier configuration.
+Therefore **never automatically disable it during C1 cleanup**: inventory the
+shared effect and require a separate current administrative decision for any
+later reversal. Other workspaces, BlockPublicInternetAccess, IP-firewall,
+trusted-resource and cross-geo settings remain untouched.
 An observed directory role is neither copied to runtime nor silently used as
 a fallback for an unbound operation-specific permission path.
 Graph `AppRegistration.Create`
@@ -140,6 +186,43 @@ network paths, deployment, full output completeness, cleanup or costs.
 All seven real C1 cases remain `NotRun`; no SQL/Docker/browser/cloud or local
 native lane is added.
 
+### Deliberately requested deployment artifacts
+
+The original default lane is still upload-free. The coordinator's narrow
+2026-11-18 amendment allows a **single** `cohors-fabric-c1-RUN-ATTEMPT`
+artifact only for an explicitly selected push on this repository's trusted
+Fabric branch. Put exactly one `Cohors-C1-Package: requested` trailer in that
+specific commit to request it. This avoids changing the primary/default branch
+merely to register a `workflow_dispatch` workflow. PRs and ordinary pushes
+cannot publish it. The same job must first finish all existing validation.
+
+`scripts\fabric\Build-C1Package.ps1` cross-publishes self-contained win-x64 and
+linux-x64 entries using the pinned SDK and unchanged locked dependencies.
+`scripts\fabric\c1_package.py` derives the exact binary allowlist from the
+published dependency graphs; its explicit `SOURCE_ASSETS` lists the only
+IaC/templates, unchanged synthetic source, license and verification-tool files.
+No `.local`/`.env`, private start bindings, keys/PFX, tokens, state, logs, test
+results, PDBs or unknown package files are included. Content checks include
+credential-shaped strings in binary UTF-16 as well as text. Unknown entries,
+unbound dependencies, path aliases/links, or an over-limit archive fail closed.
+
+Each included file has a length and SHA256 in `manifest.json`, bound to the
+source SHA, repository/branch/workflow, run/attempt, SDK and source lock hashes.
+`archive.json` separately binds the actual inner ZIP and manifest digests.
+The artifact service's actual outer ZIP digest/ID are recorded separately.
+One upload, `retention-days: 1`, at most 256 MiB compressed including the outer
+ZIP allowance; no quota increase, replacement/deletion of artifacts, new
+secrets, OIDC, attestation permission or CI cloud operation.
+
+`scripts\fabric\Get-C1Package.ps1 -RunId ID -SourceCommit SHA -Destination ABSOLUTE_NEW_DIRECTORY`
+reads authenticated GitHub provenance using the existing account, checks the
+exact successful run/attempt, downloads a size-bounded archive, and verifies
+outer/inner digests, the manifest, every file hash and extraction paths.
+It **does not execute** the payload. Cross-publish is not native Windows
+verification. Private VM delivery still needs its separate protected capability,
+FQDN/Guest Agent path and readback; no user bearer or GitHub credential is copied
+to that host. Package delivery is not full installer or native C1 acceptance.
+
 ## Fork and isolation
 
 The initial clean worktree HEAD and merge base were both
@@ -163,7 +246,10 @@ or imply approval of cloud resources, real communication or medical operation.
 
 Source isolation is established. A single standard GitHub-hosted build/contract
 job on this exact branch is allocated, without SQL, Docker, browser, Azure login,
-secrets, shared caches or uploads. Public-source/history checks must precede push.
+secrets or shared caches. Normal pushes remain upload-free. The coordinator's
+2026-11-18 narrow amendment permits one deliberately requested C1 code artifact
+after the same job has completely passed existing validation.
+Public-source/history checks must precede push.
 Host, port, quota and cloud-resource isolation are NOT established merely by
 this branch. Existing primary helper
 scripts, containers, SQL instances, volumes, local settings, credentials and

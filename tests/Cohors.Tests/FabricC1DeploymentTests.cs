@@ -645,15 +645,45 @@ public sealed class FabricC1DeploymentTests
     [InlineData(true)]
     public async Task DelegatedGroupCreationDistinguishesAutomaticNonAdminOwnership(bool administrator)
     {
-        using var run = new Harness(delegated: true);
+        using var run = new Harness(delegated: true, delegatedAdministrator: administrator);
         var group = Group(run);
         run.Api.List();
         run.Api.Reply(201, group);
         run.Api.Reply(200, group);
         run.Api.List(new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId });
-        await run.Provisioner.EnsureAllowlistGroup(default, administrator);
+        await run.Provisioner.EnsureAllowlistGroup(default);
         var request = Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
         Assert.Equal(administrator, request.Body!.ContainsKey("owners@odata.bind"));
+    }
+
+    [Fact]
+    public async Task MissingDirectoryRoleClaimDoesNotSelectAutomaticNonAdministratorOwnership()
+    {
+        using var run = new Harness(delegated: true);
+        var unbound = run.Input with { DelegatedGroupOwnerMode = null };
+        var provisioner = new FabricC1Provisioner(unbound, run.Api, run.Store, run.Clock);
+        Assert.Equal("c1_deploy_group_owner_review", (await Assert.ThrowsAsync<DomainException>(() =>
+            provisioner.EnsureIdentityPhase(new(true, ["Application.ReadWrite.All", "Group.ReadWrite.All"]), default))).Code);
+        Assert.Empty(run.Api.Requests);
+        Assert.Contains("delegatedGroupOwnerMode", FabricC1Deployment.Plan(unbound, run.Clock.GetUtcNow()).MissingInputs);
+    }
+
+    [Fact]
+    public async Task GroupDeleteDoesNotInheritTheAdditionalServicePrincipalMembershipPermission()
+    {
+        using var run = new Harness();
+        using var handler = new JsonHandler();
+        using var client = new HttpClient(handler);
+        var credential = new BoundCredential(Token(run.Input, run.Input.ControlTokenBindings!.GraphAudience!,
+            run.Clock.GetUtcNow(), "Group.ReadWrite.All"));
+        var api = new FabricC1DeploymentHttp(run.Input, credential, new Dictionary<string, HttpClient>
+        { ["graph.microsoft.com"] = client }, run.Clock);
+        var group = Guid.NewGuid().ToString("D");
+        await api.Send(HttpMethod.Delete, new($"https://graph.microsoft.com/v1.0/groups/{group}"));
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal("c1_deploy_graph_group_rights", (await Assert.ThrowsAsync<DomainException>(() =>
+            api.Send(HttpMethod.Delete, new($"https://graph.microsoft.com/v1.0/groups/{group}/members/{Guid.NewGuid():D}/$ref")))).Code);
+        Assert.Equal(1, handler.Requests);
     }
 
     [Fact]
@@ -1083,7 +1113,7 @@ public sealed class FabricC1DeploymentTests
         public FabricC1DeploymentInputs Input { get; }
         public FabricC1Provisioner Provisioner { get; private set; }
         public string CapacityId { get; } = Guid.NewGuid().ToString("D");
-        public Harness(int maxRequests = 100, string[]? requiredTenantSettingNames = null, bool delegated = false)
+        public Harness(int maxRequests = 100, string[]? requiredTenantSettingNames = null, bool delegated = false, bool delegatedAdministrator = true)
         {
             var tenant = Guid.NewGuid().ToString("D");
             var hash = new string('a', 64);
@@ -1099,6 +1129,7 @@ public sealed class FabricC1DeploymentTests
                 new(hash, hash, hash, hash, hash, hash), maxRequests, 600)
             {
                 RequiredTenantSettingNames = requiredTenantSettingNames ?? [],
+                DelegatedGroupOwnerMode = delegated ? delegatedAdministrator ? "ExplicitReviewedAdministrator" : "AutomaticReviewedNonAdministrator" : null,
                 ControlTokenBindings = new("https://management.core.windows.net/", $"https://sts.windows.net/{tenant}/",
                     "00000003-0000-0000-c000-000000000000", $"https://sts.windows.net/{tenant}/")
             };

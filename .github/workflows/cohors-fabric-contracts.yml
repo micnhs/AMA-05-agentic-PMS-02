@@ -52,3 +52,35 @@ jobs:
       - name: Validate exact source without SQL, Docker, browser or cloud
         shell: pwsh
         run: ./scripts/fabric/Test-HostedContracts.ps1
+      - name: Package explicitly requested C1 release after validation
+        id: c1-package
+        if: ${{ success() && github.repository == 'micnhs/AMA-05-agentic-PMS-02' && github.event_name == 'push' && contains(github.event.head_commit.message, 'Cohors-C1-Package: requested') }}
+        shell: pwsh
+        run: ./scripts/fabric/Build-C1Package.ps1
+      - name: Upload the single bounded C1 deployment package
+        id: c1-upload
+        if: ${{ success() && steps.c1-package.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cohors-fabric-c1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.c1-package.outputs.package-directory }}/package.zip
+            ${{ steps.c1-package.outputs.package-directory }}/archive.json
+          retention-days: 1
+          compression-level: 0
+          archive: true
+          if-no-files-found: error
+          overwrite: false
+          include-hidden-files: false
+      - name: Bind the actual GitHub archive digest
+        if: ${{ success() && steps.c1-upload.outcome == 'success' }}
+        shell: pwsh
+        env:
+          C1_ARTIFACT_ID: ${{ steps.c1-upload.outputs.artifact-id }}
+          C1_ARTIFACT_DIGEST: ${{ steps.c1-upload.outputs.artifact-digest }}
+        run: |
+          if ($env:C1_ARTIFACT_ID -notmatch '^[1-9][0-9]*$' -or $env:C1_ARTIFACT_DIGEST -notmatch '^[0-9a-f]{64}$') {
+            throw 'Artifact service did not return the exact archive identity/digest.'
+          }
+          "- GitHub artifact ID: $env:C1_ARTIFACT_ID; actual outer ZIP SHA256: $env:C1_ARTIFACT_DIGEST" |
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Encoding utf8

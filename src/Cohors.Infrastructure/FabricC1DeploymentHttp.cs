@@ -135,10 +135,7 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         var jwt = new JsonWebToken(token.Token);
         var delegated = input.BootstrapIdentity!.CredentialKind == "DelegatedAzureCli";
         return new(delegated, delegated ? jwt.GetClaim("scp").Value.Split(' ', StringSplitOptions.RemoveEmptyEntries) :
-            jwt.Claims.Where(claim => claim.Type == "roles").Select(claim => claim.Value).ToArray())
-        {
-            DirectoryRoleIds = delegated ? jwt.Claims.Where(claim => claim.Type == "wids").Select(claim => claim.Value).ToArray() : []
-        };
+            jwt.Claims.Where(claim => claim.Type == "roles").Select(claim => claim.Value).ToArray());
     }
 
     private void RequireControlTokenBindings() =>
@@ -169,6 +166,8 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         if (uri.AbsolutePath.StartsWith("/v1.0/groups", StringComparison.Ordinal))
             return method == HttpMethod.Get ? FabricC1GraphOperation.GroupRead :
                 uri.AbsolutePath == "/v1.0/groups" && method == HttpMethod.Post ? FabricC1GraphOperation.GroupCreate :
+                method == HttpMethod.Delete && uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 3 ?
+                    FabricC1GraphOperation.GroupDelete :
                 FabricC1GraphOperation.GroupMembers;
         return uri.AbsolutePath == "/v1.0/applications" && method == HttpMethod.Post ?
             FabricC1GraphOperation.ApplicationCreate : FabricC1GraphOperation.OwnApplications;

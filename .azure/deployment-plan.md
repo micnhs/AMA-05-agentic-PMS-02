@@ -62,6 +62,11 @@ The same review corrects unused model metadata: the C1 Hosted/Direct code calls
 Fabric MCP and invokes no own Foundry model. Preparation v2 explicitly uses
 Fabric-managed data-agent AI, leaves old model fields null and requires a real
 Fabric AI-policy/geography review. No separate model resource is in the C1 BOM.
+This limited C1 correction does not change the full pilot: own Foundry
+Fachagent/embedding models and separate assurance execution remain required
+by ALT-FAB-01 sections 9-11 and X-23/X-25/X-27. The existing live AgentRunner
+and optional inherited model IaC have not yet been delivered as the independent
+Fabric Hosted/model path. C1 completion must never be reported as their delivery.
 Historical v1 inputs/hashes and all seven NotRun cases remain historical.
 Private identities, paths and tenant configuration are not copied here.
 The R4 package still requires specific egress/operator/runtime-credential/AI-policy
@@ -134,7 +139,12 @@ is allocated. No global tool, SDK, Docker or Azure configuration changes.
 
 A single standard GitHub-hosted Ubuntu job is now allocated for this exact
 Fabric branch: .NET 10.0.404, Node 24.10.0, own temporary package/cache paths,
-no SQL/Docker/browser, credentials, Azure login, OIDC, shared caches or uploads.
+no SQL/Docker/browser, credentials, Azure login, OIDC or shared caches. Normal
+pushes still upload nothing. A separate narrow coordinator amendment permits
+one explicitly requested, allowlisted C1 code artifact after the same validation
+job passes, with one-day retention and a 256 MiB compressed cap. No primary or
+default-branch workflow is changed; see `docs\fabric\README.md` for the
+commit-trailer request and hash/provenance-checked non-executing download.
 The branch-only workflow does not modify the primary/default branch. Inherited
 primary workflows are disabled in this checkout. Azure context was observed
 privately by the coordinator; actual resource, policy, budget and private-path

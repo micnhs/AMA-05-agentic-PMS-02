@@ -3,11 +3,10 @@ using Cohors.Domain;
 
 namespace Cohors.Infrastructure;
 
-public enum FabricC1GraphOperation { OwnApplications, ApplicationCreate, UserRead, GroupRead, GroupCreate, GroupMembers }
+public enum FabricC1GraphOperation { OwnApplications, ApplicationCreate, UserRead, GroupRead, GroupCreate, GroupDelete, GroupMembers }
 
 public sealed record FabricC1GraphRights(bool Delegated, string[] Permissions)
 {
-    public string[] DirectoryRoleIds { get; init; } = [];
     public bool Allows(FabricC1GraphOperation operation)
     {
         bool Has(params string[] values) => values.Any(value => Permissions.Contains(value, StringComparer.Ordinal));
@@ -23,6 +22,7 @@ public sealed record FabricC1GraphRights(bool Delegated, string[] Permissions)
                 "Group.ReadWrite.All", "Directory.Read.All", "Directory.ReadWrite.All"),
             FabricC1GraphOperation.GroupCreate => Has("Group.ReadWrite.All", "Directory.ReadWrite.All") ||
                 !Delegated && Has("Group.Create"),
+            FabricC1GraphOperation.GroupDelete => Has("Group.ReadWrite.All", "Directory.ReadWrite.All"),
             FabricC1GraphOperation.GroupMembers => applicationAll &&
                 Has("GroupMember.ReadWrite.All", "Group.ReadWrite.All", "Directory.ReadWrite.All"),
             _ => false
@@ -31,7 +31,7 @@ public sealed record FabricC1GraphRights(bool Delegated, string[] Permissions)
 
     public void Require(FabricC1GraphOperation operation) =>
         Guard.Against(!Allows(operation), operation is FabricC1GraphOperation.GroupCreate or FabricC1GraphOperation.GroupRead or
-            FabricC1GraphOperation.GroupMembers ? "c1_deploy_graph_group_rights" : "c1_deploy_graph_rights",
+            FabricC1GraphOperation.GroupMembers or FabricC1GraphOperation.GroupDelete ? "c1_deploy_graph_group_rights" : "c1_deploy_graph_rights",
             $"The selected OAuth-permission path for {operation} is not bound by the token; no directory-role fallback, consent or role change is attempted.", 403);
 }
 
@@ -49,6 +49,7 @@ public sealed partial class FabricC1Provisioner
     public async Task<FabricC1IdentityPhaseResult> EnsureIdentityPhase(FabricC1GraphRights rights, CancellationToken ct)
     {
         rights.Require(FabricC1GraphOperation.OwnApplications);
+        ExplicitGroupOwner();
         var applications = new Dictionary<string, string>(StringComparer.Ordinal);
         var principals = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var role in IdentityRoles)
@@ -69,7 +70,7 @@ public sealed partial class FabricC1Provisioner
         if (missing.Length != 0)
             return new("AwaitingGroupPermission", applications, principals, null, missing);
 
-        var group = await EnsureAllowlistGroup(ct, rights.Delegated && rights.DirectoryRoleIds.Length != 0);
+        var group = await EnsureAllowlistGroup(ct);
         foreach (var role in new[] { "runtime", "bootstrap", "negative" })
             await EnsureAllowlistMember(role, ct);
         await VerifyAllowlistMembers(ct);
@@ -96,7 +97,7 @@ public sealed partial class FabricC1Provisioner
             new JsonObject { ["appId"] = appId, ["tags"] = new JsonArray(Marker) }, true, ct, "appId");
     }
 
-    public Task<JsonObject> EnsureAllowlistGroup(CancellationToken ct, bool delegatedAdministrator = false)
+    public Task<JsonObject> EnsureAllowlistGroup(CancellationToken ct)
     {
         var name = FabricC1Deployment.Name(input) + "-fabric-api";
         var body = new JsonObject
@@ -104,10 +105,18 @@ public sealed partial class FabricC1Provisioner
             ["displayName"] = name, ["description"] = Marker, ["mailEnabled"] = false,
             ["mailNickname"] = name, ["securityEnabled"] = true, ["groupTypes"] = new JsonArray()
         };
-        // Graph auto-owns a security group only for non-admin delegated users; apps/admins must bind the owner.
-        if (input.BootstrapIdentity!.CredentialKind != "DelegatedAzureCli" || delegatedAdministrator)
-            body["owners@odata.bind"] = new JsonArray($"https://graph.microsoft.com/v1.0/directoryObjects/{input.BootstrapIdentity.PrincipalObjectId}");
+        if (ExplicitGroupOwner())
+            body["owners@odata.bind"] = new JsonArray($"https://graph.microsoft.com/v1.0/directoryObjects/{input.BootstrapIdentity!.PrincipalObjectId}");
         return EnsureCreated("fabric-api-group", "SecurityGroup", "https://graph.microsoft.com/v1.0/groups", name, body, true, ct);
+    }
+
+    private bool ExplicitGroupOwner()
+    {
+        if (input.BootstrapIdentity!.CredentialKind != "DelegatedAzureCli") return true;
+        // Missing optional wids claims do not establish non-administrator status.
+        Guard.Against(input.DelegatedGroupOwnerMode is not ("ExplicitReviewedAdministrator" or "AutomaticReviewedNonAdministrator"),
+            "c1_deploy_group_owner_review", "Delegated group ownership must be bound by the reviewed start-rights evidence.", 409);
+        return input.DelegatedGroupOwnerMode == "ExplicitReviewedAdministrator";
     }
 
     public async Task EnsureAllowlistMember(string role, CancellationToken ct)
