@@ -6,10 +6,10 @@ namespace Cohors.Tests;
 
 public sealed class FabricC1PreparationTests
 {
-    private static string Fixture => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "c1-synthetic-source.json"));
+    internal static string Fixture => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "c1-synthetic-source.json"));
     private static FabricC1Inputs Template => Canonical.Read<FabricC1Inputs>(
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "c1-inputs.template.json")));
-    private static readonly JsonElement Schema = JsonSerializer.SerializeToElement(new
+    internal static readonly JsonElement Schema = JsonSerializer.SerializeToElement(new
     {
         type = "object",
         properties = new { question = new { type = "string" } },
@@ -142,10 +142,10 @@ public sealed class FabricC1PreparationTests
                 { ClientId = "99999999-9999-9999-9999-999999999999" } }, call, checkpoint, cancel)).Code);
     }
 
-    private static JsonElement Tools(string name = "synthetic_data_agent", JsonElement? schema = null) =>
+    internal static JsonElement Tools(string name = "synthetic_data_agent", JsonElement? schema = null) =>
         JsonSerializer.SerializeToElement(new { tools = new[] { new { name, inputSchema = schema ?? Schema } } });
 
-    private static FabricC1Inputs Bound()
+    internal static FabricC1Inputs Bound()
     {
         var input = Template;
         var hash = Canonical.HashText("SYNTHETIC IN-PROCESS REVIEW; NOT A REAL RESOURCE OR APPROVAL");

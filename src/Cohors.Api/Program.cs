@@ -14,6 +14,12 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
+if (args.FirstOrDefault() == "--fabric-c1")
+{
+    Environment.ExitCode = await FabricC1Entry.Run(args[1..]);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 var home = Environment.GetEnvironmentVariable("COHORS_HOME") ?? builder.Environment.ContentRootPath;
 builder.Configuration.AddJsonFile(Path.Combine(home, ".local", "settings.json"), optional: true, reloadOnChange: false)

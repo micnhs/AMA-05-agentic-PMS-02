@@ -1,8 +1,8 @@
 # Cohors Fabric deployment preparation
 
-Status: Planning; isolated source implementation and bounded offline C1
-preparation approved. General cost approval received; concrete targets,
-quantified budget, resource/role/network/retention decisions and a C1 cloud run
+Status: Planning; isolated source implementation, general cost approval and the
+bounded C1 execution request received. Concrete targets, quantified budget,
+resource/role/network/retention/cleanup bindings and native C1 observations
 remain outstanding. NOT Ready for Validation or Validated.
 
 ## Approval and immutable baseline
@@ -108,9 +108,12 @@ approvals remain separate from general cost approval and source implementation.
 The [C1 preparation contract](../docs/fabric/c1-preparation.md) and
 [null-bound input template](../fabric/c1/inputs.template.json) record the exact
 missing IDs, private execution path, credential/audience/source grants, bounded
-cost/runtime limits and cleanup evidence. Its .NET preparation kernel has no
-HTTP/credential/Foundry runtime registration; only the existing credential-free
-hosted build/in-process path is used. The existing infrastructure owner supplies
+cost/runtime limits and cleanup evidence. Its historical preparation kernel
+remains offline; a separate opt-in C1 execution envelope now binds the executable
+HTTP/SSE, explicit app credential and Hosted Invocations modes. Normal API and
+adapter registrations are unchanged. Only the existing credential-free hosted
+build/in-process path is used for source validation, not a private cloud runner.
+The existing infrastructure owner supplies
 the private bindings; no second resource plan or cloud allocation is created.
 
 Before any deployment: finalize the isolated target plan and obtain target/cost

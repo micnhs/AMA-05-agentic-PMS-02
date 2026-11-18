@@ -181,11 +181,23 @@ G01-G04 and all deployment/adapter gates remain open.
 
 ## Execution and deployment
 
-The bounded [C1 preparation](c1-preparation.md) supplies a synthetic source,
-null-bound input template and network-free .NET MCP request-preparation kernel
-for the direct/Hosted app-only candidate. General cost approval is recorded;
-concrete targets, quantified budget, identity/grants, private path, retention
-and the actual C1 run remain unapproved. No cloud transport is wired or run.
+The bounded [C1 client](c1-preparation.md) supplies the synthetic source,
+null-bound preparation/execution templates and an explicit `--fabric-c1`
+entry in the API executable, before its normal startup/DI. Existing .NET/Azure
+Identity libraries implement fixed app-only credentials, bounded JSON/HTTP/SSE,
+private-address binding, persisted original request/task/cursor state and the
+separate Hosted Invocations entry/client. No storage/IQ/runtime adapter is
+activated. No new package, local SDK/SQL/browser run or cloud allocation is used.
+
+General cost approval and the bounded C1 execution request are recorded;
+concrete private targets, identities/grants, model/budget/retention and cleanup
+bindings remain necessary. The current credential-free checks use synthetic
+HTTP handlers, not real DNS/TLS/Entra/Fabric/Foundry calls. They include protocol,
+session/schema/claim drift, interruption without query replay, bounded response/
+request/time handling and cancellation terminal readback. The executable's
+unbound-input check exits before normal API startup or authentication.
+No G03/G04 service or full seven-case acceptance follows from those checks.
+Historical service failures/NotRun cases retain their original evidence.
 App-only is authenticated service access: Entra user login and Medical/RA
 approvals through the Cohors API remain unchanged. Its in-process checks are
 not G03/G04 evidence or full pilot acceptance.

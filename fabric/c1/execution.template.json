@@ -1,0 +1,23 @@
+{
+  "contract": "cohors-fabric-c1-execution-1",
+  "preparation": null,
+  "runId": null,
+  "sourceCommit": null,
+  "expiresAtUtc": null,
+  "accessReviewSha256": null,
+  "fabricPrivateAddresses": [],
+  "taskDialect": null,
+  "directMaxRequests": null,
+  "hostedMaxRequests": null,
+  "hostedControlMaxRequests": null,
+  "hosted": {
+    "agentId": null,
+    "agentName": null,
+    "sessionId": null,
+    "platformUserId": null,
+    "endpointReviewSha256": null,
+    "invocationEndpoint": null,
+    "caller": null,
+    "privateAddresses": []
+  }
+}

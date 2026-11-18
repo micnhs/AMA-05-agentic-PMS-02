@@ -58,11 +58,13 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { throw 'Solution build failed.' }
 }
 
-$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests', 'FabricC1PreparationTests')
+$classes = @('IndependentReferencesTests', 'CaseProcessTests', 'FabricCommitContractTests', 'DispatchPreviewTests', 'PsurMonthlyTests', 'FabricC1PreparationTests', 'FabricC1TransportTests')
 $filter = ($classes | ForEach-Object { "FullyQualifiedName~Cohors.Tests.$_" }) -join '|'
 $results = Join-Path $temporary 'test-results'
 dotnet test tests/Cohors.Tests/Cohors.Tests.csproj --configuration Release --no-build --no-restore --filter $filter --logger 'console;verbosity=minimal' --logger 'trx;LogFileName=contracts.trx' --results-directory $results
 if ($LASTEXITCODE -ne 0) { throw 'Selected in-process business/commit contract tests failed.' }
+dotnet src/Cohors.Api/bin/Release/net10.0/Cohors.Api.dll --fabric-c1 check --preparation fabric/c1/inputs.template.json
+if ($LASTEXITCODE -ne 2) { throw 'The executable C1 entry must reject the unbound public template without starting the API or acquiring credentials.' }
 [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
 $testSummary = @()
 foreach ($class in $classes) {
