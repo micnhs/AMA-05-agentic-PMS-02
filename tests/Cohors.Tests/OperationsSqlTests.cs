@@ -9,8 +9,12 @@ namespace Cohors.Tests;
 
 [Collection("SQL pilot")]
 [Trait("Category", "OperationsSqlBoundary")]
-public sealed class OperationsSqlTests(SqlFixture fixture)
+public sealed class OperationsSqlTests : IAsyncLifetime
 {
+    private readonly SqlFixture fixture = new();
+    public Task InitializeAsync() => fixture.InitializeAsync();
+    public Task DisposeAsync() => fixture.DisposeAsync();
+
     [Fact]
     public async Task OperationsPrincipalCannotForgeApprovalsIdentitiesOrDirectAuditOutboxAndSchemaWrites()
     {
@@ -125,6 +129,14 @@ public sealed class OperationsSqlTests(SqlFixture fixture)
         var scenario = new CaseScenario(fixture);
         await scenario.Create();
         var current = scenario.Case;
+        var foreignId = "operations-queue-" + CaseScenario.Key();
+        for (var version = 1; version <= 101; version++)
+        {
+            var context = new CommandContext(foreignId, "operationsQueueFixture", "ortho", version - 1,
+                CaseScenario.Key(), "SyntheticQueueNoise", "Synthetic unrelated backlog for aggregate-scoped verification.",
+                SqlFixture.Pms, new { version }, scenario.Clock.Now.AddDays(-1));
+            await fixture.Store.Execute<QueueEntry>(context, _ => new(foreignId, version, "ortho"));
+        }
         var restricted = await fixture.RestrictedOperations();
         var before = await State(current.Id);
         var trigger = "OperationsRollback_" + CaseScenario.Key();
@@ -155,7 +167,22 @@ public sealed class OperationsSqlTests(SqlFixture fixture)
         Assert.Single(results.Select(Canonical.Hash).Distinct());
         var audit = await fixture.Store.Audit(current.Id);
         Assert.Single(audit, a => a.Action == "DeadlineEscalated");
-        Assert.Single((await fixture.Store.PendingEvents(1000)), e => e.AggregateId == current.Id && e.Type == "DeadlineEscalated");
+        var queuePage = await fixture.Store.PendingEvents(1000);
+        Assert.Equal(100, queuePage.Length);
+        Assert.DoesNotContain(queuePage, e => e.AggregateId == current.Id);
+        var outbox = new List<(string Kind, int Version, string Type, string Payload)>();
+        using (var query = SqlStateStore.Command(administrator, null,
+            "SELECT AggregateKind,Version,Type,Payload FROM dbo.Outbox WHERE AggregateId=@id", ("id", current.Id)))
+        {
+            await using var reader = await query.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                outbox.Add((reader.GetString(0), reader.GetInt32(1), reader.GetString(2), reader.GetString(3)));
+        }
+        Assert.Equal(current.Version + 1, outbox.Count);
+        Assert.All(outbox, e => Assert.Equal("case", e.Kind));
+        var escalation = Assert.Single(outbox, e => e.Type == "DeadlineEscalated");
+        Assert.Equal(current.Version + 1, escalation.Version);
+        Assert.Equal(Canonical.Serialize(results[0]), escalation.Payload);
         Assert.Equal(current.Version + 1, (await fixture.Store.History<SafetyCase>("case", ["ortho"])).Count(c => c.Id == current.Id));
         var committed = await State(current.Id);
         await restricted.Escalate(current, [Alert(current)], scenario.Clock.Now.AddSeconds(1));
@@ -167,6 +194,8 @@ public sealed class OperationsSqlTests(SqlFixture fixture)
         Assert.Equal(committed, await State(current.Id));
         await fixture.Store.Manifest(current.Id);
     }
+
+    private sealed record QueueEntry(string Id, int Version, string ProductId);
 
     private static string Alert(SafetyCase current)
     {
