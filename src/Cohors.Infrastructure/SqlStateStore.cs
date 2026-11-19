@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using Azure.Core;
@@ -657,16 +658,7 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
             .Where(r => versionHashes.Contains(Canonical.HashText(Text(r, "Result")))).ToArray();
         Guard.Against(commands.Length != selectedVersions.Count, "audit_command",
             "Historische Fachversionen und persistente Command-Receipts sind nicht eins zu eins gebunden.", 409);
-        foreach (var aggregate in aggregates)
-            foreach (var entry in aggregate.Manifest.Events)
-            {
-                var key = Canonical.Hash(new { Id = entry.ActorId, Kind = aggregate.Kind, entry.Action, IdempotencyKey = entry.CorrelationId });
-                var receipt = commands.SingleOrDefault(c => Text(c, "IdempotencyKey") == key);
-                Guard.Against(receipt.ValueKind == JsonValueKind.Undefined || Text(receipt, "ActorId") != entry.ActorId ||
-                    Canonical.HashText(Text(receipt, "Result")) != entry.PayloadHash ||
-                    !receipt.GetProperty("At").GetDateTimeOffset().EqualsExact(entry.At),
-                    "audit_command", "Auditereignis hat keinen passenden persistenten Command-Receipt.", 409);
-            }
+        RequireAuditCommandReceipts(aggregates, commands);
         var cases = aggregates.Where(a => a.Kind == "case")
             .Select(a => Canonical.Read<SafetyCase>(a.Versions[^1].Json)).ToDictionary(c => c.Id, StringComparer.Ordinal);
         var deadlines = (await Rows("SELECT Id,CaseId,ProductId,LegalDue,SafetyDue,Status,Version FROM dbo.Deadlines ORDER BY Id"))
@@ -719,6 +711,60 @@ public sealed partial class SqlStateStore(string connectionString, TokenCredenti
         static string Key(JsonElement row) => Text(row, "Kind") + "|" + Text(row, "Id");
         static string VersionKey(JsonElement row) => Key(row) + "|" + row.GetProperty("Version").GetInt32();
         static string EventVersionKey(JsonElement row) => Text(row, "AggregateKind") + "|" + Text(row, "AggregateId") + "|" + row.GetProperty("Version").GetInt32();
+    }
+
+    internal static void RequireAuditCommandReceipts(IEnumerable<AuditAggregate> aggregates, JsonElement[] commands)
+    {
+        const string message = "Auditereignis hat keinen passenden persistenten Command-Receipt.";
+        const string operationsPrefix = "operations-";
+        var assigned = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var aggregate in aggregates)
+            foreach (var entry in aggregate.Manifest.Events)
+            {
+                var operations = entry.ActorId == "cohors-operations";
+                string key;
+                if (operations)
+                {
+                    var correlation = entry.CorrelationId ?? throw new DomainException("audit_command", message, 409);
+                    Guard.Against(entry.ActorName != "Cohors operations" || entry.Roles is not [Roles.Workflow] ||
+                        (aggregate.Kind, entry.Action) is not (("case", "DeadlineEscalated") or
+                            ("psurReview", "PsurQuestionEscalated") or ("eudamedDelivery", "EudamedCorrespondenceEscalated")) ||
+                        entry.Version < 1 || correlation.Length != operationsPrefix.Length + 64 ||
+                        !correlation.StartsWith(operationsPrefix, StringComparison.Ordinal) ||
+                        !IsLowerHash(correlation[operationsPrefix.Length..]),
+                        "audit_command", message, 409);
+                    key = correlation[operationsPrefix.Length..];
+                }
+                else
+                    key = Canonical.Hash(new { Id = entry.ActorId, Kind = aggregate.Kind, entry.Action, IdempotencyKey = entry.CorrelationId });
+                var matches = commands.Where(c => Text(c, "IdempotencyKey") == key).ToArray();
+                Guard.Against(matches.Length != 1 || !assigned.Add(key), "audit_command", message, 409);
+                var receipt = matches[0];
+                Guard.Against(Text(receipt, "ActorId") != entry.ActorId ||
+                    Canonical.HashText(Text(receipt, "Result")) != entry.PayloadHash ||
+                    !receipt.GetProperty("At").GetDateTimeOffset().EqualsExact(entry.At),
+                    "audit_command", message, 409);
+                if (operations)
+                {
+                    var requestHash = Text(receipt, "RequestHash");
+                    Guard.Against(!IsLowerHash(requestHash) ||
+                        key != Canonical.HashText("cohors-operations-write-v1:" + requestHash),
+                        "audit_command", message, 409);
+                    if (aggregate.Kind is "case" or "psurReview")
+                    {
+                        var expectedVersion = (entry.Version - 1).ToString(CultureInfo.InvariantCulture);
+                        var expectedRequest = Canonical.HashText(
+                            $"{aggregate.Kind}:{aggregate.Id}:{expectedVersion}:{entry.PayloadHash}:[]");
+                        Guard.Against(requestHash != expectedRequest, "audit_command", message, 409);
+                    }
+                    // Correspondence dependencies are not persisted; their request hash cannot be rederived here.
+                }
+            }
+        Guard.Against(assigned.Count != commands.Length, "audit_command", message, 409);
+
+        static string Text(JsonElement row, string field) => row.GetProperty(field).GetString()!;
+        static bool IsLowerHash(string? value) => value is { Length: 64 } &&
+            value.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f');
     }
 
     public async Task<AuditEvent[]> Audit(string id, CancellationToken ct = default)

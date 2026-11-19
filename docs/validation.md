@@ -2,6 +2,124 @@
 
 **Arbeitsstand, kein Abschluss der Gesamt- oder Fachabnahme.** Dieser Nachweis wird mit den tatsaechlich ausgefuehrten Paketen fortgeschrieben.
 
+## Natuerlicher Diagnoselauf 3c1dff: Originalergebnis
+
+Der einmalige normale Push von
+`3c1dff925af474c8e9bd67123c813e9c7267c7a7` erzeugte genau den
+[Cohors-CI-Lauf 44512005639](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44512005639),
+Attempt 1. **395/395 .NET und 39/39 synthetische Bootstrap-Faelle**
+bestanden. Alle elf Browserprofile fuehrten ihre 32 Faelle aus:
+**26 bestanden, sechs fehlgeschlagen, keine Skips oder JUnit-Errors**.
+Appjob `135518337923`, Infrajob `135518338326` und Gesamtworkflow
+sind negativ. Infra: 56 positive Offline-Vertraege, Checkov
+186 bestanden / 77 fehlgeschlagen; kein Security-Gesamtpass.
+
+L03 scheiterte in Preview und AuditExport sowie E04/E05 in
+EudamedDossiers jeweils mit HTTP 409, `audit_command` und
+`Auditereignis hat keinen passenden persistenten Command-Receipt.`.
+Das belegt den zweiten Command-Receipt-Guard, nicht den dort zuerst
+geprueften 1:1-Zaehler. Die konkret betroffene SQL-Zeile steht nicht
+im Originalbericht. C12 erreichte in Preview und SummaryReport nach
+dem korrigierten Empfaenger den separaten Fehler
+HTTP 422 / `response_envelope`. Die lokale vollstaendige
+Ruecklauffixture unten war nicht Bestandteil dieses Laufs.
+
+Artefakt `14525805288` hat 1177508 Bytes und SHA256
+`79078f3bfdd6d597e739d0d59d848f10ec7a3c4817296c5968fc27293a748304`.
+Registry, Uploadlog, ZIP und alle 27 allowlistgebundenen Einzeldateien
+stimmen ueberein. Alle 22 Originalreferenzen des ausdruecklich
+abgeleiteten Aggregats, 32 Fallidentitaeten und Originalfehlertexte
+sind erhalten. Elf Original-Terminalberichte bestaetigen ihre sieben
+Ownership-/Cleanupflags und jeweils null Cleanupfehler. Private
+Intent-/Journalinhalte und die unabhaengige Parent-/Container-
+Ressourceninventur liegen im Artefakt nicht vor: keine v8/v14-Closure.
+Die zusaetzliche Markerpruefung aller 25 Textdateien fand lediglich
+zwei exakt quellengebundene synthetische Bootstrap-Negativtestnamen;
+das private Credentialinventar des urspruenglichen Harness wurde
+nicht nachtraeglich abgerufen. Originalbytes und Credentialguard
+wurden nicht bereinigt oder veraendert.
+
+Die getrennte Quellspur zeigt eine Vertragsinkompatibilitaet:
+`CohorsOperationsWrite` speichert den Schluessel aus
+`SHA256("cohors-operations-write-v1:" + RequestHash)` und die
+Auditkorrelation `operations-<Schluessel>`. Der Auditleser rekonstruiert
+bisher ausschliesslich den generischen `CommandContext`-Schluessel.
+Ein rein synthetischer SHA-/JSON-Gegenbeleg zeigt unterschiedliche
+Schluessel; er ist keine ausgefuehrte SQL-Reproduktion und benennt
+keine nachtraeglich erfundene historische Fehlerzeile. Eine minimale,
+streng writergebundene Lesekompatibilitaet ist unten lokal vorbereitet;
+SQL-Writer, Rechte, Sicherheitsguards und Watchdog bleiben unveraendert.
+Dieser Originalbefund ersetzt weder die b765-Negativen noch einen
+ausgefuehrten Nachweis der lokalen Folgekorrekturen.
+
+## Audit-Leserkandidat nach 3c1dff: Tests vor dem natuerlichen Lauf NotRun
+
+Der lokale Kandidat erkennt den eingeschraenkten Writer ausschliesslich
+an `ActorId == "cohors-operations"`. Fuer diesen Akteur sind der ordinale
+Name `Cohors operations`, genau die Rolle `Workflow`, die drei
+003b-Paare `case/DeadlineEscalated`, `psurReview/PsurQuestionEscalated`
+und `eudamedDelivery/EudamedCorrespondenceEscalated` sowie die exakte
+Korrelation `operations-` mit 64 kleingeschriebenen Hexzeichen zwingend.
+Abweichungen ergeben `409/audit_command`, ohne generischen Rueckfall.
+Alle anderen Akteure behalten die generische Schluesselformel, auch
+bei einer mit `operations-` beginnenden Korrelation.
+
+Die bereits 1:1-gepruefte Receipt-Auswahl wird bijektiv zugeordnet.
+Akteur, Originalresultathash und `EqualsExact`-Zeitbindung bleiben
+Pflicht. Das Korrelationssuffix muss zum 64-stelligen Lowercase-
+`RequestHash` nach der unveraenderten 003b-Schluesselformel passen.
+Fuer `case` und `psurReview` wird zusaetzlich der RequestHash aus Kind,
+Aggregat-ID, invariant dezimaler Vorversion, PayloadHash und exakt `[]`
+neu abgeleitet. `[]` ist der kanonische Aufruf von `SqlOperationsStore`;
+abweichend formatierte leere Arrays werden bewusst fail-closed
+abgewiesen. Fuer `eudamedDelivery` sind die urspruenglichen
+Dependencies nicht persistiert: hier wird keine vollstaendige
+Request-Neuableitung oder nachtraegliche Dependencypruefung behauptet.
+
+Die Quell-/Fixture-Historienpruefung fand in 1079 erreichbaren
+Textblobs nur zwei Fassungen desselben 003b-Writers mit diesem
+Akteur; die weiteren Treffer sind Telemetrie und Testassertions.
+Keine lokale Datenbank oder unversionierten Runtime-Daten wurden
+dafuer gelesen. Manifest, Kette, History, Outbox, Inbox, Quellen,
+Produkte, Fristen und der `operations`-Ausschluss bleiben unveraendert.
+SQL-Writer, Migrationen, Rechte, Watchdog, Browserauswahl und
+Ressourcen-/Zeit-/Cleanupgrenzen werden nicht geaendert.
+
+`AuditCommandReceiptTests` beschreibt positive Writerbindungen,
+strikte Metadaten, fehlende/doppelte bzw. nicht bijektive Receipts,
+vertauschte Receiptfelder, neu gebundene falsche Requesteingaben und
+den weiterhin generischen Fremdakteur mit Operations-Praefix.
+`OperationsSqlTests` ergaenzt echte `restricted.Escalate`-Regressionen
+fuer Fall und PSUR-Rueckfrage, vollstaendigen Auditschnitt sowie
+gezielte Receiptmanipulationen mit Wiederherstellung im eigenen
+Fixture. Eintragsmanipulationen bleiben Einheitstests, weil direkte
+Auditzeilenaenderungen zuerst an der Manifestkette scheitern.
+**Alle neuen Einheits- und SQL-Faelle: NotRun.** Kein Compiler-,
+Build-, SQL-, API- oder Browserlauf qualifiziert diesen Kandidaten.
+Die vier beobachteten `409` sind damit bis zu einem neu gebundenen
+natuerlichen Lauf nicht als behoben nachgewiesen; C12 bleibt eine
+separate Fixtureanpassung. Dieser Stand ist kein Abnahmenachweis.
+
+## Lokale C12-Folge: vollstaendiger synthetischer Ruecklauf
+
+Diese reine Testfixture-Ergaenzung folgt getrennt auf den gebundenen
+Diagnosestand `3c1dff925af474c8e9bd67123c813e9c7267c7a7`.
+C12 verwendet vor der Bewertung jetzt den bestehenden Ablauf aus
+`InformationService` und `CaseScenario.Respond`: getrennte Medical-/RA-
+Anfragefreigaben, expliziter interner Simulatorauftrag, beobachtete
+bestaetigte Zustellung, vollstaendiger synthetischer `Envelope`,
+begruendete PMS-Zuordnung und separate medizinische Quellenpruefung.
+Anfrage-ID, Fall, Produkt, Korrelation, Empfaenger und der gebundene
+Empfaengerhash stammen aus genau dieser eigenen synthetischen Anfrage.
+Die Quelle muss nach Zuordnung noch unbestaetigt und erst nach dem
+Medical-Review freigegeben sein. Die anschliessenden bestehenden
+Sammelmeldungs-, Rollen-, Frist- und Exportpruefungen bleiben erhalten.
+
+Keine Produktionslogik, Guards, Zeitlimits, Projektauswahl oder
+Ressourcen-/Cleanupgrenzen werden geaendert. Diese lokale Vorbereitung
+ist kein ausgefuehrter C12-Browsernachweis, kein Auditfehlerfix und
+nicht Teil der getrennt gebundenen Diagnose-Publikation von `3c1dff`.
+
 ## Browserfolge nach b765: belegte Fixturekorrektur und begrenzte Diagnostik
 
 Der natuerliche [Cohors-CI-Lauf 44490806373](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44490806373),

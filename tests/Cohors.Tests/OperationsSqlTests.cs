@@ -1,5 +1,7 @@
 using System.Data;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using Cohors.Agents;
 using Cohors.Application;
 using Cohors.Domain;
 using Cohors.Infrastructure;
@@ -193,6 +195,92 @@ public sealed class OperationsSqlTests : IAsyncLifetime
             restricted.Escalate(current, [different], scenario.Clock.Now))).Code);
         Assert.Equal(committed, await State(current.Id));
         await fixture.Store.Manifest(current.Id);
+    }
+
+    [Theory]
+    [InlineData("case")]
+    [InlineData("psurReview")]
+    public async Task RestrictedOperationsReceiptsBindProductAuditAndRejectPersistedSubstitutions(string kind)
+    {
+        var (id, at) = await EscalateForAudit(kind);
+        var entry = (await fixture.Store.Audit(id))[^1];
+        Assert.Equal("cohors-operations", entry.ActorId);
+        Assert.StartsWith("operations-", entry.CorrelationId);
+        var key = entry.CorrelationId["operations-".Length..];
+        var capture = await fixture.Store.CaptureProductAudit("ortho", SqlFixture.Pms, at);
+        var aggregate = Assert.Single(capture.Aggregates, a => a.Kind == kind && a.Id == id);
+        Assert.Equal(Canonical.Hash(entry), Canonical.Hash(aggregate.Manifest.Events[^1]));
+        var receipt = Assert.Single(capture.Transport.Commands, c => c.GetProperty("IdempotencyKey").GetString() == key);
+        Assert.Equal(entry.PayloadHash, Canonical.HashText(receipt.GetProperty("Result").GetString()!));
+        Assert.True(receipt.GetProperty("At").GetDateTimeOffset().EqualsExact(entry.At));
+        var before = Canonical.Serialize(capture);
+        await using var connection = await fixture.Store.Open();
+        foreach (var fault in new[] { "request-hash", "key", "actor", "result", "instant", "offset" })
+        {
+            var changed = JsonNode.Parse(receipt.GetRawText())!.AsObject();
+            switch (fault)
+            {
+                case "request-hash": changed["RequestHash"] = Canonical.HashText("synthetic corrupted request"); break;
+                case "key": changed["IdempotencyKey"] = Canonical.HashText("synthetic corrupted key"); break;
+                case "actor": changed["ActorId"] = "synthetic-other-actor"; break;
+                case "result": changed["Result"] = "{}"; break;
+                case "instant": changed["At"] = JsonValue.Create(entry.At.AddTicks(1)); break;
+                case "offset": changed["At"] = JsonValue.Create(entry.At.ToOffset(TimeSpan.FromHours(1))); break;
+                default: throw new InvalidOperationException("Unknown synthetic persisted receipt fault.");
+            }
+            var altered = JsonSerializer.SerializeToElement(changed);
+            await ReplaceReceipt(key, altered);
+            try
+            {
+                var error = await Assert.ThrowsAsync<DomainException>(() =>
+                    fixture.Store.CaptureProductAudit("ortho", SqlFixture.Pms, at));
+                Assert.Equal("audit_command", error.Code);
+                Assert.Equal(409, error.Status);
+            }
+            finally { await ReplaceReceipt(altered.GetProperty("IdempotencyKey").GetString()!, receipt); }
+        }
+        Assert.Equal(before, Canonical.Serialize(await fixture.Store.CaptureProductAudit("ortho", SqlFixture.Pms, at)));
+
+        async Task ReplaceReceipt(string originalKey, JsonElement value)
+        {
+            using var command = SqlStateStore.Command(connection, null, """
+                UPDATE dbo.Commands SET IdempotencyKey=@key,RequestHash=@request,ActorId=@actor,Result=@result,At=@at
+                WHERE IdempotencyKey=@original
+                """, ("key", value.GetProperty("IdempotencyKey").GetString()), ("request", value.GetProperty("RequestHash").GetString()),
+                ("actor", value.GetProperty("ActorId").GetString()), ("result", value.GetProperty("Result").GetString()),
+                ("at", value.GetProperty("At").GetDateTimeOffset()), ("original", originalKey));
+            Assert.Equal(1, await command.ExecuteNonQueryAsync());
+        }
+    }
+
+    private async Task<(string Id, DateTimeOffset At)> EscalateForAudit(string kind)
+    {
+        var restricted = await fixture.RestrictedOperations();
+        await restricted.RequireOperationsReady();
+        if (kind == "case")
+        {
+            var scenario = new CaseScenario(fixture);
+            await scenario.Create();
+            var updated = await restricted.Escalate(scenario.Case, [Alert(scenario.Case)], scenario.Clock.Now);
+            return (updated.Id, scenario.Clock.Now);
+        }
+        Assert.Equal("psurReview", kind);
+        var clock = new TestClock(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
+        const string reason = "Synthetischer Audit-Regressionsfall mit unveraenderten Fachversionen und getrennten menschlichen Rollen; keine reale Risikoakzeptanz.";
+        var analytics = new AnalyticsService(fixture.Store, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+        var report = await analytics.Freeze(new("ortho", "ortho", new(2025, 11, 15), new(2026, 11, 14), "Worldwide"),
+            SqlFixture.Pms, CaseScenario.Key());
+        report = await analytics.Approve(report.Id, new(report.Version, reason), SqlFixture.Medical, CaseScenario.Key());
+        report = await analytics.Approve(report.Id, new(report.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+        report = await analytics.Simulate(report.Id, new(report.Version, reason), SqlFixture.Ra, CaseScenario.Key());
+        var service = new PsurReviewService(fixture.Store, analytics, clock);
+        var review = await service.Open(new(report.Id, report.Version, "DEMO-OPS-AUDIT-" + CaseScenario.Key(),
+            "Die synthetische BS verlangt eine begruendete Praezisierung der gebundenen Quellen und getrennten Produktnenner.",
+            clock.Now.AddDays(-1), false, reason, "de", reason), SqlFixture.Ra, CaseScenario.Key());
+        var question = Assert.Single(review.Questions);
+        var alert = $"PSUR-BS:{question.Round}:Vereinbarte Antwortfrist ueberschritten; RA/Medical nachverfolgen. Keine gesetzliche Pauschalfrist und kein Neustart alter Fristen.";
+        review = await restricted.Escalate(review, alert, clock.Now);
+        return (review.Id, clock.Now);
     }
 
     private sealed record QueueEntry(string Id, int Version, string ProductId);

@@ -2707,9 +2707,46 @@ test('C12: separate periodic summary uses an explicit agreement, distinct human 
     const requestId = c.informationRequests.at(-1)!.id
     c = await command(medical, medicalCsrf, `/cases/${c.id}/information/${requestId}/approve`, { expectedVersion: c.version, reason })
     c = await command(ra, raCsrf, `/cases/${c.id}/information/${requestId}/approve`, { expectedVersion: c.version, reason })
+    c = await command(pms, pmsCsrf, `/cases/${c.id}/information/${requestId}/dispatch`, {
+      expectedVersion: c.version, scenario: 'Accept', reason,
+    })
+    await expect.poll(async () => {
+      const current = await pms.get(`/api/cases/${c.id}`)
+      expect(current.status()).toBe(200)
+      c = await current.json()
+      return c.informationRequests.find(request => request.id === requestId)?.status
+    }).toBe('SimulatedSent')
+    const sent = c.informationRequests.find(request => request.id === requestId)
+    if (!sent?.lifecycle) throw new Error('The exact approved request has no bound information lifecycle.')
+    const dispatch = sent.lifecycle.dispatches.find(item => item.status === 'SimulatedSent' && item.receiptReference)
+    if (!dispatch) throw new Error('The exact request has no confirmed simulated delivery.')
+    expect(sent.lifecycle.recipient).toEqual(recipient)
+    expect(dispatch.scopeHash).toBe(sent.scopeHash)
+    expect(dispatch.correlationId).toBe(sent.lifecycle.correlationId)
+    const externalId = `summary-response-${requestId}`
     c = await command(pms, pmsCsrf, `/cases/${c.id}/information/respond`, {
       expectedVersion: c.version, requestId, response: 'SYNTHETISCH: Gezielter Revisionsbefund liegt vor. Mechanische und klinische Gegenhypothesen bleiben getrennt zu prüfen; keine definitive Kausalitätsbehauptung.', reason,
+      envelope: { externalId, caseId: c.id, productId: c.productId, correlationId: sent.lifecycle.correlationId,
+        sender: recipient, sourceDescription: 'Synthetischer Revisionsbefund fuer den Sammelmeldungs-Test, kein Klinikabruf.', synthetic: true },
     })
+    const response = c.informationResponses?.find(item => item.envelope.externalId === externalId)
+    if (!response) throw new Error('The explicitly identified synthetic response was not persisted.')
+    expect(response.status).toBe('Received')
+    expect(response.mapping).toBeNull()
+    expect(response.review).toBeNull()
+    c = await command(pms, pmsCsrf, `/cases/${c.id}/information/responses/${response.id}/map`, {
+      expectedVersion: c.version, requestId, correlationId: sent.lifecycle.correlationId,
+      recipientHash: dispatch.recipientHash, confirmMissingReferences: false, reason,
+    })
+    const mapping = c.informationResponses?.find(item => item.id === response.id)?.mapping
+    if (!mapping) throw new Error('The synthetic response has no explicit human evidence mapping.')
+    expect(mapping.requestId).toBe(requestId)
+    expect(mapping.missingReferencesConfirmed).toBe(false)
+    expect(c.evidence.find(item => item.id === mapping.evidenceId)?.approved).toBe(false)
+    c = await command(medical, medicalCsrf, `/cases/${c.id}/information/responses/${response.id}/review`, { expectedVersion: c.version, reason })
+    expect(c.informationResponses?.find(item => item.id === response.id)?.review?.actorId)
+      .toBe(sent.approvals.find(approval => approval.role === 'MedicalSafetyReviewer')!.actorId)
+    expect(c.evidence.find(item => item.id === mapping.evidenceId)?.approved).toBe(true)
     c = await command(pms, pmsCsrf, `/cases/${c.id}/assessment`, { expectedVersion: c.version, mode: 'Replay', reason })
     await expect.poll(async () => {
       c = await (await pms.get(`/api/cases/${c.id}`)).json()
