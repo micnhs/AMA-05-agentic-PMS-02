@@ -113,6 +113,18 @@ The original publication plan/deadline and all ARM/Blob service debits survive
 resume; no uncertain write replay, token transfer, SAS/key, public fallback or
 paid partial entry is introduced. Native upload, exact IAM/effective access,
 receiver/profile delivery and complete driver/cleanup integration remain open.
+The native publication component now also reconciles two own artifact custom
+roles and exact-path container grants: read/write for the unchanged initial
+publisher and read only for the own VM's distinct system identity. It rechecks
+current privacy and the original VM generation/identity before IAM mutation and
+hashes the original archive. The full original target/intents are retained;
+access preparation uses the original control budget without starting the
+short publication clock. The shared storage-access reconciler refuses changed
+creation metadata on resume. Artifact IAM cleanup removes grants before their
+subscription-level roles using the original reserve and fresh absence reads,
+without deleting the publisher user, VM, data or other grants. Native condition
+enforcement, effective access/revocation and the remaining worker/driver/stop
+integration are still unproven; no cloud role or grant has been created.
 Final C1 binding now also requires the publication plan/readback and refuses a
 cleanup-fenced, expired or unresolved-delete journal rather than reusing its
 retained historical resource receipts as runnable state.

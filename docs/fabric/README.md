@@ -666,13 +666,44 @@ retried automatically. Original publication time/request accounting survives
 resume and cannot borrow checkpoint allocations or cleanup reserve.
 
 These are source/fake-transport contracts, not an actual upload or B5 proof.
-The publication profile is not yet exported by a complete driver. Own publisher
-and VM-reader IAM/effective readbacks, trusted Guest Agent delivery of the
-receiver/profile, FQDN egress, result binding and ordered Blob/VM teardown remain
-unintegrated. The worker still uses only its own IMDS identity; no user bearer,
-GitHub credential, SAS or storage key is part of its profile or payload.
+The native publisher now reconciles its own artifact-access intents before
+publication. Two separate custom roles grant only Blob read/write to the bound
+initial deployer and Blob read to the own probe VM's system identity. Both roles
+are assignable only in the own resource group; the assignments target only
+`c1-artifacts`, require the exact deployment/source/archive path and exclude
+`Blob.List`. Neither role grants management, delete, delegation or SAS/key access.
+The publisher assignment is `User` only for the already selected delegated
+initial actor; it is not assigned to the other VPN users and confers no Cohors
+or Fabric business rights. The VM assignment remains a distinct service
+principal. Current storage/container privacy and the original VM instance,
+tenant and system identity are checked before the first IAM mutation. The
+retained archive is hashed first, not merely trusted because a local manifest
+names it. Original target and complete role/grant requests are journaled before
+provider I/O; no publication clock starts while these access prerequisites run.
+
+The shared checkpoint/artifact reconciler preserves exact current readbacks,
+unknown-write fencing and the original control budget. A same-name role/grant
+with changed previously observed creation metadata is not adopted on resume.
+`CleanupPrivateArtifactAccess` removes the original publisher/receiver grants
+before their subscription-level role definitions, with fresh endpoint-absence
+readbacks and the original cleanup reserve/deadline. It never deletes the
+initial user, VM identity, archive data or unrelated grants. An uncertain delete
+only reconciles; a missing uncertain create is not proof of absence. Historical
+receipts survive cleanup but cannot be reused for native publication.
+
+This specifies and exercises the source path, not native ABAC acceptance,
+propagation, exclusive effective access or effective revocation. Existing or
+inherited grants still require separate native positive/negative access checks;
+ARM does not supply a claimed CAS fence against another privileged writer.
+The publication profile is not yet exported by a complete driver. Trusted Guest
+Agent delivery of the receiver/profile, FQDN egress, result binding, independent
+stop and ordered Blob/VM teardown remain unintegrated. The worker still uses
+only its own IMDS identity; no user bearer, GitHub credential, SAS or storage
+key is part of its profile or payload.
 There is no new runnable partial paid `apply`.
-Reference: [conditional Blob publication](https://learn.microsoft.com/rest/api/storageservices/put-blob).
+References: [conditional Blob publication](https://learn.microsoft.com/rest/api/storageservices/put-blob),
+[exact Blob path conditions](https://learn.microsoft.com/azure/storage/blobs/storage-auth-abac-examples#blob-container-names-or-paths)
+and [conditional user/service-principal role assignments](https://learn.microsoft.com/azure/role-based-access-control/conditions-role-assignments-cli).
 
 ## Fork and isolation
 

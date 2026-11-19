@@ -1666,6 +1666,285 @@ public sealed class FabricC1DeploymentTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ArtifactAccessBindsOnlyThePublisherAndReadOnlyOwnVmToOneVerifiedArchive(bool delegated)
+    {
+        using var run = new Harness(delegated: delegated);
+        using var artifact = new ArtifactHarness(run);
+        var resources = artifact.PlanAccess();
+        artifact.QueueAccessTarget();
+        foreach (var resource in resources)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, StorageAccessResponse(resource));
+            run.Api.Reply(200, StorageAccessResponse(resource));
+        }
+        Assert.Equal(4, (await artifact.EnsureAccess()).Length);
+        Assert.Equal(["read", "write"], resources[0].Request["properties"]!["permissions"]![0]!["dataActions"]!
+            .AsArray().Select(action => action!.GetValue<string>().Split('/')[^1]).ToArray());
+        Assert.Equal(["read"], resources[1].Request["properties"]!["permissions"]![0]!["dataActions"]!
+            .AsArray().Select(action => action!.GetValue<string>().Split('/')[^1]).ToArray());
+        Assert.Equal(delegated ? "User" : "ServicePrincipal", resources[2].Request["properties"]!["principalType"]!.GetValue<string>());
+        Assert.Equal(run.Input.BootstrapIdentity!.PrincipalObjectId, resources[2].Request["properties"]!["principalId"]!.GetValue<string>());
+        Assert.Equal(artifact.Probe["identity"]!["principalId"]!.GetValue<string>(),
+            resources[3].Request["properties"]!["principalId"]!.GetValue<string>());
+        var path = Canonical.Hash(run.Input) + "/" + run.Input.SourceCommit + "/" +
+            Convert.ToHexStringLower(SHA256.HashData(artifact.Bytes)) + ".zip";
+        foreach (var resource in resources.Skip(2))
+        {
+            Assert.Contains("/containers/c1-artifacts/providers/Microsoft.Authorization/roleAssignments/", resource.Id);
+            Assert.Contains("StringEquals '" + path + "'", resource.Request["properties"]!["condition"]!.GetValue<string>());
+            Assert.Contains("NOT SubOperationMatches{'Blob.List'}", resource.Request["properties"]!["condition"]!.GetValue<string>());
+        }
+        Assert.DoesNotContain("/blobs/write", resources[3].Request["properties"]!["condition"]!.GetValue<string>());
+        Assert.Equal(15, run.Store.Current!.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+        Assert.Empty(artifact.Credential.Scopes);
+        Assert.Empty(artifact.Handler.Methods);
+        Assert.False(run.Store.Current.Objects.ContainsKey("private-artifact-publication-plan"));
+        var target = Canonical.Hash(run.Store.Current.Objects["artifact-storage-target"]);
+        run.Restart();
+        artifact.QueueAccessTarget();
+        foreach (var resource in resources) run.Api.Reply(200, StorageAccessResponse(resource));
+        await artifact.EnsureAccess();
+        Assert.Equal(4, run.Api.Requests.Count(request => request.Method == HttpMethod.Put));
+        Assert.Equal(22, run.Store.Current.Requests);
+        Assert.Equal(target, Canonical.Hash(run.Store.Current.Objects["artifact-storage-target"]));
+        Assert.All(resources, resource => Assert.Equal(Canonical.Hash(resource),
+            Canonical.Hash(run.Store.Current.Objects[resource.Key + "-intent"].Response)));
+    }
+
+    [Theory]
+    [InlineData("vmInstance")]
+    [InlineData("vmPrincipal")]
+    [InlineData("publicStorage")]
+    public async Task ArtifactAccessChecksCurrentVmIdentityAndStoragePrivacyBeforeAnyGrant(string changed)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var storage = (JsonObject)artifact.Storage.DeepClone();
+        var probe = (JsonObject)artifact.Probe.DeepClone();
+        if (changed == "publicStorage") storage["properties"]!["publicNetworkAccess"] = "Enabled";
+        if (changed == "vmInstance") probe["properties"]!["vmId"] = Guid.NewGuid().ToString("D");
+        if (changed == "vmPrincipal") probe["identity"]!["principalId"] = Guid.NewGuid().ToString("D");
+        run.Api.Reply(200, storage);
+        run.Api.Reply(200, artifact.Container);
+        run.Api.Reply(200, probe);
+        await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess());
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        Assert.DoesNotContain(run.Store.Current.Objects.Values, value => value.Kind is "ArtifactStorageRole" or "ArtifactStorageGrant");
+    }
+
+    [Theory]
+    [InlineData("readerWrite")]
+    [InlineData("receiverPrincipal")]
+    [InlineData("receiverPath")]
+    public async Task ArtifactAccessRefusesBroaderOrRedirectedFreshReadbacks(string changed)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var resources = artifact.PlanAccess();
+        var index = changed == "readerWrite" ? 1 : 3;
+        artifact.QueueAccessTarget();
+        foreach (var resource in resources.Take(index))
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, StorageAccessResponse(resource));
+            run.Api.Reply(200, StorageAccessResponse(resource));
+        }
+        var current = StorageAccessResponse(resources[index]);
+        if (changed == "readerWrite") current["properties"]!["permissions"]![0]!["dataActions"]!.AsArray()
+            .Add("Microsoft.Storage/storageAccounts/blobServices/containers/blobs/write");
+        if (changed == "receiverPrincipal") current["properties"]!["principalId"] = run.Input.BootstrapIdentity!.PrincipalObjectId;
+        if (changed == "receiverPath") current["properties"]!["condition"] = "true";
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, StorageAccessResponse(resources[index]));
+        run.Api.Reply(200, current);
+        Assert.Equal("c1_artifact_access_readback", (await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess())).Code);
+        Assert.True(run.Store.Current!.PendingCreates.ContainsKey(resources[index].Key));
+        Assert.False(run.Store.Current.Objects.ContainsKey(resources[index].Key));
+    }
+
+    [Fact]
+    public async Task LostArtifactRoleCreateCannotBeReplayedAndOnlyReconcilesTheOriginalReadback()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var resources = artifact.PlanAccess();
+        artifact.QueueAccessTarget();
+        run.Api.Reply(404, new());
+        run.Api.Fail(new IOException("synthetic lost role create"));
+        await Assert.ThrowsAsync<IOException>(() => artifact.EnsureAccess());
+        run.Restart();
+        artifact.QueueAccessTarget();
+        run.Api.Reply(404, new());
+        Assert.Equal("c1_deploy_unknown", (await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess())).Code);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put);
+        run.Restart();
+        artifact.QueueAccessTarget();
+        run.Api.Reply(200, StorageAccessResponse(resources[0]));
+        foreach (var resource in resources.Skip(1))
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, StorageAccessResponse(resource));
+            run.Api.Reply(200, StorageAccessResponse(resource));
+        }
+        await artifact.EnsureAccess();
+        Assert.Equal(4, run.Api.Requests.Count(request => request.Method == HttpMethod.Put));
+        Assert.Empty(run.Store.Current!.PendingCreates);
+    }
+
+    [Fact]
+    public async Task UnjournaledArtifactRoleIsNotAdoptedOrDeletedByCleanup()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var resources = artifact.PlanAccess();
+        artifact.QueueAccessTarget();
+        run.Api.Reply(200, StorageAccessResponse(resources[0]));
+        Assert.Equal("c1_deploy_foreign", (await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess())).Code);
+        var before = run.Api.Requests.Count;
+        var result = await run.Provisioner.CleanupPrivateArtifactAccess(default);
+        Assert.Equal("ArtifactAccessNotManaged", result.Status);
+        Assert.Equal(before, run.Api.Requests.Count);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task ArtifactAccessCleanupUsesOriginalReserveAndRemovesGrantsBeforeBothSubscriptionRoles()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var resources = await CreateArtifactAccessForCleanup(run, artifact);
+        var started = run.Store.Current!.StartedAtUtc;
+        run.Clock.Advance(TimeSpan.FromHours(4).Add(TimeSpan.FromSeconds(1)));
+        QueueStorageAccessRemoval(run, resources);
+        var result = await run.Provisioner.CleanupPrivateArtifactAccess(default);
+        Assert.Equal("ArtifactAccessInventoryAbsent", result.Status);
+        Assert.False(result.CompleteC1Cleanup);
+        Assert.Equal(resources.Select(resource => resource.Key), result.AbsentKeys);
+        Assert.Equal(resources.Select(resource => resource.Id),
+            run.Api.Requests.Where(request => request.Method == HttpMethod.Delete).Select(request => request.Uri.AbsolutePath));
+        Assert.Equal(12, run.Store.Current!.CleanupRequests);
+        Assert.Equal(started, run.Store.Current.StartedAtUtc);
+        Assert.Empty(result.UnresolvedKeys);
+        Assert.All(run.Store.Current.CleanupReceipts.Values, receipt =>
+        {
+            Assert.False(receipt.Response["effectiveAccessRevoked"]!.GetValue<bool>());
+            Assert.False(receipt.Response["artifactDataDeleted"]!.GetValue<bool>());
+            Assert.False(receipt.Response["workersStopped"]!.GetValue<bool>());
+        });
+        Assert.Equal("c1_deploy_cleanup_started", (await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess())).Code);
+    }
+
+    [Fact]
+    public async Task UnknownArtifactGrantDeleteDoesNotReplayOrDeleteTheStillReferencedRole()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var resources = await CreateArtifactAccessForCleanup(run, artifact);
+        run.Api.Reply(200, StorageAccessResponse(resources[0]));
+        run.Api.Fail(new IOException("synthetic lost delete"));
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.CleanupPrivateArtifactAccess(default));
+        run.Restart();
+        run.Api.Reply(200, StorageAccessResponse(resources[0]));
+        Assert.Equal(4, (await run.Provisioner.CleanupPrivateArtifactAccess(default)).UnresolvedKeys.Length);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+        run.Restart();
+        run.Api.Reply(404, new());
+        QueueStorageAccessRemoval(run, resources.Skip(1));
+        Assert.Empty((await run.Provisioner.CleanupPrivateArtifactAccess(default)).UnresolvedKeys);
+        Assert.Equal(resources.Select(resource => resource.Id),
+            run.Api.Requests.Where(request => request.Method == HttpMethod.Delete).Select(request => request.Uri.AbsolutePath));
+    }
+
+    [Fact]
+    public async Task ArtifactAccessCannotRebindItsPublicationProfileAfterGrantCreation()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await CreateArtifactAccessForCleanup(run, artifact);
+        var before = run.Api.Requests.Count;
+        artifact.Binding = artifact.Binding with { MaxDurationSeconds = 300 };
+        run.Restart();
+        Assert.Equal("c1_artifact_access_binding", (await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess())).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+    }
+
+    [Fact]
+    public async Task CorruptArchiveCannotAcquireArtifactGrants()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var bytes = artifact.Bytes.ToArray();
+        bytes[0] ^= 1;
+        File.WriteAllBytes(Path.Combine(artifact.Directory, "transport.zip"), bytes);
+        Assert.Equal("c1_artifact_digest", (await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess())).Code);
+        Assert.Empty(run.Api.Requests);
+        Assert.Empty(run.Store.Current!.PendingCreates);
+    }
+
+    [Fact]
+    public async Task UncertainArtifactAccessTargetSaveFencesIoAndDoesNotInventCleanupOwnership()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        run.Store.FailAfterSave = true;
+        await Assert.ThrowsAsync<IOException>(() => artifact.EnsureAccess());
+        run.Store.FailAfterSave = false;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown",
+            (await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess())).Code);
+        run.Restart();
+        Assert.Equal("ArtifactAccessNotManaged", (await run.Provisioner.CleanupPrivateArtifactAccess(default)).Status);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ArtifactAccessCannotAdoptAnotherGenerationWithIdenticalRolePermissions(bool resume)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        if (resume) await CreateArtifactAccessForCleanup(run, artifact);
+        var role = artifact.PlanAccess()[0];
+        var original = resume ? Canonical.Hash(run.Store.Current!.Objects[role.Key]) : null;
+        var replaced = StorageAccessResponse(role);
+        replaced["properties"]!["createdOn"] = "2026-11-18T12:01:00Z";
+        run.Restart();
+        artifact.QueueAccessTarget();
+        if (!resume)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, StorageAccessResponse(role));
+        }
+        run.Api.Reply(200, replaced);
+        Assert.Equal("c1_deploy_drift", (await Assert.ThrowsAsync<DomainException>(() => artifact.EnsureAccess())).Code);
+        if (resume) Assert.Equal(original, Canonical.Hash(run.Store.Current!.Objects[role.Key]));
+        else Assert.False(run.Store.Current!.Objects.ContainsKey(role.Key));
+    }
+
+    [Fact]
+    public async Task ArtifactCleanupRejectsEvenRehashedIntentsThatChangeTheOriginalExactPath()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var resources = await CreateArtifactAccessForCleanup(run, artifact);
+        var key = resources[0].Key + "-intent";
+        var intent = run.Store.Current!.Objects[key];
+        var response = (JsonObject)intent.Response.DeepClone();
+        response["request"]!["properties"]!["condition"] = "true";
+        run.Store.Current.Objects[key] = intent with { Response = response, RequestHash = Canonical.Hash(response["request"]) };
+        run.Restart();
+        var before = run.Api.Requests.Count;
+        Assert.Equal("c1_artifact_access_cleanup_journal",
+            (await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.CleanupPrivateArtifactAccess(default))).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+    }
+
+    [Theory]
     [InlineData("operation")]
     [InlineData("profile")]
     [InlineData("invocation")]
@@ -3538,6 +3817,7 @@ public sealed class FabricC1DeploymentTests
         public JsonObject Provenance { get; }
         public JsonObject Storage { get; }
         public JsonObject Container { get; }
+        public JsonObject Probe { get; }
         public FabricC1ArtifactPublicationBinding Binding { get; set; }
         public BoundCredential Credential { get; set; }
         public ConditionalBlobHandler Handler { get; } = new() { ContentMediaType = "application/octet-stream" };
@@ -3566,6 +3846,7 @@ public sealed class FabricC1DeploymentTests
                 120, run.Clock.GetUtcNow().AddMinutes(4));
             WriteProvenance();
             var foundation = (JsonObject)run.Store.Current!.Objects["arm-foundation"].Response.DeepClone();
+            foundation["id"] = FabricC1Deployment.GroupId(run.Input) + "/providers/Microsoft.Resources/deployments/c1-foundation";
             Storage = (JsonObject)foundation["properties"]!["outputs"]!["storage"]!["value"]!;
             Storage["properties"] = new JsonObject
             {
@@ -3580,6 +3861,19 @@ public sealed class FabricC1DeploymentTests
                 ["properties"] = new JsonObject { ["publicAccess"] = "None" }
             };
             foundation["properties"]!["outputs"]!["artifactContainer"] = new JsonObject { ["value"] = Container.DeepClone() };
+            Probe = new()
+            {
+                ["id"] = FabricC1Deployment.GroupId(run.Input) + "/providers/Microsoft.Compute/virtualMachines/" +
+                    FabricC1Deployment.Name(run.Input) + "-probe",
+                ["type"] = "Microsoft.Compute/virtualMachines", ["location"] = run.Input.Location,
+                ["tags"] = FabricC1Deployment.Tags(run.Input),
+                ["identity"] = new JsonObject
+                {
+                    ["type"] = "SystemAssigned", ["tenantId"] = run.Input.TenantId, ["principalId"] = Guid.NewGuid().ToString("D")
+                },
+                ["properties"] = new JsonObject { ["vmId"] = Guid.NewGuid().ToString("D"), ["provisioningState"] = "Succeeded" }
+            };
+            foundation["properties"]!["outputs"]!["probe"] = new JsonObject { ["value"] = Probe.DeepClone() };
             run.Seed("arm-foundation", "ArmDeployment", foundation);
             Credential = new(Token(run.Input, Binding.StorageAudience, run.Clock.GetUtcNow(), "user_impersonation"));
             client = new(Handler) { Timeout = TimeSpan.FromSeconds(10) };
@@ -3602,6 +3896,14 @@ public sealed class FabricC1DeploymentTests
 
         public Task<FabricC1ArtifactPublicationReceipt> Publish() =>
             run.Provisioner.PublishPrivateArtifactWithTransport(Binding, Directory, client, Credential, default);
+
+        public FabricC1StorageAccessResource[] PlanAccess() => run.Provisioner.PlanPrivateArtifactAccess(Binding, Directory);
+        public Task<FabricC1ProvisionedObject[]> EnsureAccess() => run.Provisioner.EnsurePrivateArtifactAccess(Binding, Directory, default);
+        public void QueueAccessTarget()
+        {
+            QueueTarget();
+            run.Api.Reply(200, Probe);
+        }
 
         public void Dispose()
         {
@@ -3692,14 +3994,16 @@ public sealed class FabricC1DeploymentTests
         }
     }
 
-    private static JsonObject CheckpointAccessResponse(FabricC1CheckpointAccessResource resource)
+    private static JsonObject CheckpointAccessResponse(FabricC1CheckpointAccessResource resource) => StorageAccessResponse(resource);
+
+    private static JsonObject StorageAccessResponse(FabricC1StorageAccessResource resource)
     {
         var response = (JsonObject)resource.Request.DeepClone();
         response["id"] = resource.Id;
         response["name"] = resource.Id.Split('/')[^1];
-        response["type"] = "Microsoft.Authorization/" + (resource.Kind == "CheckpointStorageRole" ? "roleDefinitions" : "roleAssignments");
+        response["type"] = "Microsoft.Authorization/" + (resource.Kind.EndsWith("StorageRole", StringComparison.Ordinal) ? "roleDefinitions" : "roleAssignments");
         response["properties"]!["createdOn"] = "2026-11-18T12:00:00Z";
-        if (resource.Kind == "CheckpointStorageGrant")
+        if (resource.Kind.EndsWith("StorageGrant", StringComparison.Ordinal))
             response["properties"]!["scope"] = resource.Id[..resource.Id.LastIndexOf("/providers/", StringComparison.Ordinal)];
         return response;
     }
@@ -3718,14 +4022,31 @@ public sealed class FabricC1DeploymentTests
         return [plan[1], plan[2], plan[0]];
     }
 
-    private static void QueueCheckpointAccessRemoval(Harness run, IEnumerable<FabricC1CheckpointAccessResource> resources)
+    private static void QueueCheckpointAccessRemoval(Harness run, IEnumerable<FabricC1CheckpointAccessResource> resources) =>
+        QueueStorageAccessRemoval(run, resources);
+
+    private static void QueueStorageAccessRemoval(Harness run, IEnumerable<FabricC1StorageAccessResource> resources)
     {
         foreach (var resource in resources)
         {
-            run.Api.Reply(200, CheckpointAccessResponse(resource));
-            run.Api.Reply(200, CheckpointAccessResponse(resource));
+            run.Api.Reply(200, StorageAccessResponse(resource));
+            run.Api.Reply(200, StorageAccessResponse(resource));
             run.Api.Reply(404, new());
         }
+    }
+
+    private static async Task<FabricC1StorageAccessResource[]> CreateArtifactAccessForCleanup(Harness run, ArtifactHarness artifact)
+    {
+        var resources = artifact.PlanAccess();
+        artifact.QueueAccessTarget();
+        foreach (var resource in resources)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, StorageAccessResponse(resource));
+            run.Api.Reply(200, StorageAccessResponse(resource));
+        }
+        await artifact.EnsureAccess();
+        return [resources[2], resources[3], resources[0], resources[1]];
     }
 
     private static (FabricC1ExecutionSettings Execution, FabricC1BlobCheckpointBinding Direct,

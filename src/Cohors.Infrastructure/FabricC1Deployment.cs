@@ -121,6 +121,7 @@ public static partial class FabricC1Deployment
             "Foundry account with network injection from creation and separate project identity",
             "Premium ACR, RBAC Key Vault, private Blob evidence storage, private probe VM",
             "Own checkpoint read/write-only custom role limited to this group; separate exact-path runtime/control container grants",
+            "Own artifact publisher read/write and VM-receiver read-only roles; separate exact-path artifact container grants",
             "No Bastion, Relay, C2 archive, SQL journal or production resource in the narrow C1 profile"
         ],
         [
@@ -637,7 +638,9 @@ public sealed partial class FabricC1Provisioner
             "published-definition", "runtime-agent-grant", "source-grants", "materialization",
             "runtime-credential", "hosted-version", "hosted-session", "private-path", "caller-access",
             "checkpoint-storage-role", "checkpoint-storage-runtime-grant", "checkpoint-storage-control-grant",
-            ArtifactPlanKey, ArtifactPublicationKey })
+            ArtifactPlanKey, ArtifactPublicationKey, ArtifactAccessTargetKey,
+            "artifact-storage-publisher-role", "artifact-storage-receiver-role",
+            "artifact-storage-publisher-grant", "artifact-storage-receiver-grant" })
             Guard.Against(!state.Objects.ContainsKey(key), "c1_deploy_binding_incomplete",
                 "Deployment receipts are incomplete; no runnable C1 inputs may be emitted.", 409);
         Guard.Against(state.PendingCreates.Count != 0 || state.PendingOperations.Count != 0 || state.PendingDeletes.Count != 0 ||
@@ -881,8 +884,8 @@ public sealed partial class FabricC1Provisioner
         {
             Guard.Against(uri.Scheme != "https" || !uri.IsDefaultPort || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 ||
                 body is not null || method != HttpMethod.Get && method != HttpMethod.Delete ||
-                uri.IdnHost != "graph.microsoft.com" && !IsCheckpointAccessCleanupUri(uri),
-                "c1_deploy_cleanup_scope", "Cleanup can only read/delete its bound Graph or original checkpoint access inventory.", 409);
+                uri.IdnHost != "graph.microsoft.com" && !IsCheckpointAccessCleanupUri(uri) && !IsArtifactAccessCleanupUri(uri),
+                "c1_deploy_cleanup_scope", "Cleanup can only read/delete its bound Graph or original storage access inventory.", 409);
             (next, deadline) = PlanCleanupRequests(1);
         }
         else

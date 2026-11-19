@@ -38,6 +38,8 @@ public sealed partial class FabricC1Provisioner
             "c1_cloud_ci_prohibited", "The source runner cannot publish private artifacts.", 409);
         FabricC1Execution.RequireSourceBuild(input.SourceCommit!);
         var package = ReadArtifactPackage(binding, packageDirectory);
+        await EnsurePrivateArtifactAccess(binding, packageDirectory, ct);
+        RequirePrivateArtifactAccess(binding, packageDirectory);
         using var credential = new FabricC1DeploymentCredential(input.BootstrapIdentity!);
         using var client = FabricC1Execution.PrivateHttpClient(package.Endpoint, binding.PrivateAddresses, 300);
         return await PublishPrivateArtifactWithTransport(binding, packageDirectory, client, credential.Value, ct);
