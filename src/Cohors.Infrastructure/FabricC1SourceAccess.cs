@@ -109,29 +109,30 @@ public sealed partial class FabricC1Provisioner
         return new((JsonObject)result.DeepClone());
     }
 
-    private async Task<string> RequireClosedSourceItems(FabricC1SourceNotebookPlan plan, CancellationToken ct)
+    private async Task<string> RequireClosedSourceItems(FabricC1SourceNotebookPlan plan, CancellationToken ct, bool cleanup = false)
     {
+        var scope = Text(plan.Binding, "scope");
         var workspace = Text(plan.Binding, "workspaceId");
         var lakehouse = Text(plan.Binding, "lakehouseId");
         var endpoint = $"https://{WorkspaceHost(workspace)}/v1/workspaces/{workspace}";
-        var current = await Read(endpoint + "/lakehouses/" + lakehouse, ct);
+        var current = await Read(endpoint + "/lakehouses/" + lakehouse, ct, cleanup);
         RequireMarker(current, false);
         SameId(Text(current, "id"), lakehouse);
         SameId(Text(current, "workspaceId"), workspace);
         var schema = plan.Binding["schemaName"]?.GetValue<string>();
-        Guard.Against(Text(current, "type") != "Lakehouse" || Text(current, "displayName") != "C1_released" ||
+        Guard.Against(Text(current, "type") != "Lakehouse" || Text(current, "displayName") != "C1_" + scope ||
             current["properties"]?["defaultSchema"]?.GetValue<string>() != schema ||
             current["properties"]?["sqlEndpointProperties"]?["provisioningStatus"]?.GetValue<string>() != "Success",
             "c1_source_access_inventory", "The source layout and its associated SQL endpoint must be ready and unchanged.", 409);
         var sqlEndpoint = GuidValue(Text(current["properties"]!["sqlEndpointProperties"]!.AsObject(), "id")).ToString("D");
-        var notebook = GuidValue(Text(Owned("source-notebook-released", "Notebook"), "id")).ToString("D");
+        var notebook = GuidValue(Text(Owned("source-notebook-" + scope, "Notebook"), "id")).ToString("D");
         Guard.Against(new[] { lakehouse, sqlEndpoint, notebook }.Distinct(StringComparer.OrdinalIgnoreCase).Count() != 3,
             "c1_source_access_inventory", "Source Lakehouse, notebook and associated SQL endpoint must be distinct.", 409);
         var expected = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         { [lakehouse] = "Lakehouse", [notebook] = "Notebook", [sqlEndpoint] = "SQLEndpoint" };
-        var items = await ReadAll(endpoint + "/items?recursive=true", false, ct);
+        var items = await ReadAll(endpoint + "/items?recursive=true", false, ct, cleanup);
         Guard.Against(items.Length != 3 || items.Select(item => GuidValue(Text(item, "id"))).Distinct().Count() != 3,
-            "c1_source_access_inventory", "Viewer is allowed only on the closed synthetic release workspace, not a mixed workspace.", 409);
+            "c1_source_access_inventory", "The dedicated synthetic source workspace must not contain mixed inventory.", 409);
         foreach (var item in items)
         {
             SameId(Text(item, "workspaceId"), workspace);
@@ -140,8 +141,8 @@ public sealed partial class FabricC1Provisioner
                 "c1_source_access_inventory", "Unexpected or substituted item in the source workspace.", 409);
             if (id != sqlEndpoint) RequireMarker(item, false);
         }
-        var tables = await ReadAll(endpoint + "/lakehouses/" + lakehouse + "/tables?maxResults=100", false, ct, entryField: "data");
-        Guard.Against(tables.Length != 1, "c1_source_access_inventory", "Only the original synthetic release table may be present.", 409);
+        var tables = await ReadAll(endpoint + "/lakehouses/" + lakehouse + "/tables?maxResults=100", false, ct, cleanup, entryField: "data");
+        Guard.Against(tables.Length != 1, "c1_source_access_inventory", "Only the original synthetic source table may be present.", 409);
         var table = tables[0];
         var tablePath = "Tables/" + (schema is null ? "" : schema + "/") + SourceTableName;
         var name = Text(table, "name");
@@ -185,7 +186,7 @@ public sealed partial class FabricC1Provisioner
         Guard.Against(originalAdmins != 1 || runtimes > 1, "c1_source_workspace_roles", "The original source administrator must remain present.", 409);
     }
 
-    private void RequireSourceViewerOwnership(string principalId, JsonObject[] assignments)
+    private void RequireSourceViewerOwnership(string principalId, JsonObject[] assignments, bool allowMissing = false)
     {
         var hash = Canonical.Hash(RuntimeWorkspaceGrantBody(Text(Owned("runtime-sp", "ServicePrincipal"), "id"), "Viewer"));
         if (state.PendingCreates.TryGetValue(SourceViewerKey, out var pending))
@@ -194,11 +195,11 @@ public sealed partial class FabricC1Provisioner
             GuidValue(Text(assignment["principal"]!.AsObject(), "id")) == GuidValue(principalId));
         if (state.Objects.TryGetValue(SourceViewerKey, out var original))
             Guard.Against(original.Kind != "WorkspaceGrant" || original.RequestHash != hash ||
-                actual is null || GuidValue(Text(actual, "id")) != GuidValue(original.Id),
+                actual is null && !allowMissing || actual is not null && GuidValue(Text(actual, "id")) != GuidValue(original.Id),
                 "c1_source_access_binding", "The original source Viewer assignment was removed or replaced.", 409);
         else if (actual is not null)
             Guard.Against(pending is null, "c1_deploy_foreign", "An unjournaled source Viewer is not adopted before granting data access.", 409);
-        else Guard.Against(pending is not null, "c1_deploy_unknown", "A missing unresolved Viewer assignment is not replayed.", 409);
+        else Guard.Against(pending is not null && !allowMissing, "c1_deploy_unknown", "A missing unresolved Viewer assignment is not replayed.", 409);
     }
 
     private JsonObject SourceReadRole(FabricC1SourceNotebookPlan plan, string principalId)

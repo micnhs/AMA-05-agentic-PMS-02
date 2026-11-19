@@ -899,6 +899,36 @@ References: [single-role create/update and Abort](https://learn.microsoft.com/re
 [table inventory](https://learn.microsoft.com/rest/api/fabric/lakehouse/tables/list-tables),
 [OneLake and SQL identity modes](https://learn.microsoft.com/fabric/onelake/security/sql-analytics-endpoint-onelake-security).
 
+### Original synthetic workspace lifecycle cleanup
+
+`FabricC1SourceCleanup.cs` adds a bounded component for the original materialized
+Released or Denied workspace, not a name-based OneLake role revoke. It requires
+the original workspace creation request/ID/marker/capacity, notebook definition,
+completed original job and exact materialization receipt. The Contributor agent
+workspace, unresolved jobs and supplied or adopted workspaces are excluded.
+Fresh private metadata must still describe the closed own item/table inventory,
+original administrator and only the recorded runtime Viewer/table-read role.
+Changed or unjournaled memberships/roles block deletion.
+
+The global cleanup fence prevents further provisioning. Every metadata and
+DELETE request consumes the original total and reserved cleanup budget with
+the same bounded deadline. Before the single workspace-ID DELETE, the original
+target/materialization intent is durably journaled. A lost response or still
+visible workspace permits only original-target GET reconciliation, never a
+second DELETE. Explicit 401/403 denials are retained separately; restored
+workspaces are not deleted again. An uncertain journal save fences all work
+until the original journal is exclusively reopened.
+
+Only a fresh private workspace GET returning 404 records active inventory
+absence; DELETE 200 alone does not. This does **not** prove effective access
+revocation, all workers stopped, soft-delete/retention purge, removal of ARM
+private-link/endpoints/capacity, hub offboarding or complete C1 cleanup.
+Original creation and evidence records are retained. The component does not
+remove hub resources or identities, expose full `apply`, or supply the
+independent deadline executor. No native deletion has been performed.
+
+Reference: [delete the specified workspace and its items](https://learn.microsoft.com/rest/api/fabric/core/workspaces/delete-workspace).
+
 ## Fork and isolation
 
 The initial clean worktree HEAD and merge base were both

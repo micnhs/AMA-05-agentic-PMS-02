@@ -66,13 +66,7 @@ public sealed partial class FabricC1Provisioner
         var original = RestoreSourceNotebook(role);
         var originalJobIntent = RequireSourceJobIntent(role, original);
         var originalNotebookId = originalJobIntent.Id;
-        Guard.Against(savedJob.Kind != "SourceNotebookJob" || savedJob.RequestHash != originalJobIntent.RequestHash ||
-            Text(savedJob.Response, "id") != savedJob.Id ||
-            Text(savedJob.Response, "notebookId") != originalNotebookId ||
-            Text(savedJob.Response, "bindingSha256") != original.BindingSha256 ||
-            Text(savedJob.Response, "protocol") != SourceJobProtocol || state.PendingCreates.ContainsKey(jobKey),
-            "c1_source_job_binding", "The original notebook job identity/protocol/intent is inconsistent.", 409);
-        GuidValue(savedJob.Id);
+        RequireSourceJobReceipt(role, original, originalJobIntent, savedJob);
         var notBefore = RequireSourcePollWindow(savedJob.Response);
         if (time.GetUtcNow() < notBefore) return new("Pending", originalNotebookId, savedJob.Id, notBefore, null);
         var workspace = Text(original.Binding, "workspaceId");
@@ -142,6 +136,17 @@ public sealed partial class FabricC1Provisioner
             "c1_source_job_binding", "Original job, definition, source and timebox must stay bound.", 409);
         VerifySourceNotebookDefinition(plan, definition.Response);
         return intent;
+    }
+
+    private void RequireSourceJobReceipt(string role, FabricC1SourceNotebookPlan plan,
+        FabricC1ProvisionedObject intent, FabricC1ProvisionedObject job)
+    {
+        Guard.Against(job.Kind != "SourceNotebookJob" || job.RequestHash != intent.RequestHash ||
+            Text(job.Response, "id") != job.Id || Text(job.Response, "notebookId") != intent.Id ||
+            Text(job.Response, "bindingSha256") != plan.BindingSha256 ||
+            Text(job.Response, "protocol") != SourceJobProtocol || state.PendingCreates.ContainsKey("source-notebook-job-" + role),
+            "c1_source_job_binding", "The original notebook job identity/protocol/intent is inconsistent.", 409);
+        GuidValue(job.Id);
     }
 
     private DateTimeOffset? SourceNextPoll(int? retryAfter)
@@ -238,18 +243,7 @@ public sealed partial class FabricC1Provisioner
             released.Response["notebookId"]?.GetValue<string>() == denied.Response["notebookId"]?.GetValue<string>() ||
             released.Response["result"]?["deltaTableId"]?.GetValue<string>() == denied.Response["result"]?["deltaTableId"]?.GetValue<string>(),
             "c1_deploy_source_scope", "Release and deny sources require distinct notebooks, jobs and Delta tables.", 409);
-        foreach (var role in new[] { "released", "denied" })
-        {
-            var plan = RestoreSourceNotebook(role);
-            var receipt = state.Objects["source-materialization-" + role];
-            var job = state.Objects["source-notebook-job-" + role];
-            Guard.Against(receipt.Kind != "SourceMaterializationReadback" ||
-                receipt.RequestHash != Canonical.Hash(receipt.Response) || receipt.Id != job.Id ||
-                job.Response["observation"] is not JsonObject observation ||
-                Text(observation, "status") != "Completed" ||
-                receipt.RequestHash != Canonical.Hash(VerifySourceResult(plan, RequireSourceJobIntent(role, plan), observation)),
-                "c1_source_result", "Both source scopes require their own original completed job and complete readback.", 409);
-        }
+        foreach (var role in new[] { "released", "denied" }) RequireSourceMaterializationReceipt(RestoreSourceNotebook(role));
         var body = new JsonObject
         {
             ["contract"] = "cohors-fabric-c1-materialization-1", ["sourceCommit"] = input.SourceCommit,
@@ -261,5 +255,23 @@ public sealed partial class FabricC1Provisioner
                 previous.RequestHash != Canonical.Hash(body), "c1_source_result_changed",
                 "The original two-scope materialization receipt cannot be replaced.", 409);
         SaveObject("materialization", "SourceMaterialization", input.DeploymentId!, Canonical.Hash(body), body);
+    }
+
+    private FabricC1ProvisionedObject RequireSourceMaterializationReceipt(FabricC1SourceNotebookPlan plan)
+    {
+        var role = Text(plan.Binding, "scope");
+        if (!state.Objects.TryGetValue("source-materialization-" + role, out var receipt) ||
+            !state.Objects.TryGetValue("source-notebook-job-" + role, out var job))
+            throw new DomainException("c1_deploy_dependency", "The original source completion receipt is missing.", 409);
+        var intent = RequireSourceJobIntent(role, plan);
+        RequireSourceJobReceipt(role, plan, intent, job);
+        Guard.Against(receipt.Kind != "SourceMaterializationReadback" ||
+            receipt.RequestHash != Canonical.Hash(receipt.Response) || receipt.Id != job.Id ||
+            job.Response["observation"] is not JsonObject observation ||
+            Text(observation, "status") != "Completed" || Text(observation, "jobType") != "RunNotebook" ||
+            Text(observation, "invokeType") != "OnDemand" || GuidValue(Text(observation, "itemId")) != GuidValue(intent.Id) ||
+            receipt.RequestHash != Canonical.Hash(VerifySourceResult(plan, intent, observation)),
+            "c1_source_result", "The source requires its own original completed job and complete readback.", 409);
+        return receipt;
     }
 }

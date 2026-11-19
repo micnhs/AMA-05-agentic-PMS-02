@@ -4064,6 +4064,245 @@ except RuntimeError as error:
         Assert.Equal(original, run.Store.Current.Objects["source-access-metadata"].RequestHash);
     }
 
+    [Theory]
+    [InlineData("released", false, false)]
+    [InlineData("released", true, false)]
+    [InlineData("released", true, true)]
+    [InlineData("denied", false, false)]
+    public async Task SourceCleanupRemovesOnlyTheOriginalMaterializedWorkspaceAndRequiresFreshAbsence(
+        string scope, bool granted, bool removedViewer)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        if (granted)
+        {
+            access.QueueBefore();
+            access.QueueAfter();
+            await run.Provisioner.EnsureReleasedSourceAccess(default);
+        }
+        var originalStart = run.Store.Current!.StartedAtUtc;
+        var before = run.Api.Requests.Count;
+        access.QueueCleanupBefore(scope, removedViewer ? "removed-viewer" : null);
+        run.Api.Reply(200, new());
+        run.Api.Reply(404, new());
+        var result = await run.Provisioner.CleanupMaterializedSourceWorkspace(scope, default);
+        Assert.Equal("SourceWorkspaceInventoryAbsent", result.Status);
+        Assert.False(result.CompleteC1Cleanup);
+        Assert.False(result.EffectiveRevocationProven);
+        var deletion = Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Delete);
+        Assert.Equal("/v1/workspaces/" + access.Source.WorkspaceId(scope), deletion.Uri.AbsolutePath);
+        Assert.All(run.Api.Requests.Skip(before), request =>
+            Assert.Equal(FabricC1Provisioner.WorkspaceHost(access.Source.WorkspaceId(scope)), request.Uri.Host));
+        Assert.Equal(8, run.Store.Current.CleanupRequests);
+        Assert.Equal(originalStart, run.Store.Current.StartedAtUtc);
+        Assert.Equal("SourceWorkspaceAbsent", run.Store.Current.CleanupReceipts["workspace-" + scope].Kind);
+        Assert.Contains("workspace-" + scope, run.Store.Current.Objects.Keys);
+        var cleanupStart = run.Store.Current.CleanupStartedAtUtc;
+        run.Restart();
+        run.Api.Reply(404, new());
+        await run.Provisioner.CleanupMaterializedSourceWorkspace(scope, default);
+        Assert.Equal(cleanupStart, run.Store.Current.CleanupStartedAtUtc);
+        Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Delete);
+        Assert.Equal("c1_deploy_cleanup_started", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SourceCleanupUnknownOrDelayedDeleteNeverReplaysAndKeepsOriginalIntent(bool lostResponse)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        access.QueueCleanupBefore("released");
+        if (lostResponse)
+        {
+            run.Api.Fail(new HttpRequestException("synthetic lost workspace delete response"));
+            await Assert.ThrowsAsync<HttpRequestException>(() =>
+                run.Provisioner.CleanupMaterializedSourceWorkspace("released", default));
+        }
+        else
+        {
+            run.Api.Reply(200, new());
+            run.Api.Reply(200, access.Workspace("released"));
+            Assert.Equal("SourceWorkspaceCleanupPendingReconciliation",
+                (await run.Provisioner.CleanupMaterializedSourceWorkspace("released", default)).Status);
+        }
+        var started = run.Store.Current!.CleanupStartedAtUtc;
+        Assert.Contains("workspace-released", run.Store.Current.PendingDeletes.Keys);
+        Assert.DoesNotContain("workspace-released", run.Store.Current.CleanupReceipts.Keys);
+        run.Restart();
+        run.Api.Reply(200, access.Workspace("released"));
+        Assert.Equal("SourceWorkspaceCleanupPendingReconciliation",
+            (await run.Provisioner.CleanupMaterializedSourceWorkspace("released", default)).Status);
+        run.Api.Reply(404, new());
+        Assert.Equal("SourceWorkspaceInventoryAbsent",
+            (await run.Provisioner.CleanupMaterializedSourceWorkspace("released", default)).Status);
+        Assert.Equal(started, run.Store.Current.CleanupStartedAtUtc);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+        Assert.DoesNotContain("workspace-released", run.Store.Current.PendingDeletes.Keys);
+    }
+
+    [Theory]
+    [InlineData("workspace", "c1_deploy_foreign")]
+    [InlineData("extra-item", "c1_source_access_inventory")]
+    [InlineData("foreign-table", "c1_source_access_inventory")]
+    [InlineData("source-group", "c1_source_workspace_roles")]
+    [InlineData("role", "c1_source_role_scope")]
+    public async Task SourceCleanupRejectsDriftBeforeAnyDeletion(string fault, string code)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        access.QueueCleanupBefore("released", fault);
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("released", default))).Code);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+        Assert.DoesNotContain("workspace-released", run.Store.Current!.PendingDeletes.Keys);
+    }
+
+    [Theory]
+    [InlineData("creation-hash", "c1_source_cleanup_binding")]
+    [InlineData("job-intent", "c1_source_job_binding")]
+    [InlineData("pending-job", "c1_source_job_binding")]
+    [InlineData("active-job", "c1_source_result")]
+    public async Task SourceCleanupRequiresOriginalCreationAndCompletedJobWithoutProviderRequests(string fault, string code)
+    {
+        using var run = new Harness(delegated: true);
+        await SourceAccessHarness.Create(run);
+        var state = run.Store.Load()!;
+        if (fault == "creation-hash")
+            state.Objects["workspace-released"] = state.Objects["workspace-released"] with { RequestHash = new string('0', 64) };
+        if (fault == "job-intent")
+            state.Objects["source-notebook-job-released"] = state.Objects["source-notebook-job-released"] with { RequestHash = new string('0', 64) };
+        if (fault == "pending-job") state.PendingCreates["source-notebook-job-released"] = state.Objects["source-notebook-job-intent-released"].RequestHash;
+        if (fault == "active-job") state.Objects["source-notebook-job-released"].Response["observation"]!["status"] = "InProgress";
+        run.Store.Save(state);
+        run.Restart();
+        var before = run.Api.Requests.Count;
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("released", default))).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("replaced-source-role", "c1_source_cleanup_binding")]
+    [InlineData("unowned-source-role", "c1_deploy_foreign")]
+    public async Task SourceCleanupDoesNotAdoptReplacedOrUnjournaledDataRoles(string fault, string code)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        access.QueueBefore();
+        access.QueueAfter();
+        await run.Provisioner.EnsureReleasedSourceAccess(default);
+        if (fault == "unowned-source-role")
+        {
+            var state = run.Store.Load()!;
+            state.Objects.Remove("source-access-role");
+            run.Store.Save(state);
+            run.Restart();
+        }
+        access.QueueCleanupBefore("released", fault);
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("released", default))).Code);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task SourceCleanupExplicitDeleteDenialIsNotAnUnknownOutcomeOrAnAbsence(int status)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        access.QueueCleanupBefore("released");
+        run.Api.Reply(status, new());
+        Assert.Equal("c1_deploy_http_" + status, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("released", default))).Code);
+        Assert.Contains("cleanup-workspace-released", run.Store.Current!.DeniedRequests.Keys);
+        Assert.DoesNotContain("workspace-released", run.Store.Current.PendingDeletes.Keys);
+        Assert.DoesNotContain("workspace-released", run.Store.Current.CleanupReceipts.Keys);
+        run.Restart();
+        access.QueueCleanupBefore("released");
+        run.Api.Reply(200, new());
+        run.Api.Reply(404, new());
+        Assert.Equal("SourceWorkspaceInventoryAbsent",
+            (await run.Provisioner.CleanupMaterializedSourceWorkspace("released", default)).Status);
+        Assert.Equal(2, run.Api.Requests.Count(request => request.Method == HttpMethod.Delete));
+    }
+
+    [Fact]
+    public async Task SourceCleanupCannotDeleteARestoredWorkspaceOrAnUnmaterializedOrAgentScope()
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        var before = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_source_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("agent", default))).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+        run.Api.Reply(404, new());
+        await run.Provisioner.CleanupMaterializedSourceWorkspace("released", default);
+        run.Api.Reply(200, access.Workspace("released"));
+        Assert.Equal("c1_deploy_cleanup_restored", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("released", default))).Code);
+        var state = run.Store.Load()!;
+        state.Objects.Remove("source-materialization-denied");
+        run.Store.Save(state);
+        run.Restart();
+        before = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_dependency", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("denied", default))).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task SourceCleanupUsesTheReservedTailAfterNormalExpiryWithoutResettingCounters()
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        var original = run.Store.Load()!;
+        run.Store.Save(original with { Requests = 80 });
+        run.Clock.Advance(TimeSpan.FromMinutes(10));
+        run.Restart();
+        access.QueueCleanupBefore("released");
+        run.Api.Reply(200, new());
+        run.Api.Reply(404, new());
+        await run.Provisioner.CleanupMaterializedSourceWorkspace("released", default);
+        Assert.Equal(88, run.Store.Current!.Requests);
+        Assert.Equal(8, run.Store.Current.CleanupRequests);
+        Assert.Equal(original.StartedAtUtc, run.Store.Current.StartedAtUtc);
+        run.Clock.Advance(TimeSpan.FromMinutes(10));
+        var before = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("denied", default))).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+        Assert.Equal(88, run.Store.Current.Requests);
+    }
+
+    [Fact]
+    public async Task SourceCleanupUncertainIntentSaveFencesAllRequestsAndNeverReplaysDeleteAfterReopen()
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        access.QueueCleanupBefore("released");
+        run.Store.AfterSave = state =>
+        {
+            if (state.PendingDeletes.ContainsKey("workspace-released")) run.Store.FailAfterSave = true;
+        };
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.CleanupMaterializedSourceWorkspace("released", default));
+        run.Store.AfterSave = null;
+        run.Store.FailAfterSave = false;
+        var before = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupMaterializedSourceWorkspace("released", default))).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+        run.Restart();
+        run.Api.Reply(200, access.Workspace("released"));
+        Assert.Equal("SourceWorkspaceCleanupPendingReconciliation",
+            (await run.Provisioner.CleanupMaterializedSourceWorkspace("released", default)).Status);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
     [Fact]
     public void ExportUsesObservedIdsButNeverInventsCredentialOntologyOrReviewBindings()
     {
@@ -5866,6 +6105,15 @@ except RuntimeError as error:
             var state = run.Store.Load()!;
             foreach (var role in new[] { "released", "denied" })
             {
+                var workspace = state.Objects["workspace-" + role];
+                state.Objects["workspace-" + role] = workspace with
+                {
+                    RequestHash = Canonical.Hash(new JsonObject
+                    {
+                        ["displayName"] = FabricC1Deployment.Name(run.Input) + "-" + role,
+                        ["capacityId"] = run.CapacityId, ["description"] = FabricC1Deployment.Marker(run.Input)
+                    })
+                };
                 var policy = FabricC1Deployment.LockCommunicationPolicy(new());
                 state.Objects["policy-" + role] = new("CommunicationPolicy", WorkspaceId(role), Canonical.Hash(policy), policy);
             }
@@ -6025,7 +6273,9 @@ except RuntimeError as error:
             ["principal"] = new JsonObject { ["id"] = PrincipalId, ["type"] = "ServicePrincipal" }
         };
 
-        public JsonObject DefaultReader() => new()
+        public JsonObject Workspace(string scope) => (JsonObject)run.Store.Current!.Objects["workspace-" + scope].Response.DeepClone();
+
+        public JsonObject DefaultReader(string scope = "released") => new()
         {
             ["name"] = "DefaultReader", ["eTag"] = "default-version",
             ["decisionRules"] = new JsonArray(new JsonObject
@@ -6035,7 +6285,7 @@ except RuntimeError as error:
                     new JsonObject { ["attributeName"] = "Action", ["attributeValueIncludedIn"] = new JsonArray("Read") })
             }),
             ["members"] = new JsonObject { ["fabricItemMembers"] = new JsonArray(new JsonObject
-            { ["itemAccess"] = new JsonArray("ReadAll"), ["sourcePath"] = Source.WorkspaceId("released") + "/" + Source.Lakehouse("released")["id"]!.GetValue<string>() }) }
+            { ["itemAccess"] = new JsonArray("ReadAll"), ["sourcePath"] = Source.WorkspaceId(scope) + "/" + Source.Lakehouse(scope)["id"]!.GetValue<string>() }) }
         };
 
         public JsonObject Role(string version = "source-version-1")
@@ -6049,30 +6299,7 @@ except RuntimeError as error:
         public void QueueBefore(string? fault = null, bool existingRole = false)
         {
             Source.QueuePreparation("released");
-            var lakehouse = Source.Lakehouse("released");
-            var schema = lakehouse["properties"]!["defaultSchema"]?.GetValue<string>();
-            var sql = new JsonObject
-            {
-                ["id"] = lakehouse["properties"]!["sqlEndpointProperties"]!["id"]!.DeepClone(),
-                ["type"] = "SQLEndpoint", ["workspaceId"] = Source.WorkspaceId("released")
-            };
-            if (fault == "foreign-sql-item") sql["id"] = Guid.NewGuid().ToString("D");
-            if (fault == "sql-not-ready") lakehouse["properties"]!["sqlEndpointProperties"]!["provisioningStatus"] = "InProgress";
-            run.Api.Reply(200, lakehouse);
-            var items = new List<JsonObject> { Source.Lakehouse("released"), Source.Notebook("released"), sql };
-            if (fault == "extra-item") items.Add(new() { ["id"] = Guid.NewGuid().ToString("D"), ["type"] = "Warehouse" });
-            run.Api.List(items.ToArray());
-            var table = new JsonObject
-            {
-                ["name"] = schema is null ? "c1_sources" : schema + ".c1_sources", ["type"] = "Managed", ["format"] = "Delta",
-                ["location"] = "abfss://" + Source.WorkspaceId("released") + "@onelake.dfs.fabric.microsoft.com/" +
-                    lakehouse["id"]!.GetValue<string>() + "/Tables/" + (schema is null ? "" : schema + "/") + "c1_sources"
-            };
-            if (fault == "foreign-table") table["location"] = "abfss://" + Guid.NewGuid().ToString("D") +
-                "@onelake.dfs.fabric.microsoft.com/" + lakehouse["id"]!.GetValue<string>() + "/Tables/c1_sources";
-            var tables = new JsonArray(table);
-            if (fault == "extra-table") tables.Add(table.DeepClone());
-            run.Api.Reply(200, new() { ["data"] = tables });
+            QueueItems("released", fault);
             run.Api.List(fault == "denied-runtime" ? [Admin("denied"), Viewer()] : [Admin("denied")]);
             var assignments = new List<JsonObject> { Admin("released") };
             if (run.Store.Current!.Objects.ContainsKey("runtime-source-grant") ||
@@ -6083,11 +6310,7 @@ except RuntimeError as error:
                 if (fault == "replaced-viewer") viewer["id"] = Guid.NewGuid().ToString("D");
                 assignments.Add(viewer);
             }
-            if (fault == "source-group") assignments.Add(new()
-            {
-                ["id"] = Guid.NewGuid().ToString("D"), ["role"] = "Viewer",
-                ["principal"] = new JsonObject { ["id"] = Guid.NewGuid().ToString("D"), ["type"] = "Group" }
-            });
+            if (fault == "source-group") assignments.Add(GroupAssignment());
             run.Api.List(assignments.ToArray());
             run.Api.ReplyComputed(200, () =>
             {
@@ -6095,6 +6318,56 @@ except RuntimeError as error:
                 if (fault == "default-reader-broadened") defaultRole["members"]!["fabricItemMembers"]![0]!["itemAccess"]![0] = "Read";
                 return existingRole || fault == "unowned-role" ? List(defaultRole, Role()) : List(defaultRole);
             });
+        }
+
+        private static JsonObject GroupAssignment() => new()
+        {
+            ["id"] = Guid.NewGuid().ToString("D"), ["role"] = "Viewer",
+            ["principal"] = new JsonObject { ["id"] = Guid.NewGuid().ToString("D"), ["type"] = "Group" }
+        };
+
+        private void QueueItems(string scope, string? fault)
+        {
+            var lakehouse = Source.Lakehouse(scope);
+            var schema = lakehouse["properties"]!["defaultSchema"]?.GetValue<string>();
+            var sql = new JsonObject
+            {
+                ["id"] = lakehouse["properties"]!["sqlEndpointProperties"]!["id"]!.DeepClone(),
+                ["type"] = "SQLEndpoint", ["workspaceId"] = Source.WorkspaceId(scope)
+            };
+            if (fault == "foreign-sql-item") sql["id"] = Guid.NewGuid().ToString("D");
+            if (fault == "sql-not-ready") lakehouse["properties"]!["sqlEndpointProperties"]!["provisioningStatus"] = "InProgress";
+            run.Api.Reply(200, lakehouse);
+            var items = new List<JsonObject> { Source.Lakehouse(scope), Source.Notebook(scope), sql };
+            if (fault == "extra-item") items.Add(new() { ["id"] = Guid.NewGuid().ToString("D"), ["type"] = "Warehouse" });
+            run.Api.List(items.ToArray());
+            var table = new JsonObject
+            {
+                ["name"] = schema is null ? "c1_sources" : schema + ".c1_sources", ["type"] = "Managed", ["format"] = "Delta",
+                ["location"] = "abfss://" + Source.WorkspaceId(scope) + "@onelake.dfs.fabric.microsoft.com/" +
+                    lakehouse["id"]!.GetValue<string>() + "/Tables/" + (schema is null ? "" : schema + "/") + "c1_sources"
+            };
+            if (fault == "foreign-table") table["location"] = "abfss://" + Guid.NewGuid().ToString("D") +
+                "@onelake.dfs.fabric.microsoft.com/" + lakehouse["id"]!.GetValue<string>() + "/Tables/c1_sources";
+            var tables = new JsonArray(table);
+            if (fault == "extra-table") tables.Add(table.DeepClone());
+            run.Api.Reply(200, new() { ["data"] = tables });
+        }
+
+        public void QueueCleanupBefore(string scope, string? fault = null)
+        {
+            var workspace = Workspace(scope);
+            if (fault == "workspace") workspace["description"] = "not-owned";
+            run.Api.Reply(200, workspace);
+            QueueItems(scope, fault);
+            var assignments = new List<JsonObject> { Admin(scope) };
+            if (scope == "released" && fault != "removed-viewer" && run.Store.Current!.Objects.ContainsKey("runtime-source-grant")) assignments.Add(Viewer());
+            if (fault == "source-group") assignments.Add(GroupAssignment());
+            run.Api.List(assignments.ToArray());
+            var reader = DefaultReader(scope);
+            if (fault == "role") reader["members"]!["fabricItemMembers"]![0]!["itemAccess"]![0] = "Read";
+            run.Api.List(scope == "released" && (run.Store.Current!.Objects.ContainsKey("source-access-role") || fault == "unowned-source-role")
+                ? [reader, Role(fault == "replaced-source-role" ? "source-version-2" : "source-version-1")] : [reader]);
         }
 
         public void QueueAfter(bool createRole = true, bool createViewer = true,

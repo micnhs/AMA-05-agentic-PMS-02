@@ -980,8 +980,8 @@ public sealed partial class FabricC1Provisioner
             Guard.Against(uri.Scheme != "https" || !uri.IsDefaultPort || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 ||
                 body is not null || method != HttpMethod.Get && method != HttpMethod.Delete ||
                 uri.IdnHost != "graph.microsoft.com" && !IsCheckpointAccessCleanupUri(uri) && !IsArtifactAccessCleanupUri(uri) &&
-                    !IsArtifactCommandCleanupUri(method, uri),
-                "c1_deploy_cleanup_scope", "Cleanup can only read/delete its bound Graph, original storage access or exact Run Command inventory.", 409);
+                    !IsArtifactCommandCleanupUri(method, uri) && !IsSourceWorkspaceCleanupUri(method, uri),
+                "c1_deploy_cleanup_scope", "Cleanup can only read/delete its bound identity, storage, Run Command or materialized-source inventory.", 409);
             (next, deadline) = PlanCleanupRequests(1);
         }
         else
