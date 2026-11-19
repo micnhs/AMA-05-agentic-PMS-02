@@ -12,6 +12,66 @@ public sealed class SignalReviewTests(SqlFixture db)
     private SignalReviewService Service(CaseScenario s) => new(db.Store, db.Objects, s.Clock);
     private static SignalDecisionCommand Command(int version, string source) => new(version, source, Reason);
 
+    [Fact]
+    public async Task Actual_document_import_binds_original_history_receipt_audit_outbox_and_explicit_medical_promotion()
+    {
+        var scenario = new CaseScenario(db);
+        await scenario.Create();
+        var before = scenario.Case;
+        var count = (await db.Store.List<SafetyCase>("case", ["ortho"])).Length;
+        var sourceService = new PublicSourceService(db.Store, db.Objects, new DocumentNoNetwork(), scenario.Clock, db.Policies);
+        var input = SignalDocumentTests.Input("SQL-DOCUMENT-" + Guid.NewGuid().ToString("N")) with
+        { FirstKnownAt = scenario.Clock.GetUtcNow().AddDays(-4),
+            ComparisonCaseId = before.Id, ComparisonCaseVersion = before.Version, ComparisonReason = Reason };
+        var key = CaseScenario.Key();
+        var imported = await sourceService.ImportDocument(input, SqlFixture.Pms, key);
+        var replay = await sourceService.ImportDocument(input, SqlFixture.Pms, key);
+        Assert.True(replay.Reused);
+        Assert.Equal(Canonical.Hash(imported.Source), Canonical.Hash(replay.Source));
+        Assert.Equal(Convert.FromBase64String(input.ContentBase64),
+            (await sourceService.ReadDocument(imported.Source.Id, 1, SqlFixture.Medical)).Bytes);
+        Assert.Equal("SignalDocumentImported", Assert.Single(await db.Store.Audit(imported.Source.Id)).Action);
+        await using (var connection = await db.Store.Open())
+        {
+            using var query = new SqlCommand("""
+                SELECT a.Json,h.Json,h.Hash,o.Payload,e.PayloadHash,c.Result
+                FROM dbo.Aggregates a
+                JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
+                JOIN dbo.Outbox o ON o.AggregateKind=a.Kind AND o.AggregateId=a.Id AND o.Version=a.Version
+                JOIN dbo.AuditEvents e ON e.AggregateId=a.Id AND e.Version=a.Version
+                JOIN dbo.Commands c ON c.Result=a.Json
+                WHERE a.Kind='source' AND a.Id=@id
+                """, connection);
+            query.Parameters.AddWithValue("@id", imported.Source.Id);
+            await using var rows = await query.ExecuteReaderAsync();
+            Assert.True(await rows.ReadAsync());
+            Assert.Equal(Canonical.Serialize(imported.Source), rows.GetString(0));
+            Assert.Equal(rows.GetString(0), rows.GetString(1));
+            Assert.Equal(Canonical.Hash(imported.Source), rows.GetString(2));
+            Assert.Equal(rows.GetString(0), rows.GetString(3));
+            Assert.Equal(rows.GetString(2), rows.GetString(4));
+            Assert.Equal(rows.GetString(0), rows.GetString(5));
+            Assert.False(await rows.ReadAsync());
+        }
+        var relevance = await Service(scenario).Decide("source", imported.Source.Id, "ConfirmRelevance",
+            new(1, input.ExternalId, Reason), SqlFixture.Ra, CaseScenario.Key());
+        var evidence = await sourceService.Approve(imported.Source.Id,
+            new(relevance.OwnerVersion, input.ExternalId, Reason), SqlFixture.Medical, CaseScenario.Key(), default);
+        Assert.Equal(imported.Source.Items[0].Summary, evidence.Content);
+        Assert.Equal(imported.Source.Document!.Text.Hash, evidence.Hash);
+        Assert.Equal(Canonical.Hash(before), Canonical.Hash(await scenario.Service.Get(before.Id, SqlFixture.Pms)));
+        Assert.Equal(count, (await db.Store.List<SafetyCase>("case", ["ortho"])).Length);
+        var audit = await db.Store.CaptureProductAudit("ortho", SqlFixture.Pms, scenario.Clock.GetUtcNow());
+        Assert.Contains(audit.Aggregates, value => value.Kind == "source" && value.Id == imported.Source.Id);
+        Assert.Contains(audit.Aggregates, value => value.Kind == "evidence" && value.Id == evidence.Id);
+    }
+
+    private sealed class DocumentNoNetwork : IPublicSourceReader
+    {
+        public Task<PublicSourceItem[]> Read(string source, string productId, CancellationToken ct) =>
+            throw new InvalidOperationException("A local document must not invoke a live source adapter.");
+    }
+
     [Theory]
     [InlineData(Roles.Medical)]
     [InlineData(Roles.Regulatory)]

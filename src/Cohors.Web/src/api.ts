@@ -7,13 +7,13 @@ let msal: PublicClientApplication | null = null
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number, public readonly code: string) { super(message) }
 }
-async function request(path: string, data?: unknown, signal?: AbortSignal): Promise<Response> {
+async function request(path: string, data?: unknown, signal?: AbortSignal, idempotencyKey?: string): Promise<Response> {
   const headers: Record<string, string> = {}
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
   if (data !== undefined) {
     headers['Content-Type'] = 'application/json'
     headers['X-CSRF-Token'] = csrf
-    headers['Idempotency-Key'] = crypto.randomUUID()
+    headers['Idempotency-Key'] = idempotencyKey ?? crypto.randomUUID()
   }
   const response = await fetch(`/api${path}`, { method: data === undefined ? 'GET' : 'POST', headers, credentials: 'same-origin', body: data === undefined ? undefined : JSON.stringify(data), signal })
   if (!response.ok) {
@@ -22,8 +22,8 @@ async function request(path: string, data?: unknown, signal?: AbortSignal): Prom
   }
   return response
 }
-export async function api<T>(path: string, data?: unknown): Promise<T> {
-  const response = await request(path, data)
+export async function api<T>(path: string, data?: unknown, scope: { signal?: AbortSignal; idempotencyKey?: string } = {}): Promise<T> {
+  const response = await request(path, data, scope.signal, scope.idempotencyKey)
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }

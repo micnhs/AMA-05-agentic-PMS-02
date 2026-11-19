@@ -49,7 +49,7 @@ public sealed class OutboxProcessor(IStateStore store, CaseService cases, IKnowl
             if (e.Type == "DomibusConnectionCheckRequested")
                 throw new DomainException("domibus_diagnostics_not_enabled",
                     "Die externe Backenddiagnose ist in diesem Auslieferungsschnitt noch nicht freigeschaltet.", 503);
-            if (e.Type is "EvidenceSeeded" or "PublicSourceApproved" or "EvidenceVersionPublished")
+            if (e.Type is "EvidenceSeeded" or "PublicSourceApproved" or "EvidenceVersionPublished" or "SignalDocumentEvidenceApproved")
                 await search.Rebuild(timeout.Token);
             await store.CompleteEvent(id, consumer, owner, null, timeout.Token);
             return new(id, "Handled", null);

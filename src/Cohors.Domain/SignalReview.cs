@@ -19,6 +19,12 @@ public static class SignalReviewRules
     public const string Boundary = "Signaltriage ist keine Nichtmeldepflichtentscheidung, Meldungsrueckgabe oder Simulatorantwort. " +
         "Originalquellen, Kenntnis und Fristen bleiben erhalten; normale medizinische und regulatorische Freigaben bleiben erforderlich.";
 
+    private static string Reference(string ownerKind, string ownerId, string sourceId) =>
+        "SIG-" + Canonical.Hash(new { ownerKind, ownerId, sourceId })[..20];
+
+    public static SignalReview Pending(string ownerKind, string ownerId, string sourceId, string sourceHash) =>
+        new(sourceId, sourceHash, Reference(ownerKind, ownerId, sourceId), ReviewRequired, []);
+
     public static SignalReview? Find(SignalReview[]? values, string sourceId, string sourceHash)
     {
         var matches = (values ?? []).Where(v => v.SourceId == sourceId).ToArray();
@@ -44,7 +50,7 @@ public static class SignalReviewRules
             "signal_not_rejected", "Nur ein aktuell abgelehntes Signal darf wiederaufgenommen werden.", 409);
         Guard.Against(decision.Action == "ConfirmRelevance" && previous?.Status != ReviewRequired,
             "signal_not_in_review", "Die Relevanzbestaetigung braucht einen offenen Review-Vorgang.", 409);
-        var reference = previous?.ReviewReference ?? "SIG-" + Canonical.Hash(new { ownerKind, ownerId, sourceId })[..20];
+        var reference = previous?.ReviewReference ?? Reference(ownerKind, ownerId, sourceId);
         var next = new SignalReview(sourceId, sourceHash, reference, status, [.. previous?.History ?? [], decision]);
         return [.. (values ?? []).Where(v => v.SourceId != sourceId), next];
     }

@@ -118,11 +118,21 @@ public sealed record PortfolioState(SafetyCase[] Cases, Evidence[] Evidence, Exp
 
 public sealed record ReadPublicSourceCommand(string ProductId);
 public sealed record ApprovePublicSourceCommand(int ExpectedVersion, string ExternalId, string Reason);
+public sealed record ImportSignalDocumentCommand(string ProductId, string Name, string MediaType,
+    string ContentBase64, string ExternalId, string Title, string Scope, string? OriginUri,
+    string Provenance, string Rights, string KnowledgeStatus, DateTimeOffset? FirstKnownAt,
+    string KnowledgeReason, bool MetadataConfirmed, bool RightsConfirmed, bool ContentEligibilityConfirmed,
+    string? ComparisonCaseId, int? ComparisonCaseVersion, string? ComparisonReason, string Reason);
+public sealed record SignalDocumentMatch(VersionReference Source, string Title, string Match, string OriginalHash);
+public sealed record SignalDocumentImportResult(PublicSourceRun Source, SignalDocumentMatch[] Matches, bool Reused);
+public sealed record SignalDocumentOriginal(byte[] Bytes, string Name, string MediaType);
 public sealed record SignalDecisionCommand(int ExpectedVersion, string SourceId, string Reason);
 public sealed record SignalView(string OwnerKind, string OwnerId, int OwnerVersion, string SourceId,
     string ProductId, string Title, string SourceReference, string SourceHash, string SourceUri,
     DateTimeOffset ReceivedAt, DateTimeOffset? AwarenessAt, string? CaseId, string? CaseReference,
-    string Status, string? ReviewReference, SignalDecision[] History, string Content, string Boundary);
+    string Status, string? ReviewReference, SignalDecision[] History, string Content, string Boundary,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ImportedSignalDocument? Document = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalDocumentMatch[]? DocumentMatches = null);
 public sealed record RegisterComplaint(string IncidentKey, string SourceId, string Title, string Description,
     string ProductId, string? Udi, string? Batch, string Country, string Jurisdiction,
     Seriousness Seriousness, DateTimeOffset? OccurredAt, DateTimeOffset AwarenessAt,

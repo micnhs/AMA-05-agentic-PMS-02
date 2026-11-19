@@ -2,6 +2,153 @@
 
 **Arbeitsstand, kein Abschluss der Gesamt- oder Fachabnahme.** Dieser Nachweis wird mit den tatsaechlich ausgefuehrten Paketen fortgeschrieben.
 
+## On-demand-Signalimport nach abd1b9be: lokaler Review-Kandidat
+
+Basis ist `abd1b9be1685d7cc941ba52c51a958f1b7989ff9`.
+Der Kandidat ist **unstaged und unveroeffentlicht**. Er liest tatsaechliche
+UTF-8-Textdateien im bestehenden Quellenpfad und fuehrt weder
+Beschwerde-/Expositionsimport noch KI-Analyse, automatische Fallanlage,
+Fristaenderung oder Freigabe aus. PDF/Office/OCR sind nicht angebunden.
+Die technische Grenze und der getrennte menschliche Promotionsweg sind in
+[implementation.md](implementation.md#on-demand-signaldokumente-lokaler-kandidat-nach-abd1b9be)
+beschrieben. Oeffentliche Nutzungsrechte und Inhaltszulaessigkeit sind
+menschliche Erklaerungen, keine automatisierte rechtliche oder medizinische
+Adjudikation.
+
+### Candidate02: drei eng gebundene Reviewkorrekturen
+
+Der Folgekandidat korrigiert das fehlende Outbox-Routing fuer
+`SignalDocumentEvidenceApproved`, die wiederholte Vollpruefung aller
+Dokumenttexte pro Trefferzeile und genau vier Select-Lokatoren in
+`fillSignalDocument`. Es bleibt derselbe lokale Importkandidat, keine
+neue Importpipeline und kein nachgelagerter Review-/Modellauftrag.
+
+| Ausgefuehrte Offlinepruefung | Ergebnis und Grenze |
+| --- | --- |
+| Private .NET-Kompilation einschliesslich unveraenderter SQL-Regression | Exit 0, 0 Warnungen / 0 Fehler |
+| `SignalDocumentTests` | **57/57**, davon alle bisherigen 42 und 15 neue Faelle; keine Fehler oder Skips |
+| Echter `OutboxProcessor` mit kontrolliertem Store-/Such-Fake | Vier Faelle: erst Medical-Promotion indiziert; Domain-/I/O-Suchfehler fuehren zu Retry und beim fuenften Versuch Poisoned ohne Erfolgsreceipt; erfolgreicher Retry bleibt idempotent |
+| Quellenlookup und zugehoerige Services | Elf Faelle einschliesslich 512/2048 synthetischer Dokumente ohne Treffer und dichter produktgetrennter Treffer; keine Produktionslast- oder SLO-Abnahme |
+| `npm run build` in privatem candidate02-Ausgabeordner | Exit 0; gleiche Assetnamen/-groessen und bestehende >500-kB-Warnung wie candidate01 |
+| Separate strikte E2E-TypeScript-Pruefung | Exit 0; kein ausgefuehrter Selektor oder Browser |
+| `infra.tests.test_ci_browser` und `infra.tests.test_workflow_contract` | **11/11** |
+| Playwright `--list` | Unveraenderte Titel und **34 Faelle / elf Profile**, darunter S05/S06; alle Browserausfuehrungen **NotRun** |
+
+Die Groessentests verwenden eindeutige synthetische Quellen mit jeweils
+mehr als 4 KiB Text, pruefen die Serviceausgabe und zaehlen genau eine
+Enumeration mit genau 512 bzw. 2048 vorbereiteten Quellen. Nach der
+Vorbereitung werden die zugrunde liegenden Text-/Referenzarrays absichtlich
+beschaedigt: Lookupabfragen behalten die vorbereiteten unveraenderlichen
+Versionen, Canonical-Hashes und Hinweise; eine neue Vorbereitung scheitert
+an der Textintegritaet. Es gibt keinen fragilen Laufzeitgrenzwert.
+Die dichte Variante prueft zwei Produkte mit je 128 passenden Dokumenten
+und insgesamt **32512** ungekuerzte, eigene IDs ausschliessende,
+ordinal sortierte Treffer. Weitere Faelle erhalten Bytegleichheitsvorrang,
+Gross-/Kleinschreibung externer Referenzen, andere Reviewzustaende als
+Vergleichsquellen, historische Receipts und aktuelle Fremdquellenversionen.
+Auch ausgeblendete Dokumente werden validiert; reine Metadatenreviews
+erhalten keine neue Abhaengigkeit von fremden Dokumentlookups.
+
+Die Outboxpruefung nutzt die tatsaechliche Promotionsaktion und den echten
+Processor, aber keine SQL-Lease-/Backoffzeit und keinen Azure-Index.
+`SignalDocumentImported` und `SignalRelevanceConfirmed` rufen Rebuild nicht
+auf. Die neuen Tests belegen keine erfolgreiche echte Azure-Suchprojektion.
+Der interne Lookup wird nur fuer `Cohors.Tests` ueber das bestehende
+`InternalsVisibleTo`-Muster testbar, nicht als neue HTTP-Schnittstelle.
+
+In der unveraenderten Import-Region verwenden nur die vier betroffenen
+Select-Lokatoren jetzt `getByRole('combobox', { name: ..., exact: true })`
+statt exaktem `getByLabel`. Produktions-UI, Titel, Auswahl, Timeouts und
+Skipguards wurden hierfuer nicht geaendert. Die Quellpruefung und
+Typpruefung ersetzen keinen Browsernachweis.
+
+Der erste candidate02-Build traf im neuen privaten Ausgabeordner auf
+`NETSDK1004`. Nach diesem Originalfehler erfolgte ausschliesslich ein
+`--locked-mode`-Restore aus dem vorhandenen Cache mit leerem lokalen Feed
+und `NuGetAudit=false`, keine Paket-/Lockaenderung oder Audit-Passbehauptung.
+Danach bestanden Build und alle 57 Offlinefaelle im ersten Testlauf.
+Originalausgaben, Befehle, TRX, Hashes und candidate02 liegen append-only
+unter `.local\eudamed-integration-01\signal-import-primary-02`.
+Candidate01 samt Patch, Manifest, allen urspruenglichen Negativbelegen
+und privaten Ausgaben bleibt unveraendert erhalten.
+
+**NotRun bleiben** die SQL-/API-Integration, alle 34 Browserausfuehrungen,
+echte SQL-Leases/Backoff und Azure-Retrieval/Indexierung, nativer
+Backup/Restore, Cloud/Directory/Foundry sowie fachliche Adjudikation.
+Kein Staging, Commit, Push, CI-Eingriff oder Eingriff in die laufende Demo;
+fremde Dateien, geschuetzte Originale und v10 bleiben unberuehrt.
+Kein App-, Security-, Release-, Cloud-, Pilot- oder SLO-Pass.
+
+### Candidate01: erhaltene Ausgangsnachweise
+
+Im urspruenglichen Kandidaten lokal ausgefuehrt, ohne SQL-/API-/Browserhost:
+
+| Pruefung | Ergebnis und Grenze |
+| --- | --- |
+| Private .NET-Kompilation einschliesslich vorbereiteter SQL-Regression | Exit 0, 0 Warnungen / 0 Fehler; kein laufender API-Host |
+| `SignalDocumentTests` mit In-Memory-Store, Byte-Objekten, festem Zeitpunkt und verbietendem Netzwerk-Fake | **42/42**, keine fehlgeschlagenen oder ausgelassenen Faelle; kein SQL-Integrationsnachweis |
+| `npm run build` in neuem privaten Ausgabeordner | TypeScript/Vite erfolgreich; vorhandenes Demo-`dist` nicht ersetzt |
+| Strikte separate TypeScript-Pruefung von `pilot.spec.ts` und Playwright-Konfiguration | Exit 0; kein Browserlauf |
+| `infra.tests.test_ci_browser` und `infra.tests.test_workflow_contract` | **11/11** Offline-Vertraege |
+| Playwright `--list` mit eigener leerer Credentialdatei und nicht genutzter Loopbackadresse | **34 ausgewaehlte Faelle / elf bestehende Profile**, keine Ausfuehrung und kein Demo-Konto verwendet |
+
+Die Offline-Faelle pruefen reale Testbytes mit/ohne BOM und unveraenderte
+Zeilenenden, Originalabruf und manipulierte Original-/Textobjekte,
+Formate/Encoding/Groessen, Rechte-/Inhalts-/Metadatenbestaetigungen,
+Rolle/Produktscope, belegte bzw. unbekannte Kenntnis, Idempotenzbindung,
+sichtbare Mehrfachaufnahme ohne Ereigniszusammenfuehrung, versionierten
+Vergleichsbezug ohne Fallschreiben, separate Medical-Promotion mit
+konkurrierendem Quellwechsel sowie das kanonische historische Quellenformat
+ohne neues Nullfeld. Original- und Texthashes werden durch die vorhandene
+Recovery-Referenzerkennung gefunden; das ist **kein nativer Backup-/Restorelauf**.
+
+Die eine neue SQL-Regression im vorhandenen `SignalReviewTests`-Kollektiv
+ist kompiliert, aber **NotRun**: Aggregate/History/Receipt/Audit/Outbox,
+byteidentisches Original, explizite Promotion, unveraenderte Fallakte und
+`CaptureProductAudit`. S05 und S06 sind ebenfalls **NotRun**: tatsaechliche
+Dateiaufnahme/Download/Mehrfachaufnahme/Medical-Promotion sowie sichtbare
+Extraktionsfehler und verspaetete Importantwort nach Produkt-/Kontowechsel.
+Sie ergaenzen das bestehende SignalReview-Profil von vier auf sechs Faelle.
+Die bisherigen 32 Faelle, alle elf Profile sowie Timeout-, Ownership-,
+Cleanup-, Credential- und Fehler-/Skipguards bleiben erhalten; die exakte
+Gesamtzahl wird auf 34 erhoeht, keine vorhandene Assertion entfallen gelassen.
+
+Vite 7.3.7 transformierte 1831 Module. Die private Ausgabe enthaelt
+`index.html` 0.62 kB (gzip 0.38),
+`index-CXFVA7H7.css` 38.00 kB (gzip 7.91) und
+`index-C0PvTVJ8.js` 764.56 kB (gzip 217.48).
+Die Warnung **Some chunks are larger than 500 kB after minification**
+bleibt als separater offener Punkt unveraendert. Playwrights reine Auflistung
+meldete daneben Node `DEP0205` fuer `module.register()`.
+
+Negative Vorversuche bleiben gesondert erhalten: Der System-`dotnet` fand
+kein passendes SDK; anschliessend wurde das bereits vorhandene
+`.tools\dotnet` 10.0.404 verwendet. Fehlende Assets im neuen Ausgabeordner
+wurden nach `NETSDK1004` ausschliesslich aus dem vorhandenen Paketcache
+mit `--locked-mode`, leerem lokalen Feed und `NuGetAudit=false` fuer diesen
+Offline-Restore erzeugt; keine Paket-/Lockaenderung oder Audit-Passbehauptung.
+Der erste private Webbuild scheiterte am in der Windows-Kommandokette
+zerlegten absoluten Ausgabepfad (`Copilot/index.html`), nicht an einem
+erfolgreichen Bundle; der relative private Pfad beseitigte den Aufruffehler.
+Die erste Ausgabe des privaten Loglesers konnte ein Unicode-Haekchen
+nicht an seine alte Konsolencodierung schreiben; originale stdout/stderr
+und Exitcode waren bereits unveraendert gesichert. Der erste Unitlauf war
+41/42: die neue Altformat-Testfixture hatte `+` statt des bestehenden
+kanonischen `\u002B`-Escapes erwartet. Nur diese Fixture wurde korrigiert;
+Serializer und exakte Byte-/Hashassertion bleiben unveraendert.
+
+Die Originalausgaben, TRX, Befehle und Einzelhashes liegen getrennt unter
+`.local\eudamed-integration-01\signal-import-primary-01`.
+Keine Aenderung oder Nutzung der fremden vier Working-Dateien, der
+geschuetzten Originale, des v10-Arbeitsstands oder lokaler Laufzeitsettings
+gehoert zu diesem Kandidaten. Keine SQL-/API-/Browserausfuehrung, kein
+Cloud-/Directory-/Foundryzugriff und keine GitHub-Laufausloesung.
+Ein Abschlussbeleg fuer diesen Vorauftrag fehlt weiterhin: exakte
+Kandidatenpruefung, getrennte Freigabe fuer einen Commit/Push und danach
+ein terminaler natuerlicher CI-Lauf mit gruenem Appjob sind noch erforderlich.
+Review-Ergaenzungen und Modellqualitaet bleiben bis zu ihren zugeordneten
+Vorbedingungen offen; kein App-, Security-, Release-, Cloud- oder Pilotpass.
+
 ## Natuerlicher Diagnoselauf 3c1dff: Originalergebnis
 
 Der einmalige normale Push von

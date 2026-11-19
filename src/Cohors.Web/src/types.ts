@@ -91,7 +91,22 @@ export interface CaseSummary { id: string; version: number; reference: string; p
 export interface SafetyCase extends CaseSummary { description: string; country: string; occurredAt: string | null; sources: { id: string; externalId: string; title: string; awarenessAt: string; receivedAt: string; hash: string; matchReason: string }[]; awareness: { id: string; kind: string; at: string; recordedAt: string; source: string; reason: string }[]; evidence: Evidence[]; assessments: Assessment[]; currentAssessment: Assessment | null; currentReport: Report | null; reports: Report[]; approvals: Approval[]; submissions: Submission[]; informationRequests: InfoRequest[]; agentRuns: AgentRun[]; signalReviews?: SignalReview[] | null; informationResponses?: InformationResponse[] | null }
 export interface SignalDecision { action: string; origin: string; reason: string; at: string; actorId: string; actorName: string; role: string; ownerVersion: number; sourceHash: string; agentRunId: string | null; agentMode: string | null; model: string | null; promptVersion: string | null }
 export interface SignalReview { sourceId: string; sourceHash: string; reviewReference: string; status: string; history: SignalDecision[] }
-export interface SignalView { ownerKind: 'case' | 'source'; ownerId: string; ownerVersion: number; sourceId: string; productId: string; title: string; sourceReference: string; sourceHash: string; sourceUri: string; receivedAt: string; awarenessAt: string | null; caseId: string | null; caseReference: string | null; status: string; reviewReference: string | null; history: SignalDecision[]; content: string; boundary: string }
+export interface ImportedSignalDocument {
+  contract: string; name: string; mediaType: string; extractionVersion: string;
+  original: { uri: string; hash: string; length: number }; text: { uri: string; hash: string; length: number };
+  scope: 'Synthetic' | 'PublicAuthorized'; provenance: string; rights: string; knowledgeStatus: 'Known' | 'NotEstablished';
+  firstKnownAt: string | null; knowledgeReason: string; confirmedBy: string;
+  comparisonCase: { source: VersionReference; reference: string; reason: string } | null;
+}
+export interface SignalDocumentMatch { source: VersionReference; title: string; match: 'IdenticalBytes' | 'SameReferenceDifferentBytes'; originalHash: string }
+export interface SignalDocumentImportResult { source: { id: string; version: number; at: string; document: ImportedSignalDocument }; matches: SignalDocumentMatch[]; reused: boolean }
+export interface SignalView {
+  ownerKind: 'case' | 'source'; ownerId: string; ownerVersion: number; sourceId: string;
+  productId: string; title: string; sourceReference: string; sourceHash: string; sourceUri: string;
+  receivedAt: string; awarenessAt: string | null; caseId: string | null; caseReference: string | null;
+  status: string; reviewReference: string | null; history: SignalDecision[]; content: string; boundary: string;
+  document?: ImportedSignalDocument | null; documentMatches?: SignalDocumentMatch[] | null;
+}
 export interface AuditEvent { sequence: number; aggregateId: string; version: number; actorId: string; actorName: string; action: string; reason: string; at: string; hash: string; previousHash: string }
 export interface Status { persistence: string; objects: string; search: string; orchestration: string; foundryConfigured: boolean; heartbeatMissing: boolean; heartbeat: { lastTick: string; openDeadlines: number } | null; warnings: string[] }
 export interface Capa { id: string; version: number; caseId: string; productId: string; title: string; action: string; rationale: string; ownerId: string; effectivenessCriterion: string; dueAt: string; status: string; evidence: string | null; verifiedBy: string | null }

@@ -161,4 +161,5 @@ public sealed record PublicSourceItem(string ExternalId, string Title, string Ur
     string Summary, string ProvenanceHash);
 public sealed record PublicSourceRun(string Id, int Version, string Source, string ProductId, string Status,
     DateTimeOffset At, PublicSourceItem[] Items, string? Error, string QueryContract, string? ExecutionId = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalReview[]? SignalReviews = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalReview[]? SignalReviews = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ImportedSignalDocument? Document = null);

@@ -7,6 +7,7 @@ import Workbench from './Workbench'
 import { AuditWorkspace, EvidenceWorkspace, FeedbackWorkspace, PsurWorkspace, RetentionWorkspace, SourcesWorkspace, SummaryWorkspace } from './Workspaces'
 import { CockpitWorkspace, DeadlineCalendarWorkspace } from './WorkspaceViews'
 import SignalWorkspace, { signalPath } from './SignalWorkspace'
+import SignalDocumentImport from './SignalDocumentImport'
 import EudamedWorkspace from './EudamedWorkspace'
 
 const navigation = [
@@ -88,11 +89,13 @@ export default function App() {
     setPage('psur')
   }
   async function mutate(path: string, body: unknown) {
+    const epoch = identity.current.epoch
+    function requireCurrent() { if (epoch !== identity.current.epoch) throw new DOMException('Änderung nach Kontowechsel nicht in dieser Sitzung angezeigt.', 'AbortError') }
     refreshGeneration.current++
     setWorking(true); setError('')
-    try { await api(path, body); await refresh(); setRevision(r => r + 1) }
-    catch (e) { setError(e instanceof Error ? e.message : 'Änderung nicht bestätigt.'); throw e }
-    finally { setWorking(false) }
+    try { await api(path, body); requireCurrent(); await refresh(); requireCurrent(); setRevision(r => r + 1) }
+    catch (e) { if (epoch === identity.current.epoch) setError(e instanceof Error ? e.message : 'Änderung nicht bestätigt.'); throw e }
+    finally { if (epoch === identity.current.epoch) setWorking(false) }
   }
   async function reopenSignal(signal: SignalView, reason: string) {
     const epoch = identity.current.epoch
@@ -149,11 +152,13 @@ export default function App() {
         </>}
         {['cases', 'reviews', 'regulatory', 'inbox'].includes(page) && <>
           {page === 'reviews' && reviewNotice && <div className="callout" role="status">{reviewNotice}</div>}
+          {page === 'inbox' && actor.roles.includes('PmsSpecialist') && <SignalDocumentImport key={`${identity.current.key}:${identity.current.epoch}`}
+            products={products} cases={cases} onImported={() => setRevision(value => value + 1)} />}
           <section className="panel"><div className="list-toolbar"><div className="search-field"><Search size={18} /><input aria-label="Fälle durchsuchen" placeholder="Fall, Produkt oder Referenz suchen…" value={query} onChange={e => setQuery(e.target.value)} /></div><Badge>{filtered.length} Fälle</Badge></div><CaseTable cases={page === 'reviews' ? filtered.filter(c => c.stage === 'AwaitingMedicalReview' || c.reportState === 'MedicalApproved') : page === 'regulatory' ? filtered.filter(c => c.reportState !== null) : filtered} open={open} /></section>
           {page === 'inbox' && <SourcesWorkspace revision={revision} actor={actor} mutate={mutate} openDialog={setDialog} />}
           {page === 'regulatory' && <SummaryWorkspace cases={cases} products={products} revision={revision} actor={actor} mutate={mutate} openDialog={setDialog} />}
         </>}
-        {['inbox', 'rejected', 'reviews'].includes(page) && <SignalWorkspace key={`${identity.current.key}:${page}`} mode={page === 'reviews' ? 'review' : page === 'rejected' ? 'rejected' : 'inbox'}
+        {['inbox', 'rejected', 'reviews'].includes(page) && <SignalWorkspace key={`${identity.current.key}:${identity.current.epoch}:${page}`} mode={page === 'reviews' ? 'review' : page === 'rejected' ? 'rejected' : 'inbox'}
           actor={actor} revision={revision} reviewItems={reviewSignals} openDialog={setDialog} mutate={mutate} reopen={reopenSignal} openCase={open} />}
         {page === 'workbench' && selected && <Workbench key={selected.id} value={selected} actor={actor} openDialog={setDialog} mutate={mutate} busy={working} back={() => setPage('cases')} />}
         {page === 'deadlines' && <DeadlineCalendarWorkspace key={`${identity.current.key}:${identity.current.epoch}`} products={products} revision={revision} open={openCalendarEvent} />}

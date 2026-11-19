@@ -56,8 +56,111 @@ Der normale Replay-Ingestion-Lauf behauptet bei Datenluecken keine Irrelevanz.
 Das separat waehlenbare Profil `signal-triage-replay-reject` demonstriert eine
 explizit synthetische Agenten-Ablehnung, **keine verifizierte Inhaltsklassifikation**.
 Live-Ingestion kann nur einen quellengebundenen Vorschlag abgeben; eine
-menschliche Wiederaufnahme darf er nicht wieder verwerfen. Live-Foundry-Abnahme
-und On-demand-Dateiimport sind dadurch nicht behauptet oder aktiviert.
+menschliche Wiederaufnahme darf er nicht wieder verwerfen. Dies ist weder eine
+Live-Foundry-Abnahme noch eine Dateiextraktion.
+
+## On-demand-Signaldokumente: lokaler Kandidat nach abd1b9be
+
+Der zusaetzliche Dateipfad verwendet dieselbe `source`-Akte, denselben
+`PublicSourceService`, Objektstore und Quellenreview, keinen zweiten Intake
+und keinen Beschwerde-/Expositionsimport. Er ist ein **unveroeffentlichter
+Kandidat**; ausgefuehrte und offene Nachweise stehen in [validation.md](validation.md).
+
+PMS waehlt in der Signal Inbox eine reale UTF-8-`.txt`-Datei (optional ein
+fuehrendes UTF-8-BOM), maximal 128 KiB und 30000 UTF-16-Textzeichen.
+Der streng decodierte Text bleibt einschliesslich Zeilenenden unveraendert;
+nur das fuehrende BOM wird nicht Teil des gelesenen Textes. Originalbytes
+und Text haben getrennte SHA-256-/Laengenbindungen. Bei fehlendem BOM koennen
+beide Hashes identisch sein. PDF, Office, OCR, Binaerinhalt, ungueltiges UTF-8
+und unlesbare Inhalte ergeben einen ausdruecklichen Fehler, keinen Ersatztext.
+Der bestehende EUDAMED-PDF-Originalspeicher ist kein PDF-Textleser.
+
+Produkt, externe Referenz, Titel, synthetischer oder explizit nutzbarer
+oeffentlicher Vergleichsscope, Herkunft/Transferweg und konkrete Nutzungsrechte
+werden menschlich bestaetigt. Synthetische Herkunft beginnt mit `SYNTHETISCH:`;
+oeffentliche Quellen brauchen eine stabile HTTPS-Originaladresse ohne
+Benutzerinfo, Query oder Fragment. Diese Adresse wird **nicht abgerufen**.
+Die Erklaerungen sind keine automatische Rechte-, Datenschutz- oder
+klinische Zulassung: keine echten Patienten-/Klinikdaten oder Zugangsdaten
+importieren. Oeffentliche Dateiimporte werden nicht als synthetisch umetikettiert.
+
+Der Server erfasst den Systemeingang. Fruehere Organisationskenntnis ist
+entweder ausdruecklich mit Zeitpunkt und Begruendung belegt angegeben oder
+`NotEstablished` mit Nullzeit und offener Begruendung. Dateiname, Dateidatum
+und Uploadzeit ersetzen diese Kenntnis nicht. Ein optionaler Vergleichsfall
+bindet genau ID, Version und Hash im bestehenden SQL-Dependency-Guard.
+Er ist **keine Vorfallzuordnung**: kein Fall, keine Frist, kein Assessment,
+keine Signatur und keine Fall-Evidenzverknuepfung wird dadurch veraendert.
+Konkrete eigene Vorkommnisse sowie belegte fruehere Fallkenntnis bleiben
+in den bestehenden menschlichen Fall-/Awarenesspfaden zu bearbeiten.
+B-06/E-06/J-02/K-06 gehoeren nicht zu diesem Signalimport.
+
+`POST /api/signals/import` prueft menschliche PMS-Rolle und Produktscope.
+Originale werden inhaltsadressiert abgelegt; Domaene, Command-Receipt,
+Historie, Audit und Outbox bleiben die vorhandene atomare SQL-Transaktion.
+Blob und SQL sind **keine** gemeinsame Transaktion. Fehlgeschlagene
+SQL-Bindungen koennen deshalb unreferenzierte unveraenderliche Objekte
+hinterlassen; es gibt keine automatische Loeschung oder Erfolgsbehauptung.
+Der Receipt bindet Metadaten, Original-/Texthash, Extraktionsversion und
+Vergleichsreferenz. Derselbe unveraenderte UI-Auftrag behaelt beim Retry seinen
+Idempotenzschluessel; veraenderter Inhalt mit demselben Schluessel scheitert.
+
+Die nullable, bei Null nicht serialisierte `Document`-Ergaenzung laesst
+historische Quellenpayloads unveraendert. Original- und Textbindung nutzen
+die vorhandene `uri`/`hash`-Referenzerkennung fuer Recovery/Retention;
+keine neuen Storage-, Writer- oder Recovery-Ausnahmen. Bestehende
+synthetische Recovery-Grenzen, insbesondere fuer freigegebene nichtsynthetische
+Evidenz, werden dadurch nicht aufgehoben.
+Der versionsgebundene Originalabruf
+`GET /api/sources/{id}/original?version=N` prueft Produktscope, Originalbytes,
+Laengen, Originalhash und die Konsistenz des tatsaechlich gelesenen Textes.
+
+Nach Aufnahme existiert ein `ReviewRequired`-Quellenvorgang mit leerer
+Entscheidungshistorie, keine erfundene fruehere Ablehnung. Medical/RA pruefen
+Relevanz ueber den vorhandenen Signalpfad; erst danach darf Medical getrennt
+die nachgelesene Originalquelle als Vergleichsevidenz einordnen. Diese
+Freigabe bindet die aktuelle Quellenfassung und erteilt keine Fall-,
+Kausalitaets-, Risiko- oder Meldefreigabe. Die neue Evidenz ist ab ihrem
+Systemeingang verfuegbar; die separat deklarierte fruehere Kenntnis ist
+keine automatisch rueckdatierte Evidenzgueltigkeit. Verknuepfung zu einer
+Fallakte erfolgt bei Bedarf ausdruecklich ueber den bestehenden `Link`-Pfad.
+
+`SignalDocumentEvidenceApproved` laeuft ueber den vorhandenen
+`OutboxProcessor` und dessen `IKnowledgeSearch.Rebuild`, nicht ueber einen
+eigenen Import-/Indexschreiber. Erst diese getrennte Medical-Promotion
+beauftragt die Suchprojektion; `SignalDocumentImported` und die blosse
+Relevanzbestaetigung tun das nicht. Suchfehler behalten den vorhandenen
+Retry-/Poisoned-Pfad ohne erfolgreichen Consumer-Receipt. Die Projektion
+bleibt asynchron und abgeleitet; ihre Azure-Ausfuehrung ist lokal nicht belegt.
+
+Bytegleiche Originale und gleiche externe Referenzen mit abweichenden Bytes
+werden im selben Produkt als aktuelle Vergleichshinweise angezeigt, auch
+nach erneutem Laden. Sie loeschen oder vereinigen keine Aufnahme und beweisen
+keine Patienten-/Vorfallidentitaet. Hinweise sind abgeleitete Momentaufnahmen,
+keine freigegebene Deduplikationsentscheidung. Fremde Produkte bleiben verborgen.
+Die Quellen-/Textbindung und die kanonische Versionsreferenz werden pro
+gelesener Dokumentfassung einmal fuer die jeweilige Anfrage vorbereitet.
+Unveraenderliche Referenzdaten und produktgebundene Hash-/Referenzlookups
+ersetzen den erneuten Vollscan aller Dokumenttexte pro Ausgabezeile.
+Der Anzeigestatus wird vor dem Aufbau der Trefferliste geprueft; Dokumente
+anderer Reviewzustaende bleiben als Vergleichsquellen enthalten und werden
+ebenfalls validiert. Eigene Quellen-IDs bleiben ausgeschlossen, die
+Trefferreihenfolge ordinal stabil, Bytegleichheit hat Vorrang vor gleicher
+externer Referenz. Historische Receipts behalten ihre eigene Fassung und
+vergleichen gegen aktuelle andere Quellen. Treffer werden nicht abgeschnitten;
+bei tatsaechlich allseits passenden Dokumenten bleibt die Ausgabegroesse
+quadratisch. Dies ist kein Produktionslast- oder SLO-Nachweis.
+Quelltext wird ausschliesslich als Text dargestellt. Dateilesen,
+Importantwort und Originaldownload sind an die aktuelle Sitzung gebunden;
+spaete Antworten duerfen keinen Erfolg oder Inhalt im anderen Konto anzeigen.
+
+Pilotfuehrung: PMS-Dateiaufnahme mit bewussten Metadaten -> Original und
+Mehrfachaufnahmehinweise in der Signal Inbox -> Medical/RA-Quellenreview ->
+bei Relevanz getrennte Medical-Evidenzeinordnung in der Signal Inbox ->
+optionale vorhandene Evidenzverknuepfung im Fall. **Keine KI-Analyse wird
+beim Dateilesen gestartet oder als Live-/Replay-Ergebnis ausgegeben.**
+Fachliche Review-Historien-/Lesbarkeitsergaenzungen und rollenbezogene
+Modellqualitaetsprofile bleiben getrennte, nachgelagerte Auftraege.
 
 ## Lokale und Azure-Abhaengigkeiten
 

@@ -405,6 +405,13 @@ api.MapPost("/sources/{source}/sync", (string source, ReadPublicSourceCommand in
 });
 api.MapPost("/sources/{id}/approve", (string id, ApprovePublicSourceCommand input, PublicSourceService service, HttpContext ctx, CancellationToken ct) =>
     service.Approve(id, input, Who(ctx), Key(ctx), ct));
+api.MapPost("/signals/import", (ImportSignalDocumentCommand input, PublicSourceService service, HttpContext ctx, CancellationToken ct) =>
+    service.ImportDocument(input, Who(ctx), Key(ctx), ct));
+api.MapGet("/sources/{id}/original", async (string id, int version, PublicSourceService service, HttpContext ctx, CancellationToken ct) =>
+{
+    var original = await service.ReadDocument(id, version, Who(ctx), ct);
+    return Results.File(original.Bytes, original.MediaType, original.Name);
+});
 api.MapGet("/signals", (string? status, SignalReviewService service, HttpContext ctx, CancellationToken ct) =>
     service.List(status ?? "Rejected", Who(ctx), ct));
 api.MapPost("/signals/{kind}/{id}/reject", (string kind, string id, SignalDecisionCommand input, SignalReviewService service, HttpContext ctx, CancellationToken ct) =>

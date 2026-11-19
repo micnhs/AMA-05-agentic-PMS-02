@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, EvidenceDocument, InformationRecipient, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
+import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, EvidenceDocument, InformationRecipient, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalDocumentImportResult, SignalView, SummaryAgreement } from '../src/types'
 import type { ActorApplication, IntegrationWorkspace } from '../src/EudamedWorkspace'
 import type { DossierView, EudamedDossier } from '../src/EudamedDossiers'
 
@@ -1210,6 +1210,204 @@ test('S04: account changes clear signal notices and ignore delayed prior-identit
       newAccountProducts: ['cardio'], noForeignSourceReviews: true,
     }, null, 2))
   } finally { release?.(); await context?.close(); await pms.dispose(); await medical.dispose() }
+})
+
+function signalDocumentInput(stamp: string) {
+  const text = `SYNTHETISCH: ${stamp}\r\nEin schwerer Hinweis ist nicht bestaetigt; die Evidenz ist widerspruechlich.\r\n<img src="x" onerror="globalThis.__signalImportExecuted=true">\r\n`
+  const bytes = Buffer.from('\uFEFF' + text, 'utf8')
+  return { bytes, text, input: { productId: 'ortho', name: `${stamp}.txt`, mediaType: 'text/plain', contentBase64: bytes.toString('base64'),
+    externalId: stamp, title: `Synthetisches Importdokument ${stamp}`, scope: 'Synthetic', originUri: null,
+    provenance: signalReason, rights: signalReason, knowledgeStatus: 'Known',
+    firstKnownAt: new Date(Date.now() - 4 * 86_400_000).toISOString(), knowledgeReason: signalReason,
+    metadataConfirmed: true, rightsConfirmed: true, contentEligibilityConfirmed: true,
+    comparisonCaseId: null, comparisonCaseVersion: null, comparisonReason: null, reason: signalReason } }
+}
+async function fillSignalDocument(page: Page, fixture: ReturnType<typeof signalDocumentInput>, comparison?: SafetyCase) {
+  await page.getByRole('navigation').getByRole('button', { name: 'Signal Inbox', exact: true }).click()
+  const form = page.getByRole('region', { name: 'Signaldokument importieren', exact: true })
+  await form.getByText('Dokument auswählen und Aufnahmekontext bestätigen', { exact: true }).click()
+  await form.getByLabel('Originaldatei (.txt)', { exact: true }).setInputFiles({
+    name: fixture.input.name, mimeType: 'text/plain', buffer: fixture.bytes,
+  })
+  await form.getByRole('combobox', { name: 'Bestätigtes Vergleichsprodukt', exact: true }).selectOption('ortho')
+  await form.getByLabel('Dokumenttitel', { exact: true }).fill(fixture.input.title)
+  await form.getByLabel('Externe Dokument-/Quellreferenz', { exact: true }).fill(fixture.input.externalId)
+  await form.getByRole('combobox', { name: 'Erlaubter Dokumentumfang', exact: true }).selectOption('Synthetic')
+  await form.getByLabel('Herkunft und Übertragungsweg', { exact: false }).fill(signalReason)
+  await form.getByLabel('Konkrete Nutzungsrechte und erlaubter Umfang', { exact: true }).fill(signalReason)
+  await form.getByRole('combobox', { name: 'Frühere Organisationskenntnis dieses Signals', exact: true }).selectOption(fixture.input.knowledgeStatus)
+  let expectedKnowledge: string | null = null
+  if (fixture.input.knowledgeStatus === 'Known') {
+    const local = fixture.input.firstKnownAt.slice(0, 16)
+    await form.getByLabel('Belegter Kenntniszeitpunkt (lokale Browserzeit)', { exact: true }).fill(local)
+    expectedKnowledge = await page.evaluate(value => new Date(value).toISOString(), local)
+  }
+  await form.getByLabel('Beleg oder offene Grenze der früheren Kenntnis', { exact: false }).fill(signalReason)
+  if (comparison) {
+    await form.getByRole('combobox', { name: 'Optionaler Vergleichsfall (keine Vorfallzuordnung)', exact: true }).selectOption(`${comparison.id}@${comparison.version}`)
+    await form.getByLabel('Vergleichsbezug, keine Vorfallidentität', { exact: true }).fill(signalReason)
+  }
+  await form.getByLabel('Begründete Signalaufnahme', { exact: true }).fill(signalReason)
+  await form.getByLabel('Produkt, Umfang, Vergleichsbezug und frühere Kenntnis ausdrücklich bestätigt', { exact: true }).check()
+  await form.getByLabel('Nutzungsrechte für diesen Inhalt und diese Pilotverwendung bestätigt', { exact: true }).check()
+  await form.getByLabel('Nur synthetischer oder zulässiger öffentlicher Inhalt; keine Patienten-/Klinikdaten oder Zugangsdaten', { exact: true }).check()
+  return { form, expectedKnowledge }
+}
+
+test('S05: actual UTF-8 signal file preserves original bytes, scope, knowledge and duplicate hints before explicit Medical promotion', async ({ playwright, browser, baseURL }) => {
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  const contexts: BrowserContext[] = []
+  try {
+    const csrf = await signIn(pms, 'pms.demo')
+    await signIn(medical, 'medical.demo')
+    const stamp = `DOC-S05-${Date.now()}`
+    const comparison = await command(pms, csrf, '/cases', signalInput(stamp))
+    const caseIds = ((await (await pms.get('/api/cases')).json()) as CaseSummary[]).map(value => value.id).sort()
+    const fixture = signalDocumentInput(stamp)
+    const context = await browser.newContext({ storageState: await pms.storageState() })
+    contexts.push(context); await blockReviewPolling(context)
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.goto(baseURL!)
+    const { form, expectedKnowledge } = await fillSignalDocument(page, fixture, comparison)
+    const responsePromise = page.waitForResponse(response => response.url().endsWith('/api/signals/import') && response.request().method() === 'POST')
+    await form.getByRole('button', { name: 'Original sichern und Quellenreview anlegen', exact: true }).click()
+    const response = await responsePromise
+    expect(response.ok(), await auditFailureDetails(response)).toBeTruthy()
+    const imported = await response.json() as SignalDocumentImportResult
+    expect(imported.source.document.original.hash).toBe(createHash('sha256').update(fixture.bytes).digest('hex'))
+    expect(imported.source.document.original.length).toBe(fixture.bytes.length)
+    expect(imported.source.document.text.hash).toBe(createHash('sha256').update(fixture.text).digest('hex'))
+    expect(imported.source.document.firstKnownAt).not.toBeNull()
+    expect(new Date(imported.source.document.firstKnownAt!).toISOString()).toBe(expectedKnowledge)
+    expect(imported.source.document.comparisonCase?.source).toMatchObject({ id: comparison.id, version: comparison.version })
+    const row = page.getByTestId(`signal-${imported.source.id}-${fixture.input.externalId}`)
+    await expect(row).toContainText('Dokumentimport · Quellenreview erforderlich')
+    await expect(row).not.toContainText('Zum Review wiederaufgenommen')
+    await row.getByText('Originalquelle und Entscheidungsverlauf', { exact: true }).click()
+    await expect(row.locator('pre')).toContainText(fixture.input.externalId)
+    await expect(row.locator('img')).toHaveCount(0)
+    expect(await page.evaluate(() => Reflect.get(window, '__signalImportExecuted'))).toBeUndefined()
+    const downloadPromise = page.waitForEvent('download')
+    await row.getByRole('button', { name: 'Unveränderte Originaldatei herunterladen', exact: true }).click()
+    const download = await downloadPromise
+    const downloadedPath = await download.path()
+    if (!downloadedPath) throw new Error('Actual original download is missing.')
+    expect(download.suggestedFilename()).toBe(fixture.input.name)
+    expect(readFileSync(downloadedPath)).toEqual(fixture.bytes)
+    const duplicate = await command<SignalDocumentImportResult>(pms, csrf, '/signals/import',
+      { ...fixture.input, externalId: `${stamp}-SECOND`, title: `${fixture.input.title} zweite Aufnahme` })
+    expect(duplicate.matches).toContainEqual(expect.objectContaining({ match: 'IdenticalBytes', source: expect.objectContaining({ id: imported.source.id }) }))
+    await page.getByRole('navigation').getByRole('button', { name: 'Fallakten', exact: true }).click()
+    await page.getByRole('navigation').getByRole('button', { name: 'Signal Inbox', exact: true }).click()
+    await expect(row).toContainText('Mögliche Mehrfachaufnahme')
+    const reloaded = (await (await pms.get('/api/signals?status=ReviewRequired')).json() as SignalView[]).find(value => value.ownerId === imported.source.id)!
+    expect(reloaded.caseId).toBeNull()
+    expect(reloaded.history).toEqual([])
+    expect(reloaded.content).toBe(fixture.text)
+    expect(reloaded.documentMatches).toContainEqual(expect.objectContaining({ source: expect.objectContaining({ id: duplicate.source.id }) }))
+
+    const reviewContext = await browser.newContext({ storageState: await medical.storageState() })
+    contexts.push(reviewContext); await blockReviewPolling(reviewContext)
+    const reviewPage = await reviewContext.newPage()
+    reviewPage.on('pageerror', error => errors.push(error.message))
+    await reviewPage.goto(baseURL!)
+    await reviewPage.getByRole('navigation').getByRole('button', { name: 'Review Queue', exact: true }).click()
+    const reviewRow = reviewPage.getByTestId(`signal-${imported.source.id}-${fixture.input.externalId}`)
+    await reviewRow.getByRole('button', { name: 'Relevanz prüfen und bestätigen', exact: true }).click()
+    await reviewPage.getByRole('dialog').getByLabel('Fachliche Signalbegründung', { exact: true }).fill(signalReason)
+    await submitDialog(reviewPage.getByRole('dialog'), 'Relevanz bestätigen')
+    await reviewPage.getByRole('navigation').getByRole('button', { name: 'Signal Inbox', exact: true }).click()
+    await reviewRow.getByRole('button', { name: 'Importdokument als Vergleichsevidenz einordnen', exact: true }).click()
+    await reviewPage.getByRole('dialog').getByLabel('Medizinische Einordnung und Grenzen', { exact: true }).fill(signalReason)
+    const approvedResponse = reviewPage.waitForResponse(value => value.url().endsWith(`/api/sources/${imported.source.id}/approve`))
+    await submitDialog(reviewPage.getByRole('dialog'), 'Vergleichsevidenz freigeben')
+    const approval = await approvedResponse
+    expect(approval.ok(), await auditFailureDetails(approval)).toBeTruthy()
+    const evidence = await approval.json() as Evidence
+    expect(evidence.content).toBe(fixture.text)
+    expect(evidence.hash).toBe(imported.source.document.text.hash)
+    expect(evidence.approved).toBe(true)
+    expect(evidence.synthetic).toBe(true)
+    expect(await (await pms.get(`/api/cases/${comparison.id}`)).json()).toEqual(comparison)
+    expect(((await (await pms.get('/api/cases')).json()) as CaseSummary[]).map(value => value.id).sort()).toEqual(caseIds)
+    expect(await page.evaluate(() => Number(Reflect.get(window, '__cohorsBlockedIntervals')))).toBeGreaterThan(0)
+    expect(errors).toEqual([])
+  } finally { for (const context of contexts) await context.close(); await pms.dispose(); await medical.dispose() }
+})
+
+test('S06: unreadable signal files fail visibly and delayed original intake cannot leak into a different product account', async ({ playwright, browser, baseURL }) => {
+  requireWorkspaceIsolation(baseURL)
+  const pms = await playwright.request.newContext({ baseURL })
+  const medical = await playwright.request.newContext({ baseURL })
+  let context: BrowserContext | undefined
+  try {
+    const csrf = await signIn(pms, 'pms.demo')
+    const medicalCsrf = await signIn(medical, 'medical.demo')
+    const fixture = signalDocumentInput(`DOC-S06-${Date.now()}`)
+    fixture.input.knowledgeStatus = 'NotEstablished'
+    context = await browser.newContext({ storageState: await pms.storageState() })
+    await blockReviewPolling(context)
+    await context.addInitScript(() => {
+      const original = window.fetch.bind(window)
+      window.fetch = async (...args) => {
+        const response = await original(...args)
+        const url = args[0] instanceof Request ? args[0].url : String(args[0])
+        if (!url.endsWith('/api/signals/import') || Reflect.get(window, '__holdSignalDocumentResponse') !== true) return response
+        const bytes = await response.arrayBuffer()
+        Reflect.set(window, '__heldSignalDocumentStatus', response.status)
+        await new Promise<void>(resolve => Reflect.set(window, '__releaseSignalDocumentResponse', resolve))
+        return new Response(bytes, { status: response.status, headers: response.headers })
+      }
+    })
+    const page = await context.newPage()
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.goto(baseURL!)
+    const { form } = await fillSignalDocument(page, fixture)
+    await form.getByLabel('Originaldatei (.txt)', { exact: true }).setInputFiles({ name: 'unreadable.txt', mimeType: 'text/plain', buffer: Buffer.from([0xff, 0xfe, 0x41]) })
+    await expect(form).toContainText('Ungültiges UTF-8; kein Ersatztext erzeugt.')
+    await expect(form.getByRole('button', { name: 'Original sichern und Quellenreview anlegen', exact: true })).toBeDisabled()
+    const invalid = await pms.post('/api/signals/import', { headers: { 'X-CSRF-Token': csrf, 'Idempotency-Key': crypto.randomUUID() },
+      data: { ...fixture.input, knowledgeStatus: 'Known', name: 'renamed-pdf.txt', contentBase64: Buffer.from('%PDF-1.7\nsynthetic unsupported PDF').toString('base64') } })
+    expect(invalid.status()).toBe(415)
+    expect((await invalid.json()).code).toBe('signal_document_type')
+    const forbidden = await medical.post('/api/signals/import', { headers: { 'X-CSRF-Token': medicalCsrf, 'Idempotency-Key': crypto.randomUUID() },
+      data: { ...fixture.input, firstKnownAt: null } })
+    expect(forbidden.status()).toBe(403)
+    expect((await forbidden.json()).code).toBe('forbidden')
+    expect((await (await pms.get('/api/signals?status=All')).json() as SignalView[]).some(value => value.sourceId === fixture.input.externalId)).toBe(false)
+    await page.getByRole('navigation').getByRole('button', { name: 'Fallakten', exact: true }).click()
+    await fillSignalDocument(page, fixture)
+    await page.evaluate(() => Reflect.set(window, '__holdSignalDocumentResponse', true))
+    await page.getByRole('region', { name: 'Signaldokument importieren', exact: true })
+      .getByRole('button', { name: 'Original sichern und Quellenreview anlegen', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__heldSignalDocumentStatus'))).toBe(200)
+    await page.getByTitle('Abmelden und mit eigenem getrenntem Konto anmelden', { exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Willkommen bei Cohors', exact: true })).toBeVisible()
+    await page.getByLabel('Benutzername', { exact: true }).fill('pms-cardio.demo')
+    await page.getByLabel('Passwort', { exact: true }).fill(accounts['pms-cardio.demo'])
+    await page.getByRole('button', { name: 'Sicher anmelden', exact: true }).click()
+    await expect(page.getByRole('navigation')).toBeVisible()
+    await page.evaluate(async () => {
+      const release: unknown = Reflect.get(window, '__releaseSignalDocumentResponse')
+      if (typeof release !== 'function') throw new Error('The exact original response must be held.')
+      release()
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    })
+    await expect(page.locator('body')).not.toContainText(fixture.input.title)
+    await expect(page.locator('body')).not.toContainText('Datei tatsächlich eingelesen und als Quellenreview gespeichert')
+    await expect(page.locator('body')).not.toContainText('Importantwort ist nicht')
+    const original = (await (await pms.get('/api/signals?status=All')).json() as SignalView[]).find(value => value.sourceId === fixture.input.externalId)!
+    expect(original.document?.firstKnownAt).toBeNull()
+    expect(original.caseId).toBeNull()
+    expect((await page.request.get(`/api/sources/${original.ownerId}/original?version=${original.ownerVersion}`)).status()).toBe(403)
+    expect((await (await page.request.get('/api/signals?status=All')).json() as SignalView[]).some(value => value.ownerId === original.ownerId)).toBe(false)
+    expect(errors).toEqual([])
+  } finally { await context?.close(); await pms.dispose(); await medical.dispose() }
 })
 
 test('D01: authorized cockpit counts, actual process drilldown, unavailable risk groups and read-only navigation', async ({ playwright, browser, baseURL }) => {

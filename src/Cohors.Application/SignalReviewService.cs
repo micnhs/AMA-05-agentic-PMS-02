@@ -9,8 +9,10 @@ public sealed class SignalReviewService(IStateStore store, IObjectStore objects,
         Guard.Against(status is not ("Rejected" or "ReviewRequired" or "All"), "signal_filter", "Unbekannter Signalfilter.");
         var cases = await store.List<SafetyCase>("case", actor.Products, ct);
         var sources = await store.List<PublicSourceRun>("source", actor.Products, ct);
-        return cases.SelectMany(CaseViews).Concat(sources.SelectMany(SourceViews))
+        var documents = new SignalDocumentLookup(sources);
+        return cases.SelectMany(CaseViews)
             .Where(s => status == "All" || s.Status == status)
+            .Concat(sources.SelectMany(run => SourceViews(run, documents, status)))
             .OrderByDescending(s => s.History.LastOrDefault()?.At ?? s.ReceivedAt)
             .ThenBy(s => s.OwnerId, StringComparer.Ordinal).ThenBy(s => s.SourceId, StringComparer.Ordinal).ToArray();
     }
@@ -65,17 +67,28 @@ public sealed class SignalReviewService(IStateStore store, IObjectStore objects,
             ?? throw new DomainException("not_found", "Quellenlauf fehlt.", 404);
         actor.RequireProduct(run.ProductId);
         var command = Context(run.ProductId);
-        if (await store.Receipt<PublicSourceRun>(command, ct) is { } previous) return Select(SourceViews(previous), input.SourceId);
+        if (await store.Receipt<PublicSourceRun>(command, ct) is { } previous)
+            return await SourceView(previous, input.SourceId, ct);
         var updated = await store.Execute<PublicSourceRun>(command, current =>
         {
             var value = current ?? throw new DomainException("not_found", "Quellenlauf fehlt.", 404);
-            Guard.Against(value.Status != "ReadOnlyMetadata", "signal_source_unavailable", "Nur tatsaechlich gelesene Metadaten koennen triagiert werden.", 409);
+            Guard.Against(value.Status != "ReadOnlyMetadata" && value.Status != SignalDocumentRules.Status,
+                "signal_source_unavailable", "Nur tatsaechlich gelesene Quellen koennen triagiert werden.", 409);
+            if (value.Document is not null || value.Status == SignalDocumentRules.Status) SignalDocumentRules.RequireIntegrity(value);
             var item = value.Items.SingleOrDefault(i => i.ExternalId == input.SourceId)
                 ?? throw new DomainException("signal_missing", "Konkreter Quelldatensatz fehlt.", 404);
             return value with { Version = value.Version + 1, SignalReviews = SignalReviewRules.Decide(value.SignalReviews,
                 kind, id, item.ExternalId, item.ProvenanceHash, Decision(item.ProvenanceHash)) };
         }, ct);
-        return Select(SourceViews(updated), input.SourceId);
+        return await SourceView(updated, input.SourceId, ct);
+    }
+
+    private async Task<SignalView> SourceView(PublicSourceRun run, string sourceId, CancellationToken ct)
+    {
+        var documents = SignalDocumentLookup.IsDocument(run)
+            ? SignalDocumentLookup.ForSource(run, await store.List<PublicSourceRun>("source", [run.ProductId], ct))
+            : new SignalDocumentLookup([]);
+        return Select(SourceViews(run, documents), sourceId);
     }
 
     private static SignalView Select(IEnumerable<SignalView> views, string id) =>
@@ -93,13 +106,21 @@ public sealed class SignalReviewService(IStateStore store, IObjectStore objects,
             SignalReviewRules.Boundary);
     });
 
-    private static IEnumerable<SignalView> SourceViews(PublicSourceRun run) => run.Items.Select(s =>
+    private static IEnumerable<SignalView> SourceViews(PublicSourceRun run, SignalDocumentLookup documents, string status = "All")
     {
-        var state = SignalReviewRules.Find(run.SignalReviews, s.ExternalId, s.ProvenanceHash);
-        return new SignalView("source", run.Id, run.Version, s.ExternalId, run.ProductId, s.Title,
-            run.Source + ":" + s.ExternalId, s.ProvenanceHash, s.Url, run.At, null, null, null,
-            state?.Status ?? "Unreviewed", state?.ReviewReference, state?.History ?? [], s.Summary,
-            "Oeffentliche Vergleichsmetadaten, kein eigener Herstellerfall. Kenntnis eines konkreten Vorkommnisses ist nicht belegt; " +
-            "Abruf-/Publikationszeit wird nicht als Awareness oder Fristbeginn ausgegeben. " + SignalReviewRules.Boundary);
-    });
+        var prepared = documents.Get(run);
+        var document = prepared?.Document;
+        foreach (var s in run.Items)
+        {
+            var state = SignalReviewRules.Find(run.SignalReviews, s.ExternalId, s.ProvenanceHash);
+            if (status != "All" && (state?.Status ?? "Unreviewed") != status) continue;
+            yield return new SignalView("source", run.Id, run.Version, s.ExternalId, run.ProductId, s.Title,
+                run.Source + ":" + s.ExternalId, s.ProvenanceHash, s.Url, run.At, document?.FirstKnownAt, null, null,
+                state?.Status ?? "Unreviewed", state?.ReviewReference, state?.History ?? [], s.Summary,
+                document is not null ? SignalDocumentRules.Boundary + " " + SignalReviewRules.Boundary :
+                "Oeffentliche Vergleichsmetadaten, kein eigener Herstellerfall. Kenntnis eines konkreten Vorkommnisses ist nicht belegt; " +
+                "Abruf-/Publikationszeit wird nicht als Awareness oder Fristbeginn ausgegeben. " + SignalReviewRules.Boundary,
+                document, prepared is null ? null : documents.Matches(prepared));
+        }
+    }
 }

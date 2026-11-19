@@ -2,7 +2,7 @@ using Cohors.Domain;
 
 namespace Cohors.Application;
 
-public sealed class PublicSourceService(IStateStore store, IObjectStore objects, IPublicSourceReader reader,
+public sealed partial class PublicSourceService(IStateStore store, IObjectStore objects, IPublicSourceReader reader,
     TimeProvider clock, PolicyCatalog policies)
 {
     public async Task<PublicSourceRun> Read(string source, ReadPublicSourceCommand input, Actor actor, string key, CancellationToken ct)
@@ -41,6 +41,8 @@ public sealed class PublicSourceService(IStateStore store, IObjectStore objects,
             ?? throw new DomainException("source_missing", "Quellenlauf fehlt.", 404);
         actor.RequireProduct(run.ProductId);
         Guard.Against(run.Version != input.ExpectedVersion, "version_conflict", "Veraltete Quellenversion.", 409);
+        if (run.Document is not null || run.Source == "document" || run.Status == SignalDocumentRules.Status)
+            return await ApproveDocument(run, input, actor, key, ct);
         Guard.Against(run.Status != "ReadOnlyMetadata", "source_not_read", "Nur erfolgreich gelesene Metadaten koennen geprueft werden.");
         Guard.Text(input.Reason, "Klinische Vergleichbarkeit, Produktabgrenzung und Quellenrechte", 40);
         var item = run.Items.SingleOrDefault(i => i.ExternalId == input.ExternalId)

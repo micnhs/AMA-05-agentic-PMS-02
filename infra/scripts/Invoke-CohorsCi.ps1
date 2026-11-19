@@ -49,7 +49,7 @@ function Get-CiBrowserProfiles {
         EudamedConfiguration = @{ project = 'eudamed-configuration'; tests = 2 }
         EudamedDossiers = @{ project = 'eudamed-dossiers'; tests = 3 }
         CockpitCalendar = @{ project = 'cockpit-calendar'; tests = 4 }
-        SignalReview = @{ project = 'signal-review'; tests = 4 }
+        SignalReview = @{ project = 'signal-review'; tests = 6 }
         PhysicalRetention = @{ project = 'physical-retention'; tests = 1 }
     }
 }
@@ -226,7 +226,7 @@ try {
         Assert-Exit 'Chromium installation'
     } finally { Pop-Location }
     $profiles = Get-CiBrowserProfiles
-    [xml]$junit = '<testsuites name="Cohors isolated Hosted CI, derived aggregate: 11 projects / 32 required cases" tests="0" failures="0" skipped="0" errors="0" time="0" />'
+    [xml]$junit = '<testsuites name="Cohors isolated Hosted CI, derived aggregate: 11 projects / 34 required cases" tests="0" failures="0" skipped="0" errors="0" time="0" />'
     $reportedProfiles = 0
     foreach ($profile in $profiles.Keys) {
         $artifacts = Join-Path $browserRoot $profile
@@ -261,8 +261,8 @@ try {
         $junit.Save($junitPath)
         if (-not $browserCleanupProven) { break }
     }
-    if ($reportedProfiles -ne $profiles.Count -or [int]$junit.DocumentElement.GetAttribute('tests') -ne 32) {
-        throw 'Browser acceptance is incomplete: all 11 existing projects and all 32 cases are required.'
+    if ($reportedProfiles -ne $profiles.Count -or [int]$junit.DocumentElement.GetAttribute('tests') -ne 34) {
+        throw 'Browser acceptance is incomplete: all 11 existing projects and all 34 cases are required.'
     }
     if (-not $executionErrors.Count -and -not $cleanupErrors.Count) {
         & (Join-Path $PSScriptRoot 'Test-CohorsResults.ps1') -TrxPath $trxPath -JUnitPath $junitPath
