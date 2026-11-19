@@ -134,14 +134,28 @@ journal recovery. The Python CLI requires this allowance and persists a one-use
 claim before network I/O and a bound result before output, under a fixed private
 deployment directory. Unknown outcomes never refund or recreate the claim.
 Cross-language wire/hash compatibility and replay/deadline cases belong to the
-existing credential-free hosted lane, not native acceptance. Trusted Guest
-Agent file delivery, actual execution/readback reconciliation and independent
-stop remain unintegrated. No new paid partial apply or cloud call is introduced.
+existing credential-free hosted lane, not native acceptance. The source Managed
+Run Command component now persists the original inline delivery intent, checks
+the own Linux VM generation, enabled Guest Agent/extensions and ready/running
+instance view, and advances only the original command under the existing
+request budget and receiver deadline. It materializes protected hash-bound
+files, invokes the verify-only receiver and requires actual execution status,
+exit code, timestamps and complete bound output rather than accepting
+provisioning success. Unknown creates never replay; changed generation,
+script/output channels or result hashes block progression. The separate
+command-inventory cleanup admits only the original VM GET and exact command
+GET/DELETE, keeps uncertain operations pending and persists fresh endpoint
+absence using the original cleanup tail. It does not claim process termination,
+effective revocation or Blob/VM teardown. Source fake-provider and actual
+generated-Python filesystem cases use only the existing hosted lane. Real
+Guest Agent delivery/result observation, B5, complete driver composition and
+independent stop remain unintegrated. No paid partial apply or cloud call is
+introduced.
 Final C1 binding now also requires the publication plan/readback and refuses a
 cleanup-fenced, expired or unresolved-delete journal rather than reusing its
 retained historical resource receipts as runnable state. It additionally requires
-the receiver allocation and a future actual stage receipt; preparing a bundle
-alone cannot satisfy the final delivery boundary.
+the receiver allocation, original command intent/inventory and actual stage
+receipt; preparing a bundle alone cannot satisfy the final delivery boundary.
 B5 access selection has now been explicitly extended to an own Point-to-Site
 VPN gateway into this variant's own Azure VNet/private endpoints, together with
 an own Azure Firewall. The earlier unanswered choice is superseded, not a

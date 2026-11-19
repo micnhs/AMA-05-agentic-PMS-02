@@ -728,16 +728,66 @@ hash, without changing global audit serialization; the hosted source tests pass
 the actual .NET bundle to the Python validator. These are synthetic transport
 and filesystem checks, not a guest execution or an effective-access proof.
 
-The publication profile is not yet exported by a complete driver. Trusted Guest
-Agent delivery of the receiver/profile/allowance, FQDN egress, provider execution
-and durable result reconciliation, independent
-stop and ordered Blob/VM teardown remain unintegrated. The worker still uses
-only its own IMDS identity; no user bearer, GitHub credential, SAS or storage
-key is part of its profile or payload.
+`AdvancePrivateArtifactDelivery` adds a source-level Managed Run Command
+component for that original bundle. Before the command GET/PUT, it freshly
+checks the original VM instance/system identity, explicit Linux/Guest-Agent/
+extension settings, running power state and ready Guest Agent >= 2.4.0.2.
+The complete inline script, VM generation and allocation receipt are persisted
+before command I/O. It creates at most the one original
+`runCommands/c1-stage-{invocationId}` resource through ARM 2024-07-01; it does not
+use a script URI, storage key/SAS, output Blob, alternate run-as account or user
+bearer. The existing original control budget and receiver deadline bound every
+request, including a recheck after debit persistence. There is no separate
+polling budget or automatic create retry. An unknown create plus 404 stays
+pending; a matching unjournaled resource is not adopted.
+
+The generated inline Python writes the original profile, allowance and two
+hash-bound tools only to the fixed own owner-only Linux directory. Existing
+files must be byte-identical, private, regular and unlinked; writes and reused
+files are fsynced. The original timer also covers materialization/import before
+the receiver's own one-use timer takes over. The receiver still verifies and
+extracts without executing the package. Native delivery refuses CI; a source
+test runs only the actual generated file-materialization function in a private
+temporary test directory, not the native receiver or an Azure operation.
+
+Provisioning `Succeeded` alone never verifies reception. Fresh expanded
+instance view must report execution `Succeeded`, exit code zero, no error and
+start/end within the original window. Its complete JSON output must fit the
+provider's 4 KiB tail and bind all original archive/profile/allowance/invocation
+hashes, the private connected/resolved addresses, exactly two HTTP requests,
+zero retries and no payload execution. Duplicate, truncated, oversized,
+changed or incomplete results are rejected. Only the persisted bound result
+produces `VerifiedNotExecuted`; uncertain saves fence I/O until original-journal
+recovery. Previously observed non-default execution start times cannot change.
+
+`CleanupPrivateArtifactDelivery` is deliberately command-inventory-only. It
+checks the original VM generation, reads the exact original command before
+DELETE and requires a fresh 404 afterwards. Only the parent VM GET and that
+specific command's GET/DELETE are admitted; operation-location URLs are not
+followed. Unknown creates/deletes only reconcile, without repeated deletion or
+adoption of a replacement. It uses the original cleanup reserve/deadline even
+after the receiver window expires. ARM endpoint absence is **not** a proved
+worker stop, effective permission revocation, VM/artifact-data cleanup or
+complete C1 teardown. A privileged concurrent writer is not fenced by these
+ARM inventory checks.
+
+These are source/fake-provider and filesystem contracts, not actual Guest Agent
+execution, private transport or B5 evidence. The publication profile is not yet
+exported by a complete driver; native FQDN egress, execution/result persistence,
+independent stop and ordered Blob/VM teardown still need complete-driver
+integration and real readbacks. The worker still uses only its own IMDS
+identity; no user bearer, GitHub credential, SAS or storage key is part of its
+profile or payload. Managed Run Command does not supply delegated notebook
+authoring or the selected operator P2S connection.
 There is no new runnable partial paid `apply`.
 References: [conditional Blob publication](https://learn.microsoft.com/rest/api/storageservices/put-blob),
 [exact Blob path conditions](https://learn.microsoft.com/azure/storage/blobs/storage-auth-abac-examples#blob-container-names-or-paths)
 and [conditional user/service-principal role assignments](https://learn.microsoft.com/azure/role-based-access-control/conditions-role-assignments-cli).
+Managed command contracts:
+[Linux requirements, execution status and output limits](https://learn.microsoft.com/azure/virtual-machines/linux/run-command-managed),
+[create/update 200/201](https://learn.microsoft.com/rest/api/compute/virtual-machine-run-commands/create-or-update?view=rest-compute-2024-07-01),
+[VM-scoped GET with instance view](https://learn.microsoft.com/rest/api/compute/virtual-machine-run-commands/get-by-virtual-machine?view=rest-compute-2024-07-01)
+and [delete 200/202/204](https://learn.microsoft.com/rest/api/compute/virtual-machine-run-commands/delete?view=rest-compute-2024-07-01).
 
 ## Fork and isolation
 

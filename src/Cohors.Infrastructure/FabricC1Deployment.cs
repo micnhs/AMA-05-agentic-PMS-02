@@ -316,6 +316,7 @@ public sealed partial class FabricC1Provisioner
             "Microsoft.Network/firewallPolicies/ruleCollectionGroups/write", "Microsoft.Network/virtualNetworkGateways/write",
             "Microsoft.Network/routeTables/write", "Microsoft.Network/networkSecurityGroups/write", "Microsoft.Network/publicIPAddresses/write",
             "Microsoft.Network/privateDnsZones/write", "Microsoft.Compute/virtualMachines/write",
+            "Microsoft.Compute/virtualMachines/instanceView/read",
             "Microsoft.Compute/virtualMachines/runCommands/read", "Microsoft.Compute/virtualMachines/runCommands/write",
             "Microsoft.Compute/virtualMachines/runCommands/delete",
             "Microsoft.Authorization/roleAssignments/read", "Microsoft.Authorization/roleAssignments/write",
@@ -638,7 +639,8 @@ public sealed partial class FabricC1Provisioner
             "published-definition", "runtime-agent-grant", "source-grants", "materialization",
             "runtime-credential", "hosted-version", "hosted-session", "private-path", "caller-access",
             "checkpoint-storage-role", "checkpoint-storage-runtime-grant", "checkpoint-storage-control-grant",
-            ArtifactPlanKey, ArtifactPublicationKey, ArtifactAccessTargetKey, ArtifactStageKey, "private-artifact-stage-receipt",
+            ArtifactPlanKey, ArtifactPublicationKey, ArtifactAccessTargetKey, ArtifactStageKey,
+            ArtifactCommandIntentKey, ArtifactCommandKey, ArtifactStageReceiptKey,
             "artifact-storage-publisher-role", "artifact-storage-receiver-role",
             "artifact-storage-publisher-grant", "artifact-storage-receiver-grant" })
             Guard.Against(!state.Objects.ContainsKey(key), "c1_deploy_binding_incomplete",
@@ -873,7 +875,7 @@ public sealed partial class FabricC1Provisioner
         }
     }
     private async Task<FabricC1DeploymentReply> Send(HttpMethod method, Uri uri, JsonObject? body = null,
-        string? ifMatch = null, CancellationToken ct = default, bool cleanup = false)
+        string? ifMatch = null, CancellationToken ct = default, bool cleanup = false, DateTimeOffset? operationDeadlineUtc = null)
     {
         RequireCertainCheckpointJournal();
         Guard.Against(!FabricC1Deployment.ValidCleanupLimits(input), "c1_deploy_cleanup_limits",
@@ -884,14 +886,18 @@ public sealed partial class FabricC1Provisioner
         {
             Guard.Against(uri.Scheme != "https" || !uri.IsDefaultPort || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 ||
                 body is not null || method != HttpMethod.Get && method != HttpMethod.Delete ||
-                uri.IdnHost != "graph.microsoft.com" && !IsCheckpointAccessCleanupUri(uri) && !IsArtifactAccessCleanupUri(uri),
-                "c1_deploy_cleanup_scope", "Cleanup can only read/delete its bound Graph or original storage access inventory.", 409);
+                uri.IdnHost != "graph.microsoft.com" && !IsCheckpointAccessCleanupUri(uri) && !IsArtifactAccessCleanupUri(uri) &&
+                    !IsArtifactCommandCleanupUri(method, uri),
+                "c1_deploy_cleanup_scope", "Cleanup can only read/delete its bound Graph, original storage access or exact Run Command inventory.", 409);
             (next, deadline) = PlanCleanupRequests(1);
         }
         else
         {
             (next, deadline) = PlanNormalRequests(1);
         }
+        if (operationDeadlineUtc is { } operationDeadline && operationDeadline < deadline) deadline = operationDeadline;
+        Guard.Against(time.GetUtcNow() >= deadline, cleanup ? "c1_deploy_cleanup_budget" : "c1_deploy_budget",
+            "The original control or operation deadline elapsed before intent persistence.", 409);
         SaveJournal(next);
         state = next;
         var remaining = deadline - time.GetUtcNow();

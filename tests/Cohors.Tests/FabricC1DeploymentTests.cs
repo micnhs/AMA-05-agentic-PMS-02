@@ -1489,6 +1489,429 @@ public sealed class FabricC1DeploymentTests
         await PublishArtifactForStage(run, artifact);
         artifact.QueueStageIdentity();
         var bundle = await artifact.PrepareStage();
+        await AssertPythonContract(
+            "import json,sys,c1_private_stage as s; d=json.load(sys.stdin); s.validate_allowance(d['profile'],d['allowance'],s.utc(d['now'])); assert s.stage_directory(d['profile']).as_posix()==d['workerDirectory']",
+            new
+            {
+                bundle.Profile, bundle.Allowance, bundle.WorkerDirectory,
+                Now = run.Clock.GetUtcNow().UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
+            });
+    }
+
+    [Fact]
+    public async Task ManagedDeliveryRequiresExecutionResultRatherThanProvisioningSuccessAndDoesNotRerunOnResume()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        run.Api.ReplyComputed(201, () => artifact.Command("Pending", defaultStart: true));
+        run.Api.ReplyComputed(200, () => artifact.Command("Running"));
+        var first = await artifact.Deliver();
+        Assert.False(first.ArtifactVerified);
+        Assert.Equal("Pending", first.Status);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-artifact-stage-receipt"));
+        var stage = Canonical.Hash(run.Store.Current.Objects["private-artifact-stage-plan"]);
+        var intent = Canonical.Hash(run.Store.Current.Objects["private-artifact-stage-command-intent"]);
+        var completed = artifact.Command("Succeeded");
+        run.Restart();
+        artifact.QueueGuestAgent();
+        run.Api.Reply(200, completed);
+        var result = await artifact.Deliver();
+        Assert.True(result.ArtifactVerified);
+        Assert.False(result.Receipt!["result"]!["payloadExecuted"]!.GetValue<bool>());
+        Assert.Equal(stage, result.AllocationReceiptSha256);
+        Assert.Equal(stage, Canonical.Hash(run.Store.Current.Objects["private-artifact-stage-plan"]));
+        Assert.Equal(intent, Canonical.Hash(run.Store.Current.Objects["private-artifact-stage-command-intent"]));
+        artifact.QueueGuestAgent();
+        run.Api.Reply(200, completed);
+        Assert.Equal(Canonical.Hash(result), Canonical.Hash(await artifact.Deliver()));
+        Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Put &&
+            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task LostManagedCreateAllowsOnlyOriginalReadbackAndNeverReplaysThePut()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        run.Api.Fail(new IOException("synthetic lost command create response"));
+        await Assert.ThrowsAsync<IOException>(() => artifact.Deliver());
+        run.Restart();
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        Assert.Equal("Pending", (await artifact.Deliver()).Status);
+        Assert.True(run.Store.Current!.PendingCreates.ContainsKey("private-artifact-stage-command"));
+        artifact.QueueGuestAgent();
+        run.Api.ReplyComputed(200, () => artifact.Command("Succeeded"));
+        Assert.True((await artifact.Deliver()).ArtifactVerified);
+        Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Put &&
+            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task MatchingButUnjournaledRunCommandIsNotAdoptedOrDeleted()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.ReplyComputed(200, () => artifact.Command("Succeeded"));
+        Assert.Equal("c1_deploy_foreign", (await Assert.ThrowsAsync<DomainException>(() => artifact.Deliver())).Code);
+        var calls = run.Api.Requests.Count;
+        Assert.Equal("ArtifactCommandNotManaged", (await run.Provisioner.CleanupPrivateArtifactDelivery(default)).Status);
+        Assert.Equal(calls, run.Api.Requests.Count);
+    }
+
+    [Fact]
+    public async Task UncertainCommandResultSaveFencesIoUntilOriginalJournalRecovery()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, new());
+        run.Api.ReplyComputed(200, () =>
+        {
+            run.Store.FailAfterSave = true;
+            return artifact.Command("Succeeded");
+        });
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown",
+            (await Assert.ThrowsAsync<DomainException>(() => artifact.Deliver())).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-artifact-stage-receipt"));
+        var calls = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown",
+            (await Assert.ThrowsAsync<DomainException>(() => artifact.Deliver())).Code);
+        Assert.Equal(calls, run.Api.Requests.Count);
+        run.Store.FailAfterSave = false;
+        run.Restart();
+        artifact.QueueGuestAgent();
+        run.Api.ReplyComputed(200, () => artifact.Command("Succeeded"));
+        Assert.True((await artifact.Deliver()).ArtifactVerified);
+        Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Put &&
+            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal)));
+    }
+
+    [Theory]
+    [InlineData("Failed")]
+    [InlineData("TimedOut")]
+    [InlineData("Canceled")]
+    public async Task FailedCommandRetainsCleanupInventoryButNeverAnArtifactReceipt(string execution)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, new());
+        run.Api.ReplyComputed(200, () => artifact.Command(execution));
+        Assert.Equal("c1_artifact_command_failed", (await Assert.ThrowsAsync<DomainException>(() => artifact.Deliver())).Code);
+        Assert.True(run.Store.Current!.Objects.ContainsKey("private-artifact-stage-command"));
+        Assert.False(run.Store.Current.Objects.ContainsKey("private-artifact-stage-receipt"));
+    }
+
+    [Theory]
+    [InlineData("old-agent")]
+    [InlineData("not-ready")]
+    [InlineData("not-running")]
+    [InlineData("extensions-disabled")]
+    [InlineData("not-linux")]
+    public async Task UnsupportedGuestAgentCannotStartDelivery(string change)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        var vm = (JsonObject)artifact.Probe.DeepClone();
+        var instance = ArtifactHarness.GuestAgent();
+        switch (change)
+        {
+            case "old-agent": instance["vmAgent"]!["vmAgentVersion"] = "2.4.0.1"; break;
+            case "not-ready": instance["vmAgent"]!["statuses"]![0]!["code"] = "ProvisioningState/failed"; break;
+            case "not-running": instance["statuses"]![0]!["code"] = "PowerState/deallocated"; break;
+            case "extensions-disabled": vm["properties"]!["osProfile"]!["allowExtensionOperations"] = false; break;
+            case "not-linux": vm["properties"]!["storageProfile"]!["osDisk"]!["osType"] = "Windows"; break;
+        }
+        run.Api.Reply(200, vm);
+        run.Api.Reply(200, instance);
+        Assert.Equal("c1_artifact_guest_agent", (await Assert.ThrowsAsync<DomainException>(() => artifact.Deliver())).Code);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("nonzero-exit")]
+    [InlineData("error-output")]
+    [InlineData("truncated")]
+    [InlineData("oversized")]
+    [InlineData("duplicate")]
+    [InlineData("profile")]
+    [InlineData("allowance")]
+    [InlineData("archive")]
+    [InlineData("invocation")]
+    [InlineData("public-address")]
+    [InlineData("unobserved-connection")]
+    [InlineData("executed-payload")]
+    public async Task ManagedDeliveryRejectsIncompleteOrUnboundResults(string change)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, new());
+        run.Api.ReplyComputed(200, () =>
+        {
+            var command = artifact.Command("Succeeded");
+            var view = command["properties"]!["instanceView"]!;
+            var output = JsonNode.Parse(view["output"]!.GetValue<string>())!.AsObject();
+            switch (change)
+            {
+                case "nonzero-exit": view["exitCode"] = 1; break;
+                case "error-output": view["error"] = "synthetic receiver error"; break;
+                case "profile": output["profileSha256"] = new string('0', 64); break;
+                case "allowance": output["allowanceSha256"] = new string('0', 64); break;
+                case "archive": output["archiveSha256"] = new string('0', 64); break;
+                case "invocation": output["invocationId"] = Guid.NewGuid().ToString("D"); break;
+                case "public-address": output["privateTransport"]!["resolvedAddresses"]![0] = "8.8.8.8"; break;
+                case "unobserved-connection": output["privateTransport"]!["connectedAddress"] = "10.0.0.99"; break;
+                case "executed-payload": output["payloadExecuted"] = true; break;
+            }
+            var json = Canonical.Serialize(output);
+            view["output"] = change switch
+            {
+                "truncated" => json[..^1],
+                "oversized" => json + new string(' ', 4096),
+                "duplicate" => "{\"status\":\"VerifiedNotExecuted\"," + json[1..],
+                _ => json
+            };
+            return command;
+        });
+        Assert.Equal("c1_artifact_stage_result", (await Assert.ThrowsAsync<DomainException>(() => artifact.Deliver())).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-artifact-stage-receipt"));
+    }
+
+    [Theory]
+    [InlineData("script")]
+    [InlineData("parameters")]
+    [InlineData("external-output")]
+    [InlineData("resource-id")]
+    [InlineData("restart")]
+    public async Task ChangedCommandCannotReplaceAnOriginalSuccessfulReceipt(string change)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await CompleteArtifactDelivery(run, artifact);
+        var original = Canonical.Hash(run.Store.Current!.Objects["private-artifact-stage-receipt"]);
+        var observed = Canonical.Hash(run.Store.Current.Objects["private-artifact-stage-command"]);
+        var command = artifact.Command("Succeeded");
+        switch (change)
+        {
+            case "script": command["properties"]!["source"]!["script"] = "exit 0"; break;
+            case "parameters": command["properties"]!["parameters"] = new JsonArray(new JsonObject { ["name"] = "foreign", ["value"] = "value" }); break;
+            case "external-output": command["properties"]!["outputBlobUri"] = "https://example.test/foreign-output"; break;
+            case "resource-id": command["id"] = command["id"]!.GetValue<string>() + "-replacement"; break;
+            case "restart": command["properties"]!["instanceView"]!["startTime"] = "2026-11-18T12:00:01Z"; break;
+        }
+        artifact.QueueGuestAgent();
+        run.Api.Reply(200, command);
+        Assert.Equal(change == "restart" ? "c1_deploy_drift" : "c1_artifact_command_binding",
+            (await Assert.ThrowsAsync<DomainException>(() => artifact.Deliver())).Code);
+        Assert.Equal(original, Canonical.Hash(run.Store.Current.Objects["private-artifact-stage-receipt"]));
+        Assert.Equal(observed, Canonical.Hash(run.Store.Current.Objects["private-artifact-stage-command"]));
+    }
+
+    [Fact]
+    public async Task ReceiverSubdeadlineIsRecheckedAfterControlIntentPersistenceBeforeProviderIo()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        var requests = run.Store.Current!.Requests;
+        var calls = run.Api.Requests.Count;
+        run.Store.AfterSave = state =>
+        {
+            if (state.Requests == requests + 1) run.Clock.Advance(TimeSpan.FromSeconds(60));
+        };
+        Assert.Equal("c1_deploy_budget", (await Assert.ThrowsAsync<DomainException>(() => artifact.Deliver())).Code);
+        Assert.Equal(calls, run.Api.Requests.Count);
+        Assert.Equal(requests + 1, run.Store.Current.Requests);
+        Assert.False(run.Store.Current.PendingCreates.ContainsKey("private-artifact-stage-command"));
+    }
+
+    [Fact]
+    public async Task ExpiredReceiverCanCleanUpOnlyItsExactCommandWithoutClaimingWorkerStop()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await CompleteArtifactDelivery(run, artifact);
+        run.Clock.Advance(TimeSpan.FromSeconds(61));
+        var requests = run.Store.Current!.Requests;
+        run.Api.Reply(200, artifact.Probe);
+        run.Api.Reply(200, artifact.Command("Succeeded"));
+        run.Api.Reply(202, new(), operationUrl: "https://example.test/untrusted-operation");
+        run.Api.Reply(404, new());
+        var result = await run.Provisioner.CleanupPrivateArtifactDelivery(default);
+        Assert.Equal("ArtifactCommandInventoryAbsent", result.Status);
+        Assert.False(result.WorkersStopped);
+        Assert.False(result.ArtifactDataDeleted);
+        Assert.False(result.CompleteC1Cleanup);
+        Assert.Equal(requests, run.Store.Current.Requests);
+        Assert.Equal(4, run.Store.Current.CleanupRequests);
+        var deletion = Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Delete));
+        Assert.Equal("https://management.azure.com" + result.CommandResourceId + "?api-version=2024-07-01", deletion.Uri.AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task LostCommandDeletionIsReconciledWithoutRepeatedDelete()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await CompleteArtifactDelivery(run, artifact);
+        run.Api.Reply(200, artifact.Probe);
+        run.Api.Reply(200, artifact.Command("Succeeded"));
+        run.Api.Fail(new IOException("synthetic unknown command deletion"));
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.CleanupPrivateArtifactDelivery(default));
+        var started = run.Store.Current!.CleanupStartedAtUtc;
+        run.Restart();
+        run.Api.Reply(200, artifact.Probe);
+        run.Api.Reply(200, artifact.Command("Succeeded"));
+        Assert.Equal("ArtifactCommandCleanupPendingReconciliation", (await run.Provisioner.CleanupPrivateArtifactDelivery(default)).Status);
+        run.Api.Reply(200, artifact.Probe);
+        run.Api.Reply(404, new());
+        Assert.Equal("ArtifactCommandInventoryAbsent", (await run.Provisioner.CleanupPrivateArtifactDelivery(default)).Status);
+        Assert.Equal(started, run.Store.Current.CleanupStartedAtUtc);
+        Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Delete));
+    }
+
+    [Fact]
+    public async Task UnknownCommandCreationPlusNotFoundIsNotAnAbsenceReceipt()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        run.Api.Fail(new IOException("synthetic unknown command create"));
+        await Assert.ThrowsAsync<IOException>(() => artifact.Deliver());
+        run.Api.Reply(200, artifact.Probe);
+        run.Api.Reply(404, new());
+        Assert.Equal("ArtifactCommandCleanupPendingReconciliation", (await run.Provisioner.CleanupPrivateArtifactDelivery(default)).Status);
+        Assert.False(run.Store.Current!.CleanupReceipts.ContainsKey("private-artifact-stage-command"));
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task CommandCleanupRefusesAReplacedVmBeforeReadingOrDeletingItsCommand()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await CompleteArtifactDelivery(run, artifact);
+        var vm = (JsonObject)artifact.Probe.DeepClone();
+        vm["properties"]!["vmId"] = Guid.NewGuid().ToString("D");
+        var calls = run.Api.Requests.Count;
+        run.Api.Reply(200, vm);
+        Assert.Equal("c1_artifact_access_receiver",
+            (await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.CleanupPrivateArtifactDelivery(default))).Code);
+        Assert.Equal(calls + 1, run.Api.Requests.Count);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task ActualGeneratedDeliveryPythonMaterializesOnlyBoundPrivateFilesAndRefusesNativeCiExecution()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, new());
+        run.Api.ReplyComputed(200, () => artifact.Command("Running"));
+        await artifact.Deliver();
+        var intent = run.Store.Current!.Objects["private-artifact-stage-command-intent"];
+        await AssertPythonContract("""
+            import base64, contextlib, copy, io, json, os, pathlib, sys, tempfile
+            data = json.load(sys.stdin)
+            script = data["script"]
+            prefix = "set -eu\numask 077\nexec python3 -I - <<'COHORS_C1_STAGE_DELIVERY'\n"
+            suffix = "\nCOHORS_C1_STAGE_DELIVERY\n"
+            assert script.startswith(prefix) and script.endswith(suffix)
+            module = {"__name__": "delivery_contract"}
+            exec(compile(script[len(prefix):-len(suffix)], "<actual-delivery>", "exec"), module)
+            payload = json.loads(base64.b64decode(module["PAYLOAD_BASE64"], validate=True))
+            def fails(callback):
+                try:
+                    callback()
+                except (ValueError, OSError):
+                    return
+                raise AssertionError("unsafe materialization succeeded")
+            with tempfile.TemporaryDirectory() as temporary:
+                base = pathlib.Path(temporary) / "worker"
+                module["BASE_DIRECTORY"] = base
+                root = module["materialize"](payload)
+                assert root == base / payload["profile"]["deploymentBindingHash"] / "artifact-stage"
+                assert root.stat().st_mode & 0o777 == 0o700
+                expected = {
+                    "profile.json": module["encoded"](payload["profile"]),
+                    "allowance.json": module["encoded"](payload["allowance"]),
+                    "c1_private_stage.py": base64.b64decode(payload["receiver"]),
+                    "c1_package.py": base64.b64decode(payload["verifier"]),
+                }
+                assert {path.name for path in root.iterdir()} == set(expected)
+                for name, content in expected.items():
+                    assert (root / name).read_bytes() == content
+                    assert (root / name).stat().st_mode & 0o777 == 0o600
+                assert module["materialize"](payload) == root
+                profile = root / "profile.json"
+                profile.chmod(0o644)
+                fails(lambda: module["materialize"](payload))
+                profile.chmod(0o600)
+                profile.write_bytes(b"changed")
+                fails(lambda: module["materialize"](payload))
+                assert profile.read_bytes() == b"changed"
+                profile.write_bytes(expected["profile.json"])
+                link = root / "extra-link"
+                os.link(profile, link)
+                fails(lambda: module["materialize"](payload))
+                link.unlink()
+                profile.unlink()
+                profile.symlink_to(root / "allowance.json")
+                fails(lambda: module["materialize"](payload))
+                profile.unlink()
+                module["materialize"](payload)
+                fsync = os.fsync
+                def unavailable_fsync(_):
+                    raise OSError("synthetic uncertain persistence")
+                os.fsync = unavailable_fsync
+                try:
+                    fails(lambda: module["materialize"](payload))
+                finally:
+                    os.fsync = fsync
+                bad = copy.deepcopy(payload)
+                bad["receiver"] = base64.b64encode(b"unbound tool").decode()
+                module["BASE_DIRECTORY"] = pathlib.Path(temporary) / "never-created"
+                fails(lambda: module["materialize"](bad))
+                assert not module["BASE_DIRECTORY"].exists()
+                previous = os.environ.get("GITHUB_ACTIONS")
+                os.environ["GITHUB_ACTIONS"] = "true"
+                try:
+                    with contextlib.redirect_stderr(io.StringIO()) as error:
+                        assert module["main"]() == 2
+                    assert json.loads(error.getvalue())["code"] == "c1_stage_delivery_incomplete"
+                    assert not module["BASE_DIRECTORY"].exists()
+                finally:
+                    if previous is None:
+                        del os.environ["GITHUB_ACTIONS"]
+                    else:
+                        os.environ["GITHUB_ACTIONS"] = previous
+            """, new { Script = intent.Response["request"]!["properties"]!["source"]!["script"]!.GetValue<string>() });
+    }
+
+    private static async Task AssertPythonContract(string script, object data)
+    {
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
         var start = new ProcessStartInfo
         {
@@ -1498,18 +1921,14 @@ public sealed class FabricC1DeploymentTests
         };
         start.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
         start.ArgumentList.Add("-c");
-        start.ArgumentList.Add("import json,sys,c1_private_stage as s; d=json.load(sys.stdin); s.validate_allowance(d['profile'],d['allowance'],s.utc(d['now'])); assert s.stage_directory(d['profile']).as_posix()==d['workerDirectory']");
+        start.ArgumentList.Add(script);
         using var process = Process.Start(start)!;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var error = process.StandardError.ReadToEndAsync(timeout.Token);
         var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
         try
         {
-            var input = JsonSerializer.Serialize(new
-            {
-                bundle.Profile, bundle.Allowance, bundle.WorkerDirectory,
-                Now = run.Clock.GetUtcNow().UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
-            }, Canonical.Json);
+            var input = JsonSerializer.Serialize(data, Canonical.Json);
             await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token);
             await process.StandardInput.FlushAsync(timeout.Token);
             process.StandardInput.Close();
@@ -3986,12 +4405,14 @@ public sealed class FabricC1DeploymentTests
         public FabricC1DeploymentJournal? Current;
         public bool FailSave;
         public bool FailAfterSave;
+        public Action<FabricC1DeploymentJournal>? AfterSave;
         public FabricC1DeploymentJournal? Load() => Current is null ? null :
             JsonSerializer.Deserialize<FabricC1DeploymentJournal>(JsonSerializer.Serialize(Current, Canonical.Json), Canonical.Json);
         public void Save(FabricC1DeploymentJournal state)
         {
             if (FailSave) throw new IOException("synthetic journal failure");
             Current = JsonSerializer.Deserialize<FabricC1DeploymentJournal>(JsonSerializer.Serialize(state, Canonical.Json), Canonical.Json);
+            AfterSave?.Invoke(Current!);
             if (FailAfterSave) throw new IOException("synthetic lost journal acknowledgement");
         }
     }
@@ -4084,7 +4505,16 @@ public sealed class FabricC1DeploymentTests
                 {
                     ["type"] = "SystemAssigned", ["tenantId"] = run.Input.TenantId, ["principalId"] = Guid.NewGuid().ToString("D")
                 },
-                ["properties"] = new JsonObject { ["vmId"] = Guid.NewGuid().ToString("D"), ["provisioningState"] = "Succeeded" }
+                ["properties"] = new JsonObject
+                {
+                    ["vmId"] = Guid.NewGuid().ToString("D"), ["provisioningState"] = "Succeeded",
+                    ["storageProfile"] = new JsonObject { ["osDisk"] = new JsonObject { ["osType"] = "Linux" } },
+                    ["osProfile"] = new JsonObject
+                    {
+                        ["allowExtensionOperations"] = true,
+                        ["linuxConfiguration"] = new JsonObject { ["provisionVMAgent"] = true }
+                    }
+                }
             };
             foundation["properties"]!["outputs"]!["probe"] = new JsonObject { ["value"] = Probe.DeepClone() };
             run.Seed("arm-foundation", "ArmDeployment", foundation);
@@ -4158,6 +4588,63 @@ public sealed class FabricC1DeploymentTests
 
         public Task<FabricC1ArtifactStageBundle> PrepareStage() =>
             run.Provisioner.PreparePrivateArtifactStage(Binding, Directory, 60, default);
+
+        public static JsonObject GuestAgent() => new()
+        {
+            ["vmAgent"] = new JsonObject
+            {
+                ["vmAgentVersion"] = "2.4.0.2",
+                ["statuses"] = new JsonArray(new JsonObject { ["code"] = "ProvisioningState/succeeded" })
+            },
+            ["statuses"] = new JsonArray(new JsonObject { ["code"] = "PowerState/running" })
+        };
+
+        public void QueueGuestAgent()
+        {
+            run.Api.Reply(200, Probe);
+            run.Api.Reply(200, GuestAgent());
+        }
+
+        public Task<FabricC1ArtifactDeliveryResult> Deliver() =>
+            run.Provisioner.AdvancePrivateArtifactDelivery(Binding, Directory, 60, default);
+
+        public JsonObject Command(string execution, bool defaultStart = false)
+        {
+            var stage = run.Store.Current!.Objects["private-artifact-stage-plan"];
+            var intent = run.Store.Current.Objects["private-artifact-stage-command-intent"];
+            var profile = stage.Response["profile"]!;
+            var allowance = (JsonObject)stage.Response["allowance"]!.DeepClone();
+            allowance["journalReceiptSha256"] = Canonical.Hash(stage);
+            var result = new JsonObject
+            {
+                ["status"] = "VerifiedNotExecuted", ["contract"] = "cohors-fabric-c1-private-stage-1",
+                ["sourceCommit"] = profile["sourceCommit"]!.DeepClone(), ["runId"] = profile["runId"]!.DeepClone(),
+                ["runAttempt"] = profile["runAttempt"]!.DeepClone(), ["files"] = 2,
+                ["profileSha256"] = allowance["profileSha256"]!.DeepClone(),
+                ["archiveSha256"] = Provenance["innerArchiveSha256"]!.DeepClone(),
+                ["outerArchiveSha256"] = profile["outerArchiveSha256"]!.DeepClone(),
+                ["httpRequests"] = 2, ["retries"] = 0, ["payloadExecuted"] = false,
+                ["invocationId"] = allowance["invocationId"]!.DeepClone(),
+                ["journalReceiptSha256"] = allowance["journalReceiptSha256"]!.DeepClone(),
+                ["allowanceSha256"] = Canonical.HashText(Canonical.Serialize(allowance) + "\n"),
+                ["privateTransport"] = new JsonObject
+                {
+                    ["resolvedAddresses"] = profile["privateAddresses"]!.DeepClone(),
+                    ["connectedAddress"] = profile["privateAddresses"]![0]!.DeepClone()
+                }
+            };
+            var command = (JsonObject)intent.Response["request"]!.DeepClone();
+            command["id"] = intent.Id;
+            command["type"] = "Microsoft.Compute/virtualMachines/runCommands";
+            command["properties"]!["provisioningState"] = "Succeeded";
+            command["properties"]!["instanceView"] = new JsonObject
+            {
+                ["executionState"] = execution, ["exitCode"] = 0, ["error"] = "",
+                ["startTime"] = defaultStart ? "0001-01-01T00:00:00Z" : allowance["startedAtUtc"]!.GetValue<string>(),
+                ["endTime"] = allowance["startedAtUtc"]!.DeepClone(), ["output"] = Canonical.Serialize(result)
+            };
+            return command;
+        }
 
         public void Dispose()
         {
@@ -4308,6 +4795,24 @@ public sealed class FabricC1DeploymentTests
         await CreateArtifactAccessForCleanup(run, artifact);
         artifact.QueueTarget();
         await artifact.Publish();
+    }
+
+    private static async Task PrepareArtifactDelivery(Harness run, ArtifactHarness artifact)
+    {
+        artifact.UseStageArchive();
+        await PublishArtifactForStage(run, artifact);
+        artifact.QueueStageIdentity();
+        await artifact.PrepareStage();
+    }
+
+    private static async Task CompleteArtifactDelivery(Harness run, ArtifactHarness artifact)
+    {
+        await PrepareArtifactDelivery(run, artifact);
+        artifact.QueueGuestAgent();
+        run.Api.Reply(404, new());
+        run.Api.Reply(201, new());
+        run.Api.ReplyComputed(200, () => artifact.Command("Succeeded"));
+        Assert.True((await artifact.Deliver()).ArtifactVerified);
     }
 
     private static (FabricC1ExecutionSettings Execution, FabricC1BlobCheckpointBinding Direct,

@@ -252,9 +252,9 @@
       "properties": {
         "hardwareProfile": { "vmSize": "[parameters('compute').size]" },
         "osProfile": {
-          "computerName": "cohors-c1", "adminUsername": "c1operator",
+          "computerName": "cohors-c1", "adminUsername": "c1operator", "allowExtensionOperations": true,
           "linuxConfiguration": {
-            "disablePasswordAuthentication": true,
+            "disablePasswordAuthentication": true, "provisionVMAgent": true,
             "ssh": { "publicKeys": [{ "path": "/home/c1operator/.ssh/authorized_keys", "keyData": "[parameters('compute').sshPublicKey]" }] }
           }
         },
@@ -263,7 +263,7 @@
             "publisher": "[parameters('compute').imagePublisher]", "offer": "[parameters('compute').imageOffer]",
             "sku": "[parameters('compute').imageSku]", "version": "[parameters('compute').imageVersion]"
           },
-          "osDisk": { "createOption": "FromImage", "deleteOption": "Delete", "managedDisk": { "storageAccountType": "StandardSSD_LRS" } }
+          "osDisk": { "createOption": "FromImage", "osType": "Linux", "deleteOption": "Delete", "managedDisk": { "storageAccountType": "StandardSSD_LRS" } }
         },
         "networkProfile": { "networkInterfaces": [{ "id": "[resourceId('Microsoft.Network/networkInterfaces', concat(parameters('name'), '-nic'))]" }] }
       }

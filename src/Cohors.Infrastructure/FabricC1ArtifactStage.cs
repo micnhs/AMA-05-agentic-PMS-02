@@ -38,6 +38,9 @@ public sealed partial class FabricC1Provisioner
             publicationPlan.RequestHash != Canonical.Hash(publicationPlan.Response) ||
             publication.RequestHash != publicationPlan.RequestHash ||
             publicationPlan.Response["bindingSha256"]?.GetValue<string>() != Canonical.Hash(binding) ||
+            Canonical.Hash(publicationPlan.Response["provenance"]) != Canonical.Hash(package.Provenance) ||
+            publicationPlan.Response["archiveSha256"]?.GetValue<string>() != package.ArchiveSha256 ||
+            publicationPlan.Response["provenanceSha256"]?.GetValue<string>() != binding.DownloadProvenanceSha256 ||
             receipt.PublicationPlanSha256 != publicationPlan.RequestHash || receipt.Endpoint != package.Endpoint.AbsoluteUri ||
             receipt.OuterArchiveSha256 != package.ArchiveSha256 || receipt.OuterArchiveLength != package.ArchiveLength ||
             receipt.CreationId != Text(publicationPlan.Response, "creationId") ||
@@ -117,6 +120,15 @@ public sealed partial class FabricC1Provisioner
     private FabricC1ArtifactStageBundle ExportArtifactStage(FabricC1ProvisionedObject plan, string requestHash)
     {
         PlanNormalRequests(0);
+        var bundle = RestoreArtifactStage(plan, requestHash);
+        Guard.Against(StageTimestamp(bundle.Allowance, "startedAtUtc") > time.GetUtcNow() ||
+            StageTimestamp(bundle.Allowance, "expiresAtUtc") <= time.GetUtcNow(),
+            "c1_artifact_stage_binding", "The original receiver window cannot be renewed.", 409);
+        return bundle;
+    }
+
+    private FabricC1ArtifactStageBundle RestoreArtifactStage(FabricC1ProvisionedObject plan, string requestHash)
+    {
         var response = plan.Response;
         var profile = response["profile"] as JsonObject ??
             throw new DomainException("c1_artifact_stage_binding", "Original receiver profile is missing.", 409);
@@ -126,6 +138,8 @@ public sealed partial class FabricC1Provisioner
             Text(response, "requestSha256") != requestHash || Text(allowance, "invocationId") != plan.Id ||
             Text(allowance, "contract") != ArtifactStageContract || allowance["requests"]?.GetValue<int>() != 2 ||
             Text(allowance, "deploymentBindingHash") != state.BindingHash ||
+            Text(profile, "contract") != "cohors-fabric-c1-private-stage-1" ||
+            Text(profile, "deploymentBindingHash") != state.BindingHash || Text(profile, "sourceCommit") != input.SourceCommit ||
             Text(allowance, "budgetReviewSha256") != input.Reviews!.BudgetPlanSha256 ||
             Text(allowance, "expiresAtUtc") != Text(profile, "expiresAtUtc") ||
             Text(allowance, "profileSha256") != Canonical.HashText(Canonical.Serialize(profile) + "\n") ||
@@ -133,7 +147,9 @@ public sealed partial class FabricC1Provisioner
             Text(profile, "verifierSha256") != Canonical.HashText(Text(response, "verifierSource")) ||
             !DateTimeOffset.TryParse(Text(allowance, "startedAtUtc"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var started) ||
             !DateTimeOffset.TryParse(Text(allowance, "expiresAtUtc"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var expires) ||
-            started > time.GetUtcNow() || expires <= time.GetUtcNow(),
+            started.Offset != TimeSpan.Zero || expires.Offset != TimeSpan.Zero || expires <= started || expires > input.ExpiresAtUtc ||
+            profile["maxDurationSeconds"]?.GetValue<int>() is not (>= 1 and <= 300) ||
+            expires - started > TimeSpan.FromSeconds(profile["maxDurationSeconds"]!.GetValue<int>()),
             "c1_artifact_stage_binding", "A prepared receiver cannot reset its original profile, identity, clock or two-request debit.", 409);
         var exported = (JsonObject)allowance.DeepClone();
         exported["journalReceiptSha256"] = Canonical.Hash(plan);
