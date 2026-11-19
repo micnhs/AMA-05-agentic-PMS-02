@@ -2,6 +2,51 @@
 
 **Arbeitsstand, kein Abschluss der Gesamt- oder Fachabnahme.** Dieser Nachweis wird mit den tatsaechlich ausgefuehrten Paketen fortgeschrieben.
 
+## Browserfolge nach b765: belegte Fixturekorrektur und begrenzte Diagnostik
+
+Der natuerliche [Cohors-CI-Lauf 44490806373](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44490806373),
+Attempt 1, ist an `b765880726c40255d145b1358fea37a83f72b673` gebunden:
+395/395 .NET und 39/39 synthetische Bootstrap-Faelle bestanden.
+Alle elf Browserprofile fuehrten ihre 32 Faelle aus: **26 bestanden,
+sechs fehlgeschlagen, keine Skips**. Appjob `135445619500` und
+Infrajob `135445620024` bleiben negativ; Infra erreichte 56 positive
+Offline-Vertraege und Checkov 186 bestanden / 77 fehlgeschlagen.
+Die 27 allowlistgebundenen Artefaktdateien einschliesslich aller
+22 Profiloriginale sind erhalten. Elf positive Terminal-Cleanupbelege
+sind keine unabhaengige v8/v14-Closure.
+
+Die nachfolgende reine Quellrevision ergaenzt bei C12 den fehlenden
+benannten synthetischen `recipient` mit dem bestehenden
+`InformationRecipient`-Vertrag und identischer `recipientRole`.
+Damit ist die Quelle des zuerst erreichten `422/request_recipient`
+korrigiert, nicht der gesamte C12-Fall als bestanden nachgewiesen.
+Der weitere, im Original noch nicht erreichte C12-Ruecklauf verwendet
+weiterhin den alten Ablauf ohne `Envelope`, bestaetigten simulierten
+Versand, Zuordnung und medizinische Quellenpruefung. Der bestehende
+Vertrag in `InformationService` und die aktuelle `CaseScenario.Respond`-
+Fixture belegen diese separate Folgearbeit; sie wird hier weder
+stillschweigend ersetzt noch als Laufzeitbefund ausgegeben.
+
+L03 erreichte zweimal beim Warten auf den Download das unveraenderte
+120-Sekunden-Testlimit; E04 und E05 erhielten jeweils HTTP 409. Die
+Originale enthalten keinen passenden ProblemDetails-Body/Domaenencode.
+SQL-Historien-/Transport-/Quellenpruefung und Objektbytepruefung haben
+mehrere fail-closed Guards; eine gemeinsame Ursache ist nicht bewiesen.
+Deshalb wird keine Produktionslogik geaendert. Die drei betroffenen
+Teststellen erfassen kuenftig nur HTTP-Status und die vorhandenen
+ProblemDetails-Felder `status`, `code`, `title`, `traceId` in der
+bestehenden credentialgeprueften JUnit. L03 beobachtet dazu denselben
+UI-GET parallel zum echten Download, ohne zusaetzlichen Request,
+Retry oder verlaengertes Zeitlimit. E04/E05 verlangen weiterhin 200;
+ZIP-, Originalbyte-, Scope- und weitere fachliche Assertions bleiben
+unveraendert. Erfolgreiche ZIP-Bodies werden nicht als JSON gelesen,
+unlesbare Fehlerbodies ausdruecklich kenntlich gemacht; keine Header,
+privaten Logs oder beliebigen weiteren Antwortfelder werden kopiert.
+
+Nur statische/In-Memory-Pruefung dieser Revision ist zugelassen.
+Kein neuer Build-, SQL-, API-, Browser-, Hosted-, Paket- oder Cloudlauf,
+kein weiterer Push und kein neuer App-/Security-/Releasepass.
+
 ## Hosted-CI-Browserintegration: Quellkorrektur, noch kein neuer Lauf
 
 Der natuerliche [Cohors-CI-Lauf 44478644967](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44478644967),

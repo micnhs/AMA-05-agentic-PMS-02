@@ -1,10 +1,10 @@
-import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type APIResponse, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { appendFileSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, EvidenceDocument, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
+import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, EvidenceDocument, InformationRecipient, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
 import type { ActorApplication, IntegrationWorkspace } from '../src/EudamedWorkspace'
 import type { DossierView, EudamedDossier } from '../src/EudamedDossiers'
 
@@ -26,6 +26,26 @@ async function command<T = SafetyCase>(client: APIRequestContext, csrf: string, 
   const body = await response.json()
   expect(response.ok(), JSON.stringify(body)).toBeTruthy()
   return body as T
+}
+async function auditFailureDetails(response: Pick<APIResponse, 'status' | 'json'>) {
+  const httpStatus = response.status()
+  if (httpStatus === 200) return ''
+  let body: unknown
+  try { body = await response.json() }
+  catch (error) {
+    return JSON.stringify({ httpStatus, problemBody: 'Unreadable JSON',
+      errorType: error instanceof Error ? error.name : 'UnknownError' })
+  }
+  const details: Record<string, string | number> = { httpStatus }
+  if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
+    for (const key of ['status', 'code', 'title', 'traceId']) {
+      if (!Object.hasOwn(body, key)) continue
+      const value: unknown = Reflect.get(body, key)
+      if (typeof value === 'string' || typeof value === 'number') details[key] = value
+    }
+  }
+  if (Object.keys(details).length === 1) details.problemBody = 'No recognized ProblemDetails fields'
+  return JSON.stringify(details)
 }
 async function showCase(page: Page, incidentKey: string, title: string) {
   await page.getByRole('navigation').getByRole('button', { name: 'Fallakten', exact: true }).click()
@@ -671,7 +691,7 @@ test('E04: byte-exact dossier PDF and audit originals, historical scope and canc
     expect(await (await pms.get(`/api/cases/${c.id}`)).json()).toEqual(c)
     expect((await (await pms.get('/api/capas')).json() as Capa[]).find(item => item.id === capa.id)).toEqual(capa)
     const archive = await ra.get('/api/products/ortho/audit')
-    expect(archive.status()).toBe(200)
+    expect(archive.status(), await auditFailureDetails(archive)).toBe(200)
     const entries = readSmallAuditZip(await archive.body())
     const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8')) as {
       aggregates: { id: string; kind: string }[]; objects: { hash: string; path: string; uses: string[] }[]
@@ -913,7 +933,7 @@ test('E05: separate FSN publication reviews include shared-ledger feedback and p
     expect(pdf.status()).toBe(200)
     expect(await pdf.body()).toEqual(prepared.bytes)
     const archive = await ra.get('/api/products/ortho/audit')
-    expect(archive.status()).toBe(200)
+    expect(archive.status(), await auditFailureDetails(archive)).toBe(200)
     const entries = readSmallAuditZip(await archive.body())
     const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8')) as { objects: { hash: string; path: string }[] }
     expect(entries.get(manifest.objects.find(item => item.hash === distribution.evidenceHash)!.path)).toEqual(communication)
@@ -2603,9 +2623,14 @@ test('L03: auditor downloads complete product history and original bytes; member
     await page.getByRole('navigation').getByRole('button', { name: 'Audit Explorer', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Produktbezogenes Auditpaket', exact: true })).toBeVisible()
     await page.getByLabel('Audit-Produktfamilie').selectOption('cardio')
-    const waiting = page.waitForEvent('download')
-    await page.getByRole('button', { name: 'Vollständiges Produkt-Auditpaket (ZIP)', exact: true }).click()
-    const download = await waiting
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.waitForResponse(response => response.request().method() === 'GET' &&
+        new URL(response.url()).pathname === '/api/products/cardio/audit').then(async response => {
+        expect(response.status(), await auditFailureDetails(response)).toBe(200)
+      }),
+      page.getByRole('button', { name: 'Vollständiges Produkt-Auditpaket (ZIP)', exact: true }).click(),
+    ])
     const file = path.join(artifacts, 'cohors-product-audit.zip')
     await download.saveAs(file)
     await expect(page.getByRole('status').filter({ hasText: 'Geprüfte lokale Lesekopie heruntergeladen' })).toBeVisible()
@@ -2653,6 +2678,9 @@ test('C12: separate periodic summary uses an explicit agreement, distinct human 
   const limited = await playwright.request.newContext({ baseURL })
   const contexts: BrowserContext[] = []
   const reason = 'SYNTHETISCH: Die konkret gebundenen Fall-, Quellen- und Vereinbarungsfassungen werden menschlich geprüft. Keine klinische Wahrheitsbehauptung, keine reale Übermittlung und keine Aufhebung einer Einzelpflicht.'
+  const recipient: InformationRecipient = { id: 'summary-synthetic-contact', organization: 'Synthetic clinic',
+    contact: 'Synthetic findings desk', role: 'Simulierter klinischer Ansprechpartner', intendedChannel: 'Email',
+    destination: 'findings@example.invalid', synthetic: true }
   try {
     const pmsCsrf = await signIn(pms, 'pms.demo')
     const medicalCsrf = await signIn(medical, 'medical.demo')
@@ -2673,7 +2701,7 @@ test('C12: separate periodic summary uses an explicit agreement, distinct human 
     c = await command(medical, medicalCsrf, `/cases/${c.id}/information`, {
       expectedVersion: c.version, question: 'Welche gezielten synthetischen Revisionsbefunde grenzen die offenen Gegenhypothesen ein?',
       minimalData: 'Minimaler synthetischer Revisionsbefund ohne Patientendaten', relevance: reason,
-      recipientRole: 'Simulierter klinischer Ansprechpartner', manufacturerBasis: reason, disclosureBasis: reason,
+      recipientRole: recipient.role, recipient, manufacturerBasis: reason, disclosureBasis: reason,
       dueAt: `${day(7)}T12:00:00Z`,
     })
     const requestId = c.informationRequests.at(-1)!.id
