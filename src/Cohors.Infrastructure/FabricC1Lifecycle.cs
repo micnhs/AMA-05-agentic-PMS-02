@@ -248,8 +248,8 @@ public sealed partial class FabricC1Provisioner
     {
         RequireCertainCheckpointJournal();
         Guard.Against(reason is not ("operator-stop" or "original-deadline"), "c1_lifecycle_stop_reason", "An explicit stop reason is required.", 409);
-        Guard.Against(input.Network?.SharedHub is null || state.StartedAtUtc is null,
-            "c1_lifecycle_original", "A stop needs the original started private deployment, not a fresh journal or timebox.", 409);
+        if (input.Network?.SharedHub is null || state.StartedAtUtc is not { } originalStartedAt)
+            throw new DomainException("c1_lifecycle_original", "A stop needs the original started private deployment, not a fresh journal or timebox.", 409);
         var (next, deadline) = PlanCleanupRequests(0);
         var originalDeadline = OriginalPrivateDeploymentDeadline();
         Guard.Against(reason == "original-deadline" && time.GetUtcNow() < originalDeadline,
@@ -266,7 +266,7 @@ public sealed partial class FabricC1Provisioner
         var stop = new JsonObject
         {
             ["reason"] = reason, ["bindingHash"] = state.BindingHash, ["sourceCommit"] = input.SourceCommit,
-            ["originalStartedAtUtc"] = state.StartedAtUtc.Value.ToString("O"), ["originalDeadlineUtc"] = originalDeadline.ToString("O"),
+            ["originalStartedAtUtc"] = originalStartedAt.ToString("O"), ["originalDeadlineUtc"] = originalDeadline.ToString("O"),
             ["cleanupStartedAtUtc"] = next.CleanupStartedAtUtc!.Value.ToString("O"), ["cleanupDeadlineUtc"] = deadline.ToString("O"),
             ["workStopped"] = false, ["grantsRevoked"] = false, ["peerRemoved"] = false, ["ownerOffboarded"] = false
         };
