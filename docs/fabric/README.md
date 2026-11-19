@@ -789,6 +789,28 @@ Managed command contracts:
 [VM-scoped GET with instance view](https://learn.microsoft.com/rest/api/compute/virtual-machine-run-commands/get-by-virtual-machine?view=rest-compute-2024-07-01)
 and [delete 200/202/204](https://learn.microsoft.com/rest/api/compute/virtual-machine-run-commands/delete?view=rest-compute-2024-07-01).
 
+### Original Fabric operation polling
+
+The shared Fabric LRO path retains provider `Retry-After` values beyond 30
+seconds, rounds future HTTP-date delays upward, and durably binds the next
+permitted poll to the exact original operation. Creation and definition-read
+LROs resume that operation rather than repeating their POST. Cancellation,
+uncertain journal writes and process restart cannot reset the original wait,
+request counter, cleanup reserve or control deadline. A provider minimum that
+cannot fit the original window blocks before another request; it is never
+shortened to make the run appear feasible. Status/result throttling is surfaced
+without an automatic retry and retains its minimum for explicit resume.
+
+The optional journal extension is omitted when absent, preserving historical
+canonical payloads. An interrupted historical LRO without its original poll
+schedule is not silently assigned a new one. Only the matching completed
+receipt clears that operation's schedule. Exact provider authority/path checks
+are unchanged. Hosted fake-clock cases cover initial, progress and result waits,
+resume, malformed/missing schedules, throttling and uncertain persistence.
+This prerequisite does not implement notebook materialization or prove a native
+Fabric job, B5, source permission or private transport result.
+Reference: [Fabric long-running operations and polling headers](https://learn.microsoft.com/rest/api/fabric/articles/long-running-operation).
+
 ## Fork and isolation
 
 The initial clean worktree HEAD and merge base were both

@@ -247,6 +247,8 @@ public sealed record FabricC1DeploymentJournal(string BindingHash,
     public int Requests { get; init; }
     public DateTimeOffset? StartedAtUtc { get; init; }
     public Dictionary<string, string> PendingOperations { get; init; } = new(StringComparer.Ordinal);
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, DateTimeOffset>? PendingOperationNotBeforeUtc { get; init; }
     public Dictionary<string, FabricC1DeniedRequest> DeniedRequests { get; init; } = new(StringComparer.Ordinal);
     public DateTimeOffset? CleanupStartedAtUtc { get; init; }
     public int CleanupRequests { get; init; }
@@ -410,15 +412,22 @@ public sealed partial class FabricC1Provisioner
         await RequireWorkspaceInboundEnabled(ct);
         var result = await EnsureCreated("data-agent", "DataAgent", $"https://{WorkspaceHost(id)}/v1/workspaces/{id}/dataAgents",
             "C1_Agent", new JsonObject { ["displayName"] = "C1_Agent", ["description"] = Marker, ["definition"] = definition.DeepClone() }, false, ct);
-        var readback = await Send(HttpMethod.Post,
-            new($"https://{WorkspaceHost(id)}/v1/workspaces/{id}/dataAgents/{Text(result, "id")}/getDefinition"), ct: ct);
-        if (readback.Status == 202)
+        var collection = $"https://{WorkspaceHost(id)}/v1/workspaces/{id}/dataAgents";
+        FabricC1DeploymentReply readback;
+        if (state.PendingOperations.TryGetValue("published-definition", out var operation))
         {
-            Guard.Against(readback.OperationUrl is null, "c1_deploy_definition_pending", "Definition LRO has no supported operation URL.", 409);
-            var collection = $"https://{WorkspaceHost(id)}/v1/workspaces/{id}/dataAgents";
-            ValidateOperation(readback.OperationUrl!, collection);
-            if (readback.RetryAfterSeconds is > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(readback.RetryAfterSeconds.Value, 30)), time, ct);
-            readback = new(200, await AwaitOperation(readback.OperationUrl!, collection, ct));
+            readback = new(200, await AwaitOperation(operation, collection, ct));
+        }
+        else
+        {
+            readback = await Send(HttpMethod.Post,
+                new($"{collection}/{Text(result, "id")}/getDefinition"), ct: ct);
+            if (readback.Status == 202)
+            {
+                Guard.Against(readback.OperationUrl is null, "c1_deploy_definition_pending", "Definition LRO has no supported operation URL.", 409);
+                RecordOperationDelay(readback.OperationUrl!, collection, readback.RetryAfterSeconds ?? 0, "published-definition");
+                readback = new(200, await AwaitOperation(readback.OperationUrl!, collection, ct));
+            }
         }
         RequireStatus(readback, 200);
         Guard.Against(readback.Body["definition"] is not JsonObject actual ||
@@ -645,7 +654,8 @@ public sealed partial class FabricC1Provisioner
             "artifact-storage-publisher-grant", "artifact-storage-receiver-grant" })
             Guard.Against(!state.Objects.ContainsKey(key), "c1_deploy_binding_incomplete",
                 "Deployment receipts are incomplete; no runnable C1 inputs may be emitted.", 409);
-        Guard.Against(state.PendingCreates.Count != 0 || state.PendingOperations.Count != 0 || state.PendingDeletes.Count != 0 ||
+        Guard.Against(state.PendingCreates.Count != 0 || state.PendingOperations.Count != 0 ||
+            state.PendingOperationNotBeforeUtc is { Count: > 0 } || state.PendingDeletes.Count != 0 ||
             state.CleanupReceipts.Count != 0, "c1_deploy_unknown", "Unresolved or cleaned-up operations prevent C1 binding.", 409);
     }
 
@@ -694,11 +704,7 @@ public sealed partial class FabricC1Provisioner
         {
             Guard.Against(isGraph || created.OperationUrl is null, "c1_deploy_item_pending",
                 "Creation remains pending without a supported operation URL; reconcile inventory without POST replay.", 409);
-            ValidateOperation(created.OperationUrl!, collection);
-            var next = state with { PendingOperations = new(state.PendingOperations, StringComparer.Ordinal) { [key] = created.OperationUrl! } };
-            SaveJournal(next);
-            state = next;
-            if (created.RetryAfterSeconds is > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(created.RetryAfterSeconds.Value, 30)), time, ct);
+            RecordOperationDelay(created.OperationUrl!, collection, created.RetryAfterSeconds ?? 0, key);
             return await ConfirmCreation(key, kind, collection, await AwaitOperation(created.OperationUrl!, collection, ct), body, hash, isGraph, ct);
         }
         RequireStatus(created, 201);
@@ -731,14 +737,67 @@ public sealed partial class FabricC1Provisioner
         ValidateOperation(operation, collection);
         for (var poll = 0; poll < 120; poll++)
         {
+            await WaitForOperationPoll(operation, ct);
             var response = await Send(HttpMethod.Get, new(operation), ct: ct);
+            if (response.Status != 200 && response.RetryAfterSeconds is { } retry)
+                RecordOperationDelay(operation, collection, retry);
             RequireStatus(response, 200);
             var status = Text(response.Body, "status");
-            if (status == "Succeeded") return await Read(operation + "/result", ct);
+            if (status == "Succeeded")
+            {
+                if (response.RetryAfterSeconds is > 0)
+                {
+                    RecordOperationDelay(operation, collection, response.RetryAfterSeconds.Value);
+                    await WaitForOperationPoll(operation, ct);
+                }
+                var result = await Send(HttpMethod.Get, new(operation + "/result"), ct: ct);
+                if (result.Status != 200 && result.RetryAfterSeconds is { } resultRetry)
+                    RecordOperationDelay(operation, collection, resultRetry);
+                RequireStatus(result, 200);
+                return result.Body;
+            }
             Guard.Against(status is not ("Running" or "NotStarted"), "c1_deploy_operation_failed", "Item operation failed; no replacement create.", 409);
-            await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(response.RetryAfterSeconds ?? 5, 1, 30)), time, ct);
+            Guard.Against(response.RetryAfterSeconds is < 0, "c1_deploy_operation_delay", "Provider polling delay is invalid.", 409);
+            RecordOperationDelay(operation, collection, Math.Max(response.RetryAfterSeconds ?? 5, 1));
         }
         throw new DomainException("c1_deploy_operation_pending", "Bounded LRO wait exhausted; resume the same operation.", 409);
+    }
+
+    private void RecordOperationDelay(string operation, string collection, int seconds, string? pendingKey = null)
+    {
+        ValidateOperation(operation, collection);
+        Guard.Against(seconds < 0, "c1_deploy_operation_delay", "Provider polling delay is invalid.", 409);
+        var operations = new Dictionary<string, string>(state.PendingOperations, StringComparer.Ordinal);
+        if (pendingKey is not null) operations[pendingKey] = operation;
+        var delays = new Dictionary<string, DateTimeOffset>(
+            state.PendingOperationNotBeforeUtc ?? new(), StringComparer.Ordinal)
+        {
+            [operation] = time.GetUtcNow().AddSeconds(seconds)
+        };
+        var next = state with { PendingOperations = operations, PendingOperationNotBeforeUtc = delays };
+        SaveJournal(next);
+        state = next;
+    }
+
+    private async Task WaitForOperationPoll(string operation, CancellationToken ct)
+    {
+        RequireCertainCheckpointJournal();
+        ct.ThrowIfCancellationRequested();
+        if (state.PendingOperationNotBeforeUtc is null ||
+            !state.PendingOperationNotBeforeUtc.TryGetValue(operation, out var notBefore))
+            throw new DomainException("c1_deploy_operation_delay", "The original polling schedule is missing; do not invent one on resume.", 409);
+        var (_, deadline) = PlanNormalRequests(1);
+        Guard.Against(state.StartedAtUtc is not { } started || notBefore.Offset != TimeSpan.Zero || notBefore < started,
+            "c1_deploy_operation_delay", "The persisted polling schedule predates its original run or is not UTC.", 409);
+        Guard.Against(notBefore >= deadline, "c1_deploy_budget",
+            "Provider polling delay cannot fit the original deadline; do not shorten it or extend the run.", 409);
+        while (notBefore > time.GetUtcNow())
+        {
+            var delay = notBefore - time.GetUtcNow();
+            await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, Math.Ceiling(delay.TotalMilliseconds))), time, ct);
+            PlanNormalRequests(1);
+        }
+        PlanNormalRequests(1);
     }
 
     private async Task<JsonObject[]> ReadAll(string uri, bool isGraph, CancellationToken ct, bool cleanup = false)
@@ -803,8 +862,19 @@ public sealed partial class FabricC1Provisioner
         var pending = new Dictionary<string, string>(state.PendingCreates, StringComparer.Ordinal);
         pending.Remove(key);
         var operations = new Dictionary<string, string>(state.PendingOperations, StringComparer.Ordinal);
+        Dictionary<string, DateTimeOffset>? delays = null;
+        if (state.PendingOperationNotBeforeUtc is not null)
+        {
+            delays = new(state.PendingOperationNotBeforeUtc, StringComparer.Ordinal);
+            if (operations.TryGetValue(key, out var operation)) delays.Remove(operation);
+            if (delays.Count == 0) delays = null;
+        }
         operations.Remove(key);
-        var next = state with { Objects = objects, PendingCreates = pending, PendingOperations = operations };
+        var next = state with
+        {
+            Objects = objects, PendingCreates = pending, PendingOperations = operations,
+            PendingOperationNotBeforeUtc = delays
+        };
         SaveJournal(next);
         state = next;
     }

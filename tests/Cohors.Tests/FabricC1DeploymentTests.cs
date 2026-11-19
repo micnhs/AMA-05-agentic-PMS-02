@@ -672,6 +672,185 @@ public sealed class FabricC1DeploymentTests
         Assert.Empty(run.Store.Current!.PendingOperations);
     }
 
+    [Theory]
+    [InlineData("initial", 60)]
+    [InlineData("running", 75)]
+    [InlineData("result", 90)]
+    public async Task ProviderPollMinimumSurvivesCancellationAndResumeWithoutNewBudget(string stage, int seconds)
+    {
+        using var run = new Harness(manualTimers: true);
+        run.Capacity();
+        Assert.DoesNotContain("pendingOperationNotBeforeUtc", Canonical.Serialize(run.Store.Current));
+        var started = run.Clock.GetUtcNow();
+        var operation = "https://api.fabric.microsoft.com/v1/operations/" + Guid.NewGuid().ToString("D");
+        run.Api.List();
+        run.Api.Reply(202, new(), operationUrl: operation, retryAfterSeconds: stage == "initial" ? seconds : 0);
+        if (stage != "initial")
+            run.Api.Reply(200, new() { ["status"] = stage == "running" ? "Running" : "Succeeded" }, retryAfterSeconds: seconds);
+        using var cancel = new CancellationTokenSource();
+        var first = run.Provisioner.EnsureWorkspace("agent", cancel.Token);
+        Assert.False(first.IsCompleted);
+        var requests = run.Api.Requests.Count;
+        var notBefore = started.AddSeconds(seconds);
+        Assert.Equal(notBefore, run.Store.Current!.PendingOperationNotBeforeUtc![operation]);
+        Assert.Equal(notBefore, Assert.Single(run.Clock.PendingTimers));
+        run.Clock.Advance(TimeSpan.FromSeconds(seconds - 1));
+        Assert.Equal(requests, run.Api.Requests.Count);
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        run.Restart();
+        var item = run.Workspace("agent");
+        run.Api.Reply(200, new() { ["status"] = "Succeeded" });
+        run.Api.Reply(200, item);
+        var resumed = run.Provisioner.EnsureWorkspace("agent", default);
+        Assert.False(resumed.IsCompleted);
+        Assert.Equal(requests, run.Api.Requests.Count);
+        Assert.Equal(notBefore, Assert.Single(run.Clock.PendingTimers));
+        run.Clock.Advance(TimeSpan.FromSeconds(1));
+        var result = await resumed.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(item["id"]!.GetValue<string>(), result["id"]!.GetValue<string>());
+        Assert.Equal(started, run.Store.Current.StartedAtUtc);
+        Assert.Equal(requests + 2, run.Store.Current.Requests);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
+        Assert.Null(run.Store.Current.PendingOperationNotBeforeUtc);
+        Assert.DoesNotContain("pendingOperationNotBeforeUtc", Canonical.Serialize(run.Store.Current));
+    }
+
+    [Theory]
+    [InlineData(false, 600)]
+    [InlineData(true, 900)]
+    public async Task ProviderDelayBeyondOriginalDeadlineIsPersistedButNeverShortened(bool running, int seconds)
+    {
+        using var run = new Harness(manualTimers: true);
+        run.Capacity();
+        var started = run.Clock.GetUtcNow();
+        var operation = "https://api.fabric.microsoft.com/v1/operations/" + Guid.NewGuid().ToString("D");
+        run.Api.List();
+        run.Api.Reply(202, new(), operationUrl: operation, retryAfterSeconds: running ? 0 : seconds);
+        if (running) run.Api.Reply(200, new() { ["status"] = "Running" }, retryAfterSeconds: seconds);
+        Assert.Equal("c1_deploy_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureWorkspace("agent", default))).Code);
+        var requests = run.Api.Requests.Count;
+        Assert.Equal(running ? 3 : 2, requests);
+        Assert.Equal(started.AddSeconds(seconds), run.Store.Current!.PendingOperationNotBeforeUtc![operation]);
+        Assert.Empty(run.Clock.PendingTimers);
+        run.Restart();
+        Assert.Equal("c1_deploy_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureWorkspace("agent", default))).Code);
+        Assert.Equal(requests, run.Api.Requests.Count);
+        Assert.Equal(started, run.Store.Current.StartedAtUtc);
+        Assert.Equal(requests, run.Store.Current.Requests);
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("other-operation")]
+    [InlineData("before-start")]
+    public async Task ResumeDoesNotInventMissingOrInvalidOriginalPollSchedule(string drift)
+    {
+        using var run = new Harness(manualTimers: true);
+        run.Capacity();
+        var operation = "https://api.fabric.microsoft.com/v1/operations/" + Guid.NewGuid().ToString("D");
+        run.Api.List();
+        run.Api.Reply(202, new(), operationUrl: operation, retryAfterSeconds: 60);
+        using var cancel = new CancellationTokenSource();
+        var first = run.Provisioner.EnsureWorkspace("agent", cancel.Token);
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        var original = run.Store.Current!;
+        run.Store.Save(original with
+        {
+            PendingOperationNotBeforeUtc = drift == "missing" ? null : new()
+            {
+                [drift == "other-operation" ? operation + "/result" : operation] =
+                    drift == "before-start" ? original.StartedAtUtc!.Value.AddSeconds(-1) : run.Clock.GetUtcNow().AddSeconds(60)
+            }
+        });
+        run.Restart();
+        Assert.Equal("c1_deploy_operation_delay", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureWorkspace("agent", default))).Code);
+        Assert.Equal(2, run.Api.Requests.Count);
+        Assert.Empty(run.Clock.PendingTimers);
+    }
+
+    [Fact]
+    public async Task UnknownOperationScheduleSaveFencesFurtherPollingUntilOriginalJournalIsReopened()
+    {
+        using var run = new Harness(manualTimers: true);
+        run.Capacity();
+        var operation = "https://api.fabric.microsoft.com/v1/operations/" + Guid.NewGuid().ToString("D");
+        var notBefore = run.Clock.GetUtcNow().AddSeconds(60);
+        run.Api.List();
+        run.Api.Reply(202, new(), operationUrl: operation, retryAfterSeconds: 60);
+        run.Store.AfterSave = state =>
+        {
+            if (state.PendingOperationNotBeforeUtc is not null) throw new IOException("synthetic uncertain schedule save");
+        };
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.EnsureWorkspace("agent", default));
+        Assert.Equal(operation, run.Store.Current!.PendingOperations["workspace-agent"]);
+        Assert.Equal(notBefore, run.Store.Current.PendingOperationNotBeforeUtc![operation]);
+        run.Store.AfterSave = null;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureWorkspace("agent", default))).Code);
+        Assert.Equal(2, run.Api.Requests.Count);
+        run.Restart();
+        run.Api.Reply(200, new() { ["status"] = "Succeeded" });
+        run.Api.Reply(200, run.Workspace("agent"));
+        var resumed = run.Provisioner.EnsureWorkspace("agent", default);
+        Assert.Equal(2, run.Api.Requests.Count);
+        Assert.Equal(notBefore, Assert.Single(run.Clock.PendingTimers));
+        run.Clock.Advance(TimeSpan.FromSeconds(60));
+        await resumed.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(4, run.Api.Requests.Count);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
+    }
+
+    [Fact]
+    public async Task DeadlineElapsedDuringScheduleSavePreventsWaitAndProviderPoll()
+    {
+        using var run = new Harness(manualTimers: true);
+        run.Capacity();
+        var operation = "https://api.fabric.microsoft.com/v1/operations/" + Guid.NewGuid().ToString("D");
+        run.Api.List();
+        run.Api.Reply(202, new(), operationUrl: operation, retryAfterSeconds: 60);
+        run.Store.AfterSave = state =>
+        {
+            if (state.PendingOperationNotBeforeUtc is not null) run.Clock.Advance(TimeSpan.FromSeconds(601));
+        };
+        Assert.Equal("c1_deploy_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureWorkspace("agent", default))).Code);
+        Assert.Equal(2, run.Api.Requests.Count);
+        Assert.Empty(run.Clock.PendingTimers);
+        Assert.Equal(2, run.Store.Current!.Requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PollOrResultThrottlingIsNotRetriedAndKeepsItsMinimumForExplicitResume(bool result)
+    {
+        using var run = new Harness(manualTimers: true);
+        run.Capacity();
+        var operation = "https://api.fabric.microsoft.com/v1/operations/" + Guid.NewGuid().ToString("D");
+        run.Api.List();
+        run.Api.Reply(202, new(), operationUrl: operation, retryAfterSeconds: 0);
+        if (result) run.Api.Reply(200, new() { ["status"] = "Succeeded" });
+        run.Api.Reply(429, new(), retryAfterSeconds: 60);
+        Assert.Equal("c1_deploy_http_429", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureWorkspace("agent", default))).Code);
+        var requests = run.Api.Requests.Count;
+        Assert.Equal(result ? 4 : 3, requests);
+        run.Restart();
+        run.Api.Reply(200, new() { ["status"] = "Succeeded" });
+        run.Api.Reply(200, run.Workspace("agent"));
+        var resumed = run.Provisioner.EnsureWorkspace("agent", default);
+        Assert.False(resumed.IsCompleted);
+        Assert.Equal(requests, run.Api.Requests.Count);
+        run.Clock.Advance(TimeSpan.FromSeconds(60));
+        await resumed.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(requests + 2, run.Api.Requests.Count);
+    }
+
     [Fact]
     public async Task AsyncLocationCannotSendTheCallerToAnotherHost()
     {
@@ -3062,6 +3241,29 @@ public sealed class FabricC1DeploymentTests
         Assert.Equal(0, absent.Requests);
     }
 
+    [Theory]
+    [InlineData(false, 60)]
+    [InlineData(true, 90)]
+    [InlineData(true, -5)]
+    public async Task ProviderRetryAfterRetainsLongMinimumAndRoundsFutureHttpDatesUp(bool date, int seconds)
+    {
+        using var run = new Harness(delegated: true);
+        var credential = new BoundCredential(Token(run.Input, run.Input.ControlTokenBindings!.ArmAudience!,
+            run.Clock.GetUtcNow(), "user_impersonation"));
+        using var handler = new JsonHandler
+        {
+            RetryAfter = date ? new(run.Clock.GetUtcNow().AddSeconds(seconds)) : new(TimeSpan.FromSeconds(seconds))
+        };
+        if (date) run.Clock.Advance(TimeSpan.FromMilliseconds(250));
+        using var client = new HttpClient(handler);
+        var api = new FabricC1DeploymentHttp(run.Input, credential, new Dictionary<string, HttpClient>
+        { ["management.azure.com"] = client }, run.Clock);
+        var response = await api.Send(HttpMethod.Get,
+            new($"https://management.azure.com/subscriptions/{run.Input.SubscriptionId}?api-version=2022-12-01"));
+        Assert.Equal(Math.Max(seconds, 0), response.RetryAfterSeconds);
+        Assert.Equal(1, handler.Requests);
+    }
+
     [Fact]
     public void ExcludedArmActionIsNotRestoredBySameWildcardGrant()
     {
@@ -3172,6 +3374,52 @@ public sealed class FabricC1DeploymentTests
         Assert.NotNull(draft.Preparation.Target.DataAgentId);
         Assert.Null(draft.Preparation.Target.PublishedMcpEndpoint);
         Assert.False(draft.CloudExecutionAllowed);
+    }
+
+    [Fact]
+    public async Task DefinitionReadResumesItsOriginalPrivateOperationWithoutAnotherDefinitionPost()
+    {
+        using var run = new Harness(manualTimers: true);
+        var workspace = run.Workspace("agent");
+        var workspaceId = workspace["id"]!.GetValue<string>();
+        run.Seed("workspace-agent", "Workspace", workspace);
+        run.Seed("policy-agent", "CommunicationPolicy", new() { ["id"] = workspaceId });
+        var definition = new JsonObject { ["parts"] = new JsonArray(
+            new JsonObject { ["path"] = "Files/Config/publish_info.json", ["payload"] = "e30=", ["payloadType"] = "InlineBase64" },
+            new JsonObject { ["path"] = "Files/Config/published/stage_config.json", ["payload"] = "e30=", ["payloadType"] = "InlineBase64" }) };
+        var agent = new JsonObject
+        {
+            ["id"] = Guid.NewGuid().ToString("D"), ["displayName"] = "C1_Agent", ["description"] = FabricC1Deployment.Marker(run.Input)
+        };
+        var operation = $"https://{FabricC1Provisioner.WorkspaceHost(workspaceId)}/v1/operations/{Guid.NewGuid():D}";
+        run.Api.List(InboundSetting(true));
+        run.Api.List();
+        run.Api.Reply(201, agent);
+        run.Api.Reply(202, new(), operationUrl: operation, retryAfterSeconds: 60);
+        using var cancel = new CancellationTokenSource();
+        var first = run.Provisioner.EnsureDataAgent(definition, cancel.Token);
+        Assert.False(first.IsCompleted);
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        Assert.Equal(operation, run.Store.Current!.PendingOperations["published-definition"]);
+        var started = run.Store.Current.StartedAtUtc;
+        run.Restart();
+        run.Api.List(InboundSetting(true));
+        run.Api.Reply(200, agent);
+        run.Api.Reply(200, new() { ["status"] = "Succeeded" });
+        run.Api.Reply(200, new() { ["definition"] = definition.DeepClone() });
+        var resumed = run.Provisioner.EnsureDataAgent(definition, default);
+        Assert.False(resumed.IsCompleted);
+        Assert.Equal(6, run.Api.Requests.Count);
+        run.Clock.Advance(TimeSpan.FromSeconds(60));
+        await resumed.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(8, run.Api.Requests.Count);
+        Assert.Single(run.Api.Requests, request => request.Uri.AbsolutePath.EndsWith("/getDefinition", StringComparison.Ordinal));
+        Assert.Equal(operation + "/result", run.Api.Requests[^1].Uri.AbsoluteUri);
+        Assert.Equal(started, run.Store.Current.StartedAtUtc);
+        Assert.Empty(run.Store.Current.PendingOperations);
+        Assert.Null(run.Store.Current.PendingOperationNotBeforeUtc);
+        Assert.Contains("published-definition", run.Store.Current.Objects.Keys);
     }
 
     [Fact]
@@ -4358,11 +4606,14 @@ public sealed class FabricC1DeploymentTests
     private sealed class JsonHandler : HttpMessageHandler
     {
         public int Requests { get; private set; }
+        public System.Net.Http.Headers.RetryConditionHeaderValue? RetryAfter { get; init; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests++;
-            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            { RequestMessage = request, Content = new StringContent("{}") });
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { RequestMessage = request, Content = new StringContent("{}") };
+            response.Headers.RetryAfter = RetryAfter;
+            return Task.FromResult(response);
         }
     }
     private sealed class Credential : TokenCredential
@@ -4376,18 +4627,69 @@ public sealed class FabricC1DeploymentTests
         public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken) =>
             ValueTask.FromResult(GetToken(requestContext, cancellationToken));
     }
-    private sealed class Clock(DateTimeOffset now) : TimeProvider
+    private sealed class Clock(DateTimeOffset now, bool manualTimers = false) : TimeProvider
     {
+        private readonly List<ManualTimer> timers = [];
         public override DateTimeOffset GetUtcNow() => now;
-        public void Advance(TimeSpan elapsed) => now += elapsed;
+        public DateTimeOffset[] PendingTimers
+        {
+            get { lock (timers) return timers.Where(timer => timer.DueAt is not null).Select(timer => timer.DueAt!.Value).ToArray(); }
+        }
+        public void Advance(TimeSpan elapsed)
+        {
+            ManualTimer[] ready;
+            lock (timers)
+            {
+                now += elapsed;
+                ready = timers.Where(timer => timer.DueAt is { } due && due <= now).ToArray();
+            }
+            foreach (var timer in ready) timer.Fire();
+        }
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            if (!manualTimers) return base.CreateTimer(callback, state, dueTime, period);
+            var timer = new ManualTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            return timer;
+        }
+        private sealed class ManualTimer(Clock owner, TimerCallback callback, object? state) : ITimer
+        {
+            private bool disposed;
+            public DateTimeOffset? DueAt { get; private set; }
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                Assert.Equal(Timeout.InfiniteTimeSpan, period);
+                lock (owner.timers)
+                {
+                    if (disposed) return false;
+                    DueAt = dueTime == Timeout.InfiniteTimeSpan ? null : owner.GetUtcNow().Add(dueTime);
+                    if (!owner.timers.Contains(this)) owner.timers.Add(this);
+                    return true;
+                }
+            }
+            public void Fire()
+            {
+                lock (owner.timers)
+                {
+                    if (disposed || DueAt is not { } due || due > owner.GetUtcNow()) return;
+                    DueAt = null;
+                }
+                callback(state);
+            }
+            public void Dispose()
+            {
+                lock (owner.timers) { disposed = true; owner.timers.Remove(this); }
+            }
+            public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+        }
     }
     private sealed record Request(HttpMethod Method, Uri Uri, JsonObject? Body, string? ETag);
     private sealed class FakeApi : IFabricC1DeploymentApi
     {
         private readonly Queue<Func<FabricC1DeploymentReply>> replies = new();
         public List<Request> Requests { get; } = [];
-        public void Reply(int status, JsonObject body, string? etag = null, string? operationUrl = null) =>
-            replies.Enqueue(() => new(status, (JsonObject)body.DeepClone(), etag, operationUrl));
+        public void Reply(int status, JsonObject body, string? etag = null, string? operationUrl = null, int? retryAfterSeconds = null) =>
+            replies.Enqueue(() => new(status, (JsonObject)body.DeepClone(), etag, operationUrl) { RetryAfterSeconds = retryAfterSeconds });
         public void ReplyComputed(int status, Func<JsonObject> body) =>
             replies.Enqueue(() => new(status, (JsonObject)body().DeepClone()));
         public void List(params JsonObject[] items) =>
@@ -4891,15 +5193,16 @@ public sealed class FabricC1DeploymentTests
     }
     private sealed class Harness : IDisposable
     {
-        public Clock Clock { get; } = new(DateTimeOffset.Parse("2026-11-18T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
+        public Clock Clock { get; }
         public FakeApi Api { get; } = new();
         public MemoryJournal Store { get; } = new();
         public FabricC1DeploymentInputs Input { get; }
         public FabricC1Provisioner Provisioner { get; private set; }
         public string CapacityId { get; } = Guid.NewGuid().ToString("D");
         public Harness(int maxRequests = 100, string[]? requiredTenantSettingNames = null, bool delegated = false,
-            bool delegatedAdministrator = true, bool operatorNetwork = false, int vpnUserCount = 1)
+            bool delegatedAdministrator = true, bool operatorNetwork = false, int vpnUserCount = 1, bool manualTimers = false)
         {
+            Clock = new(DateTimeOffset.Parse("2026-11-18T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture), manualTimers);
             var tenant = Guid.NewGuid().ToString("D");
             var hash = new string('a', 64);
             Input = new(FabricC1Deployment.Contract, Guid.NewGuid().ToString("D"), new string('b', 40), tenant,

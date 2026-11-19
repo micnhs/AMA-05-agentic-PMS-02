@@ -151,6 +151,15 @@ generated-Python filesystem cases use only the existing hosted lane. Real
 Guest Agent delivery/result observation, B5, complete driver composition and
 independent stop remain unintegrated. No paid partial apply or cloud call is
 introduced.
+The shared Fabric LRO prerequisite now preserves provider polling minima beyond
+30 seconds and persists an operation-bound not-before time. Create and
+definition-read resumes retain the original operation, counters and deadline;
+out-of-window waits, missing schedules and uncertain saves cannot trigger an
+early poll, replacement POST or budget reset. Status/result throttling is
+surfaced without automatic retry. The optional journal field preserves
+historical canonical payloads when absent. This remains source-only work for
+the same hosted lane; notebook materialization, source grants and native B5
+execution are not supplied by this polling correction.
 Final C1 binding now also requires the publication plan/readback and refuses a
 cleanup-fenced, expired or unresolved-delete journal rather than reusing its
 retained historical resource receipts as runnable state. It additionally requires

@@ -50,7 +50,10 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         var retry = response.Headers.RetryAfter?.Delta?.TotalSeconds;
         if (retry is null && response.Headers.RetryAfter?.Date is { } date) retry = (date - clock.GetUtcNow()).TotalSeconds;
         return new((int)response.StatusCode, data, response.Headers.ETag?.ToString(),
-            response.Headers.Location?.ToString()) { RetryAfterSeconds = retry is null ? null : (int)Math.Clamp(retry.Value, 0, 30) };
+            response.Headers.Location?.ToString())
+        {
+            RetryAfterSeconds = retry is null ? null : (int)Math.Clamp(Math.Ceiling(retry.Value), 0, int.MaxValue)
+        };
     }
 
     public static HttpClient ControlClient(int timeoutSeconds) => new(new HttpClientHandler
