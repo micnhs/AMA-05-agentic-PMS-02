@@ -23,6 +23,9 @@ class C1PrivateStageTests(unittest.TestCase):
         self.package_fixture.setUp()
         self.addCleanup(self.package_fixture.tearDown)
         self.root = self.package_fixture.root
+        directory = patch.object(stage, "stage_directory", return_value=self.root)
+        directory.start()
+        self.addCleanup(directory.stop)
         self.now = datetime(2030, 1, 1, tzinfo=timezone.utc)
         for module, name in ((package, "c1_package.py"), (stage, "c1_private_stage.py")):
             (self.package_fixture.source / "scripts" / "fabric" / name).write_bytes(Path(module.__file__).read_bytes())
@@ -41,7 +44,7 @@ class C1PrivateStageTests(unittest.TestCase):
             "outerArchiveSha256": package.digest(self.archive), "outerArchiveLength": len(self.archive),
             "receiverSha256": package.digest(Path(stage.__file__).read_bytes()),
             "verifierSha256": package.digest(Path(package.__file__).read_bytes()),
-            "expiresAtUtc": "2030-01-01T00:10:00Z", "maxDurationSeconds": 60,
+            "expiresAtUtc": "2030-01-01T00:01:00Z", "maxDurationSeconds": 60,
         }
         self.destination = self.root / "verified-worker"
 
@@ -60,6 +63,16 @@ class C1PrivateStageTests(unittest.TestCase):
 
     def budget(self):
         return stage.Budget(self.profile, clock=lambda: self.now)
+
+    def allowance(self, **changes):
+        return {
+            "contract": stage.ALLOWANCE_CONTRACT, "deploymentBindingHash": self.profile["deploymentBindingHash"],
+            "invocationId": "00000000-0000-0000-0000-000000000005",
+            "profileSha256": package.digest(package.encoded(self.profile)),
+            "startedAtUtc": "2030-01-01T00:00:00Z", "expiresAtUtc": self.profile["expiresAtUtc"],
+            "requests": 2, "budgetReviewSha256": "d" * 64, "journalReceiptSha256": "e" * 64,
+            **changes,
+        }
 
     def fake_receiver(self, profile, host, budget):
         self.assertEqual("cohorstestst.blob.core.windows.net", host)
@@ -238,6 +251,98 @@ class C1PrivateStageTests(unittest.TestCase):
         with self.assertRaisesRegex(stage.StageError, "private_path"):
             stage.load_profile(path)
 
+    def test_native_stage_claims_one_original_allowance_and_persists_receipt_without_payload_execution(self):
+        allowance = self.allowance()
+        result = stage.stage_once(self.profile, allowance, self.destination, self.root,
+                                  self.fake_receiver, clock=lambda: self.now)
+        name = "stage-" + allowance["profileSha256"]
+        claim = package.object_json((self.root / (name + ".claim.json")).read_bytes())
+        receipt = package.object_json((self.root / (name + ".receipt.json")).read_bytes())
+        self.assertEqual(allowance, claim["allowance"])
+        self.assertEqual(result, receipt)
+        self.assertFalse(result["payloadExecuted"])
+        self.assertEqual(2, result["httpRequests"])
+        self.assertEqual(allowance["invocationId"], result["invocationId"])
+        self.assertEqual(package.digest(package.encoded(allowance)), result["allowanceSha256"])
+        for repeated in (allowance, self.allowance(invocationId="00000000-0000-0000-0000-000000000006")):
+            factory = Mock()
+            with self.assertRaisesRegex(stage.StageError, "claim_used"):
+                stage.stage_once(self.profile, repeated, self.destination, self.root, factory, clock=lambda: self.now)
+            factory.assert_not_called()
+
+    def test_unknown_receiver_failure_consumes_the_claim_without_refund_or_new_http_attempt(self):
+        def failing_receiver(profile, host, budget):
+            receiver = self.fake_receiver(profile, host, budget)
+            receiver.download.side_effect = OSError("synthetic lost readback")
+            return receiver
+        allowance = self.allowance()
+        with self.assertRaises(OSError):
+            stage.stage_once(self.profile, allowance, self.destination, self.root, failing_receiver, clock=lambda: self.now)
+        self.assertEqual([], list(self.root.glob("*.receipt.json")))
+        factory = Mock()
+        with self.assertRaisesRegex(stage.StageError, "claim_used"):
+            stage.stage_once(self.profile, allowance, self.destination, self.root, factory, clock=lambda: self.now)
+        factory.assert_not_called()
+
+    def test_allowance_scope_clock_and_budget_changes_stop_before_files_or_http(self):
+        for changes in (
+            {"profileSha256": "f" * 64}, {"deploymentBindingHash": "f" * 64},
+            {"requests": 3}, {"requests": True}, {"journalReceiptSha256": ""},
+            {"startedAtUtc": "2030-01-01T00:00:01Z"}, {"startedAtUtc": "2029-12-31T23:59:59Z"},
+            {"expiresAtUtc": "2030-01-01T00:02:00Z"}, {"userBearer": "not-allowed"},
+        ):
+            factory = Mock()
+            with self.subTest(fields=tuple(changes)), self.assertRaises(stage.StageError):
+                stage.stage_once(self.profile, self.allowance(**changes), self.destination, self.root,
+                                 factory, clock=lambda: self.now)
+            factory.assert_not_called()
+        self.assertEqual([], list(self.root.glob("*.claim.json")))
+
+    def test_uncertain_claim_save_prevents_http_and_is_not_replayed(self):
+        factory = Mock()
+        with patch.object(stage.os, "fsync", side_effect=OSError("synthetic uncertain claim")), self.assertRaises(OSError):
+            stage.stage_once(self.profile, self.allowance(), self.destination, self.root, factory, clock=lambda: self.now)
+        factory.assert_not_called()
+        with self.assertRaisesRegex(stage.StageError, "claim_used"):
+            stage.stage_once(self.profile, self.allowance(), self.destination, self.root, factory, clock=lambda: self.now)
+        factory.assert_not_called()
+
+    def test_uncertain_result_save_is_not_returned_as_success_and_cannot_download_again(self):
+        original = stage.exclusive_document
+        def lose_receipt(path, data):
+            original(path, data)
+            if path.name.endswith(".receipt.json"):
+                raise OSError("synthetic lost receipt acknowledgement")
+        with patch.object(stage, "exclusive_document", side_effect=lose_receipt), self.assertRaises(OSError):
+            stage.stage_once(self.profile, self.allowance(), self.destination, self.root,
+                             self.fake_receiver, clock=lambda: self.now)
+        self.assertTrue(self.destination.exists())
+        factory = Mock()
+        with self.assertRaisesRegex(stage.StageError, "claim_used"):
+            stage.stage_once(self.profile, self.allowance(), self.destination, self.root, factory, clock=lambda: self.now)
+        factory.assert_not_called()
+
+    def test_moving_the_allowance_cannot_create_another_claim_directory(self):
+        factory = Mock()
+        with patch.object(stage, "protected_directory") as protected, self.assertRaisesRegex(stage.StageError, "claim_directory"):
+            stage.stage_once(self.profile, self.allowance(), self.destination, self.root / "another-directory",
+                             factory, clock=lambda: self.now)
+        protected.assert_not_called()
+        factory.assert_not_called()
+
+    def test_overall_deadline_includes_durable_claim_persistence_before_any_http(self):
+        self.profile["maxDurationSeconds"] = 1
+        self.profile["expiresAtUtc"] = "2030-01-01T00:00:01Z"
+        previous = signal.getsignal(signal.SIGALRM)
+        factory = Mock()
+        with patch.object(stage.os, "fsync", side_effect=lambda _: threading.Event().wait(5)), \
+                self.assertRaisesRegex(stage.StageError, "deadline"):
+            stage.stage_once(self.profile, self.allowance(), self.destination, self.root, factory, clock=lambda: self.now)
+        factory.assert_not_called()
+        self.assertEqual(previous, signal.getsignal(signal.SIGALRM))
+        self.assertEqual((0.0, 0.0), signal.getitimer(signal.ITIMER_REAL))
+        self.assertEqual(1, len(list(self.root.glob("*.claim.json"))))
+
     def test_ci_refusal_precedes_profile_access_and_errors_never_print_token_text(self):
         output = io.StringIO()
         with patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), patch.object(stage, "load_profile") as load, \
@@ -247,11 +352,14 @@ class C1PrivateStageTests(unittest.TestCase):
         self.assertEqual("c1_stage_ci_forbidden", json.loads(output.getvalue())["code"])
         output, standard = io.StringIO(), io.StringIO()
         with patch.dict(os.environ, {"GITHUB_ACTIONS": ""}), patch.object(stage, "load_profile", return_value=self.profile), \
-                patch.object(stage, "stage", side_effect=OSError("Bearer sensitive-sentinel")), \
+                patch.object(stage, "stage_once", side_effect=OSError("Bearer sensitive-sentinel")), \
                 redirect_stderr(output), redirect_stdout(standard):
-            self.assertEqual(2, stage.main(["--profile", "/not-read", "--destination", "/not-created"]))
+            self.assertEqual(2, stage.main(["--profile", "/not-read", "--destination", "/not-created", "--allowance", "/not-read"]))
         self.assertNotIn("sensitive-sentinel", output.getvalue())
         self.assertEqual("", standard.getvalue())
+        with patch.dict(os.environ, {"GITHUB_ACTIONS": ""}), patch.object(stage, "load_profile") as load, redirect_stderr(io.StringIO()):
+            self.assertEqual(2, stage.main(["--profile", "/not-read", "--destination", "/not-created"]))
+        load.assert_not_called()
 
 
 class FakeResponse(io.BytesIO):

@@ -125,9 +125,23 @@ subscription-level roles using the original reserve and fresh absence reads,
 without deleting the publisher user, VM, data or other grants. Native condition
 enforcement, effective access/revocation and the remaining worker/driver/stop
 integration are still unproven; no cloud role or grant has been created.
+The source receiver bundle now binds the original publication/access inventory,
+tool bytes from the original outer/inner ZIP, and fresh own-VM/managed-identity
+readbacks. It durably prepays exactly two receiver HTTP requests from the
+original control budget after the two identity GETs. Resume preserves the same
+profile, allowance, tools and bounded deadline; uncertain saves require original
+journal recovery. The Python CLI requires this allowance and persists a one-use
+claim before network I/O and a bound result before output, under a fixed private
+deployment directory. Unknown outcomes never refund or recreate the claim.
+Cross-language wire/hash compatibility and replay/deadline cases belong to the
+existing credential-free hosted lane, not native acceptance. Trusted Guest
+Agent file delivery, actual execution/readback reconciliation and independent
+stop remain unintegrated. No new paid partial apply or cloud call is introduced.
 Final C1 binding now also requires the publication plan/readback and refuses a
 cleanup-fenced, expired or unresolved-delete journal rather than reusing its
-retained historical resource receipts as runnable state.
+retained historical resource receipts as runnable state. It additionally requires
+the receiver allocation and a future actual stage receipt; preparing a bundle
+alone cannot satisfy the final delivery boundary.
 B5 access selection has now been explicitly extended to an own Point-to-Site
 VPN gateway into this variant's own Azure VNet/private endpoints, together with
 an own Azure Firewall. The earlier unanswered choice is superseded, not a

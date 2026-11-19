@@ -638,7 +638,7 @@ public sealed partial class FabricC1Provisioner
             "published-definition", "runtime-agent-grant", "source-grants", "materialization",
             "runtime-credential", "hosted-version", "hosted-session", "private-path", "caller-access",
             "checkpoint-storage-role", "checkpoint-storage-runtime-grant", "checkpoint-storage-control-grant",
-            ArtifactPlanKey, ArtifactPublicationKey, ArtifactAccessTargetKey,
+            ArtifactPlanKey, ArtifactPublicationKey, ArtifactAccessTargetKey, ArtifactStageKey, "private-artifact-stage-receipt",
             "artifact-storage-publisher-role", "artifact-storage-receiver-role",
             "artifact-storage-publisher-grant", "artifact-storage-receiver-grant" })
             Guard.Against(!state.Objects.ContainsKey(key), "c1_deploy_binding_incomplete",

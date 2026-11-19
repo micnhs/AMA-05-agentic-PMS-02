@@ -27,6 +27,11 @@ import c1_package as package
 
 
 CONTRACT = "cohors-fabric-c1-private-stage-1"
+ALLOWANCE_CONTRACT = "cohors-fabric-c1-stage-allowance-1"
+ALLOWANCE_FIELDS = {
+    "contract", "deploymentBindingHash", "invocationId", "profileSha256", "startedAtUtc",
+    "expiresAtUtc", "requests", "budgetReviewSha256", "journalReceiptSha256",
+}
 STORAGE_AUDIENCE = "https://storage.azure.com/"
 IMDS_HOST = "169.254.169.254"
 IMDS_PATH = "/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fstorage.azure.com%2F"
@@ -322,56 +327,126 @@ class AzureReceiver:
 
 def stage(profile, destination, receiver_factory=AzureReceiver, clock=None, monotonic=None):
     clock = clock or (lambda: datetime.now(timezone.utc))
-    host = validate_profile(profile, clock())
+    validate_profile(profile, clock())
+    budget = Budget(profile, clock, monotonic)
+    with deadline(budget):
+        return stage_payload(profile, destination, receiver_factory, budget)
+
+
+def stage_payload(profile, destination, receiver_factory, budget):
+    host = validate_profile(profile, budget.clock())
     for file, field in ((Path(__file__), "receiverSha256"), (Path(package.__file__), "verifierSha256")):
         require(package.digest(package.no_links(file).read_bytes()) == profile[field], "c1_stage_tool_binding")
     require(Path(destination).is_absolute(), "c1_stage_private_path")
     target = package.no_links(destination)
     parent = protected_directory(target.parent)
     require(not target.exists(), "c1_stage_new_destination")
-    budget = Budget(profile, clock, monotonic)
     archive_path = None
     try:
-        with deadline(budget):
-            with tempfile.NamedTemporaryFile(prefix=".c1-stage-", suffix=".zip", dir=parent, delete=False) as archive:
-                archive_path = Path(archive.name)
-                with receiver_factory(profile, host, budget) as receiver:
-                    token = receiver.token()
-                    observation = receiver.download(token, archive)
-                    token = None
-                archive.flush()
-                os.fsync(archive.fileno())
-            budget.remaining()
-            require(archive_path.stat().st_size == profile["outerArchiveLength"], "c1_stage_archive_length")
-            manifest, payload, receipt, data = package.verify_download(
-                archive_path, profile["outerArchiveSha256"], profile["sourceCommit"], profile["runId"], profile["runAttempt"])
-            del data
-            require(manifest["contract"] == package.CONTRACT and
-                    package.digest(payload["assets/scripts/fabric/c1_private_stage.py"]) == profile["receiverSha256"] and
-                    package.digest(payload["assets/scripts/fabric/c1_package.py"]) == profile["verifierSha256"],
-                    "c1_stage_tool_binding")
-            budget.remaining()
-            package.extract(manifest, payload, receipt, target)
-            budget.remaining()
-            return {"status": "VerifiedNotExecuted", "contract": CONTRACT, "sourceCommit": profile["sourceCommit"],
-                    "runId": profile["runId"], "runAttempt": profile["runAttempt"], "files": len(payload),
-                    "profileSha256": package.digest(package.encoded(profile)), "archiveSha256": receipt["archiveSha256"],
-                    "outerArchiveSha256": profile["outerArchiveSha256"], "httpRequests": 2, "retries": 0,
-                    "privateTransport": observation, "payloadExecuted": False}
+        with tempfile.NamedTemporaryFile(prefix=".c1-stage-", suffix=".zip", dir=parent, delete=False) as archive:
+            archive_path = Path(archive.name)
+            with receiver_factory(profile, host, budget) as receiver:
+                token = receiver.token()
+                observation = receiver.download(token, archive)
+                token = None
+            archive.flush()
+            os.fsync(archive.fileno())
+        budget.remaining()
+        require(archive_path.stat().st_size == profile["outerArchiveLength"], "c1_stage_archive_length")
+        manifest, payload, receipt, data = package.verify_download(
+            archive_path, profile["outerArchiveSha256"], profile["sourceCommit"], profile["runId"], profile["runAttempt"])
+        del data
+        require(manifest["contract"] == package.CONTRACT and
+                package.digest(payload["assets/scripts/fabric/c1_private_stage.py"]) == profile["receiverSha256"] and
+                package.digest(payload["assets/scripts/fabric/c1_package.py"]) == profile["verifierSha256"],
+                "c1_stage_tool_binding")
+        budget.remaining()
+        package.extract(manifest, payload, receipt, target)
+        budget.remaining()
+        return {"status": "VerifiedNotExecuted", "contract": CONTRACT, "sourceCommit": profile["sourceCommit"],
+                "runId": profile["runId"], "runAttempt": profile["runAttempt"], "files": len(payload),
+                "profileSha256": package.digest(package.encoded(profile)), "archiveSha256": receipt["archiveSha256"],
+                "outerArchiveSha256": profile["outerArchiveSha256"], "httpRequests": 2, "retries": 0,
+                "privateTransport": observation, "payloadExecuted": False}
     finally:
         if archive_path is not None:
             archive_path.unlink()
+
+
+def exclusive_document(path, data):
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError as error:
+        raise StageError("c1_stage_claim_used") from error
+    with os.fdopen(descriptor, "wb") as file:
+        file.write(package.encoded(data))
+        file.flush()
+        os.fsync(file.fileno())
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def validate_allowance(profile, allowance, now):
+    validate_profile(profile, now)
+    require(isinstance(allowance, dict) and set(allowance) == ALLOWANCE_FIELDS and
+            allowance["contract"] == ALLOWANCE_CONTRACT and
+            allowance["deploymentBindingHash"] == profile["deploymentBindingHash"] and
+            allowance["profileSha256"] == package.digest(package.encoded(profile)) and
+            allowance["expiresAtUtc"] == profile["expiresAtUtc"] and
+            type(allowance["requests"]) is int and allowance["requests"] == 2 and
+            all(hex_value(allowance[field], 64) for field in ("budgetReviewSha256", "journalReceiptSha256")),
+            "c1_stage_allowance")
+    require(guid(allowance["invocationId"]) == allowance["invocationId"] and
+            utc(allowance["startedAtUtc"]) <= now < utc(allowance["expiresAtUtc"]) and
+            0 < (utc(allowance["expiresAtUtc"]) - utc(allowance["startedAtUtc"])).total_seconds()
+            <= profile["maxDurationSeconds"], "c1_stage_allowance")
+
+
+def stage_directory(profile):
+    return Path("/var/lib/cohors-c1") / profile["deploymentBindingHash"] / "artifact-stage"
+
+
+def stage_once(profile, allowance, destination, claim_directory, receiver_factory=AzureReceiver, clock=None, monotonic=None):
+    clock = clock or (lambda: datetime.now(timezone.utc))
+    validate_allowance(profile, allowance, clock())
+    budget = Budget(profile, clock, monotonic)
+    with deadline(budget):
+        require(Path(claim_directory) == stage_directory(profile), "c1_stage_claim_directory")
+        root = protected_directory(claim_directory)
+        require(Path(destination).is_absolute() and package.no_links(destination).parent == root,
+                "c1_stage_private_path")
+        name = "stage-" + allowance["profileSha256"]
+        # The protected control allowance is debited upstream. Persist its one-use
+        # claim before DNS/token/Blob I/O; any unknown outcome remains spent.
+        exclusive_document(root / (name + ".claim.json"), {
+            "status": "Claimed", "allowance": allowance, "destination": str(destination),
+        })
+        budget.remaining()
+        result = stage_payload(profile, destination, receiver_factory, budget)
+        result.update(invocationId=allowance["invocationId"],
+                      journalReceiptSha256=allowance["journalReceiptSha256"],
+                      allowanceSha256=package.digest(package.encoded(allowance)))
+        exclusive_document(root / (name + ".receipt.json"), result)
+        budget.remaining()
+        return result
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", required=True)
     parser.add_argument("--destination", required=True)
+    parser.add_argument("--allowance")
     args = parser.parse_args(argv)
     try:
         require(os.environ.get("GITHUB_ACTIONS") != "true", "c1_stage_ci_forbidden")
         require(sys.platform == "linux", "c1_stage_linux_required")
-        result = stage(load_profile(args.profile), args.destination)
+        require(args.allowance is not None, "c1_stage_allowance_required")
+        require(Path(args.profile).parent == Path(args.allowance).parent, "c1_stage_claim_directory")
+        result = stage_once(load_profile(args.profile), load_profile(args.allowance), args.destination,
+                            Path(args.allowance).parent)
         print(json.dumps(result, sort_keys=True))
     except StageError as error:
         print(json.dumps({"status": "Blocked", "code": error.code, "payloadExecuted": False}), file=sys.stderr)

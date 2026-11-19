@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -1437,6 +1439,214 @@ public sealed class FabricC1DeploymentTests
         Assert.Empty(run.Store.Current!.CleanupReceipts);
         Assert.True(run.Store.Current.PendingDeletes.ContainsKey(resources[0].Key));
         Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task PrivateStageBindsOriginalToolsVmAndTwoRequestDebitWithoutReallocatingOnResume()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.UseStageArchive();
+        await PublishArtifactForStage(run, artifact);
+        var before = run.Store.Current!.Requests;
+        var calls = run.Api.Requests.Count;
+        artifact.QueueStageIdentity();
+        var first = await artifact.PrepareStage();
+        Assert.Equal(before + 4, run.Store.Current!.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+        Assert.Equal(ArtifactHarness.ReceiverTool, first.ReceiverSource);
+        Assert.Equal(ArtifactHarness.VerifierTool, first.VerifierSource);
+        Assert.Equal(artifact.ManagedIdentityClientId, first.Profile["managedIdentityClientId"]!.GetValue<string>());
+        Assert.Equal(artifact.Probe["identity"]!["principalId"]!.GetValue<string>(),
+            first.Profile["managedIdentityObjectId"]!.GetValue<string>());
+        Assert.Equal(2, first.Allowance["requests"]!.GetValue<int>());
+        Assert.Equal(Canonical.Hash(run.Store.Current.Objects["private-artifact-stage-plan"]),
+            first.Allowance["journalReceiptSha256"]!.GetValue<string>());
+        Assert.Equal(2, run.Api.Requests.Count - calls);
+        Assert.All(run.Api.Requests.Skip(calls), request => Assert.Equal(HttpMethod.Get, request.Method));
+        Assert.Contains("/servicePrincipals/" + artifact.Probe["identity"]!["principalId"]!.GetValue<string>() + "?$select=",
+            run.Api.Requests[^1].Uri.AbsoluteUri, StringComparison.Ordinal);
+        var original = Canonical.Hash(first);
+        run.Clock.Advance(TimeSpan.FromSeconds(1));
+        artifact.QueueTarget();
+        await artifact.Publish();
+        run.Restart();
+        before = run.Store.Current.Requests;
+        calls = run.Api.Requests.Count;
+        Assert.Equal(original, Canonical.Hash(await artifact.PrepareStage()));
+        Assert.Equal(before, run.Store.Current.Requests);
+        Assert.Equal(calls, run.Api.Requests.Count);
+        first.Profile["privateAddresses"]![0] = "8.8.8.8";
+        Assert.Equal(original, Canonical.Hash(await artifact.PrepareStage()));
+    }
+
+    [Fact]
+    public async Task ActualPythonValidatorAcceptsTheDotnetStageWireShapeAndNewlineHash()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.UseStageArchive();
+        await PublishArtifactForStage(run, artifact);
+        artifact.QueueStageIdentity();
+        var bundle = await artifact.PrepareStage();
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", ".."));
+        var start = new ProcessStartInfo
+        {
+            FileName = OperatingSystem.IsWindows() ? "python" : "python3",
+            WorkingDirectory = Path.Combine(root, "scripts", "fabric"),
+            UseShellExecute = false, RedirectStandardInput = true, RedirectStandardError = true, RedirectStandardOutput = true
+        };
+        start.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
+        start.ArgumentList.Add("-c");
+        start.ArgumentList.Add("import json,sys,c1_private_stage as s; d=json.load(sys.stdin); s.validate_allowance(d['profile'],d['allowance'],s.utc(d['now'])); assert s.stage_directory(d['profile']).as_posix()==d['workerDirectory']");
+        using var process = Process.Start(start)!;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var error = process.StandardError.ReadToEndAsync(timeout.Token);
+        var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        try
+        {
+            var input = JsonSerializer.Serialize(new
+            {
+                bundle.Profile, bundle.Allowance, bundle.WorkerDirectory,
+                Now = run.Clock.GetUtcNow().UtcDateTime.ToString("O", System.Globalization.CultureInfo.InvariantCulture)
+            }, Canonical.Json);
+            await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token);
+            await process.StandardInput.FlushAsync(timeout.Token);
+            process.StandardInput.Close();
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw;
+        }
+        Assert.Equal("", await error);
+        Assert.Equal("", await output);
+        Assert.Equal(0, process.ExitCode);
+    }
+
+    [Theory]
+    [InlineData("vm-generation")]
+    [InlineData("principal-id")]
+    [InlineData("application")]
+    [InlineData("disabled")]
+    [InlineData("foreign-vm")]
+    [InlineData("operator-client")]
+    public async Task StagePreparationRefusesChangedVmOrForeignManagedIdentityWithoutIssuingAllowance(string change)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.UseStageArchive();
+        await PublishArtifactForStage(run, artifact);
+        var calls = run.Api.Requests.Count;
+        var probe = (JsonObject)artifact.Probe.DeepClone();
+        var principal = artifact.ManagedIdentity();
+        if (change == "vm-generation") probe["properties"]!["vmId"] = Guid.NewGuid().ToString("D");
+        if (change == "principal-id") principal["id"] = Guid.NewGuid().ToString("D");
+        if (change == "application") principal["servicePrincipalType"] = "Application";
+        if (change == "disabled") principal["accountEnabled"] = false;
+        if (change == "foreign-vm") principal["alternativeNames"] = new JsonArray(principal["alternativeNames"]![0]!.GetValue<string>() + "-foreign");
+        if (change == "operator-client") principal["appId"] = run.Input.BootstrapIdentity!.ClientId;
+        run.Api.Reply(200, probe);
+        if (change != "vm-generation") run.Api.Reply(200, principal);
+        Assert.Equal(change == "vm-generation" ? "c1_artifact_access_receiver" : "c1_artifact_stage_identity",
+            (await Assert.ThrowsAsync<DomainException>(() => artifact.PrepareStage())).Code);
+        Assert.Equal(calls + (change == "vm-generation" ? 1 : 2), run.Api.Requests.Count);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-artifact-stage-plan"));
+    }
+
+    [Theory]
+    [InlineData("missing-tool", "c1_artifact_stage_tools")]
+    [InlineData("oversized-tool", "c1_artifact_stage_tools")]
+    [InlineData("inner-digest", "c1_artifact_stage_tools")]
+    [InlineData("outer-digest", "c1_artifact_digest")]
+    public async Task StageToolsMustComeFromTheOriginalArchiveBeforeAnyIdentityLookup(string change, string code)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.UseStageArchive(change == "missing-tool" ? null :
+            change == "oversized-tool" ? new string('x', 256 * 1024 + 1) : ArtifactHarness.ReceiverTool);
+        if (change == "inner-digest")
+        {
+            artifact.Provenance["innerArchiveSha256"] = new string('f', 64);
+            artifact.WriteProvenance();
+        }
+        await PublishArtifactForStage(run, artifact);
+        if (change == "outer-digest")
+        {
+            var bytes = artifact.Bytes.ToArray();
+            bytes[^1] ^= 1;
+            File.WriteAllBytes(Path.Combine(artifact.Directory, "transport.zip"), bytes);
+        }
+        var calls = run.Api.Requests.Count;
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() => artifact.PrepareStage())).Code);
+        Assert.Equal(calls, run.Api.Requests.Count);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-artifact-stage-plan"));
+    }
+
+    [Fact]
+    public async Task StageAllowanceCannotBorrowCleanupReserveAfterItsTwoIdentityReads()
+    {
+        using var run = new Harness(maxRequests: 33, delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.UseStageArchive();
+        await PublishArtifactForStage(run, artifact);
+        artifact.QueueStageIdentity();
+        Assert.Equal("c1_deploy_budget", (await Assert.ThrowsAsync<DomainException>(() => artifact.PrepareStage())).Code);
+        Assert.Equal(22, run.Store.Current!.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+        Assert.False(run.Store.Current.Objects.ContainsKey("private-artifact-stage-plan"));
+    }
+
+    [Fact]
+    public async Task UncertainStageAllocationSaveRequiresOriginalJournalRecoveryWithoutAnotherDebit()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.UseStageArchive();
+        await PublishArtifactForStage(run, artifact);
+        run.Api.Reply(200, artifact.Probe);
+        run.Api.ReplyComputed(200, () => { run.Store.FailAfterSave = true; return artifact.ManagedIdentity(); });
+        await Assert.ThrowsAsync<IOException>(() => artifact.PrepareStage());
+        var original = Canonical.Hash(run.Store.Current!.Objects["private-artifact-stage-plan"]);
+        var calls = run.Api.Requests.Count;
+        var requests = run.Store.Current.Requests;
+        run.Store.FailAfterSave = false;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown",
+            (await Assert.ThrowsAsync<DomainException>(() => artifact.PrepareStage())).Code);
+        run.Restart();
+        var recovered = await artifact.PrepareStage();
+        Assert.Equal(original, recovered.Allowance["journalReceiptSha256"]!.GetValue<string>());
+        Assert.Equal(requests, run.Store.Current.Requests);
+        Assert.Equal(calls, run.Api.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("duration", "c1_artifact_stage_binding")]
+    [InlineData("expiry", "c1_artifact_stage_binding")]
+    [InlineData("cleanup", "c1_deploy_cleanup_started")]
+    [InlineData("generation", "c1_artifact_stage_binding")]
+    [InlineData("profile", "c1_artifact_stage_binding")]
+    public async Task RetainedStageCannotResetTimeIntentGenerationOrCleanupFence(string change, string code)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.UseStageArchive();
+        await PublishArtifactForStage(run, artifact);
+        artifact.QueueStageIdentity();
+        await artifact.PrepareStage();
+        if (change == "expiry") run.Clock.Advance(TimeSpan.FromSeconds(60));
+        if (change == "cleanup") run.Store.Current = run.Store.Current! with { CleanupStartedAtUtc = run.Clock.GetUtcNow() };
+        if (change == "generation") run.Store.Current!.Objects["private-artifact-published"].Response["eTag"] = "\"another-generation\"";
+        if (change == "profile") run.Store.Current!.Objects["private-artifact-stage-plan"].Response["profile"]!["privateAddresses"]![0] = "8.8.8.8";
+        run.Restart();
+        var calls = run.Api.Requests.Count;
+        var requests = run.Store.Current!.Requests;
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.PreparePrivateArtifactStage(artifact.Binding, artifact.Directory, change == "duration" ? 61 : 60, default))).Code);
+        Assert.Equal(calls, run.Api.Requests.Count);
+        Assert.Equal(requests, run.Store.Current.Requests);
     }
 
     [Fact]
@@ -3810,10 +4020,13 @@ public sealed class FabricC1DeploymentTests
 
     private sealed class ArtifactHarness : IDisposable
     {
+        public const string ReceiverTool = "# synthetic receiver tool, never executed\n";
+        public const string VerifierTool = "# synthetic verifier tool, never executed\n";
         private readonly Harness run;
         private readonly HttpClient client;
         public string Directory { get; } = Path.Combine(Path.GetTempPath(), "cohors-artifact-" + Guid.NewGuid().ToString("N"));
-        public byte[] Bytes { get; } = Encoding.UTF8.GetBytes("synthetic transport bytes, not a published deployment package");
+        public byte[] Bytes { get; private set; } = Encoding.UTF8.GetBytes("synthetic transport bytes, not a published deployment package");
+        public string ManagedIdentityClientId { get; } = Guid.NewGuid().ToString("D");
         public JsonObject Provenance { get; }
         public JsonObject Storage { get; }
         public JsonObject Container { get; }
@@ -3904,6 +4117,47 @@ public sealed class FabricC1DeploymentTests
             QueueTarget();
             run.Api.Reply(200, Probe);
         }
+
+        public void UseStageArchive(string? receiver = ReceiverTool)
+        {
+            static byte[] Zip(IEnumerable<(string Name, byte[] Bytes)> entries)
+            {
+                using var buffer = new MemoryStream();
+                using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+                    foreach (var (name, bytes) in entries)
+                    {
+                        using var stream = zip.CreateEntry(name).Open();
+                        stream.Write(bytes);
+                    }
+                return buffer.ToArray();
+            }
+            var tools = new List<(string, byte[])>
+            { ("assets/scripts/fabric/c1_package.py", Encoding.UTF8.GetBytes(VerifierTool)) };
+            if (receiver is not null) tools.Add(("assets/scripts/fabric/c1_private_stage.py", Encoding.UTF8.GetBytes(receiver)));
+            var inner = Zip(tools);
+            Bytes = Zip([("package.zip", inner), ("archive.json", Encoding.UTF8.GetBytes("{}"))]);
+            File.WriteAllBytes(Path.Combine(Directory, "transport.zip"), Bytes);
+            Provenance["outerArchiveSha256"] = Convert.ToHexStringLower(SHA256.HashData(Bytes));
+            Provenance["outerArchiveLength"] = Bytes.Length;
+            Provenance["innerArchiveSha256"] = Convert.ToHexStringLower(SHA256.HashData(inner));
+            WriteProvenance();
+        }
+
+        public JsonObject ManagedIdentity() => new()
+        {
+            ["id"] = Probe["identity"]!["principalId"]!.GetValue<string>(), ["appId"] = ManagedIdentityClientId,
+            ["servicePrincipalType"] = "ManagedIdentity", ["accountEnabled"] = true,
+            ["alternativeNames"] = new JsonArray(Probe["id"]!.GetValue<string>())
+        };
+
+        public void QueueStageIdentity()
+        {
+            run.Api.Reply(200, Probe);
+            run.Api.Reply(200, ManagedIdentity());
+        }
+
+        public Task<FabricC1ArtifactStageBundle> PrepareStage() =>
+            run.Provisioner.PreparePrivateArtifactStage(Binding, Directory, 60, default);
 
         public void Dispose()
         {
@@ -4047,6 +4301,13 @@ public sealed class FabricC1DeploymentTests
         }
         await artifact.EnsureAccess();
         return [resources[2], resources[3], resources[0], resources[1]];
+    }
+
+    private static async Task PublishArtifactForStage(Harness run, ArtifactHarness artifact)
+    {
+        await CreateArtifactAccessForCleanup(run, artifact);
+        artifact.QueueTarget();
+        await artifact.Publish();
     }
 
     private static (FabricC1ExecutionSettings Execution, FabricC1BlobCheckpointBinding Direct,

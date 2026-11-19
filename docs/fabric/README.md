@@ -592,7 +592,7 @@ exact verified outer bytes as `transport.zip`, never a recompressed replacement.
 It performs no upload. Normal download behavior still removes the temporary ZIP.
 
 The source-only private receiver `scripts\fabric\c1_private_stage.py --profile
-PRIVATE_JSON --destination NEW_PRIVATE_DIRECTORY` is a bounded **consumer**
+PRIVATE_JSON --allowance PRIVATE_ALLOWANCE_JSON --destination NEW_PRIVATE_DIRECTORY` is a bounded **consumer**
 for the already specified isolated C1 Blob storage and VM system identity:
 
 - It accepts only the versioned private-stage profile, binding deployment hash,
@@ -604,6 +604,19 @@ for the already specified isolated C1 Blob storage and VM system identity:
   package, not fabricated review hashes. The driver must cap expiry and request
   accounting by the original deployment contract; this helper does not create
   or renew that contract.
+- Native invocation also requires its original `cohors-fabric-c1-stage-allowance-1`
+  sidecar. Before DNS/token/Blob I/O, an exclusive, file-and-directory-fsynced
+  claim consumes the profile once in
+  `/var/lib/cohors-c1/{deploymentBindingHash}/artifact-stage`. Both protected
+  input files belong in that directory; the new destination must be its child.
+  Moving the allowance, changing the invocation ID or choosing another
+  destination cannot create another claim for the same profile. A failed or
+  uncertain claim/download/result remains spent, without an automatic retry.
+  The overall timer includes claim and result persistence. A successful result
+  is persisted separately before output and binds the profile, invocation,
+  allowance and original control-journal receipt. A profile alone is no longer
+  native execution authority. This is a trusted-VM state boundary, not a fence
+  against a privileged administrator deleting or replacing the claim.
 - Before credentials, DNS must return only reviewed RFC1918/ULA addresses.
   The socket connects to one of those addresses without a second DNS lookup,
   retains the original storage FQDN for certificate verification/SNI, requires
@@ -614,8 +627,9 @@ for the already specified isolated C1 Blob storage and VM system identity:
   identity, tenant, storage audience, issuer and lifetime; delegated `scp`
   tokens and other callers are rejected. Metadata checks are not a local
   signature/RBAC verdict: Storage must actually authorize the request.
-  The minimum data role is Storage Blob Data Reader on the own artifact
-  container. No role is granted by this script, and VM managed identity is a
+  The receiver needs only Blob read on its exact own artifact path; the
+  separate reconciler below supplies that narrower custom role/condition.
+  No role is granted by this script, and VM managed identity is a
   VM-wide boundary, not per-process isolation.
 - The only Blob path is
   `c1-artifacts/{deploymentBindingHash}/{sourceCommit}/{outerArchiveSha256}.zip`.
@@ -695,8 +709,28 @@ This specifies and exercises the source path, not native ABAC acceptance,
 propagation, exclusive effective access or effective revocation. Existing or
 inherited grants still require separate native positive/negative access checks;
 ARM does not supply a claimed CAS fence against another privileged writer.
+`PreparePrivateArtifactStage` now derives a protected delivery bundle from the
+original confirmed publication, exact access inventory and retained ZIP. It
+rehashes the entire outer archive, checks the provenance-bound inner ZIP and
+extracts only the two size-bounded bootstrap tool entries, without trusting a
+separately modified extracted copy or replacing the existing complete Python
+package verifier. A current own-VM readback and one targeted GET of that VM's
+system service principal bind its client/object/resource identity; no human
+directory search or application-owner tenant assumption is used.
+
+The original control journal prepays the receiver's two HTTP requests after
+those two identity GETs. Its immutable profile/allowance/tool bundle and
+bounded clock survive resume without another debit, new invocation or extended
+expiry. Cleanup reserve and checkpoint allocations cannot be borrowed. An
+uncertain journal save fences further I/O until exclusive original-journal
+recovery. The profile uses ASCII canonical JSON **plus LF** for the Python wire
+hash, without changing global audit serialization; the hosted source tests pass
+the actual .NET bundle to the Python validator. These are synthetic transport
+and filesystem checks, not a guest execution or an effective-access proof.
+
 The publication profile is not yet exported by a complete driver. Trusted Guest
-Agent delivery of the receiver/profile, FQDN egress, result binding, independent
+Agent delivery of the receiver/profile/allowance, FQDN egress, provider execution
+and durable result reconciliation, independent
 stop and ordered Blob/VM teardown remain unintegrated. The worker still uses
 only its own IMDS identity; no user bearer, GitHub credential, SAS or storage
 key is part of its profile or payload.
