@@ -33,7 +33,11 @@ public sealed partial class FabricC1DeploymentTests
         Assert.Equal(entry["armFileSha256"]!.GetValue<string>(), FileHash(armFile));
         var receipt = JsonNode.Parse(File.ReadAllText(HubFixturePath(receiptFile)))!.AsObject();
         var arm = JsonNode.Parse(File.ReadAllText(HubFixturePath(armFile)))!.AsObject();
-        Assert.Equal(entry["receiptCanonicalSha256"]!.GetValue<string>(), FabricC1Deployment.HubWireHash(receipt));
+        var receiptHash = receipt["receiptSha256"]!.GetValue<string>();
+        var unsigned = (JsonObject)receipt.DeepClone();
+        unsigned.Remove("receiptSha256");
+        Assert.Equal(entry["receiptCanonicalSha256"]!.GetValue<string>(), receiptHash);
+        Assert.Equal(receiptHash, FabricC1Deployment.HubWireHash(unsigned));
         Assert.Equal(entry["armCanonicalSha256"]!.GetValue<string>(), FabricC1Deployment.HubWireHash(arm));
         foreach (var observation in receipt["readback"]!["resources"]!.AsArray())
         {
@@ -44,10 +48,11 @@ public sealed partial class FabricC1DeploymentTests
         await AssertPythonContract("""
             import hashlib, json, sys
             data = json.load(sys.stdin)
+            assert data["receipt"].pop("receiptSha256") == data["receiptHash"]
             for name in ("receipt", "arm"):
                 wire = json.dumps(data[name], sort_keys=True, separators=(",", ":"), ensure_ascii=True)
                 assert hashlib.sha256(wire.encode()).hexdigest() == data[name + "Hash"]
-            """, new { receipt, arm, receiptHash = FabricC1Deployment.HubWireHash(receipt), armHash = FabricC1Deployment.HubWireHash(arm) });
+            """, new { receipt, arm, receiptHash, armHash = FabricC1Deployment.HubWireHash(arm) });
     }
 
     [Fact]

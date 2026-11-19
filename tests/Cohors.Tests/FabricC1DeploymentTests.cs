@@ -14,7 +14,7 @@ namespace Cohors.Tests;
 public sealed partial class FabricC1DeploymentTests
 {
     [Fact]
-    public void CompleteStartValuesDoNotHideUnimplementedPrivateBootstrapOrRequireManualTargets()
+    public void StandaloneStartValuesCannotActivateTheSupersededTopologyOrHideBootstrapBlockers()
     {
         using var run = new Harness(operatorNetwork: true);
         var plan = FabricC1Deployment.Plan(run.Input, run.Clock.GetUtcNow());
@@ -22,7 +22,7 @@ public sealed partial class FabricC1DeploymentTests
         Assert.False(plan.CanApply);
         Assert.Equal("Blocked", plan.Status);
         Assert.NotEmpty(plan.ImplementationBlockers);
-        Assert.Equal("c1_deploy_incomplete", Assert.Throws<DomainException>(() => FabricC1Deployment.RequireComplete(plan)).Code);
+        Assert.Equal("c1_deploy_inputs", Assert.Throws<DomainException>(() => FabricC1Deployment.RequireComplete(plan)).Code);
         var parameters = FabricC1Deployment.ArmParameters(run.Input).ToJsonString();
         Assert.DoesNotContain("workspaceId", parameters, StringComparison.Ordinal);
         Assert.DoesNotContain("clientId", parameters, StringComparison.Ordinal);
