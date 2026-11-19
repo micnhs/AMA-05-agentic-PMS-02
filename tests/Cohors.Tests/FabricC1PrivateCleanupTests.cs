@@ -127,9 +127,17 @@ public sealed partial class FabricC1DeploymentTests
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task LostOrAcceptedPeerDeletionIsReadOnlyReconciledAndNeverReplayed(bool lostResponse)
+    [InlineData("accepted")]
+    [InlineData("http-request")]
+    [InlineData("io")]
+    [InlineData("timeout")]
+    [InlineData("request-cancelled")]
+    [InlineData("http-403")]
+    [InlineData("http-503")]
+    [InlineData("response-shape")]
+    [InlineData("response-size")]
+    [InlineData("response-limit")]
+    public async Task LostOrAcceptedPeerDeletionIsReadOnlyReconciledAndNeverReplayed(string response)
     {
         using var run = new Harness(sharedHub: true, maxRequests: 1000);
         var hub = await HubFixture.Connected(run);
@@ -137,24 +145,22 @@ public sealed partial class FabricC1DeploymentTests
         var before = run.Api.Requests.Count;
         run.Api.List(PrivateGroupFixture(hub));
         QueuePrivatePeerReadback(hub, run);
-        if (lostResponse) run.Api.Fail(new IOException("synthetic lost DELETE response"));
-        else run.Api.Reply(202, new(), retryAfterSeconds: 30);
-        if (lostResponse)
-            await Assert.ThrowsAsync<IOException>(() => run.Provisioner.AdvancePrivateCleanup("operator-stop", default));
-        else
-            Assert.Equal("AwaitingOriginalSpokePeeringDeletion", (await run.Provisioner.AdvancePrivateCleanup("operator-stop", default)).Status);
+        if (response == "accepted") run.Api.Reply(202, new(), retryAfterSeconds: 30);
+        else QueuePrivateProviderFailure(run.Api, response);
+        var waitingForDelete = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal("AwaitingOriginalSpokePeeringDeletion", waitingForDelete.Status);
+        if (response != "accepted")
+            Assert.Contains(PrivateProviderFailureBlocker(response, "private-cleanup-spoke-peer-absent"), waitingForDelete.Blockers);
         Assert.True(run.Store.Current!.PendingDeletes.ContainsKey("private-cleanup-spoke-peer-absent"));
         Assert.False(run.Store.Current!.Objects.ContainsKey("private-cleanup-offboarding-export"));
         Assert.Equal("\"synthetic-etag\"", Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Delete).ETag);
         run.Restart();
-        if (!lostResponse)
-        {
-            var requests = run.Api.Requests.Count;
-            var waiting = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
-            Assert.Equal(run.Clock.GetUtcNow().AddSeconds(30), waiting.NextPollAtUtc);
-            Assert.Equal(requests, run.Api.Requests.Count);
-            run.Clock.Advance(TimeSpan.FromSeconds(30));
-        }
+        var delay = response == "accepted" ? 30 : 5;
+        var requests = run.Api.Requests.Count;
+        var waiting = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal(run.Clock.GetUtcNow().AddSeconds(delay), waiting.NextPollAtUtc);
+        Assert.Equal(requests, run.Api.Requests.Count);
+        run.Clock.Advance(TimeSpan.FromSeconds(delay));
         run.Api.Reply(404, new());
         var result = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
         Assert.Equal("AwaitingOwnerOffboardedReceipt", result.Status);
@@ -263,39 +269,386 @@ public sealed partial class FabricC1DeploymentTests
             request => Assert.StartsWith(hub.OwnGroup + "/", request.Uri.AbsolutePath, StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task NotebookCancellationKeepsOriginalPrivateJobIdentityAndUnknownOutcomeIsNotReplayed()
+    [Theory]
+    [InlineData("http-request")]
+    [InlineData("io")]
+    [InlineData("timeout")]
+    [InlineData("request-cancelled")]
+    [InlineData("http-403")]
+    [InlineData("legacy-http-403")]
+    [InlineData("http-503")]
+    [InlineData("response-shape")]
+    [InlineData("response-size")]
+    [InlineData("response-limit")]
+    public async Task NotebookCancellationKeepsOriginalPrivateJobIdentityAndUnknownOutcomeIsNotReplayed(string response)
     {
-        using var run = new Harness(sharedHub: true, delegated: true, maxRequests: 1000);
-        var hub = new HubFixture(run);
-        await hub.Import();
+        using var run = new Harness(sharedHub: true, delegated: true, maxRequests: 1000, cleanupReserve: 200);
+        var hub = await HubFixture.Connected(run);
+        var (vm, capacity) = SeedPrivatePaidFoundation(run, hub);
         var source = new SourceNotebookHarness(run);
         await source.Submit("released");
+        await source.Submit("denied");
         run.Clock.Advance(TimeSpan.FromSeconds(60));
         var before = run.Api.Requests.Count;
+        run.Api.Reply(200, vm);
+        run.Api.Reply(200, PrivateVmPower("deallocated"));
         run.Api.Reply(200, source.Job("released", "InProgress"));
-        run.Api.Fail(new IOException("synthetic lost cancel response"));
-        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.AdvancePrivateCleanup("operator-stop", default));
-        var cancel = Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Post);
+        QueuePrivateProviderFailure(run.Api, response);
+        run.Api.Reply(200, source.Job("denied", "InProgress"));
+        run.Api.Reply(202, new(), retryAfterSeconds: 5);
+        run.Api.Reply(200, capacity);
+        run.Api.Reply(202, new(), retryAfterSeconds: 5);
+        var initial = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal("AwaitingVerifiedWorkStop", initial.Status);
+        Assert.Contains(PrivateProviderFailureBlocker(response, "private-cleanup-notebook-stop-released"), initial.Blockers);
+        Assert.Contains("notebook-cancellation-not-observed:denied", initial.Blockers);
+        Assert.Contains("capacity-suspension-not-observed", initial.Blockers);
+        Assert.Null(initial.OwnerHandoff);
+        Assert.False(initial.CompleteC1Cleanup);
+        var posts = run.Api.Requests.Skip(before).Where(request => request.Method == HttpMethod.Post).ToArray();
+        Assert.Equal(3, posts.Length);
+        var cancel = Assert.Single(posts, request => request.Uri.IdnHost == FabricC1Provisioner.WorkspaceHost(source.WorkspaceId("released")));
         Assert.EndsWith("/cancel", cancel.Uri.AbsolutePath, StringComparison.Ordinal);
-        Assert.Equal(FabricC1Provisioner.WorkspaceHost(source.WorkspaceId("released")), cancel.Uri.IdnHost);
         Assert.Null(cancel.Body);
+        Assert.Contains(posts, request => request.Uri.IdnHost == FabricC1Provisioner.WorkspaceHost(source.WorkspaceId("denied")) &&
+            request.Uri.AbsolutePath.EndsWith("/cancel", StringComparison.Ordinal));
+        Assert.Contains(posts, request => request.Uri.AbsolutePath.EndsWith("/suspend", StringComparison.Ordinal));
         Assert.False(run.Store.Current!.Objects.ContainsKey("private-cleanup-work-stopped"));
+        var definitiveDenial = response is "http-403" or "legacy-http-403";
+        Assert.Equal(!definitiveDenial, run.Store.Current.PendingDeletes.ContainsKey("private-cleanup-notebook-stop-released"));
+        var originalIntent = Canonical.Hash(run.Store.Current.Objects["private-cleanup-notebook-stop-released-intent"]);
+        var originalClock = (run.Store.Current.StartedAtUtc, run.Store.Current.CleanupStartedAtUtc);
+        var expectedPosts = 3;
+        if (definitiveDenial)
+        {
+            if (response == "legacy-http-403") run.Restart();
+            var notDueStart = run.Api.Requests.Count;
+            run.Api.Reply(200, vm);
+            run.Api.Reply(200, PrivateVmPower("deallocated"));
+            var notDue = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+            Assert.Contains("notebook-stop-poll-not-due:released", notDue.Blockers);
+            Assert.DoesNotContain(run.Api.Requests.Skip(notDueStart), request => request.Method == HttpMethod.Post);
+            Assert.Equal(403, run.Store.Current!.DeniedRequests["private-cleanup-notebook-stop-released"].Status);
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                run.Clock.Advance(TimeSpan.FromSeconds(5));
+                var attemptStart = run.Api.Requests.Count;
+                run.Api.Reply(200, vm);
+                run.Api.Reply(200, PrivateVmPower("deallocated"));
+                run.Api.Reply(200, source.Job("released", "InProgress"));
+                run.Api.Reply(attempt == 0 ? 403 : 202, new(), retryAfterSeconds: 5);
+                run.Api.Reply(200, source.Job("denied", "InProgress"));
+                capacity["properties"]!["state"] = "Suspending";
+                run.Api.Reply(200, capacity);
+                var retry = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+                Assert.Equal("AwaitingVerifiedWorkStop", retry.Status);
+                var repeated = Assert.Single(run.Api.Requests.Skip(attemptStart), request => request.Method == HttpMethod.Post);
+                Assert.Equal(cancel.Uri, repeated.Uri);
+                Assert.Equal(cancel.ETag, repeated.ETag);
+                Assert.Null(repeated.Body);
+                Assert.Equal(originalIntent, Canonical.Hash(run.Store.Current!.Objects["private-cleanup-notebook-stop-released-intent"]));
+                Assert.Equal(attempt != 0, run.Store.Current.PendingDeletes.ContainsKey("private-cleanup-notebook-stop-released"));
+                var denied = run.Store.Current.DeniedRequests["private-cleanup-notebook-stop-released"];
+                Assert.Equal(403, denied.Status);
+                Assert.Equal(run.Store.Current.Objects["private-cleanup-notebook-stop-released-intent"].RequestHash, denied.RequestHash);
+                if (attempt == 0)
+                    Assert.Contains(PrivateProviderFailureBlocker(response, "private-cleanup-notebook-stop-released"), retry.Blockers);
+                Assert.Null(retry.OwnerHandoff);
+                Assert.False(run.Store.Current.Objects.ContainsKey("private-cleanup-work-stopped"));
+                expectedPosts++;
+            }
+        }
         run.Restart();
+        run.Clock.Advance(TimeSpan.FromSeconds(5));
+        run.Api.Reply(200, vm);
+        run.Api.Reply(200, PrivateVmPower("deallocated"));
         run.Api.Reply(200, source.Job("released", "InProgress"));
+        run.Api.Reply(200, source.Job("denied", "InProgress"));
+        capacity["properties"]!["state"] = "Suspending";
+        run.Api.Reply(200, capacity);
         Assert.Equal("AwaitingVerifiedWorkStop", (await run.Provisioner.AdvancePrivateCleanup("operator-stop", default)).Status);
+        Assert.Equal(originalIntent, Canonical.Hash(run.Store.Current!.Objects["private-cleanup-notebook-stop-released-intent"]));
+        Assert.Equal(expectedPosts, run.Api.Requests.Skip(before).Count(request => request.Method == HttpMethod.Post));
+        run.Clock.Advance(TimeSpan.FromSeconds(5));
+        run.Api.Reply(200, vm);
+        run.Api.Reply(200, PrivateVmPower("deallocated"));
         run.Api.Reply(200, source.Job("released", "Cancelled"));
+        run.Api.Reply(200, source.Job("denied", "InProgress"));
+        capacity["properties"]!["state"] = "Suspended";
+        run.Api.Reply(200, capacity);
         var result = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
         Assert.Equal("AwaitingVerifiedWorkStop", result.Status);
-        Assert.Contains("capacity-original-instance-missing", result.Blockers);
+        Assert.Contains("notebook-cancellation-not-observed:denied", result.Blockers);
         Assert.Equal("Cancelled", run.Store.Current!.Objects["private-cleanup-notebook-stop-released-observed"].Response["job"]!["status"]!.GetValue<string>());
+        Assert.Equal("Suspended", run.Store.Current.Objects["private-cleanup-capacity-stop-observed"].Response["capacity"]!["properties"]!["state"]!.GetValue<string>());
         Assert.False(run.Store.Current!.Objects.ContainsKey("private-cleanup-offboarding-export"));
-        Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Post);
+        Assert.Equal(expectedPosts, run.Api.Requests.Skip(before).Count(request => request.Method == HttpMethod.Post));
+        Assert.DoesNotContain(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Delete);
         Assert.All(run.Api.Requests.Skip(before).Where(request => request.Uri.IdnHost != "management.azure.com"),
-            request => Assert.Equal(FabricC1Provisioner.WorkspaceHost(source.WorkspaceId("released")), request.Uri.IdnHost));
+            request => Assert.Contains(request.Uri.IdnHost, new[] { "released", "denied" }
+                .Select(role => FabricC1Provisioner.WorkspaceHost(source.WorkspaceId(role)))));
         Assert.True(run.Store.Current!.Objects.ContainsKey("source-notebook-job-intent-released"));
         Assert.True(run.Store.Current!.Objects.ContainsKey("source-notebook-job-released"));
         Assert.False(run.Store.Current!.Objects.ContainsKey("source-materialization-released"));
+        Assert.Equal(originalClock, (run.Store.Current.StartedAtUtc, run.Store.Current.CleanupStartedAtUtc));
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task DeniedProbeStopRetriesOnlyWhenDueWithItsOriginalIfMatchAndDoesNotReplay412(int status)
+    {
+        using var run = new Harness(sharedHub: true, maxRequests: 1000);
+        var hub = await HubFixture.Connected(run);
+        var (vm, capacity) = SeedPrivatePaidFoundation(run, hub);
+        const string key = "private-cleanup-probe-stop";
+        var before = run.Api.Requests.Count;
+        run.Api.Reply(200, vm);
+        run.Api.Reply(200, PrivateVmPower("running"));
+        run.Api.Reply(status, new(), retryAfterSeconds: 7);
+        run.Api.Reply(200, capacity);
+        run.Api.Reply(202, new(), retryAfterSeconds: 5);
+        var first = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal("AwaitingVerifiedWorkStop", first.Status);
+        Assert.Contains("provider-response-rejected:" + key + ":c1_deploy_http_" + status, first.Blockers);
+        Assert.False(run.Store.Current!.PendingDeletes.ContainsKey(key));
+        var intent = Canonical.Hash(run.Store.Current.Objects[key + "-intent"]);
+        var originalClock = (run.Store.Current.StartedAtUtc, run.Store.Current.CleanupStartedAtUtc);
+        var originalPost = Assert.Single(run.Api.Requests.Skip(before), request =>
+            request.Method == HttpMethod.Post && request.Uri.AbsolutePath.EndsWith("/deallocate", StringComparison.Ordinal));
+        run.Restart();
+        var notDueStart = run.Api.Requests.Count;
+        var notDue = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Contains("probe-stop-poll-not-due", notDue.Blockers);
+        Assert.Equal(notDueStart, run.Api.Requests.Count);
+        run.Clock.Advance(TimeSpan.FromSeconds(7));
+        var retryStart = run.Api.Requests.Count;
+        var later = (JsonObject)vm.DeepClone();
+        later["etag"] = "later-readback-etag";
+        run.Api.Reply(200, later);
+        run.Api.Reply(200, PrivateVmPower("running"));
+        run.Api.Reply(412, new());
+        capacity["properties"]!["state"] = "Suspending";
+        run.Api.Reply(200, capacity);
+        var retry = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal("AwaitingVerifiedWorkStop", retry.Status);
+        Assert.Contains("provider-response-rejected:" + key + ":c1_deploy_http_412", retry.Blockers);
+        var repeated = Assert.Single(run.Api.Requests.Skip(retryStart), request => request.Method == HttpMethod.Post);
+        Assert.Equal(originalPost.Uri, repeated.Uri);
+        Assert.Equal(originalPost.ETag, repeated.ETag);
+        Assert.Equal("\"synthetic-vm-etag\"", repeated.ETag);
+        Assert.NotEqual("\"later-readback-etag\"", repeated.ETag);
+        Assert.Null(repeated.Body);
+        Assert.Equal(intent, Canonical.Hash(run.Store.Current!.Objects[key + "-intent"]));
+        Assert.True(run.Store.Current.PendingDeletes.ContainsKey(key));
+        Assert.Equal(status, run.Store.Current.DeniedRequests[key].Status);
+        run.Restart();
+        run.Clock.Advance(TimeSpan.FromSeconds(5));
+        var readOnlyStart = run.Api.Requests.Count;
+        run.Api.Reply(200, later);
+        run.Api.Reply(200, PrivateVmPower("running"));
+        run.Api.Reply(200, capacity);
+        var unresolved = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal("AwaitingVerifiedWorkStop", unresolved.Status);
+        Assert.DoesNotContain(run.Api.Requests.Skip(readOnlyStart), request => request.Method != HttpMethod.Get);
+        Assert.Equal(intent, Canonical.Hash(run.Store.Current!.Objects[key + "-intent"]));
+        Assert.True(run.Store.Current.PendingDeletes.ContainsKey(key));
+        Assert.Equal(originalClock, (run.Store.Current.StartedAtUtc, run.Store.Current.CleanupStartedAtUtc));
+        Assert.Null(unresolved.OwnerHandoff);
+        Assert.False(run.Store.Current.Objects.ContainsKey("private-cleanup-work-stopped"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OuterCancellationNeverContinuesToAnotherPaidStop(bool alreadyCancelled)
+    {
+        using var run = new Harness(sharedHub: true, maxRequests: 1000);
+        var hub = await HubFixture.Connected(run);
+        var (vm, _) = SeedPrivatePaidFoundation(run, hub);
+        using var outer = new CancellationTokenSource();
+        var before = run.Api.Requests.Count;
+        if (alreadyCancelled) outer.Cancel();
+        else
+        {
+            run.Api.Reply(200, vm);
+            run.Api.Reply(200, PrivateVmPower("running"));
+            run.Api.ReplyComputed(202, () =>
+            {
+                outer.Cancel();
+                throw new TaskCanceledException("synthetic outer cancellation", null, outer.Token);
+            });
+        }
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            run.Provisioner.AdvancePrivateCleanup("operator-stop", outer.Token));
+        Assert.Equal(alreadyCancelled ? 0 : 1, run.Api.Requests.Skip(before).Count(request => request.Method == HttpMethod.Post));
+        Assert.DoesNotContain(run.Api.Requests.Skip(before), request => request.Uri.AbsolutePath.Contains("/capacities/", StringComparison.Ordinal));
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-cleanup-work-stopped"));
+        Assert.False(run.Store.Current.Objects.ContainsKey("private-cleanup-offboarding-export"));
+    }
+
+    [Fact]
+    public async Task AnExpiredOriginalTailCannotBeRenewedAfterRequestBudgetCancellation()
+    {
+        using var run = new Harness(sharedHub: true, maxRequests: 1000, manualTimers: true);
+        var hub = await HubFixture.Connected(run);
+        var (vm, _) = SeedPrivatePaidFoundation(run, hub);
+        var duration = run.Input.Cleanup!.MaxDurationSeconds!.Value;
+        using var outer = new CancellationTokenSource();
+        run.Api.Reply(200, vm);
+        run.Api.Reply(200, PrivateVmPower("running"));
+        run.Api.ReplyComputed(202, () =>
+        {
+            run.Clock.Advance(TimeSpan.FromSeconds(duration));
+            throw new OperationCanceledException("synthetic request reaching its original cleanup deadline");
+        });
+        var before = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvancePrivateCleanup("operator-stop", outer.Token))).Code);
+        Assert.False(outer.IsCancellationRequested);
+        Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Post);
+        Assert.DoesNotContain(run.Api.Requests.Skip(before), request => request.Uri.AbsolutePath.Contains("/capacities/", StringComparison.Ordinal));
+        Assert.True(run.Store.Current!.PendingDeletes.ContainsKey("private-cleanup-probe-stop"));
+        Assert.False(run.Store.Current.Objects.ContainsKey("private-cleanup-capacity-stop-intent"));
+        var deadline = run.Store.Current.CleanupStartedAtUtc!.Value.AddSeconds(duration);
+        Assert.Equal(deadline, run.Clock.GetUtcNow());
+        run.Restart();
+        before = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvancePrivateCleanup("operator-stop", outer.Token))).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+        Assert.Equal(deadline, run.Store.Current!.CleanupStartedAtUtc!.Value.AddSeconds(duration));
+    }
+
+    [Theory]
+    [InlineData("conflict-before-stop")]
+    [InlineData("io-before-stop")]
+    [InlineData("io-after-stop")]
+    public async Task LocalJournalFailureNeverBecomesAProviderLossOrContinuesStops(string failure)
+    {
+        using var run = new Harness(sharedHub: true, maxRequests: 1000);
+        var hub = await HubFixture.Connected(run);
+        var (vm, _) = SeedPrivatePaidFoundation(run, hub);
+        var before = run.Api.Requests.Count;
+        run.Api.Reply(200, vm);
+        run.Api.Reply(200, PrivateVmPower("running"));
+        run.Api.Reply(202, new(), retryAfterSeconds: 5);
+        run.Store.AfterSave = value =>
+        {
+            if (failure == "io-after-stop" ? value.Objects.ContainsKey("private-cleanup-probe-stop-poll") :
+                value.PendingDeletes.ContainsKey("private-cleanup-probe-stop"))
+            {
+                if (failure == "conflict-before-stop")
+                    throw new DomainException("c1_deploy_journal_conflict", "synthetic original journal CAS conflict", 409);
+                throw new IOException("synthetic original journal write uncertainty");
+            }
+        };
+        if (failure == "conflict-before-stop")
+            Assert.Equal("c1_deploy_journal_conflict", (await Assert.ThrowsAsync<DomainException>(() =>
+                run.Provisioner.AdvancePrivateCleanup("operator-stop", default))).Code);
+        else
+            await Assert.ThrowsAsync<IOException>(() => run.Provisioner.AdvancePrivateCleanup("operator-stop", default));
+        Assert.Equal(failure == "io-after-stop" ? 1 : 0, run.Api.Requests.Skip(before).Count(request => request.Method == HttpMethod.Post));
+        Assert.DoesNotContain(run.Api.Requests.Skip(before), request => request.Uri.AbsolutePath.Contains("/capacities/", StringComparison.Ordinal));
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-cleanup-work-stopped"));
+        var failedAt = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvancePrivateCleanup("operator-stop", default))).Code);
+        Assert.Equal(failedAt, run.Api.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("missing-stage")]
+    [InlineData("different-request")]
+    [InlineData("different-id")]
+    [InlineData("incomplete-stage")]
+    public async Task IntermediateArmObservationNeedsItsCompletedOriginalStage(string mutation)
+    {
+        using var run = new Harness(sharedHub: true, maxRequests: 1000);
+        var hub = await HubFixture.Connected(run);
+        var state = run.Store.Load()!;
+        var original = state.Objects["arm-hub-spoke"];
+        state.Objects["arm-hub-spoke-observation"] = original with
+        {
+            Kind = "ArmDeploymentObservation",
+            Id = mutation == "different-id" ? original.Id + "-foreign" : original.Id,
+            RequestHash = mutation == "different-request" ? new string('0', 64) : original.RequestHash
+        };
+        if (mutation == "missing-stage") state.Objects.Remove("arm-hub-spoke");
+        if (mutation == "incomplete-stage") state.Objects["arm-hub-spoke"].Response["properties"]!["provisioningState"] = "Running";
+        run.Store.Save(state);
+        run.Restart();
+        var before = run.Api.Requests.Count;
+        var result = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal("AwaitingVerifiedWorkStop", result.Status);
+        Assert.Contains("unresolved-original-arm-observation:arm-hub-spoke-observation", result.Blockers);
+        Assert.Equal(before, run.Api.Requests.Count);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-cleanup-work-stopped"));
+        Assert.Null(result.OwnerHandoff);
+    }
+
+    [Theory]
+    [InlineData("io")]
+    [InlineData("http-503")]
+    public async Task FinalCapacityDeleteUncertaintyRetainsForeignResourcesAndOnlyReconcilesTheOriginalIntent(string response)
+    {
+        using var run = new Harness(sharedHub: true, maxRequests: 1000, cleanupReserve: 200);
+        var hub = await HubFixture.Connected(run);
+        var (_, capacity) = SeedPrivatePaidFoundation(run, hub);
+        capacity["properties"]!["state"] = "Suspended";
+        run.Api.Reply(404, new());
+        run.Api.Reply(200, capacity);
+        run.Api.List(capacity);
+        run.Api.Reply(404, new());
+        var offboarding = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal("AwaitingOwnerOffboardedReceipt", offboarding.Status);
+        var exportHash = run.Store.Current!.Objects["private-cleanup-offboarding-export"].RequestHash;
+        SyntheticPrivateOwnerOffboard(hub, run);
+        QueuePrivateOwnerReadback(hub, run);
+        await run.Provisioner.ImportSharedHubReceipt(hub.Receipt, default);
+        var foreign = new JsonObject
+        {
+            ["id"] = hub.OwnGroup + "/providers/Microsoft.Storage/storageAccounts/foreign-retained",
+            ["type"] = "Microsoft.Storage/storageAccounts",
+            ["tags"] = new JsonObject { ["deploymentId"] = "foreign" }
+        };
+        var foreignHash = Canonical.Hash(foreign);
+        var capacityId = capacity["id"]!.GetValue<string>();
+        var key = "private-cleanup-resource-" + Canonical.HashText(capacityId.ToLowerInvariant());
+        var before = run.Api.Requests.Count;
+        run.Api.List(capacity, foreign);
+        run.Api.Reply(404, new());
+        run.Api.Reply(200, capacity);
+        QueuePrivateProviderFailure(run.Api, response);
+        var pending = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+        Assert.Equal("OwnInventoryCleanupBlocked", pending.Status);
+        Assert.Contains(PrivateProviderFailureBlocker(response, key), pending.Blockers);
+        Assert.Contains(pending.Blockers, value => value.StartsWith("network-dependents-not-proven-absent:", StringComparison.Ordinal));
+        Assert.True(run.Store.Current!.PendingDeletes.ContainsKey(key));
+        var intentHash = Canonical.Hash(run.Store.Current.Objects[key + "-intent"]);
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            run.Restart();
+            run.Clock.Advance(TimeSpan.FromSeconds(5));
+            run.Api.List(capacity, foreign);
+            run.Api.Reply(404, new());
+            run.Api.Reply(attempt == 0 ? 200 : 404, attempt == 0 ? capacity : new());
+            var resumed = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+            Assert.Equal("OwnInventoryCleanupBlocked", resumed.Status);
+            Assert.Contains("retained-unbound-or-unsupported-resource:" + foreign["id"]!.GetValue<string>(), resumed.Blockers);
+            Assert.False(resumed.CompleteC1Cleanup);
+            Assert.Equal(intentHash, Canonical.Hash(run.Store.Current!.Objects[key + "-intent"]));
+        }
+        Assert.True(run.Store.Current!.CleanupReceipts.ContainsKey(key));
+        Assert.False(run.Store.Current.PendingDeletes.ContainsKey(key));
+        var delete = Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Delete);
+        Assert.Equal(capacityId, delete.Uri.AbsolutePath);
+        Assert.Equal("\"synthetic-capacity-etag\"", delete.ETag);
+        Assert.All(run.Api.Requests.Skip(before), request =>
+            Assert.True(request.Method == HttpMethod.Get || request.Uri.AbsolutePath == capacityId));
+        Assert.Equal(exportHash, run.Store.Current.Objects["private-cleanup-offboarding-export"].RequestHash);
+        Assert.Equal(foreignHash, Canonical.Hash(foreign));
+        Assert.DoesNotContain(run.Store.Current.Objects.Values, value => value.Kind == "PrivateInventoryAbsent");
     }
 
     [Fact]
@@ -710,6 +1063,31 @@ public sealed partial class FabricC1DeploymentTests
 
     private static JsonObject PrivateVmPower(string power) => new()
     { ["statuses"] = new JsonArray(new JsonObject { ["code"] = "PowerState/" + power }) };
+
+    private static void QueuePrivateProviderFailure(FakeApi api, string response)
+    {
+        if (response is "http-403" or "legacy-http-403" or "http-503")
+        {
+            api.Reply(response == "http-503" ? 503 : 403, new());
+            return;
+        }
+        api.Fail(response switch
+        {
+            "http-request" => new HttpRequestException("synthetic lost provider response"),
+            "io" => new IOException("synthetic incomplete provider response body"),
+            "timeout" => new TaskCanceledException("synthetic HttpClient timeout"),
+            "request-cancelled" => new OperationCanceledException("synthetic request budget cancellation", new CancellationToken(canceled: true)),
+            "response-shape" => new DomainException("c1_deploy_response_shape", "synthetic malformed provider body", 409),
+            "response-size" => new DomainException("c1_deploy_response_size", "synthetic oversized provider response", 409),
+            "response-limit" => new DomainException("c1_response_limit", "synthetic chunked response limit", 409),
+            _ => throw new InvalidOperationException("Unknown synthetic provider failure.")
+        });
+    }
+
+    private static string PrivateProviderFailureBlocker(string response, string key) =>
+        response is "http-403" or "legacy-http-403" or "http-503"
+            ? "provider-response-rejected:" + key + ":c1_deploy_http_" + (response == "http-503" ? "503" : "403")
+            : "provider-response-unresolved:" + key;
 
     private static (JsonObject Vm, JsonObject Capacity) SeedPrivatePaidFoundation(Harness run, HubFixture hub)
     {

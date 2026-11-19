@@ -50,8 +50,16 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         await using var bounded = new FabricC1LimitedStream(stream, 2 * 1024 * 1024);
         using var reader = new StreamReader(bounded, Encoding.UTF8, detectEncodingFromByteOrderMarks: false);
         var text = await reader.ReadToEndAsync(ct);
-        var data = string.IsNullOrWhiteSpace(text) ? new JsonObject() :
-            JsonNode.Parse(text) as JsonObject ?? throw new DomainException("c1_deploy_response_shape", "Provider returned non-object data.", 409);
+        JsonObject data;
+        try
+        {
+            data = string.IsNullOrWhiteSpace(text) ? new JsonObject() :
+                JsonNode.Parse(text) as JsonObject ?? throw new DomainException("c1_deploy_response_shape", "Provider returned non-object data.", 409);
+        }
+        catch (JsonException)
+        {
+            throw new DomainException("c1_deploy_response_shape", "Provider returned incomplete or invalid JSON.", 409);
+        }
         var retry = response.Headers.RetryAfter?.Delta?.TotalSeconds;
         if (retry is null && response.Headers.RetryAfter?.Date is { } date) retry = (date - clock.GetUtcNow()).TotalSeconds;
         return new((int)response.StatusCode, data, response.Headers.ETag?.ToString(),

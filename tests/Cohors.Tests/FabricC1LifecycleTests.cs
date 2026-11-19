@@ -168,9 +168,13 @@ public sealed partial class FabricC1DeploymentTests
         provider.LosePeerDeleteResponse = lostPeerResponse;
         if (lostPeerResponse)
         {
-            await Assert.ThrowsAsync<HttpRequestException>(() => run.Provisioner.AdvancePrivateCleanup("operator-stop", default));
+            var deleting = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
+            Assert.Equal("AwaitingOriginalSpokePeeringDeletion", deleting.Status);
+            Assert.Contains("provider-response-unresolved:private-cleanup-spoke-peer-absent", deleting.Blockers);
+            Assert.Null(deleting.OwnerHandoff);
             Assert.Contains("private-cleanup-spoke-peer-absent", run.Store.Current!.PendingDeletes.Keys);
             run.Restart();
+            run.Clock.Advance(TimeSpan.FromSeconds(5));
         }
         var offboarding = await run.Provisioner.AdvancePrivateCleanup("operator-stop", default);
         Assert.Equal("AwaitingOwnerOffboardedReceipt", offboarding.Status);

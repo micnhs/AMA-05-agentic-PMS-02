@@ -5216,6 +5216,25 @@ except RuntimeError as error:
         Assert.Equal(host, Assert.Single(calls));
     }
 
+    [Theory]
+    [InlineData("{")]
+    [InlineData("[]")]
+    public async Task MalformedProviderJsonHasAnExplicitResponseShapeFailure(string body)
+    {
+        using var run = new Harness(delegated: true);
+        using var handler = new JsonHandler { Body = body };
+        using var client = new HttpClient(handler);
+        var credential = new BoundCredential(Token(run.Input, run.Input.ControlTokenBindings!.GraphAudience!,
+            run.Clock.GetUtcNow(), "Application.ReadWrite.All"));
+        var api = new FabricC1DeploymentHttp(run.Input, credential, new Dictionary<string, HttpClient>
+        { ["graph.microsoft.com"] = client }, run.Clock);
+        var error = await Assert.ThrowsAsync<DomainException>(() =>
+            api.Send(HttpMethod.Get, new("https://graph.microsoft.com/v1.0/applications")));
+        Assert.Equal("c1_deploy_response_shape", error.Code);
+        Assert.Equal(409, error.Status);
+        Assert.Equal(1, handler.Requests);
+    }
+
     [Fact]
     public void FileJournalRoundTripAndCompareExchangeDoNotResetPendingCreates()
     {
@@ -5541,12 +5560,13 @@ except RuntimeError as error:
     private sealed class JsonHandler : HttpMessageHandler
     {
         public int Requests { get; private set; }
+        public string Body { get; init; } = "{}";
         public System.Net.Http.Headers.RetryConditionHeaderValue? RetryAfter { get; init; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests++;
             var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            { RequestMessage = request, Content = new StringContent("{}") };
+            { RequestMessage = request, Content = new StringContent(Body) };
             response.Headers.RetryAfter = RetryAfter;
             return Task.FromResult(response);
         }

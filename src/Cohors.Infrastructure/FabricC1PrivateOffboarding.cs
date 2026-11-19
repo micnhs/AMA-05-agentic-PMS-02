@@ -493,11 +493,25 @@ public sealed partial class FabricC1Provisioner
                 absent.Kind != "SourceWorkspaceAbsent" || absent.Id != workspace.Value.Id)
                 blockers.Add("workspace-inventory-not-proven-absent:" + workspace.Key);
         var workspaceDependents = blockers.Any(value => value.StartsWith("workspace-inventory-not-proven-absent:", StringComparison.Ordinal));
+        async Task DeleteTarget(PrivateArmCleanupTarget target)
+        {
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!await DeletePrivateArmTarget(target, ct)) blockers.Add("original-resource-deletion-unresolved:" + target.Id);
+                ct.ThrowIfCancellationRequested();
+            }
+            catch (Exception error) when (PrivateProviderResponseFailure(error, ct))
+            {
+                RecordPrivateProviderFailure(target.Key, error, blockers, ct);
+                blockers.Add("original-resource-deletion-unresolved:" + target.Id);
+            }
+        }
         foreach (var target in targets.Where(target => !target.Type.StartsWith("Microsoft.Network/", StringComparison.Ordinal)))
         {
             if (target.Type == "Microsoft.Fabric/capacities" && workspaceDependents)
             { blockers.Add("capacity-workspaces-not-proven-absent:" + target.Id); continue; }
-            if (!await DeletePrivateArmTarget(target, ct)) blockers.Add("original-resource-deletion-unresolved:" + target.Id);
+            await DeleteTarget(target);
         }
         foreach (var child in state.Objects.Where(pair => pair.Value.Kind == "ArmGeneratedChild"))
         {
@@ -515,7 +529,7 @@ public sealed partial class FabricC1Provisioner
         {
             if (blockers.Count != 0)
             { blockers.Add("network-dependents-not-proven-absent:" + target.Id); continue; }
-            if (!await DeletePrivateArmTarget(target, ct)) blockers.Add("original-resource-deletion-unresolved:" + target.Id);
+            await DeleteTarget(target);
         }
         if (blockers.Count != 0) return PrivateCleanupProgress("OwnInventoryCleanupBlocked", blockers);
         var remaining = targets.Length == 0 ? inventory : await ReadPrivateGroupInventory(ct);

@@ -1082,10 +1082,33 @@ cleanup polling minima remain persisted as `NextPollAtUtc`.
 
 The ordered cleanup source can deallocate the original probe VM, cancel
 known private notebook jobs and suspend the original F2, with actual terminal
-readbacks required before progression. An HTTP transport failure remains an
-explicit unresolved blocker with its original intent; it does not prevent
-the other separately bound stop calls. Ownership, journal and cancellation
-errors are not swallowed. It reconciles the supported original
+readbacks required before progression. HTTP/stream I/O failures and request
+timeouts/cancellation with a live outer token remain explicit unresolved
+blockers. Unexpected HTTP statuses are reported separately as rejected
+responses. Non-object/malformed JSON and oversized provider bodies also
+cannot confirm a stop, but do not prevent the other independently bound
+stop attempts. Uncertain stop intents remain pending and are never resent,
+including 5xx and 412 (stale original If-Match). A definite 401/403 instead
+atomically removes its pending marker and records the exact denied intent.
+Only a later operator-paced call, after the original poll minimum and another
+running-work readback, may send that same POST/hash/If-Match once. Repeated
+denials still consume the unchanged request/time budget. As in the existing
+deployment paths, the denial remains bound historical evidence after an
+accepted resend; its new pending marker takes precedence until terminal
+readback. Peer/final-resource DELETE denials remain pending/read-only under
+their pre-existing contract, not this stop-only retry rule.
+
+This handling excludes the outer cancellation token, ownership/identity and
+private-route failures, expired original budgets and every journal write
+failure. `SaveJournal` fences local I/O/CAS failures before the provider-error
+filter; those failures still abort immediately. Scheduling another read never
+renews the original cleanup tail. The same bounded provider-error handling
+keeps peer/final-resource deletion pending for read-only reconciliation, with
+dependent network cleanup blocked until absence is actually observed.
+Intermediate ARM observations remain immutable audit history; only observations
+matching their completed original stage ID/request are known non-executing
+metadata. Missing, mismatched or incomplete stages still block workstop proof.
+It reconciles the supported original
 access/workspace inventory and removes only `to-shared-hub`, with instance,
 ETag and 404 checks. No hub mutation or shared directory/IAM deletion is
 authorized. Original own work/credential/peer proofs produce the three

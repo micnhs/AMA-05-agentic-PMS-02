@@ -25,10 +25,12 @@ public sealed partial class FabricC1Provisioner
     private const string PrivateProbeStopKey = PrivateCleanupPrefix + "probe-stop";
     private const string PrivateCapacityStopKey = PrivateCleanupPrefix + "capacity-stop";
     private const string PrivateCapacityApi = "?api-version=2023-11-01";
+    private const string PrivateArmObservationSuffix = "-observation";
     private JsonObject? privateCleanupHubReadback;
 
     public async Task<FabricC1PrivateCleanupProgress> AdvancePrivateCleanup(string reason, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         FencePrivateDeployment(reason);
         if (!state.Objects.ContainsKey(HubReceiptKey))
         {
@@ -51,13 +53,15 @@ public sealed partial class FabricC1Provisioner
             var blockers = new List<string>();
             async Task StopIndependently(string key, Func<Task> stop)
             {
-                try { await stop(); }
-                catch (HttpRequestException) when (!ct.IsCancellationRequested)
+                try
                 {
-                    // The durable intent remains uncertain; other own compute can still be stopped.
-                    blockers.Add("provider-response-unresolved:" + key);
-                    var (_, deadline) = PlanCleanupRequests(0);
-                    if (time.GetUtcNow().AddSeconds(5) < deadline) SetPrivatePoll(key, 5);
+                    ct.ThrowIfCancellationRequested();
+                    await stop();
+                    ct.ThrowIfCancellationRequested();
+                }
+                catch (Exception error) when (PrivateProviderResponseFailure(error, ct))
+                {
+                    RecordPrivateProviderFailure(key, error, blockers, ct);
                 }
             }
             await StopIndependently(PrivateProbeStopKey, () => StopPrivateProbe(blockers, ct));
@@ -99,9 +103,38 @@ public sealed partial class FabricC1Provisioner
             });
         }
         RequirePrivateProof(PrivateAccessKey, "PrivateCredentialsRevoked");
-        if (!await RemovePrivateSpokePeering(ct))
-            return PrivateCleanupProgress("AwaitingOriginalSpokePeeringDeletion", ["original-spoke-peer-delete-outcome"]);
+        var peerBlockers = new List<string>();
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!await RemovePrivateSpokePeering(ct)) peerBlockers.Add("original-spoke-peer-delete-outcome");
+            ct.ThrowIfCancellationRequested();
+        }
+        catch (Exception error) when (PrivateProviderResponseFailure(error, ct))
+        {
+            RecordPrivateProviderFailure(PrivatePeerKey, error, peerBlockers, ct);
+            peerBlockers.Add("original-spoke-peer-delete-outcome");
+        }
+        if (peerBlockers.Count != 0)
+            return PrivateCleanupProgress("AwaitingOriginalSpokePeeringDeletion", peerBlockers);
         return PrivateCleanupProgress("AwaitingOwnerOffboardedReceipt", [], ExportPrivateOffboarding());
+    }
+
+    private bool PrivateProviderResponseFailure(Exception error, CancellationToken ct) =>
+        // SaveJournal fences every local write failure before it reaches this filter.
+        !checkpointJournalUncertain && !ct.IsCancellationRequested &&
+        (error is HttpRequestException or IOException or OperationCanceledException ||
+         error is DomainException domain && (domain.Code.StartsWith("c1_deploy_http_", StringComparison.Ordinal) ||
+             domain.Code is "c1_deploy_response_shape" or "c1_deploy_response_size" or "c1_response_limit"));
+
+    private void RecordPrivateProviderFailure(string key, Exception error, List<string> blockers, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        blockers.Add(error is DomainException domain && domain.Code.StartsWith("c1_deploy_http_", StringComparison.Ordinal)
+            ? "provider-response-rejected:" + key + ":" + domain.Code
+            : "provider-response-unresolved:" + key);
+        var (_, deadline) = PlanCleanupRequests(0);
+        if (time.GetUtcNow().AddSeconds(5) < deadline) SetPrivatePoll(key, 5);
     }
 
     private FabricC1PrivateCleanupProgress PrivateCleanupProgress(string status, IEnumerable<string> blockers,
@@ -546,6 +579,8 @@ public sealed partial class FabricC1Provisioner
         {
             if (pair.Key.StartsWith(PrivateCleanupPrefix, StringComparison.Ordinal) || pair.Key == LifecycleStopKey) continue;
             if (!PrivateKnownHistory(pair.Key, pair.Value.Kind)) yield return "unsupported-runtime-or-history:" + pair.Key;
+            if (pair.Value.Kind == "ArmDeploymentObservation" && !PrivateCompletedArmObservation(pair.Key, pair.Value))
+                yield return "unresolved-original-arm-observation:" + pair.Key;
             if (pair.Value.Kind is "CheckpointIoReservation" or "CheckpointIoAllocation" ||
                 pair.Key is "hosted-session" or "hosted-version" or "runtime-credential")
                 yield return "independent-runtime-stop-not-implemented:" + pair.Key;
@@ -559,6 +594,12 @@ public sealed partial class FabricC1Provisioner
         IdentityRoles.Any(role => key == role + "-app" || key == role + "-sp" || key == "fabric-api-member-" + role) ||
         key is "fabric-api-group" or "fabric-api-members";
 
+    private bool PrivateCompletedArmObservation(string key, FabricC1ProvisionedObject observation) =>
+        key.EndsWith(PrivateArmObservationSuffix, StringComparison.Ordinal) &&
+        state.Objects.TryGetValue(key[..^PrivateArmObservationSuffix.Length], out var completed) &&
+        completed.Kind == "ArmDeployment" && completed.Id == observation.Id && completed.RequestHash == observation.RequestHash &&
+        completed.Response["properties"]?["provisioningState"]?.GetValue<string>() == "Succeeded";
+
     private static bool PrivateKnownHistory(string key, string kind)
     {
         if (IsPrivateIdentityKey(key))
@@ -569,6 +610,8 @@ public sealed partial class FabricC1Provisioner
         return kind switch
         {
             "ArmDeployment" => key is "arm-hub-spoke" or "arm-hub-peer" or "arm-hub-transit" or "arm-foundation" or "arm-private-endpoints" or "arm-hub-operator-access",
+            "ArmDeploymentObservation" => key.EndsWith(PrivateArmObservationSuffix, StringComparison.Ordinal) &&
+                PrivateKnownHistory(key[..^PrivateArmObservationSuffix.Length], "ArmDeployment"),
             "ArmGeneratedChild" => key.StartsWith("arm-child-", StringComparison.Ordinal),
             "ResourceGroup" => key == "resource-group",
             "FabricCapacity" => key == "fabric-capacity",
