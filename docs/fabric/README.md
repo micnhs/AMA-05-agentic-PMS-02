@@ -821,6 +821,9 @@ notebook, the original delegated bootstrap user, three distinct workspaces,
 current capacity/ownership, full denied communication policy and private
 Lakehouse metadata must match. Schemaless and documented `dbo` layouts are bound
 from the readback; no schema upgrade or new identity is inferred.
+The workspace GET itself uses the private workspace host. Only the documented
+communication-policy exception and tenant control API retain their control
+hosts; ordinary workspace metadata is not treated as a public-path exception.
 
 The original source/code hashes, invocation and control window persist across
 resume. A PySpark `FabricGitSource` definition binds the own default Lakehouse.
@@ -850,13 +853,51 @@ Only separate completed Released and Denied receipts can produce the combined
 materialization receipt. Neither that receipt nor the hosted fake-provider and
 generated-Python cases prove effective source grants, native API/private-path
 support, runtime `userId` correspondence, B5, G03/G04 or domain acceptance.
-The full paid installer remains blocked; no source grant, delegated token relay,
-native notebook run, new validation lane or C1 model requirement is introduced.
+The full paid installer remains blocked; this notebook component introduces no
+source grant, delegated token relay, native notebook run, new validation lane
+or C1 model requirement.
 
 References: [notebook definitions](https://learn.microsoft.com/rest/api/fabric/articles/item-management/definitions/notebook-definition),
 [Lakehouse metadata and default schema](https://learn.microsoft.com/rest/api/fabric/lakehouse/items/get-lakehouse),
 [runtime context](https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-runtime),
 [notebook workload execution and exit values](https://learn.microsoft.com/fabric/data-engineering/notebook-public-api).
+
+### Closed-source role metadata
+
+`FabricC1SourceAccess.cs` now prepares the source-rights metadata step under the
+same original delegated user and control budget. It requires both original
+materialization receipts, fresh private source/policy metadata and a closed
+Released workspace: exactly the own Lakehouse, original source notebook and
+its linked ready SQL endpoint, with exactly one managed Delta table at the
+original OneLake path. No mixed workspace, foreign table/shortcut, group,
+source Contributor or runtime member of Denied is accepted.
+
+The only new data role permits `Read` on `Tables/[dbo/]c1_sources` for the own
+runtime service principal and explicit tenant. The single-role preview POST
+uses `dataAccessRoleConflictPolicy=Abort`; no collection replacement, default
+reader edit, wildcard, SQL-mode switch or item sharing is performed. A separate
+original-ID-bound Viewer assignment supplies the workspace prerequisite.
+Unknown POST outcomes reconcile only the original intent and are never
+replayed. Unjournaled roles/assignments and changed role versions block rather
+than being adopted. Complete role readbacks before and after the Viewer step
+must preserve the exact definition and per-role `eTag`. Explicit 401/403
+denials are retained separately from uncertain outcomes.
+
+The result is **role metadata only**, not the final `source-grants` receipt.
+OneLake roles, SQL `ReadData` and workspace Viewer are not interchangeable.
+SQL endpoint mode, effective positive/negative access, SQL inventory and
+revocation/propagation remain separately unproven; there is no implicit
+workspace-wide SQL-mode change. The documented name-based role DELETE has no
+conditional `If-Match` contract, so this component does not pretend to provide
+atomic role cleanup. Hosted synthetic cases are not native entitlement, B5,
+G03/G04 or full-installer acceptance. No native grant has been made.
+
+References: [single-role create/update and Abort](https://learn.microsoft.com/rest/api/fabric/core/onelake-data-access-security/create-or-update-single-data-access-role),
+[role listing and versions](https://learn.microsoft.com/rest/api/fabric/core/onelake-data-access-security/list-data-access-roles),
+[role deletion](https://learn.microsoft.com/rest/api/fabric/core/onelake-data-access-security/delete-data-access-role),
+[private-link API and item-sharing boundaries](https://learn.microsoft.com/fabric/security/security-workspace-level-private-links-support),
+[table inventory](https://learn.microsoft.com/rest/api/fabric/lakehouse/tables/list-tables),
+[OneLake and SQL identity modes](https://learn.microsoft.com/fabric/onelake/security/sql-analytics-endpoint-onelake-security).
 
 ## Fork and isolation
 

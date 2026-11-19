@@ -442,39 +442,56 @@ public sealed partial class FabricC1Provisioner
         return readback.Body;
     }
 
-    public async Task AssignRuntimeToAgentWorkspace(CancellationToken ct)
+    public Task AssignRuntimeToAgentWorkspace(CancellationToken ct) =>
+        AssignRuntimeWorkspace("agent", "runtime-agent-grant", "Contributor", ct);
+
+    private async Task AssignRuntimeWorkspace(string workspace, string key, string role, CancellationToken ct,
+        Action<JsonObject[]>? validateInventory = null)
     {
-        var workspaceId = Text(Owned("workspace-agent", "Workspace"), "id");
+        var workspaceId = Text(Owned("workspace-" + workspace, "Workspace"), "id");
         var principalId = Text(Owned("runtime-sp", "ServicePrincipal"), "id");
         var uri = $"https://{WorkspaceHost(workspaceId)}/v1/workspaces/{workspaceId}/roleAssignments";
-        const string key = "runtime-agent-grant";
-        var body = new JsonObject
-        {
-            ["principal"] = new JsonObject { ["id"] = principalId, ["type"] = "ServicePrincipal" }, ["role"] = "Contributor"
-        };
+        var body = RuntimeWorkspaceGrantBody(principalId, role);
         var hash = Canonical.Hash(body);
+        if (state.Objects.TryGetValue(key, out var known))
+            Guard.Against(known.Kind != "WorkspaceGrant" || known.RequestHash != hash ||
+                GuidValue(known.Id) != GuidValue(Text(known.Response, "id")) ||
+                known.Response["principal"] is not JsonObject savedPrincipal ||
+                GuidValue(Text(savedPrincipal, "id")) != GuidValue(principalId) ||
+                Text(savedPrincipal, "type") != "ServicePrincipal" || Text(known.Response, "role") != role,
+                "c1_deploy_drift", "Original workspace assignment receipt changed.", 409);
         if (state.PendingCreates.TryGetValue(key, out var intent))
             Guard.Against(intent != hash, "c1_deploy_drift", "Pending grant differs.", 409);
         var assignments = await ReadAll(uri, isGraph: false, ct);
-        var matches = assignments.Where(a => a["principal"]?["id"]?.GetValue<string>() == principalId).ToArray();
-        Guard.Against(matches.Length > 1 || matches.Length == 1 && matches[0]["role"]?.GetValue<string>() != "Contributor",
+        validateInventory?.Invoke(assignments);
+        var matches = assignments.Where(a => string.Equals(a["principal"]?["id"]?.GetValue<string>(), principalId, StringComparison.OrdinalIgnoreCase)).ToArray();
+        Guard.Against(matches.Length > 1 || matches.Length == 1 && matches[0]["role"]?.GetValue<string>() != role,
             "c1_deploy_grant_conflict", "Existing runtime grant differs; do not broaden or replace it.", 409);
         if (matches.Length == 0)
         {
             Guard.Against(intent is not null || state.Objects.ContainsKey(key), "c1_deploy_unknown", "Recorded grant is missing; reconcile, do not replay POST.", 409);
             Pending(key, hash);
             var response = await Send(HttpMethod.Post, new(uri), body, ct: ct);
+            RecordDeniedRequest(key, hash, response.Status);
             RequireStatus(response, 201);
         }
         else Guard.Against(intent is null && !state.Objects.ContainsKey(key), "c1_deploy_foreign", "Unjournaled grant is not adopted for cleanup.", 409);
         var readback = await ReadAll(uri, false, ct);
-        var exact = readback.Where(a => a["principal"]?["id"]?.GetValue<string>() == principalId &&
-            a["principal"]?["type"]?.GetValue<string>() == "ServicePrincipal" && a["role"]?.GetValue<string>() == "Contributor").ToArray();
-        Guard.Against(exact.Length != 1, "c1_deploy_grant_readback", "Targeted agent-workspace grant not confirmed.", 409);
+        validateInventory?.Invoke(readback);
+        var exact = readback.Where(a => string.Equals(a["principal"]?["id"]?.GetValue<string>(), principalId, StringComparison.OrdinalIgnoreCase) &&
+            a["principal"]?["type"]?.GetValue<string>() == "ServicePrincipal" && a["role"]?.GetValue<string>() == role).ToArray();
+        Guard.Against(exact.Length != 1, "c1_deploy_grant_readback", "Targeted workspace grant not confirmed.", 409);
         var assignmentId = Text(exact[0], "id");
         GuidValue(assignmentId);
+        Guard.Against(known is not null && GuidValue(assignmentId) != GuidValue(known.Id),
+            "c1_deploy_grant_readback", "A replacement workspace assignment is not the original grant.", 409);
         SaveObject(key, "WorkspaceGrant", assignmentId, hash, exact[0]);
     }
+
+    private static JsonObject RuntimeWorkspaceGrantBody(string principalId, string role) => new()
+    {
+        ["principal"] = new JsonObject { ["id"] = principalId, ["type"] = "ServicePrincipal" }, ["role"] = role
+    };
 
     public async Task<JsonObject> EnsureResourceGroup(CancellationToken ct)
     {
@@ -806,14 +823,14 @@ public sealed partial class FabricC1Provisioner
         PlanNormalRequests(1);
     }
 
-    private async Task<JsonObject[]> ReadAll(string uri, bool isGraph, CancellationToken ct, bool cleanup = false)
+    private async Task<JsonObject[]> ReadAll(string uri, bool isGraph, CancellationToken ct, bool cleanup = false, string entryField = "value")
     {
         var start = new Uri(uri);
         var result = new List<JsonObject>();
         for (var page = 0; page < 20; page++)
         {
             var data = await Read(uri, ct, cleanup);
-            if (data["value"] is not JsonArray entries)
+            if (data[entryField] is not JsonArray entries)
                 throw new DomainException("c1_deploy_list_shape", "Missing list data.", 409);
             result.AddRange(entries.Select(entry => entry as JsonObject ??
                 throw new DomainException("c1_deploy_list_shape", "Invalid list item.", 409)));

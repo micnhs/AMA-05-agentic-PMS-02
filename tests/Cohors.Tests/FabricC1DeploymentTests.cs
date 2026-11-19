@@ -3349,6 +3349,15 @@ public sealed class FabricC1DeploymentTests
         var post = Assert.Single(run.Api.Requests, r => r.Method == HttpMethod.Post);
         Assert.Equal("Contributor", post.Body!["role"]!.GetValue<string>());
         Assert.DoesNotContain("released", post.Uri.AbsoluteUri, StringComparison.Ordinal);
+        run.Restart();
+        var replacement = (JsonObject)receipt.DeepClone();
+        replacement["id"] = Guid.NewGuid().ToString("D");
+        run.Api.List(receipt);
+        run.Api.List(replacement);
+        Assert.Equal("c1_deploy_grant_readback", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AssignRuntimeToAgentWorkspace(default))).Code);
+        Assert.Equal(assignment, run.Store.Current.Objects["runtime-agent-grant"].Id);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post);
     }
 
     [Fact]
@@ -3474,6 +3483,8 @@ public sealed class FabricC1DeploymentTests
         Assert.Equal(original.BindingSha256, resumed.BindingSha256);
         Assert.Equal(original.Program, resumed.Program);
         Assert.Equal(original.Definition.ToJsonString(), resumed.Definition.ToJsonString());
+        Assert.All(run.Api.Requests.Where(request => request.Uri.AbsolutePath == "/v1/workspaces/" + source.WorkspaceId("released")),
+            request => Assert.Equal(FabricC1Provisioner.WorkspaceHost(source.WorkspaceId("released")), request.Uri.Host));
         var state = run.Store.Load()!;
         var saved = state.Objects["source-notebook-plan-released"];
         saved.Response["programSha256"] = new string('f', 64);
@@ -3849,6 +3860,208 @@ except RuntimeError as error:
         Assert.Equal("c1_source_result_changed", (await Assert.ThrowsAsync<DomainException>(() =>
             run.Provisioner.AdvanceSourceMaterialization("released", default))).Code);
         Assert.Equal(original, run.Store.Current.Objects["source-materialization-released"].RequestHash);
+    }
+
+    [Fact]
+    public async Task SourceAccessRequiresBothOriginalMaterializationReceiptsBeforeRequests()
+    {
+        using var run = new Harness(delegated: true);
+        _ = new SourceNotebookHarness(run);
+        Assert.Equal("c1_deploy_dependency", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+        Assert.Empty(run.Api.Requests);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("dbo")]
+    public async Task SourceAccessCreatesOnlyItsExactTableReadRoleAndClosedWorkspaceViewer(string? schema)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run, schema);
+        var before = run.Api.Requests.Count;
+        access.QueueBefore();
+        access.QueueAfter();
+        var result = await run.Provisioner.EnsureReleasedSourceAccess(default);
+        var writes = run.Api.Requests.Skip(before).Where(request => request.Method != HttpMethod.Get).ToArray();
+        Assert.Equal(2, writes.Length);
+        Assert.All(writes, request =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal(FabricC1Provisioner.WorkspaceHost(access.Source.WorkspaceId("released")), request.Uri.Host);
+        });
+        var role = Assert.Single(writes, request => request.Uri.AbsolutePath.EndsWith("/dataAccessRoles", StringComparison.Ordinal));
+        Assert.Equal("?preview=true&dataAccessRoleConflictPolicy=Abort", role.Uri.Query);
+        var permissions = role.Body!["decisionRules"]![0]!["permission"]!.AsArray();
+        Assert.Equal("Tables/" + (schema is null ? "" : schema + "/") + "c1_sources",
+            Assert.Single(permissions, permission => permission!["attributeName"]!.GetValue<string>() == "Path")!["attributeValueIncludedIn"]![0]!.GetValue<string>());
+        Assert.Equal("Read", Assert.Single(permissions, permission => permission!["attributeName"]!.GetValue<string>() == "Action")!["attributeValueIncludedIn"]![0]!.GetValue<string>());
+        var member = Assert.Single(role.Body["members"]!["microsoftEntraMembers"]!.AsArray())!;
+        Assert.Equal(access.PrincipalId, member["objectId"]!.GetValue<string>());
+        Assert.Equal(run.Input.TenantId, member["tenantId"]!.GetValue<string>());
+        Assert.Equal("Viewer", Assert.Single(writes, request => request.Uri.AbsolutePath.EndsWith("/roleAssignments", StringComparison.Ordinal)).Body!["role"]!.GetValue<string>());
+        Assert.NotNull(result.Readback["workspaceAssignment"]);
+        Assert.Contains("source-access-metadata", run.Store.Current!.Objects.Keys);
+        Assert.DoesNotContain("source-grants", run.Store.Current.Objects.Keys);
+        var firstRoleHash = run.Store.Current.Objects["source-access-role"].RequestHash;
+        run.Restart();
+        access.QueueBefore(existingRole: true);
+        access.QueueAfter(createRole: false, createViewer: false);
+        await run.Provisioner.EnsureReleasedSourceAccess(default);
+        Assert.Equal(firstRoleHash, run.Store.Current.Objects["source-access-role"].RequestHash);
+        Assert.Equal(2, run.Api.Requests.Skip(before).Count(request => request.Method == HttpMethod.Post));
+        Assert.Equal("c1_deploy_binding_incomplete", Assert.Throws<DomainException>(run.Provisioner.RequireFullBindings).Code);
+    }
+
+    [Theory]
+    [InlineData("extra-item", "c1_source_access_inventory")]
+    [InlineData("foreign-sql-item", "c1_source_access_inventory")]
+    [InlineData("sql-not-ready", "c1_source_access_inventory")]
+    [InlineData("extra-table", "c1_source_access_inventory")]
+    [InlineData("foreign-table", "c1_source_access_inventory")]
+    [InlineData("source-contributor", "c1_source_workspace_roles")]
+    [InlineData("denied-runtime", "c1_source_workspace_roles")]
+    [InlineData("source-group", "c1_source_workspace_roles")]
+    [InlineData("unowned-viewer", "c1_deploy_foreign")]
+    [InlineData("default-reader-broadened", "c1_source_role_scope")]
+    [InlineData("unowned-role", "c1_deploy_foreign")]
+    public async Task SourceAccessRefusesMixedInventoriesAndForeignOrBroaderAccessBeforeWrites(string fault, string code)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        var before = run.Api.Requests.Count;
+        access.QueueBefore(fault);
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+        Assert.All(run.Api.Requests.Skip(before), request => Assert.Equal(HttpMethod.Get, request.Method));
+        Assert.False(run.Store.Current!.Objects.ContainsKey("source-access-metadata"));
+    }
+
+    [Theory]
+    [InlineData("write")]
+    [InlineData("wildcard")]
+    [InlineData("member")]
+    [InlineData("tenant")]
+    [InlineData("missing-version")]
+    public async Task SourceRoleReadbackMustMatchTheOriginalReadonlyDefinitionBeforeGrantingViewer(string fault)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        var before = run.Api.Requests.Count;
+        access.QueueBefore();
+        run.Api.Reply(201, new());
+        run.Api.ReplyComputed(200, () =>
+        {
+            var role = access.Role();
+            if (fault == "write") role["decisionRules"]![0]!["permission"]![1]!["attributeValueIncludedIn"]![0] = "ReadWrite";
+            if (fault == "wildcard") role["decisionRules"]![0]!["permission"]![0]!["attributeValueIncludedIn"]![0] = "*";
+            if (fault == "member") role["members"]!["microsoftEntraMembers"]![0]!["objectId"] = Guid.NewGuid().ToString("D");
+            if (fault == "tenant") role["members"]!["microsoftEntraMembers"]![0]!["tenantId"] = Guid.NewGuid().ToString("D");
+            if (fault == "missing-version") role.Remove("eTag");
+            return SourceAccessHarness.List(access.DefaultReader(), role);
+        });
+        Assert.Equal(fault == "missing-version" ? "c1_source_role_readback" : "c1_source_role_scope",
+            (await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+        Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Post);
+        Assert.DoesNotContain("runtime-source-grant", run.Store.Current!.Objects.Keys);
+        Assert.Contains("source-access-role", run.Store.Current.PendingCreates.Keys);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SourceRoleUnknownPostOnlyReconcilesOriginalIntentAndNeverReplays(bool roleVisible)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        var before = run.Api.Requests.Count;
+        access.QueueBefore();
+        run.Api.Fail(new HttpRequestException("synthetic lost role response"));
+        await Assert.ThrowsAsync<HttpRequestException>(() => run.Provisioner.EnsureReleasedSourceAccess(default));
+        run.Restart();
+        access.QueueBefore(existingRole: roleVisible);
+        if (roleVisible)
+        {
+            access.QueueAfter(createRole: false);
+            await run.Provisioner.EnsureReleasedSourceAccess(default);
+            Assert.Contains("source-access-metadata", run.Store.Current!.Objects.Keys);
+        }
+        else Assert.Equal("c1_deploy_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+        Assert.Single(run.Api.Requests.Skip(before), request =>
+            request.Method == HttpMethod.Post && request.Uri.AbsolutePath.EndsWith("/dataAccessRoles", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SourceRoleMutationWhileViewerIsEstablishedCannotProduceAccessMetadata()
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        access.QueueBefore();
+        access.QueueAfter(finalVersion: "changed-source-version");
+        Assert.Equal("c1_source_role_readback", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+        Assert.Contains("runtime-source-grant", run.Store.Current!.Objects.Keys);
+        Assert.DoesNotContain("source-access-metadata", run.Store.Current.Objects.Keys);
+        Assert.Equal("source-version-1", run.Store.Current.Objects["source-access-role"].Response["role"]!["eTag"]!.GetValue<string>());
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task SourceRoleExplicitDenialIsRecordedWithoutUnknownOutcomeOrAutomaticRetry(int status)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        var before = run.Api.Requests.Count;
+        access.QueueBefore();
+        run.Api.Reply(status, new());
+        Assert.Equal("c1_deploy_http_" + status, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+        Assert.Contains("source-access-role", run.Store.Current!.DeniedRequests.Keys);
+        Assert.DoesNotContain("source-access-role", run.Store.Current.PendingCreates.Keys);
+        Assert.DoesNotContain("source-access-role", run.Store.Current.Objects.Keys);
+        Assert.Single(run.Api.Requests.Skip(before), request => request.Method == HttpMethod.Post);
+    }
+
+    [Theory]
+    [InlineData("cleanup")]
+    [InlineData("deadline")]
+    [InlineData("budget")]
+    public async Task SourceAccessKeepsOriginalControlFencesBeforeAnyRequest(string fence)
+    {
+        using var run = new Harness(delegated: true);
+        _ = await SourceAccessHarness.Create(run);
+        var state = run.Store.Load()!;
+        if (fence == "cleanup") run.Store.Save(state with { CleanupStartedAtUtc = run.Clock.GetUtcNow() });
+        if (fence == "budget") run.Store.Save(state with { Requests = run.Input.MaxControlRequests!.Value });
+        if (fence == "deadline") run.Clock.Advance(TimeSpan.FromMinutes(10));
+        run.Restart();
+        var before = run.Api.Requests.Count;
+        Assert.Equal(fence == "cleanup" ? "c1_deploy_cleanup_started" : "c1_deploy_budget",
+            (await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+        Assert.Equal(before, run.Api.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData("viewer")]
+    [InlineData("role")]
+    public async Task SourceAccessDoesNotAdoptRecreatedAssignmentsOrRoleVersions(string replaced)
+    {
+        using var run = new Harness(delegated: true);
+        var access = await SourceAccessHarness.Create(run);
+        access.QueueBefore();
+        access.QueueAfter();
+        await run.Provisioner.EnsureReleasedSourceAccess(default);
+        var original = run.Store.Current!.Objects["source-access-metadata"].RequestHash;
+        var before = run.Api.Requests.Count;
+        run.Restart();
+        access.QueueBefore(replaced == "viewer" ? "replaced-viewer" : null, existingRole: true);
+        if (replaced == "role") access.QueueAfter(createRole: false, readbackVersion: "recreated-source-version");
+        Assert.Equal(replaced == "viewer" ? "c1_source_access_binding" : "c1_source_role_readback",
+            (await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.EnsureReleasedSourceAccess(default))).Code);
+        Assert.All(run.Api.Requests.Skip(before), request => Assert.Equal(HttpMethod.Get, request.Method));
+        Assert.Equal(original, run.Store.Current.Objects["source-access-metadata"].RequestHash);
     }
 
     [Fact]
@@ -5641,8 +5854,10 @@ except RuntimeError as error:
                     ["id"] = Guid.NewGuid().ToString("D"), ["workspaceId"] = WorkspaceId(role),
                     ["type"] = "Lakehouse", ["displayName"] = "C1_" + role,
                     ["description"] = FabricC1Deployment.Marker(run.Input),
-                    ["properties"] = schema is null ? new JsonObject() : new JsonObject { ["defaultSchema"] = schema }
+                    ["properties"] = new JsonObject { ["sqlEndpointProperties"] = new JsonObject
+                    { ["id"] = Guid.NewGuid().ToString("D"), ["provisioningStatus"] = "Success" } }
                 };
+                if (schema is not null) lakehouses[role]["properties"]!["defaultSchema"] = schema;
                 run.Seed("lakehouse-" + role, "Lakehouse", lakehouses[role]);
                 notebookIds[role] = Guid.NewGuid().ToString("D");
                 jobIds[role] = Guid.NewGuid().ToString("D");
@@ -5660,6 +5875,12 @@ except RuntimeError as error:
 
         public string WorkspaceId(string role) => run.Store.Current!.Objects["workspace-" + role].Id;
         private JsonObject Binding(string role) => (JsonObject)run.Store.Current!.Objects["source-notebook-plan-" + role].Response["binding"]!.DeepClone();
+        public JsonObject Lakehouse(string role) => (JsonObject)lakehouses[role].DeepClone();
+        public JsonObject Notebook(string role) => new()
+        {
+            ["id"] = notebookIds[role], ["workspaceId"] = WorkspaceId(role), ["type"] = "Notebook",
+            ["displayName"] = "C1_Materialize_" + role, ["description"] = FabricC1Deployment.Marker(run.Input)
+        };
 
         public void QueuePreparation(string role, string? mutation = null)
         {
@@ -5680,11 +5901,7 @@ except RuntimeError as error:
         public void QueueNotebook(string role, Action<JsonObject>? mutateDefinition = null)
         {
             QueuePreparation(role);
-            var notebook = new JsonObject
-            {
-                ["id"] = notebookIds[role], ["workspaceId"] = WorkspaceId(role), ["type"] = "Notebook",
-                ["displayName"] = "C1_Materialize_" + role, ["description"] = FabricC1Deployment.Marker(run.Input)
-            };
+            var notebook = Notebook(role);
             if (run.Store.Current!.Objects.ContainsKey("source-notebook-" + role)) run.Api.Reply(200, notebook);
             else { run.Api.List(); run.Api.Reply(201, notebook); }
             run.Api.ReplyComputed(200, () =>
@@ -5756,6 +5973,140 @@ except RuntimeError as error:
                 ["status"] = status, ["startTimeUtc"] = start.ToString("O"), ["endTimeUtc"] = start.AddSeconds(11).ToString("O"),
                 ["failureReason"] = null, ["exitValue"] = Canonical.Serialize(result)
             };
+        }
+    }
+
+    private sealed class SourceAccessHarness
+    {
+        private readonly Harness run;
+        private readonly Dictionary<string, string> adminIds = new(StringComparer.Ordinal)
+        { ["released"] = Guid.NewGuid().ToString("D"), ["denied"] = Guid.NewGuid().ToString("D") };
+        private readonly string viewerId = Guid.NewGuid().ToString("D");
+        public SourceNotebookHarness Source { get; }
+        public string PrincipalId => run.Store.Current!.Objects["runtime-sp"].Id;
+
+        private SourceAccessHarness(Harness run, SourceNotebookHarness source)
+        {
+            this.run = run;
+            Source = source;
+            var client = Guid.NewGuid().ToString("D");
+            var marker = FabricC1Deployment.Marker(run.Input);
+            run.Seed("runtime-app", "Application", new()
+            { ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = client, ["tags"] = new JsonArray(marker) });
+            run.Seed("runtime-sp", "ServicePrincipal", new()
+            { ["id"] = Guid.NewGuid().ToString("D"), ["appId"] = client, ["tags"] = new JsonArray(marker) });
+        }
+
+        public static async Task<SourceAccessHarness> Create(Harness run, string? schema = null)
+        {
+            var source = new SourceNotebookHarness(run, schema);
+            foreach (var role in new[] { "released", "denied" })
+            {
+                await source.Submit(role);
+                run.Clock.Advance(TimeSpan.FromSeconds(60));
+                run.Api.Reply(200, source.Job(role));
+                await run.Provisioner.AdvanceSourceMaterialization(role, default);
+            }
+            return new(run, source);
+        }
+
+        public static JsonObject List(params JsonObject[] items) =>
+            new() { ["value"] = new JsonArray(items.Select(item => item.DeepClone()).ToArray()) };
+
+        private JsonObject Admin(string scope) => new()
+        {
+            ["id"] = adminIds[scope], ["role"] = "Admin",
+            ["principal"] = new JsonObject { ["id"] = run.Input.BootstrapIdentity!.PrincipalObjectId, ["type"] = "User" }
+        };
+
+        private JsonObject Viewer() => new()
+        {
+            ["id"] = viewerId, ["role"] = "Viewer",
+            ["principal"] = new JsonObject { ["id"] = PrincipalId, ["type"] = "ServicePrincipal" }
+        };
+
+        public JsonObject DefaultReader() => new()
+        {
+            ["name"] = "DefaultReader", ["eTag"] = "default-version",
+            ["decisionRules"] = new JsonArray(new JsonObject
+            {
+                ["effect"] = "Permit", ["permission"] = new JsonArray(
+                    new JsonObject { ["attributeName"] = "Path", ["attributeValueIncludedIn"] = new JsonArray("*") },
+                    new JsonObject { ["attributeName"] = "Action", ["attributeValueIncludedIn"] = new JsonArray("Read") })
+            }),
+            ["members"] = new JsonObject { ["fabricItemMembers"] = new JsonArray(new JsonObject
+            { ["itemAccess"] = new JsonArray("ReadAll"), ["sourcePath"] = Source.WorkspaceId("released") + "/" + Source.Lakehouse("released")["id"]!.GetValue<string>() }) }
+        };
+
+        public JsonObject Role(string version = "source-version-1")
+        {
+            var role = (JsonObject)run.Store.Current!.Objects["source-access-definition"].Response["role"]!.DeepClone();
+            role.Remove("kind");
+            role["eTag"] = version;
+            return role;
+        }
+
+        public void QueueBefore(string? fault = null, bool existingRole = false)
+        {
+            Source.QueuePreparation("released");
+            var lakehouse = Source.Lakehouse("released");
+            var schema = lakehouse["properties"]!["defaultSchema"]?.GetValue<string>();
+            var sql = new JsonObject
+            {
+                ["id"] = lakehouse["properties"]!["sqlEndpointProperties"]!["id"]!.DeepClone(),
+                ["type"] = "SQLEndpoint", ["workspaceId"] = Source.WorkspaceId("released")
+            };
+            if (fault == "foreign-sql-item") sql["id"] = Guid.NewGuid().ToString("D");
+            if (fault == "sql-not-ready") lakehouse["properties"]!["sqlEndpointProperties"]!["provisioningStatus"] = "InProgress";
+            run.Api.Reply(200, lakehouse);
+            var items = new List<JsonObject> { Source.Lakehouse("released"), Source.Notebook("released"), sql };
+            if (fault == "extra-item") items.Add(new() { ["id"] = Guid.NewGuid().ToString("D"), ["type"] = "Warehouse" });
+            run.Api.List(items.ToArray());
+            var table = new JsonObject
+            {
+                ["name"] = schema is null ? "c1_sources" : schema + ".c1_sources", ["type"] = "Managed", ["format"] = "Delta",
+                ["location"] = "abfss://" + Source.WorkspaceId("released") + "@onelake.dfs.fabric.microsoft.com/" +
+                    lakehouse["id"]!.GetValue<string>() + "/Tables/" + (schema is null ? "" : schema + "/") + "c1_sources"
+            };
+            if (fault == "foreign-table") table["location"] = "abfss://" + Guid.NewGuid().ToString("D") +
+                "@onelake.dfs.fabric.microsoft.com/" + lakehouse["id"]!.GetValue<string>() + "/Tables/c1_sources";
+            var tables = new JsonArray(table);
+            if (fault == "extra-table") tables.Add(table.DeepClone());
+            run.Api.Reply(200, new() { ["data"] = tables });
+            run.Api.List(fault == "denied-runtime" ? [Admin("denied"), Viewer()] : [Admin("denied")]);
+            var assignments = new List<JsonObject> { Admin("released") };
+            if (run.Store.Current!.Objects.ContainsKey("runtime-source-grant") ||
+                fault is "source-contributor" or "unowned-viewer" or "replaced-viewer")
+            {
+                var viewer = Viewer();
+                if (fault == "source-contributor") viewer["role"] = "Contributor";
+                if (fault == "replaced-viewer") viewer["id"] = Guid.NewGuid().ToString("D");
+                assignments.Add(viewer);
+            }
+            if (fault == "source-group") assignments.Add(new()
+            {
+                ["id"] = Guid.NewGuid().ToString("D"), ["role"] = "Viewer",
+                ["principal"] = new JsonObject { ["id"] = Guid.NewGuid().ToString("D"), ["type"] = "Group" }
+            });
+            run.Api.List(assignments.ToArray());
+            run.Api.ReplyComputed(200, () =>
+            {
+                var defaultRole = DefaultReader();
+                if (fault == "default-reader-broadened") defaultRole["members"]!["fabricItemMembers"]![0]!["itemAccess"]![0] = "Read";
+                return existingRole || fault == "unowned-role" ? List(defaultRole, Role()) : List(defaultRole);
+            });
+        }
+
+        public void QueueAfter(bool createRole = true, bool createViewer = true,
+            string readbackVersion = "source-version-1", string finalVersion = "source-version-1")
+        {
+            if (createRole) run.Api.Reply(201, new());
+            run.Api.ReplyComputed(200, () => List(DefaultReader(), Role(readbackVersion)));
+            run.Api.List(createViewer ? [Admin("released")] : [Admin("released"), Viewer()]);
+            if (createViewer) run.Api.Reply(201, Viewer());
+            run.Api.List(Admin("released"), Viewer());
+            run.Api.List(Admin("denied"));
+            run.Api.ReplyComputed(200, () => List(DefaultReader(), Role(finalVersion)));
         }
     }
 

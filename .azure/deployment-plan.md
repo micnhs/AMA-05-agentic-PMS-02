@@ -175,6 +175,20 @@ receipts are required for the combined materialization record. Source tests
 remain in the existing credential-free hosted lane; native notebook execution,
 runtime user-ID correspondence, effective source grants and B5 are unproven.
 This does not complete the full apply driver or permit an isolated paid apply.
+The source-access metadata component now binds the original materializations,
+closed three-item/single-Delta-table Released inventory, unchanged Denied
+membership, an exact own-principal OneLake table-read role and an original
+Viewer assignment. Single-role preview creation uses Abort, never a full role
+collection replacement or modification of DefaultReader. Original request
+intents, assignment IDs and role versions survive resume; unknown writes do not
+replay, and changed/foreign metadata blocks. Ordinary workspace GETs use the
+private workspace host, not the public communication-policy exception.
+This remains a source-only prerequisite: no native role assignment, effective
+OneLake/SQL access, SQL-mode/inventory acceptance, revocation or final
+`source-grants` receipt is claimed. SQL modes are not switched, and a
+name-based role DELETE is not presented as conditional cleanup. The same
+credential-free hosted lane covers synthetic cases; the full driver and
+independent cleanup/stop remain incomplete.
 Final C1 binding now also requires the publication plan/readback and refuses a
 cleanup-fenced, expired or unresolved-delete journal rather than reusing its
 retained historical resource receipts as runnable state. It additionally requires

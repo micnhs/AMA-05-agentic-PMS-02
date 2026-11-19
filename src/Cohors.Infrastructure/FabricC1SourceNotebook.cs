@@ -32,7 +32,7 @@ public sealed partial class FabricC1Provisioner
             !JsonNode.DeepEquals(policy.Response, FabricC1Deployment.LockCommunicationPolicy(policy.Response)),
             "c1_source_policy", "Source preparation requires the original fully denied workspace policy.", 409);
         await RequireWorkspaceInboundEnabled(ct);
-        var currentWorkspace = await Read($"https://api.fabric.microsoft.com/v1/workspaces/{workspaceId}", ct);
+        var currentWorkspace = await Read($"https://{WorkspaceHost(workspaceId)}/v1/workspaces/{workspaceId}", ct);
         RequireMarker(currentWorkspace, false);
         SameId(Text(currentWorkspace, "id"), workspaceId);
         SameId(Text(currentWorkspace, "capacityId"), Text(Owned("fabric-capacity", "FabricCapacity"), "id"));
