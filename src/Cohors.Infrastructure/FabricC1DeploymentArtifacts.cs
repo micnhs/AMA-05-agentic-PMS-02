@@ -26,7 +26,7 @@ public sealed partial class FabricC1Provisioner
     private const string ArtifactPublicationKey = "private-artifact-published";
     private const string ArtifactPlanKey = "private-artifact-publication-plan";
     private const int ArtifactMaximumBytes = 256 * 1024 * 1024;
-    private sealed record ArtifactPackage(Uri Endpoint, string ArchivePath, string ArchiveSha256, long ArchiveLength,
+    private sealed record ArtifactPackage(Uri Endpoint, string ArchivePath, string ArchiveSha256, int ArchiveLength,
         JsonObject Provenance);
     private sealed record ArtifactReply(HttpStatusCode Status, string? ErrorCode, string? ETag,
         Dictionary<string, string> Metadata);
@@ -179,7 +179,7 @@ public sealed partial class FabricC1Provisioner
         VerifyArtifactContainer(container, binding.StorageAccountResourceId);
         var account = binding.StorageAccountResourceId.Split('/')[^1];
         return new(new($"https://{account}.blob.core.windows.net/c1-artifacts/{state.BindingHash}/{input.SourceCommit}/{hash}.zip"),
-            archive, hash, length, data);
+            archive, hash, checked((int)length), data);
     }
 
     private FabricC1ProvisionedObject ArtifactPublicationPlan(FabricC1ArtifactPublicationBinding binding, ArtifactPackage package)
