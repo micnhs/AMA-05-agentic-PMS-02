@@ -901,7 +901,7 @@ public sealed class FabricC1DeploymentTests
         var (execution, _, hosted, control) = CheckpointRuntimes(run);
         foreach (var binding in new[] { hosted, control })
         {
-            using var handler = new SeedHandler();
+            using var handler = new ConditionalBlobHandler();
             using var client = new HttpClient(handler);
             var credential = new BoundCredential(Token(run.Input with { BootstrapIdentity = binding.Identity },
                 binding.Identity.ExpectedAudience!, run.Clock.GetUtcNow()));
