@@ -12,6 +12,10 @@ from shared_hub import (HUB_CONTRACT, PRIMARY_CONTRACT, RECEIPT_CONTRACT, BINDIN
                         validate_bindings, validate_receipt, validate_wire_receipt, verify_observations)
 
 
+WAF_POLICY_TYPE = "Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies"
+WAF_ASSOCIATIONS = ("applicationGateways", "httpListeners", "pathBasedRules")
+
+
 def latest_hub_stage(outputs):
     revisions = [value for key, value in outputs.items() if key.startswith("phase-hub-bindings-")]
     if revisions:
@@ -670,6 +674,99 @@ def deletion_version(identifier):
     return NETWORK_API
 
 
+def waf_policy_associations(value):
+    properties, result = value.get("properties"), {}
+    if not isinstance(properties, dict):
+        raise GateError("WAF policy properties are missing or malformed.")
+    for key in WAF_ASSOCIATIONS:
+        rows = properties.get(key)
+        if rows is None:
+            rows = []
+        if (not isinstance(rows, list) or any(not isinstance(row, dict)
+                or not isinstance(row.get("id"), str) or not row["id"] for row in rows)):
+            raise GateError("WAF policy associations must be explicit provider resource references.")
+        identifiers = [row["id"] for row in rows]
+        if len({identifier.lower() for identifier in identifiers}) != len(identifiers):
+            raise GateError("Duplicate WAF policy associations are not an approved detach.")
+        result[key] = identifiers
+    containers = properties.get("applicationGatewayForContainers")
+    if containers is not None and (not isinstance(containers, list) or containers):
+        raise GateError("A retiring WAF policy has an unapproved container-gateway association.")
+    return result
+
+
+def waf_policy_content_hash(value):
+    content = copy.deepcopy(value)
+    content.pop("etag", None)
+    for key in WAF_ASSOCIATIONS:
+        content["properties"].pop(key, None)
+    return digest(content)
+
+
+def waf_policy_release_checkpoint(engine, plan, identifier, *, capture=False):
+    from primary_bootstrap import phase_key
+    previous = latest_hub_stage(engine.outputs)
+    consumer = plan["bindingInput"]["changedConsumer"]
+    references = previous.get("bindings", {}).get("web", [])
+    matches = [item for item in references if item["policyId"].lower() == identifier.lower()]
+    if (len(matches) != 1 or matches[0]["consumer"] != consumer
+            or identifier not in plan["offboardReferences"]
+            or plan["bindingInput"]["consumers"][consumer]["state"] != "offboarded"
+            or not previous["bindingInput"]["consumers"][consumer]["web"]):
+        raise GateError("Only this exact consumer's preceding WAF policy can be released.")
+    gateway = arm_id(previous["hub"]["wafId"], scope=hub_group(engine.manifest), kind="Microsoft.Network/applicationGateways")
+    proofs = {item["id"]: item for item in previous["metadataReadback"]["resources"]}
+    if identifier not in proofs or proofs[identifier]["apiVersion"] != NETWORK_API:
+        raise GateError("WAF policy release lacks its exact preceding provider-version/hash binding.")
+    proof = proofs[identifier]
+    operation = phase_key(plan) + "-waf-policy-before-" + digest(identifier)[:16]
+    request = {"planHash": digest(plan), "precedingResourceSha256": proof["sha256"],
+               "gatewayId": gateway, "consumer": consumer}
+    if operation in engine.outputs:
+        engine.journal.begin(operation, "READ-OWNED", identifier, request)
+        return engine.outputs[operation]
+    if not capture or engine.journal.last("arm-" + phase_key(plan)):
+        raise GateError("No original pre-detach WAF policy checkpoint; do not adopt a post-detach provider state.")
+    observer = Observation(engine.client, [hub_group(engine.manifest)])
+    actual = observer.get(identifier, NETWORK_API, owner=engine.manifest["bindingHash"], kind=WAF_POLICY_TYPE)
+    if digest(actual) != proof["sha256"]:
+        raise GateError("WAF policy drifted before the approved detach; no new baseline.")
+    associations = waf_policy_associations(actual)
+    permitted = {"applicationGateways": {gateway.lower()},
+                 "httpListeners": {(gateway + "/httpListeners/https-" + consumer).lower()}, "pathBasedRules": set()}
+    if any(not {item.lower() for item in associations[key]}.issubset(permitted[key]) for key in WAF_ASSOCIATIONS):
+        raise GateError("The WAF policy has associations beyond the exact approved consumer listener.")
+    if not isinstance(actual.get("etag"), str) or not actual["etag"].strip():
+        raise GateError("WAF policy release requires an observed provider ETag.")
+    checkpoint = {**request, "contentSha256": waf_policy_content_hash(actual),
+                  "associations": associations, "etag": actual["etag"]}
+    if engine.journal.begin(operation, "READ-OWNED", identifier, request):
+        engine.journal.complete(operation, checkpoint)
+    return checkpoint
+
+
+def capture_waf_policy_releases(engine, plan):
+    if plan["phase"] != "hub-bindings":
+        return
+    previous = latest_hub_stage(engine.outputs) or {}
+    for reference in previous.get("bindings", {}).get("web", []):
+        if reference["policyId"] in plan.get("offboardReferences", []):
+            waf_policy_release_checkpoint(engine, plan, reference["policyId"], capture=True)
+
+
+def verify_detached_waf_policy(engine, plan, identifier, actual):
+    from primary_bootstrap import phase_key
+    checkpoint = waf_policy_release_checkpoint(engine, plan, identifier)
+    if "arm-" + phase_key(plan) not in engine.outputs:
+        raise GateError("The approved WAF detach deployment is not completed.")
+    if any(waf_policy_associations(actual).values()):
+        raise GateError("A WAF policy association remains or was added; no policy deletion.")
+    if waf_policy_content_hash(actual) != checkpoint["contentSha256"]:
+        raise GateError("WAF policy identity, ownership or content changed beyond the approved detach.")
+    if not isinstance(actual.get("etag"), str) or not actual["etag"].strip():
+        raise GateError("Detached WAF policy deletion requires its fresh provider ETag.")
+
+
 def delete_reference(engine, plan, identifier):
     from primary_bootstrap import assert_owned_id, phase_key
     assert_owned_id(identifier, engine.manifest)
@@ -689,8 +786,12 @@ def delete_reference(engine, plan, identifier):
                     or properties.get("allowGatewayTransit") is not True or properties.get("useRemoteGateways") is not False
                     or properties.get("allowForwardedTraffic") is not False):
                 raise GateError("The retiring hub peering no longer belongs to this exact consumer.")
+        elif "/applicationgatewaywebapplicationfirewallpolicies/" in identifier.lower():
+            verify_detached_waf_policy(engine, plan, identifier, actual)
         elif digest(actual) != proof["sha256"]:
             raise GateError("The reference changed since the approved owner snapshot; no deletion.")
+        if identifier == plan.get("deleteUnreferencedWaf") and (not isinstance(actual.get("etag"), str) or not actual["etag"].strip()):
+            raise GateError("Last WAF deletion requires its fresh provider ETag.")
         engine.effect(operation, "DELETE", ARM + identifier + "?api-version=" + deletion_version(identifier),
                       allowed=(200, 202, 204), projection=lambda _: {"releasedReference": identifier},
                       headers={"If-Match": actual["etag"]} if actual.get("etag") else None)
@@ -709,10 +810,22 @@ def release_last_waf(engine, plan):
 
 def complete_hub_phase(engine, plan, result, compiled_hash):
     if plan["phase"] == "hub-bindings":
-        release_last_waf(engine, plan)
-        for identifier in plan["offboardReferences"]:
-            delete_reference(engine, plan, identifier)
         result["bindingInput"] = plan["bindingInput"]
+        policy_references = [identifier for identifier in plan["offboardReferences"]
+                             if "/applicationgatewaywebapplicationfirewallpolicies/" in identifier.lower()]
+        if policy_references:
+            gateway = latest_hub_stage(engine.outputs)["hub"]["wafId"]
+            remaining_web = any(item["web"] for item in active_consumers(plan["bindingInput"]))
+            if (result["hub"].get("wafId") != (gateway if remaining_web else None)
+                    or plan.get("deleteUnreferencedWaf") != (None if remaining_web else gateway)):
+                raise GateError("The approved WAF retention/deletion identity changed.")
+            for identifier in policy_references:
+                waf_policy_release_checkpoint(engine, plan, identifier)
+        release_last_waf(engine, plan)
+        if policy_references and result["hub"].get("wafId"):
+            observe_waf(engine, Observation(engine.client, [hub_group(engine.manifest)]), result)
+        for identifier in policy_references + [item for item in plan["offboardReferences"] if item not in policy_references]:
+            delete_reference(engine, plan, identifier)
         if plan["offboardReferences"] or plan.get("deleteUnreferencedWaf"):
             from primary_bootstrap import phase_key
             from primary_release import checkpoint_inventory
@@ -830,7 +943,7 @@ def observe_waf(engine, observer, stage):
             raise GateError("The backend CA binding changed or adds an unreviewed trusted root.")
         policy_id = listener.get("firewallPolicy", {}).get("id")
         policy = observer.get(policy_id, NETWORK_API, owner=manifest["bindingHash"],
-                              kind="Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies")["properties"]
+                              kind=WAF_POLICY_TYPE)["properties"]
         options = policy.get("policySettings", {})
         if (options.get("mode") != "Prevention" or options.get("state") != "Enabled"
                 or any(options.get(name) is not True for name in ("requestBodyCheck", "requestBodyEnforcement", "fileUploadEnforcement"))

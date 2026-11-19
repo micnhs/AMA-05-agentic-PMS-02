@@ -1,4 +1,5 @@
 import copy
+from contextlib import contextmanager
 import datetime as dt
 from pathlib import Path
 import subprocess
@@ -82,6 +83,142 @@ def web(entry):
         "applicationContractSha256": "b" * 64, "forwardedHeadersEvidenceSha256": "c" * 64,
         "privateDnsEvidenceSha256": "d" * 64,
     }
+
+
+@contextmanager
+def waf_offboarding(keep_primary):
+    from shared_hub_fixture import resource, synthetic_waf
+
+    owner, previous = synthetic_waf()
+    gateway_id = previous["hub"]["wafId"]
+    gateway_url = ARM + gateway_id + "?api-version=" + hub.WAF_API
+    gateway = owner.client.resources[gateway_url]
+    primary = previous["bindings"]["web"][0]
+    fabric = consumer("fabric")
+    fabric.update(state="web-bound", web=web(fabric))
+    spec = fabric["web"]
+    spec.update(frontendHost="fabric.pilot.example.test", frontendRecord="fabric",
+                certificateSecretId=previous["hub"]["ownerDependencies"]["certificateVaultUri"] + "secrets/fabric/" + "a" * 32,
+                backendPrivateIp="10.82.2.10", backendKind="PrivateEndpointWeb")
+    policy_id = primary["policyId"].rsplit("/", 1)[0] + "/fabric"
+    policy_url = ARM + policy_id + "?api-version=" + hub.NETWORK_API
+    grant_id = primary["certificateGrantId"].replace("/secrets/frontend/", "/secrets/fabric/")[:-1] + "4"
+    primary_policy = owner.client.resources[ARM + primary["policyId"] + "?api-version=" + hub.NETWORK_API]
+    owner.client.add(resource(policy_id, primary_policy["type"], copy.deepcopy(primary_policy["properties"]),
+                              tags=copy.deepcopy(primary_policy["tags"])))
+    primary_grant = owner.client.resources[ARM + primary["certificateGrantId"] + "?api-version=2022-04-01"]
+    owner.client.add(resource(grant_id, primary_grant["type"], primary_grant["properties"]), "2022-04-01")
+    overrides = {
+        "sslCertificates": {"keyVaultSecretId": spec["certificateSecretId"]},
+        "httpListeners": {"hostNames": [spec["frontendHost"]], "firewallPolicy": {"id": policy_id}},
+        "backendAddressPools": {"backendAddresses": [{"ipAddress": spec["backendPrivateIp"]}]},
+        "backendHttpSettingsCollection": {"probe": {"id": gateway_id + "/probes/ready-fabric"}},
+        "probes": {},
+        "requestRoutingRules": {"priority": 200, "httpListener": {"id": gateway_id + "/httpListeners/https-fabric"},
+                               "backendAddressPool": {"id": gateway_id + "/backendAddressPools/backend-fabric"},
+                               "backendHttpSettings": {"id": gateway_id + "/backendHttpSettingsCollection/https-fabric"}},
+    }
+    for collection, properties in overrides.items():
+        item = copy.deepcopy(gateway["properties"][collection][0])
+        item["name"] = item["name"].replace("-primary", "-fabric")
+        item["properties"].update(properties)
+        gateway["properties"][collection] = (gateway["properties"][collection] if keep_primary else []) + [item]
+    previous["bindingInput"]["consumers"].update(fabric=fabric)
+    if not keep_primary:
+        previous["bindingInput"]["consumers"]["primary"] = None
+        del owner.client.resources[ARM + primary["policyId"] + "?api-version=" + hub.NETWORK_API]
+        del owner.client.resources[ARM + primary["certificateGrantId"] + "?api-version=2022-04-01"]
+    # This fixture isolates WAF lifecycle; existing hub/consumer/DNS tests retain their own readbacks.
+    previous["bindings"] = {"peers": [], "dnsLinks": [], "dataRecords": [], "frontendRecords": [],
+                            "web": ([primary] if keep_primary else []) + [
+                                {"consumer": "fabric", "policyId": policy_id, "certificateGrantId": grant_id}]}
+    for reference in previous["bindings"]["web"]:
+        value = owner.client.resources[ARM + reference["policyId"] + "?api-version=" + hub.NETWORK_API]
+        value["properties"].update(applicationGateways=[{"id": gateway_id}],
+                                   httpListeners=[{"id": gateway_id + "/httpListeners/https-" + reference["consumer"]}],
+                                   pathBasedRules=[])
+    observer = controller.Observation(owner.client, [GROUP])
+    controller.observe_waf(owner, observer, previous)
+    previous["metadataReadback"]["resources"] = observer.bindings()
+    retired = copy.deepcopy(fabric)
+    retired.update(state="offboarded", web=None, offboarding={
+        "stoppedWorkEvidenceSha256": "a" * 64, "credentialsAndGrantsRevokedEvidenceSha256": "b" * 64,
+        "spokePeeringAbsentEvidenceSha256": "c" * 64})
+    bindings = update(previous["bindingInput"], "fabric", retired)
+    plan = {"phase": "hub-bindings"}
+    owner.outputs["phase-hub-bindings-000004"] = previous
+    controller.prepare_plan(plan, owner.manifest, owner.outputs, bindings)
+    result = copy.deepcopy(previous)
+    result["bindingInput"] = bindings
+    result["bindings"]["web"] = [primary] if keep_primary else []
+    if not keep_primary:
+        result["hub"].update(wafId=None, wafPrivateIp=None)
+    state = SimpleNamespace(owner=owner, previous=previous, plan=plan, result=result, gateway_url=gateway_url,
+                            policy_id=policy_id, policy_url=policy_url, deletes=[], puts=[], absent=[],
+                            hold_absence=set(), race_etag=False, delete_attempts=[])
+    real_read = owner.client.request
+
+    def detach_policy():
+        value = owner.client.resources[policy_url]
+        value["etag"] = 'W/"synthetic-after-approved-detach"'
+        value["properties"].update(applicationGateways=[], httpListeners=[], pathBasedRules=[])
+
+    def request(method, url, body=None, *, allowed=(200,), headers=None):
+        if method == "PUT":
+            assert "/providers/Microsoft.Resources/deployments/testhub-hub-bindings-000005?" in url
+            assert body["properties"]["parameters"]["hubBindings"]["value"] == bindings
+            state.puts.append(url)
+            if keep_primary:
+                for collection in overrides:
+                    gateway["properties"][collection] = [item for item in gateway["properties"][collection]
+                                                         if not item["name"].endswith("-fabric")]
+                gateway["etag"] = 'W/"synthetic-after-approved-detach"'
+                detach_policy()
+            owner.client.resources[url] = {"properties": {"provisioningState": "Succeeded",
+                "parameters": body["properties"]["parameters"], "outputs": {key: {"value": value} for key, value in result.items()}}}
+            return {}, {}, 200
+        if method == "DELETE":
+            assert url in {gateway_url, policy_url, ARM + grant_id + "?api-version=2022-04-01"}
+            state.delete_attempts.append(url)
+            if url == policy_url and state.race_etag:
+                owner.client.resources[url]["etag"] = 'W/"synthetic-concurrent-provider-write"'
+            if headers != {"If-Match": owner.client.resources[url]["etag"]}:
+                raise GateError("Synthetic HTTP 412; no automatic retry.")
+            state.deletes.append((url, headers))
+            if url == gateway_url:
+                detach_policy()
+            if url not in state.hold_absence:
+                del owner.client.resources[url]
+            return {}, {}, 204
+        response = real_read(method, url, body, allowed=allowed, headers=headers)
+        if response[2] == 404:
+            state.absent.append(url)
+        return response
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        state.journal_path = root / "journal.json"
+        template = {"resources": []}
+        preview = root / "preview.json"
+        write_json(preview, {"planHash": digest(plan), "compiledTemplateHash": digest(template),
+                             "result": {"status": "Succeeded", "changes": []}})
+
+        def apply(engine):
+            return bootstrap.arm_apply(engine, "hub-bindings", plan, {"whatIfSha256": file_hash(preview)}, preview)
+
+        state.apply = apply
+        with Journal(state.journal_path, owner.manifest["bindingHash"]) as journal:
+            for operation, value in owner.outputs.items():
+                journal.begin(operation, "LOCAL-CHECKPOINT", "synthetic-waf-fixture", {})
+                journal.complete(operation, value)
+        with (patch.object(owner.client, "request", side_effect=request),
+              patch.object(bootstrap, "check_owned_groups"), patch.object(bootstrap, "compile_bicep", return_value=template),
+              patch("primary_release.checkpoint_inventory"),
+              patch.object(controller, "observe_hub", side_effect=lambda engine, stage, **_: controller.Observation(engine.client, [GROUP])),
+              patch.object(controller, "observe_consumer"),
+              patch.object(controller, "observe_binding_resources",
+                           side_effect=lambda engine, observer, stage: controller.observe_waf(engine, observer, stage) if stage["hub"]["wafId"] else None)):
+            yield state
 
 
 class SharedHubContractTests(unittest.TestCase):
@@ -607,6 +744,126 @@ class SharedHubReadbackTests(unittest.TestCase):
             self.assertIn(ARM + stage["hub"]["firewallId"] + "?api-version=" + hub.NETWORK_API, owner.client.resources)
             with self.assertRaisesRegex(GateError, "outside"):
                 controller.delete_reference(engine, plan, stage["bindingInput"]["consumers"]["fabric"]["spoke"]["vnetId"])
+
+    def test_waf_offboarding_accepts_own_detach_and_resumes_without_repeating_writes(self):
+        for keep_primary in (True, False):
+            with self.subTest(keep_primary=keep_primary), waf_offboarding(keep_primary) as case:
+                primary_before = {url: copy.deepcopy(value) for url, value in case.owner.client.resources.items()
+                                  if url.endswith("/primary?api-version=" + hub.NETWORK_API)}
+                with Journal(case.journal_path, case.owner.manifest["bindingHash"]) as journal:
+                    engine = bootstrap.Bootstrap(case.owner.manifest, journal, case.owner.client)
+                    result = case.apply(engine)
+                # Resume after the approved ARM detach, using the original durable journal.
+                for _ in range(2):
+                    with Journal(case.journal_path, case.owner.manifest["bindingHash"]) as journal:
+                        engine = bootstrap.Bootstrap(case.owner.manifest, journal, case.owner.client)
+                        result = case.apply(engine)
+                        controller.complete_hub_phase(engine, case.plan, result, "e" * 64)
+                self.assertEqual(len(case.puts), 1)
+                self.assertEqual(len(case.deletes), 2 if keep_primary else 3)
+                self.assertEqual(sum(url == case.policy_url for url, _ in case.deletes), 1)
+                self.assertIn((case.policy_url, {"If-Match": 'W/"synthetic-after-approved-detach"'}), case.deletes)
+                self.assertIn(case.policy_url, case.absent)
+                self.assertEqual(case.gateway_url in case.owner.client.resources, keep_primary)
+                for url, value in primary_before.items():
+                    self.assertEqual(case.owner.client.resources[url], value)
+                if keep_primary:
+                    self.assertEqual([item["name"] for item in case.owner.client.resources[case.gateway_url]["properties"]["httpListeners"]],
+                                     ["https-primary"])
+                else:
+                    self.assertIn(case.gateway_url, case.absent)
+
+    def test_waf_offboarding_refuses_drift_and_remaining_or_foreign_associations(self):
+        for mutation in ("before-detach", "identity", "ownership", "settings", "managed", "custom", "gateway",
+                         "listener", "own-listener", "path", "containers", "etag", "remaining-primary", "gateway-output", "plan"):
+            with self.subTest(mutation=mutation), waf_offboarding(True) as case:
+                with Journal(case.journal_path, case.owner.manifest["bindingHash"]) as journal:
+                    engine = bootstrap.Bootstrap(case.owner.manifest, journal, case.owner.client)
+                    actual = case.owner.client.resources[case.policy_url]
+                    if mutation == "before-detach":
+                        actual["properties"]["policySettings"]["mode"] = "Detection"
+                        with self.assertRaisesRegex(GateError, "drifted before"):
+                            case.apply(engine)
+                        self.assertFalse(case.puts)
+                        continue
+                    result = case.apply(engine)
+                    if mutation == "identity":
+                        actual["id"] += "-foreign"
+                    elif mutation == "ownership":
+                        actual["tags"]["cohorsBinding"] = "9" * 64
+                    elif mutation == "settings":
+                        actual["properties"]["policySettings"]["mode"] = "Detection"
+                    elif mutation == "managed":
+                        actual["properties"]["managedRules"]["managedRuleSets"][0]["ruleSetVersion"] = "3.1"
+                    elif mutation == "custom":
+                        actual["properties"]["customRules"][0]["action"] = "Allow"
+                    elif mutation in ("gateway", "listener", "path"):
+                        key = {"gateway": "applicationGateways", "listener": "httpListeners", "path": "pathBasedRules"}[mutation]
+                        actual["properties"][key] = [{"id": case.previous["hub"]["wafId"] + "/unapproved-" + mutation}]
+                    elif mutation == "own-listener":
+                        actual["properties"]["httpListeners"] = [{"id": case.previous["hub"]["wafId"] + "/httpListeners/https-fabric"}]
+                    elif mutation == "containers":
+                        actual["properties"]["applicationGatewayForContainers"] = [{"id": GROUP + "/providers/Microsoft.ServiceNetworking/trafficControllers/unapproved"}]
+                    elif mutation == "etag":
+                        actual.pop("etag")
+                    elif mutation == "remaining-primary":
+                        case.owner.client.resources[case.gateway_url]["properties"]["httpListeners"][0]["properties"]["hostNames"] = ["foreign.example.test"]
+                    elif mutation == "gateway-output":
+                        result["hub"]["wafId"] = None
+                    else:
+                        case.plan["sharedResourceImpact"] += " changed"
+                    with self.assertRaises(GateError):
+                        controller.complete_hub_phase(engine, case.plan, result, "e" * 64)
+                    self.assertFalse(case.delete_attempts)
+                    self.assertIn(case.policy_url, case.owner.client.resources)
+                    self.assertTrue(all("unapproved" not in url and "foreign" not in url for _, url in case.owner.client.calls))
+
+    def test_waf_offboarding_waits_for_actual_404_without_repeating_a_completed_delete(self):
+        for target in ("gateway", "policy"):
+            with self.subTest(target=target), waf_offboarding(target == "policy") as case:
+                url = case.gateway_url if target == "gateway" else case.policy_url
+                case.hold_absence.add(url)
+                for _ in range(2):
+                    with Journal(case.journal_path, case.owner.manifest["bindingHash"]) as journal:
+                        engine = bootstrap.Bootstrap(case.owner.manifest, journal, case.owner.client)
+                        result = case.apply(engine)
+                        with self.assertRaisesRegex(GateError, "not yet observed absent"):
+                            controller.complete_hub_phase(engine, case.plan, result, "e" * 64)
+                    self.assertEqual(case.delete_attempts.count(url), 1)
+                # Synthetic eventual provider disappearance is not an invented second owner request.
+                del case.owner.client.resources[url]
+                with Journal(case.journal_path, case.owner.manifest["bindingHash"]) as journal:
+                    engine = bootstrap.Bootstrap(case.owner.manifest, journal, case.owner.client)
+                    controller.complete_hub_phase(engine, case.plan, case.apply(engine), "e" * 64)
+                self.assertEqual(case.delete_attempts.count(url), 1)
+                self.assertIn(url, case.absent)
+
+    def test_waf_offboarding_refuses_a_missing_original_checkpoint_or_uncertain_delete_replay(self):
+        for missing_original in (True, False):
+            with self.subTest(missing_original=missing_original), waf_offboarding(True) as case:
+                with Journal(case.journal_path, case.owner.manifest["bindingHash"]) as journal:
+                    engine = bootstrap.Bootstrap(case.owner.manifest, journal, case.owner.client)
+                    if missing_original:
+                        # Model the pre-fix journal: the real ARM effect existed, but no pre-detach witness did.
+                        with patch.object(controller, "capture_waf_policy_releases"):
+                            case.apply(engine)
+                    else:
+                        result = case.apply(engine)
+                        case.race_etag = True
+                        with self.assertRaisesRegex(GateError, "412"):
+                            controller.complete_hub_phase(engine, case.plan, result, "e" * 64)
+                with Journal(case.journal_path, case.owner.manifest["bindingHash"]) as journal:
+                    engine = bootstrap.Bootstrap(case.owner.manifest, journal, case.owner.client)
+                    if missing_original:
+                        with self.assertRaisesRegex(GateError, "original pre-detach"):
+                            case.apply(engine)
+                        self.assertFalse(case.delete_attempts)
+                    else:
+                        with self.assertRaisesRegex(GateError, "unresolved intent"):
+                            controller.complete_hub_phase(engine, case.plan, case.apply(engine), "e" * 64)
+                        self.assertEqual(case.delete_attempts, [case.policy_url])
+                self.assertEqual(len(case.puts), 1)
+                self.assertFalse(case.deletes)
 
     def test_completed_arm_resume_reads_exact_parameters_without_a_second_write(self):
         from shared_hub_fixture import synthetic_stage

@@ -159,6 +159,22 @@ unreferenzierte WAF wird deshalb separat journalisiert entfernt; kein
 `wafId:null` als Ersatz fuer Loeschung. Leere hub-eigene DNS-Zonen koennen bis
 zum finalen Hubabbau bleiben und weiter Kosten verursachen.
 
+WAF-Policy-Abbau bindet **vor** dem eigenen ARM-Detach einen tatsaechlichen GET
+an den vollstaendigen vorangegangenen Readbackhash und journalisiert dessen
+Inhaltshash sowie die exakt eigenen Gateway-/Listenerassoziationen als
+`READ-OWNED`. Azure fuehrt
+[Gateway-/Listener-/Pfadrueckreferenzen an der Policy](https://learn.microsoft.com/javascript/api/@azure/arm-network/webapplicationfirewallpolicypropertiesformat).
+Nach dem genehmigten Detach duerfen nur diese Rueckreferenzen verschwinden und
+das Provider-ETag wechseln; Identitaet, Eigentum und saemtlicher anderer Inhalt
+muessen identisch bleiben. Verbleibende/neue oder fremde Referenzen sperren das
+DELETE. Ein verbleibender WAF wird vor der Policyfreigabe gegen den anderen
+Consumer geprueft; der letzte WAF benoetigt seinen journalisierten Abbau und
+GET404. Policy-DELETE verwendet das frische `If-Match` und verlangt ebenfalls
+GET404. Wiederaufnahme verwendet den urspruenglichen Checkpoint, nie einen
+nachtraeglich umgedeuteten Providerzustand; fehlt er nach begonnenem ARM-Detach,
+bleibt der Abbau zur expliziten Klaerung gesperrt. Synthetische Regressionen sind
+kein Live-Provider-, Drain- oder Offboarding-Abnahmenachweis.
+
 Die gebundene, ausschliesslich entfernende Hubrevision bleibt wie `stop` und
 `cleanup` auch bei abgelaufenem Originalpaket zulaessig: sie benoetigt weiterhin
 den vorher abgeschlossenen eigenen Hubzustand, Quellbindung, frische genehmigte

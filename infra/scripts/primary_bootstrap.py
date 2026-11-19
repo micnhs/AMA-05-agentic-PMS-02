@@ -681,6 +681,9 @@ def arm_apply(engine, phase, plan, approval, preview_path):
         raise GateError("Reviewed what-if file does not match the exact phase plan.")
     validate_what_if(preview["result"], manifest, removal_only=is_hub_offboarding(manifest, plan))
     operation = phase_key(plan)
+    if manifest.get("contract") == HUB_CONTRACT:
+        from shared_hub_control import capture_waf_policy_releases
+        capture_waf_policy_releases(engine, plan)
     previous_arm = engine.outputs.get("arm-" + operation)
     if previous_arm:
         deployment = client.get(ARM + previous_arm["id"] + "?api-version=2025-04-01")
