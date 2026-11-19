@@ -104,6 +104,18 @@ credential, key or SAS and never executes the extracted payload. These are
 source contracts, not a native private delivery result. The private upload,
 artifact-container RBAC/readback, trusted Guest Agent bootstrap, FQDN egress,
 durable reconciliation and ordered artifact cleanup remain driver gaps.
+The source-only publisher now consumes the original protected retained archive
+and download provenance, uses the selected initial deployer rather than the
+worker identity, freshly checks own storage/container privacy, and conditionally
+creates one exact private Blob with a complete streamed digest/marker/ETag
+readback. Foundation declares the separate nonpublic `c1-artifacts` container.
+The original publication plan/deadline and all ARM/Blob service debits survive
+resume; no uncertain write replay, token transfer, SAS/key, public fallback or
+paid partial entry is introduced. Native upload, exact IAM/effective access,
+receiver/profile delivery and complete driver/cleanup integration remain open.
+Final C1 binding now also requires the publication plan/readback and refuses a
+cleanup-fenced, expired or unresolved-delete journal rather than reusing its
+retained historical resource receipts as runnable state.
 B5 access selection has now been explicitly extended to an own Point-to-Site
 VPN gateway into this variant's own Azure VNet/private endpoints, together with
 an own Azure Firewall. The earlier unanswered choice is superseded, not a

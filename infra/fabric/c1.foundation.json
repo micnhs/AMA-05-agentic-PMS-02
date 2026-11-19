@@ -205,6 +205,12 @@
       "properties": { "publicAccess": "None" }
     },
     {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers", "apiVersion": "2023-05-01",
+      "name": "[concat(parameters('name'), 'st/default/c1-artifacts')]",
+      "dependsOn": ["[resourceId('Microsoft.Storage/storageAccounts', concat(parameters('name'), 'st'))]"],
+      "properties": { "publicAccess": "None" }
+    },
+    {
       "type": "Microsoft.CognitiveServices/accounts", "apiVersion": "2026-07-15-preview",
       "name": "[concat(parameters('name'), '-ai')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
       "kind": "AIServices", "sku": { "name": "S0" }, "identity": { "type": "SystemAssigned" },
@@ -272,6 +278,7 @@
     "vault": { "type": "object", "value": "[reference(resourceId('Microsoft.KeyVault/vaults', concat(parameters('name'), 'kv')), '2024-11-01', 'Full')]" },
     "storage": { "type": "object", "value": "[reference(resourceId('Microsoft.Storage/storageAccounts', concat(parameters('name'), 'st')), '2023-05-01', 'Full')]" },
     "checkpointContainer": { "type": "object", "value": "[reference(resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', concat(parameters('name'), 'st'), 'default', 'c1-checkpoints'), '2023-05-01', 'Full')]" },
+    "artifactContainer": { "type": "object", "value": "[reference(resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', concat(parameters('name'), 'st'), 'default', 'c1-artifacts'), '2023-05-01', 'Full')]" },
     "probe": { "type": "object", "value": "[reference(resourceId('Microsoft.Compute/virtualMachines', concat(parameters('name'), '-probe')), '2024-07-01', 'Full')]" }
   }
 }

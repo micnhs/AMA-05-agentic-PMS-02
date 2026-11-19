@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Net;
@@ -1175,6 +1177,7 @@ public sealed class FabricC1DeploymentTests
         });
         Assert.Equal("c1_deploy_cleanup_started", (await Assert.ThrowsAsync<DomainException>(() =>
             run.Provisioner.Preflight(default))).Code);
+        Assert.Equal("c1_deploy_cleanup_started", Assert.Throws<DomainException>(run.Provisioner.RequireFullBindings).Code);
         run.Restart();
         foreach (var _ in resources) run.Api.Reply(404, new());
         Assert.Empty((await run.Provisioner.CleanupBlobCheckpointAccess(default)).UnresolvedKeys);
@@ -1434,6 +1437,232 @@ public sealed class FabricC1DeploymentTests
         Assert.Empty(run.Store.Current!.CleanupReceipts);
         Assert.True(run.Store.Current.PendingDeletes.ContainsKey(resources[0].Key));
         Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task PrivateArtifactPublisherConditionallyCreatesAndReadsBackTheBoundArchiveWithoutExecutingIt()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.QueueTarget();
+        var first = await artifact.Publish();
+        Assert.Equal(artifact.Bytes, artifact.Handler.Content);
+        Assert.Equal(["GET", "PUT", "GET"], artifact.Handler.Methods.ToArray());
+        Assert.Equal(5, run.Store.Current!.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+        Assert.Equal(artifact.Binding.DeploymentBindingHash,
+            artifact.Handler.Metadata["x-ms-meta-cohors_deployment"]);
+        Assert.Equal(artifact.Binding.DownloadProvenanceSha256,
+            artifact.Handler.Metadata["x-ms-meta-cohors_provenance"]);
+        Assert.Contains("/c1-artifacts/" + artifact.Binding.DeploymentBindingHash + "/" + run.Input.SourceCommit + "/", first.Endpoint);
+        Assert.Equal(artifact.Bytes.Length, first.OuterArchiveLength);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(artifact.Bytes)), first.OuterArchiveSha256);
+        var originalPlan = Canonical.Hash(run.Store.Current.Objects["private-artifact-publication-plan"]);
+        run.Restart();
+        artifact.QueueTarget();
+        var second = await artifact.Publish();
+        Assert.Equal(first.CreationId, second.CreationId);
+        Assert.Equal(first.ETag, second.ETag);
+        Assert.Equal(originalPlan, Canonical.Hash(run.Store.Current.Objects["private-artifact-publication-plan"]));
+        Assert.Single(artifact.Handler.Methods, method => method == "PUT");
+        Assert.Equal(8, run.Store.Current.Requests);
+        Assert.All(artifact.Credential.Scopes, scope => Assert.Equal("https://storage.azure.com/.default", scope));
+        Assert.DoesNotContain(run.Store.Current.Objects.Keys, key => key.StartsWith("checkpoint-allocation-", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LostArtifactPublicationOnlyReconcilesAndNeverReplaysTheConditionalPut()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.Handler.LoseAfterPut = true;
+        artifact.QueueTarget();
+        await Assert.ThrowsAsync<IOException>(() => artifact.Publish());
+        var uploaded = artifact.Handler.Content;
+        artifact.Handler.Content = null;
+        run.Restart();
+        artifact.QueueTarget();
+        Assert.Equal("c1_artifact_unknown", (await Assert.ThrowsAsync<DomainException>(() => artifact.Publish())).Code);
+        artifact.Handler.Content = uploaded;
+        run.Restart();
+        artifact.QueueTarget();
+        await artifact.Publish();
+        Assert.Single(artifact.Handler.Methods, method => method == "PUT");
+        Assert.Empty(run.Store.Current!.PendingCreates);
+        Assert.Equal(10, run.Store.Current.Requests);
+    }
+
+    [Fact]
+    public async Task MatchingButUnjournaledArchiveIsNotAdoptedOrOverwritten()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.Handler.Content = artifact.Bytes;
+        artifact.QueueTarget();
+        Assert.Equal("c1_artifact_foreign", (await Assert.ThrowsAsync<DomainException>(() => artifact.Publish())).Code);
+        Assert.Equal(["GET"], artifact.Handler.Methods.ToArray());
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-artifact-published"));
+    }
+
+    [Theory]
+    [InlineData("archive")]
+    [InlineData("source")]
+    [InlineData("provenance")]
+    public async Task ArtifactLocalTamperingStopsBeforeTokensOrProviderIo(string changed)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        if (changed == "archive")
+        {
+            var changedBytes = artifact.Bytes.ToArray();
+            changedBytes[0] ^= 1;
+            File.WriteAllBytes(Path.Combine(artifact.Directory, "transport.zip"), changedBytes);
+        }
+        else if (changed == "source")
+        {
+            artifact.Provenance["sourceCommit"] = new string('d', 40);
+            artifact.WriteProvenance();
+        }
+        else artifact.Binding = artifact.Binding with { DownloadProvenanceSha256 = new string('f', 64) };
+        await Assert.ThrowsAsync<DomainException>(() => artifact.Publish());
+        Assert.Empty(artifact.Credential.Scopes);
+        Assert.Empty(run.Api.Requests);
+        Assert.Empty(artifact.Handler.Methods);
+    }
+
+    [Fact]
+    public async Task PublisherChecksCurrentStoragePrivacyBeforeAnyBlobCall()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        var publicStorage = (JsonObject)artifact.Storage.DeepClone();
+        publicStorage["properties"]!["publicNetworkAccess"] = "Enabled";
+        run.Api.Reply(200, publicStorage);
+        Assert.Equal("c1_artifact_target", (await Assert.ThrowsAsync<DomainException>(() => artifact.Publish())).Code);
+        Assert.Single(run.Api.Requests);
+        Assert.Empty(artifact.Handler.Methods);
+        Assert.Empty(artifact.Credential.Scopes);
+    }
+
+    [Fact]
+    public async Task PublicationRefusesAnotherCallerInsteadOfUsingAWorkerIdentity()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.Credential = new(Token(run.Input with
+        {
+            BootstrapIdentity = run.Input.BootstrapIdentity! with { PrincipalObjectId = Guid.NewGuid().ToString("D") }
+        }, artifact.Binding.StorageAudience, run.Clock.GetUtcNow(), "user_impersonation"));
+        artifact.QueueTarget();
+        Assert.Equal("c1_deploy_token_binding", (await Assert.ThrowsAsync<DomainException>(() => artifact.Publish())).Code);
+        Assert.Empty(artifact.Handler.Methods);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-artifact-published"));
+    }
+
+    [Fact]
+    public async Task RejectedArtifactPutRetainsItsOriginalPlanForALaterExplicitInvocation()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.Handler.RejectPut = true;
+        artifact.QueueTarget();
+        Assert.Equal("c1_artifact_http_403", (await Assert.ThrowsAsync<DomainException>(() => artifact.Publish())).Code);
+        var originalPlan = Canonical.Hash(run.Store.Current!.Objects["private-artifact-publication-plan"]);
+        Assert.Empty(run.Store.Current.PendingCreates);
+        run.Restart();
+        artifact.QueueTarget();
+        await artifact.Publish();
+        Assert.Equal(originalPlan, Canonical.Hash(run.Store.Current.Objects["private-artifact-publication-plan"]));
+        Assert.Equal(2, artifact.Handler.Methods.Count(method => method == "PUT"));
+        Assert.Equal(9, run.Store.Current.Requests);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ArtifactPublicationCannotResetOrExtendItsOriginalWindow(bool changeBinding)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.QueueTarget();
+        await artifact.Publish();
+        var originalPlan = Canonical.Hash(run.Store.Current!.Objects["private-artifact-publication-plan"]);
+        if (changeBinding) artifact.Binding = artifact.Binding with { MaxDurationSeconds = 300 };
+        else run.Clock.Advance(TimeSpan.FromSeconds(121));
+        run.Restart();
+        Assert.Equal(changeBinding ? "c1_artifact_binding" : "c1_artifact_deadline",
+            (await Assert.ThrowsAsync<DomainException>(() => artifact.Publish())).Code);
+        Assert.Equal(originalPlan, Canonical.Hash(run.Store.Current.Objects["private-artifact-publication-plan"]));
+        Assert.Equal(2, run.Api.Requests.Count);
+        Assert.Equal(3, artifact.Handler.Methods.Count);
+    }
+
+    [Theory]
+    [InlineData("body")]
+    [InlineData("metadata")]
+    [InlineData("etag")]
+    public async Task ArtifactResumeRejectsChangedContentOwnershipOrStorageGeneration(string changed)
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.QueueTarget();
+        await artifact.Publish();
+        if (changed == "body") artifact.Handler.Content![0] ^= 1;
+        if (changed == "metadata") artifact.Handler.Metadata["x-ms-meta-cohors_creation"] = Guid.NewGuid().ToString("D");
+        if (changed == "etag") artifact.Handler.ETag = "\"artifact-next-generation\"";
+        run.Restart();
+        artifact.QueueTarget();
+        await Assert.ThrowsAsync<DomainException>(() => artifact.Publish());
+        Assert.Single(artifact.Handler.Methods, method => method == "PUT");
+    }
+
+    [Fact]
+    public async Task ArtifactPublicationDoesNotBorrowCleanupReserveForItsReadback()
+    {
+        using var run = new Harness(maxRequests: 6, delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.QueueTarget();
+        Assert.Equal("c1_deploy_budget", (await Assert.ThrowsAsync<DomainException>(() => artifact.Publish())).Code);
+        Assert.Equal(4, run.Store.Current!.Requests);
+        Assert.Equal(0, run.Store.Current.CleanupRequests);
+        Assert.Equal(["GET", "PUT"], artifact.Handler.Methods.ToArray());
+        Assert.True(run.Store.Current.PendingCreates.ContainsKey("private-artifact-published"));
+        Assert.False(run.Store.Current.Objects.ContainsKey("private-artifact-published"));
+    }
+
+    [Fact]
+    public async Task UncertainArtifactReceiptSaveFencesFurtherIoUntilOriginalJournalRecovery()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.Handler.AfterRead = () => run.Store.FailAfterSave = true;
+        artifact.QueueTarget();
+        await Assert.ThrowsAsync<IOException>(() => artifact.Publish());
+        Assert.True(run.Store.Current!.Objects.ContainsKey("private-artifact-published"));
+        run.Store.FailAfterSave = false;
+        artifact.Handler.AfterRead = null;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown",
+            (await Assert.ThrowsAsync<DomainException>(() => artifact.Publish())).Code);
+        run.Restart();
+        artifact.QueueTarget();
+        await artifact.Publish();
+        Assert.Single(artifact.Handler.Methods, method => method == "PUT");
+        Assert.Equal(8, run.Store.Current.Requests);
+    }
+
+    [Fact]
+    public async Task ArtifactStreamReadbackMustFinishWithinTheOriginalPublicationDeadline()
+    {
+        using var run = new Harness(delegated: true);
+        using var artifact = new ArtifactHarness(run);
+        artifact.Binding = artifact.Binding with { MaxDurationSeconds = 2 };
+        artifact.Handler.BlockBody = true;
+        artifact.QueueTarget();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => artifact.Publish());
+        Assert.True(artifact.Handler.BodyStarted.Task.IsCompleted);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("private-artifact-published"));
+        Assert.True(run.Store.Current.PendingCreates.ContainsKey("private-artifact-published"));
+        Assert.Single(artifact.Handler.Methods, method => method == "PUT");
     }
 
     [Theory]
@@ -3285,7 +3514,7 @@ public sealed class FabricC1DeploymentTests
         public FabricC1ExecutionSettings Execution { get; }
         public FabricC1BlobCheckpointBinding Binding { get; }
         public BoundCredential Credential { get; }
-        public SeedHandler Handler { get; } = new();
+        public ConditionalBlobHandler Handler { get; } = new();
         public SeedHarness(Harness run, int allocated = 40)
         {
             this.run = run;
@@ -3300,7 +3529,88 @@ public sealed class FabricC1DeploymentTests
         public void Dispose() => client.Dispose();
     }
 
-    private sealed class SeedHandler : HttpMessageHandler
+    private sealed class ArtifactHarness : IDisposable
+    {
+        private readonly Harness run;
+        private readonly HttpClient client;
+        public string Directory { get; } = Path.Combine(Path.GetTempPath(), "cohors-artifact-" + Guid.NewGuid().ToString("N"));
+        public byte[] Bytes { get; } = Encoding.UTF8.GetBytes("synthetic transport bytes, not a published deployment package");
+        public JsonObject Provenance { get; }
+        public JsonObject Storage { get; }
+        public JsonObject Container { get; }
+        public FabricC1ArtifactPublicationBinding Binding { get; set; }
+        public BoundCredential Credential { get; set; }
+        public ConditionalBlobHandler Handler { get; } = new() { ContentMediaType = "application/octet-stream" };
+
+        public ArtifactHarness(Harness run)
+        {
+            this.run = run;
+            var (_, checkpoint) = CheckpointFixture(run);
+            System.IO.Directory.CreateDirectory(Directory);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(Directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var archive = Path.Combine(Directory, "transport.zip");
+            File.WriteAllBytes(archive, Bytes);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(archive, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            Provenance = new()
+            {
+                ["contract"] = "cohors-fabric-c1-download-1", ["status"] = "VerifiedNotExecuted",
+                ["repository"] = "micnhs/AMA-05-agentic-PMS-02", ["branch"] = "micnhs-cohors-fabric-umsetzung",
+                ["workflow"] = ".github/workflows/cohors-fabric-contracts.yml", ["sourceCommit"] = run.Input.SourceCommit,
+                ["runId"] = "123", ["runAttempt"] = "1", ["artifactId"] = "456", ["artifactName"] = "cohors-fabric-c1-123-1",
+                ["outerArchiveSha256"] = Convert.ToHexStringLower(SHA256.HashData(Bytes)), ["outerArchiveLength"] = Bytes.Length,
+                ["innerArchiveSha256"] = new string('e', 64), ["expiresAtUtc"] = run.Clock.GetUtcNow().AddHours(1),
+                ["transportArchiveName"] = "transport.zip"
+            };
+            Binding = new("cohors-fabric-c1-artifact-publication-1", Canonical.Hash(run.Input), checkpoint.StorageAccountResourceId,
+                ["10.0.0.6"], new string('d', 64), "", "https://storage.azure.com/", $"https://sts.windows.net/{run.Input.TenantId}/",
+                120, run.Clock.GetUtcNow().AddMinutes(4));
+            WriteProvenance();
+            var foundation = (JsonObject)run.Store.Current!.Objects["arm-foundation"].Response.DeepClone();
+            Storage = (JsonObject)foundation["properties"]!["outputs"]!["storage"]!["value"]!;
+            Storage["properties"] = new JsonObject
+            {
+                ["publicNetworkAccess"] = "Disabled", ["allowBlobPublicAccess"] = false, ["allowSharedKeyAccess"] = false,
+                ["supportsHttpsTrafficOnly"] = true, ["minimumTlsVersion"] = "TLS1_2",
+                ["networkAcls"] = new JsonObject { ["bypass"] = "None", ["defaultAction"] = "Deny" }
+            };
+            Container = new()
+            {
+                ["id"] = checkpoint.StorageAccountResourceId + "/blobServices/default/containers/c1-artifacts",
+                ["type"] = "Microsoft.Storage/storageAccounts/blobServices/containers",
+                ["properties"] = new JsonObject { ["publicAccess"] = "None" }
+            };
+            foundation["properties"]!["outputs"]!["artifactContainer"] = new JsonObject { ["value"] = Container.DeepClone() };
+            run.Seed("arm-foundation", "ArmDeployment", foundation);
+            Credential = new(Token(run.Input, Binding.StorageAudience, run.Clock.GetUtcNow(), "user_impersonation"));
+            client = new(Handler) { Timeout = TimeSpan.FromSeconds(10) };
+        }
+
+        public void WriteProvenance()
+        {
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(Provenance, Canonical.Json);
+            var path = Path.Combine(Directory, "download-provenance.json");
+            File.WriteAllBytes(path, bytes);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            Binding = Binding with { DownloadProvenanceSha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)) };
+        }
+
+        public void QueueTarget()
+        {
+            run.Api.Reply(200, Storage);
+            run.Api.Reply(200, Container);
+        }
+
+        public Task<FabricC1ArtifactPublicationReceipt> Publish() =>
+            run.Provisioner.PublishPrivateArtifactWithTransport(Binding, Directory, client, Credential, default);
+
+        public void Dispose()
+        {
+            client.Dispose();
+            System.IO.Directory.Delete(Directory, recursive: true);
+        }
+    }
+
+    private sealed class ConditionalBlobHandler : HttpMessageHandler
     {
         public List<string> Methods { get; } = [];
         public Dictionary<string, string> Metadata { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -3310,6 +3620,8 @@ public sealed class FabricC1DeploymentTests
         public bool RejectPut;
         public bool RacePut;
         public bool WeakEtag;
+        public string ETag = "\"seed-version-1\"";
+        public string ContentMediaType = "application/json";
         public bool BlockBody;
         public string MissingCode = "BlobNotFound";
         public Action? AfterRead;
@@ -3323,7 +3635,7 @@ public sealed class FabricC1DeploymentTests
             HttpResponseMessage Reply(HttpStatusCode code) => new(code)
             {
                 RequestMessage = request, Content = new ByteArrayContent([]),
-                Headers = { ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"seed-version-1\"", WeakEtag) }
+                Headers = { ETag = new System.Net.Http.Headers.EntityTagHeaderValue(ETag, WeakEtag) }
             };
             if (request.Method == HttpMethod.Get)
             {
@@ -3334,8 +3646,8 @@ public sealed class FabricC1DeploymentTests
                     return missing;
                 }
                 var response = Reply(HttpStatusCode.OK);
-                response.Content = BlockBody ? new StreamContent(new BlockedSeedBody(BodyStarted)) : new ByteArrayContent(Content);
-                response.Content.Headers.ContentType = new("application/json");
+                response.Content = BlockBody ? new StreamContent(new BlockedBlobBody(BodyStarted)) : new ByteArrayContent(Content);
+                response.Content.Headers.ContentType = new(ContentMediaType);
                 response.Content.Headers.ContentLength = Content.Length;
                 response.Headers.Add("x-ms-blob-type", "BlockBlob");
                 foreach (var header in Metadata) response.Headers.Add(header.Key, header.Value);
@@ -3363,7 +3675,7 @@ public sealed class FabricC1DeploymentTests
         }
     }
 
-    private sealed class BlockedSeedBody(TaskCompletionSource started) : MemoryStream
+    private sealed class BlockedBlobBody(TaskCompletionSource started) : MemoryStream
     {
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
         {

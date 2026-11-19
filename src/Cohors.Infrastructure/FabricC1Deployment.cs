@@ -631,14 +631,17 @@ public sealed partial class FabricC1Provisioner
 
     public void RequireFullBindings()
     {
+        PlanNormalRequests(0);
         foreach (var key in new[] { "runtime-app", "runtime-sp", "arm-foundation", "arm-private-endpoints",
             "workspace-agent", "workspace-released", "workspace-denied", "lakehouse-released", "lakehouse-denied",
             "published-definition", "runtime-agent-grant", "source-grants", "materialization",
             "runtime-credential", "hosted-version", "hosted-session", "private-path", "caller-access",
-            "checkpoint-storage-role", "checkpoint-storage-runtime-grant", "checkpoint-storage-control-grant" })
+            "checkpoint-storage-role", "checkpoint-storage-runtime-grant", "checkpoint-storage-control-grant",
+            ArtifactPlanKey, ArtifactPublicationKey })
             Guard.Against(!state.Objects.ContainsKey(key), "c1_deploy_binding_incomplete",
                 "Deployment receipts are incomplete; no runnable C1 inputs may be emitted.", 409);
-        Guard.Against(state.PendingCreates.Count != 0 || state.PendingOperations.Count != 0, "c1_deploy_unknown", "Unresolved creates prevent C1 binding.", 409);
+        Guard.Against(state.PendingCreates.Count != 0 || state.PendingOperations.Count != 0 || state.PendingDeletes.Count != 0 ||
+            state.CleanupReceipts.Count != 0, "c1_deploy_unknown", "Unresolved or cleaned-up operations prevent C1 binding.", 409);
     }
 
     private async Task<JsonObject> EnsureCreated(string key, string kind, string collection, string name, JsonObject body,

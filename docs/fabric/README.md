@@ -619,7 +619,7 @@ for the already specified isolated C1 Blob storage and VM system identity:
   VM-wide boundary, not per-process isolation.
 - The only Blob path is
   `c1-artifacts/{deploymentBindingHash}/{sourceCommit}/{outerArchiveSha256}.zip`.
-  The size-bounded stream and complete package-2 allowlist/hashes are checked
+  The size-bounded stream and complete version-bound package allowlist/hashes are checked
   before extraction; downloaded tool hashes must match the running receiver
   and verifier. Neither the binaries nor packaged scripts are executed.
   Profile/destination directories are owner-only and link-free on Linux.
@@ -632,7 +632,7 @@ for the already specified isolated C1 Blob storage and VM system identity:
 The hosted lane tests this with synthetic files and mocked transport only;
 the real worker CLI refuses GitHub Actions before reading a profile or obtaining
 a token. There has been no private Blob/IMDS request, upload or native execution.
-The operator-to-private-storage upload, exact RBAC/readback, trusted bootstrap
+Full-driver integration of the operator upload, exact RBAC/readback, trusted bootstrap
 delivery through the Guest Agent, FQDN egress, durable result reconciliation and
 ordered Blob/VM cleanup are **not integrated** by this receiver. The five
 whole-profile blockers therefore remain. No user bearer, GitHub credential,
@@ -641,6 +641,38 @@ does not implement the now-selected B5 P2S connection or supply a full installer
 G03/G04 pass, independent cloud stop or monetary hard cap.
 Sources: [VM IMDS identity protocol](https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/how-to-use-vm-token),
 [Blob GET and least-privilege authorization](https://learn.microsoft.com/rest/api/storageservices/get-blob).
+
+The source publisher `PublishPrivateArtifactNative` now complements this
+receiver without changing its identity boundary. It uses only the explicitly
+bound initial deployer credential (the selected original CLI user in the current
+profile), never forwards that credential/token to the VM, and refuses CI before
+credential use. Foundation declares a separate nonpublic `c1-artifacts`
+container in the own C1 storage account. Publication requires the protected
+`transport.zip` and exact `download-provenance.json` retained by
+`Get-C1Package.ps1 -RetainTransportArchive`; source/repository/branch/workflow,
+run/attempt/artifact, archive digest/size and original expiry are bound.
+The prior package verifier remains responsible for complete payload validation;
+a provenance file is not a fresh GitHub signature or native execution proof.
+
+The publisher hashes the retained file before service I/O, reads current own
+storage/container privacy, and uses the reviewed private storage client with
+unchanged FQDN/TLS and explicit storage audience/issuer checks. Only `BlobNotFound`
+permits the first `PUT` with `If-None-Match: *`. A complete streamed SHA256
+readback, exact original creation metadata and strong ETag are required.
+Unjournaled blobs are never adopted or overwritten; a lost write only
+reconciles, and a known artifact cannot silently change storage generation.
+An explicit 401/403 is recorded for a later explicit same-intent invocation, not
+retried automatically. Original publication time/request accounting survives
+resume and cannot borrow checkpoint allocations or cleanup reserve.
+
+These are source/fake-transport contracts, not an actual upload or B5 proof.
+The publication profile is not yet exported by a complete driver. Own publisher
+and VM-reader IAM/effective readbacks, trusted Guest Agent delivery of the
+receiver/profile, FQDN egress, result binding and ordered Blob/VM teardown remain
+unintegrated. The worker still uses only its own IMDS identity; no user bearer,
+GitHub credential, SAS or storage key is part of its profile or payload.
+There is no new runnable partial paid `apply`.
+Reference: [conditional Blob publication](https://learn.microsoft.com/rest/api/storageservices/put-blob).
 
 ## Fork and isolation
 

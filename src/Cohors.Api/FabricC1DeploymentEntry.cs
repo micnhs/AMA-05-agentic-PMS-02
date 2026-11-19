@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text.Json;
-using Azure.Core;
 using Azure.Identity;
 using Cohors.Domain;
 using Cohors.Infrastructure;
@@ -55,7 +54,7 @@ public static class FabricC1DeploymentEntry
                     approval.Validate(input, DateTimeOffset.UtcNow);
                 }
                 using var journal = new FabricC1DeploymentFileJournal(args[4]);
-                using var credential = new BootstrapCredential(input.BootstrapIdentity!);
+                using var credential = new FabricC1DeploymentCredential(input.BootstrapIdentity!);
                 using var graph = FabricC1DeploymentHttp.ControlClient(60);
                 using var arm = FabricC1DeploymentHttp.ControlClient(60);
                 using var fabric = FabricC1DeploymentHttp.ControlClient(60);
@@ -123,26 +122,5 @@ public static class FabricC1DeploymentEntry
             }, Canonical.Json));
             return 2;
         }
-    }
-
-    private sealed class BootstrapCredential : IDisposable
-    {
-        private readonly FabricC1Credential? application;
-        public TokenCredential Value { get; }
-        public BootstrapCredential(FabricC1Identity identity)
-        {
-            if (identity.CredentialKind == "DelegatedAzureCli")
-                Value = new AzureCliCredential(new AzureCliCredentialOptions
-                {
-                    TenantId = identity.TenantId, ProcessTimeout = TimeSpan.FromSeconds(30)
-                });
-            else
-            {
-                FabricC1PrivateFiles.RequireFile(identity.CredentialReference!);
-                application = new FabricC1Credential(identity, 60);
-                Value = application.Credential;
-            }
-        }
-        public void Dispose() => application?.Dispose();
     }
 }

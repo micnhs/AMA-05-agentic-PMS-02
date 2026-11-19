@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Azure.Core;
+using Azure.Identity;
 using Cohors.Domain;
 using Microsoft.IdentityModel.JsonWebTokens;
 
@@ -214,6 +215,27 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
         return uri.AbsolutePath == "/v1.0/applications" && method == HttpMethod.Post ?
             FabricC1GraphOperation.ApplicationCreate : FabricC1GraphOperation.OwnApplications;
     }
+}
+
+public sealed class FabricC1DeploymentCredential : IDisposable
+{
+    private readonly FabricC1Credential? application;
+    public TokenCredential Value { get; }
+    public FabricC1DeploymentCredential(FabricC1Identity identity)
+    {
+        if (identity.CredentialKind == "DelegatedAzureCli")
+            Value = new AzureCliCredential(new AzureCliCredentialOptions
+            {
+                TenantId = identity.TenantId, ProcessTimeout = TimeSpan.FromSeconds(30)
+            });
+        else
+        {
+            FabricC1PrivateFiles.RequireFile(identity.CredentialReference!);
+            application = new FabricC1Credential(identity, 60);
+            Value = application.Credential;
+        }
+    }
+    public void Dispose() => application?.Dispose();
 }
 
 public sealed class FabricC1DeploymentFileJournal : IFabricC1DeploymentJournal, IDisposable
