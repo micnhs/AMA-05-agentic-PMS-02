@@ -46,6 +46,8 @@ param endpointSubnetId string
 
 @description('Search and Foundry private DNS zone resource IDs.')
 param dns object
+@description('Shared-hub consumer mode leaves record registration to the hub owner.')
+param managePrivateDns bool = true
 
 @description('Log Analytics workspace resource ID for metrics only.')
 param workspaceId string
@@ -169,6 +171,7 @@ module searchEndpoint 'private-endpoint.bicep' = {
     targetResourceId: search.id
     groupId: 'searchService'
     privateDnsZoneIds: [dns.search]
+    managePrivateDns: managePrivateDns
     tags: tags
   }
 }
@@ -182,6 +185,7 @@ module foundryEndpoint 'private-endpoint.bicep' = {
     targetResourceId: foundry.id
     groupId: 'account'
     privateDnsZoneIds: dns.foundry
+    managePrivateDns: managePrivateDns
     tags: tags
   }
 }

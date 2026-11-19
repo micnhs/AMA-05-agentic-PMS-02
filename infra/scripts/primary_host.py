@@ -21,6 +21,7 @@ import urllib.request
 from primary_control import (ARM, GateError, NoRedirect, canonical, digest, file_hash, jwt_metadata,
                              parse_time, read_json, timestamp, write_json)
 from primary_package import verify_bundle
+from primary_network import publishing_host
 from primary_sql import sql_grants, verify_receipt
 
 
@@ -231,8 +232,7 @@ def publish_functions(bundle, request, release):
     result = {}
     identity = ManagedIdentity(request["identities"]["publisher"], request["tenantId"])
     for host in ("workflows", "operations"):
-        site = urllib.parse.urlsplit(request["platform"]["runtimeUrls"][host]).hostname
-        scm = site.removesuffix(".azurewebsites.net") + ".scm.azurewebsites.net"
+        scm = publishing_host(request["platform"], host)
         require_private(scm, request["sourceNetwork"])
         package = bundle / f"functions/cohors-{host}.zip"
         query = urllib.parse.urlencode({"type": "zip", "isAsync": "true"})
@@ -281,30 +281,24 @@ def main():
     receipt = {"contract": "cohors-primary-private-receipt-1", "bindingHash": request["bindingHash"],
                "phase": phase, "requestHash": digest(request), "atUtc": timestamp(),
                "applicationCommit": release["applicationCommit"], "infrastructureCommit": release["infrastructureCommit"]}
-    if phase == "filter":
-        import sys
-        sys.path.insert(0, str(args.bundle / "infra/bootstrap"))
-        from install_nva import install
-        receipt["result"] = install(args.bundle, request["nvaPolicy"])
-    else:
-        for key in ("search", "evidenceContainer", "foundryOpenAi"):
-            require_private(urllib.parse.urlsplit(request["platform"]["endpoints"][key]).hostname,
-                            request["sourceNetwork"])
-        require_private(request["platform"]["endpoints"]["sqlServer"], request["sourceNetwork"])
-        if phase == "initialize":
-            if not shutil.which("skopeo"):
-                execute(["apt-get", "update", "-qq"])
-                execute(["apt-get", "install", "-y", "-qq", "skopeo"])
-            images = push_images(args.bundle, request, release)
-            permissions = initialize_schema(args.bundle, request, release)
-            receipt["result"] = {"release": {**images, "boundaryReview": boundary_hash(args.bundle, request)},
-                                 "sqlPermissions": permissions}
-        elif phase == "seed":
-            receipt["result"] = seed(args.bundle, request)
-        elif phase == "publish-functions":
-            receipt["result"] = publish_functions(args.bundle, request, release)
-        else:
-            raise GateError("Unsupported private execution phase.")
+    if phase not in ("initialize", "seed", "publish-functions"):
+        raise GateError("Unsupported private primary phase; the managed edge never installs a parallel NVA.")
+    for key in ("search", "evidenceContainer", "foundryOpenAi"):
+        require_private(urllib.parse.urlsplit(request["platform"]["endpoints"][key]).hostname,
+                        request["sourceNetwork"])
+    require_private(request["platform"]["endpoints"]["sqlServer"], request["sourceNetwork"])
+    if phase == "initialize":
+        if not shutil.which("skopeo"):
+            raise GateError("The reviewed operator image/toolchain must already contain skopeo. "
+                            "No implicit package install, HTTP mirror or egress-rule widening is allowed.")
+        images = push_images(args.bundle, request, release)
+        permissions = initialize_schema(args.bundle, request, release)
+        receipt["result"] = {"release": {**images, "boundaryReview": boundary_hash(args.bundle, request)},
+                             "sqlPermissions": permissions}
+    elif phase == "seed":
+        receipt["result"] = seed(args.bundle, request)
+    elif phase == "publish-functions":
+        receipt["result"] = publish_functions(args.bundle, request, release)
     print("COHORS_RECEIPT:" + base64.b64encode(canonical(receipt)).decode())
 
 

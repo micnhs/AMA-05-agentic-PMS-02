@@ -93,6 +93,11 @@ param containerAppsZoneRedundant bool = false
 @allowed(['Consumption', 'D4'])
 param containerAppsWorkloadProfileType string = 'Consumption'
 
+@description('Per-app ceiling. The generic default stays three; the versioned single-node primary explicitly selects one.')
+@minValue(1)
+@maxValue(10)
+param containerAppsMaxReplicas int = 3
+
 @description('No model is deployed by default. Standard only; never Global, DataZone, auto-upgrade or spillover.')
 param deployModel bool = false
 param modelName string = ''
@@ -186,6 +191,8 @@ module network 'modules/network.bicep' = if (empty(networkResourceBindings)) {
     endpointsPrefix: privateEndpointsSubnetPrefix
     egressRouteTableResourceId: egressRouteTableResourceId
     createOwnedAccess: createOwnedAccess
+    configureCustomDns: createOwnedAccess
+    dnsProxyAddress: nvaPrivateIp
     nvaPrivateIp: nvaPrivateIp
     egressPrefix: egressSubnetPrefix
     operatorPrefix: operatorSubnetPrefix
@@ -204,6 +211,7 @@ var networkData = !empty(networkResourceBindings) ? networkResourceBindings : {
   accessSubnets: network!.outputs.accessSubnets
   routeTableId: network!.outputs.routeTableId
   dns: network!.outputs.dns
+  managePrivateDns: true
 }
 
 resource ownedActionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (createOwnedAccess) {
@@ -234,6 +242,7 @@ module monitoring 'modules/monitoring.bicep' = {
     operationsRoleName: operationsTelemetryRole
     endpointSubnetId: networkData.endpointsSubnetId
     privateDnsZoneIds: networkData.dns.monitor
+    managePrivateDns: networkData.?managePrivateDns ?? true
     tags: tags
   }
 }
@@ -247,6 +256,7 @@ module platform 'modules/platform-services.bicep' = {
     pullPrincipalIds: [identities[0].properties.principalId, identities[1].properties.principalId]
     endpointSubnetId: networkData.endpointsSubnetId
     dns: networkData.dns
+    managePrivateDns: networkData.?managePrivateDns ?? true
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -269,6 +279,7 @@ module evidence 'modules/storage.bicep' = {
     ]
     endpointSubnetId: networkData.endpointsSubnetId
     dns: networkData.dns
+    managePrivateDns: networkData.?managePrivateDns ?? true
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -287,6 +298,7 @@ module workflowStorage 'modules/storage.bicep' = {
     }]
     endpointSubnetId: networkData.endpointsSubnetId
     dns: networkData.dns
+    managePrivateDns: networkData.?managePrivateDns ?? true
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -305,6 +317,7 @@ module operationsStorage 'modules/storage.bicep' = {
     }]
     endpointSubnetId: networkData.endpointsSubnetId
     dns: networkData.dns
+    managePrivateDns: networkData.?managePrivateDns ?? true
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -324,6 +337,7 @@ module packages 'modules/storage.bicep' = {
     ]
     endpointSubnetId: networkData.endpointsSubnetId
     dns: networkData.dns
+    managePrivateDns: networkData.?managePrivateDns ?? true
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -344,6 +358,7 @@ module digests 'modules/storage.bicep' = {
     ] : [])
     endpointSubnetId: networkData.endpointsSubnetId
     dns: networkData.dns
+    managePrivateDns: networkData.?managePrivateDns ?? true
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -366,6 +381,7 @@ module sql 'modules/sql.bicep' = {
     securityNotificationEmails: sqlSecurityNotificationEmails
     endpointSubnetId: networkData.endpointsSubnetId
     privateDnsZoneId: networkData.dns.sql
+    managePrivateDns: networkData.?managePrivateDns ?? true
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -389,6 +405,7 @@ module ai 'modules/ai-services.bicep' = {
     modelCapacity: modelCapacity
     endpointSubnetId: networkData.endpointsSubnetId
     dns: networkData.dns
+    managePrivateDns: networkData.?managePrivateDns ?? true
     workspaceId: monitoring.outputs.workspaceId
     tags: tags
   }
@@ -404,6 +421,7 @@ module containerEnvironment 'modules/container-environment.bicep' = {
     workspaceId: monitoring.outputs.workspaceId
     zoneRedundant: containerAppsZoneRedundant
     workloadProfileType: containerAppsWorkloadProfileType
+    managePrivateDns: networkData.?managePrivateDns ?? true
     tags: tags
   }
 }
@@ -415,6 +433,8 @@ module runtime 'modules/runtime.bicep' = if (deployRuntime) {
     location: location
     environmentId: containerEnvironment.outputs.id
     workloadProfileName: containerEnvironment.outputs.workloadProfileName
+    containerAppsMaxReplicas: containerAppsMaxReplicas
+    managePrivateDns: networkData.?managePrivateDns ?? true
     images: {
       registry: platform.outputs.registryLoginServer
       api: '${platform.outputs.registryLoginServer}/cohors-api@sha256:${apiImageDigest}'
@@ -490,6 +510,8 @@ output platformResourceIds object = {
 output ownedAccessSubnets object = networkData.accessSubnets
 output workloadName string = name
 output sqlDatabaseName string = sql.outputs.databaseName
+output containerEnvironmentDomain string = containerEnvironment.outputs.defaultDomain
+output containerEnvironmentStaticIp string = containerEnvironment.outputs.staticIp
 
 output workloadIdentities array = [for (role, i) in identityNames: {
   role: role
@@ -502,10 +524,23 @@ output integrationEndpoints object = {
   registry: platform.outputs.registryLoginServer
   foundryOpenAi: ai.outputs.openAiEndpoint
   evidenceContainer: '${evidence.outputs.blobEndpoint}evidence'
+  ledgerDigests: digests.outputs.blobEndpoint
+  keyVault: platform.outputs.vaultUri
   search: ai.outputs.searchEndpoint
   sqlServer: sql.outputs.serverFqdn
   workflowsPackageContainer: '${packages.outputs.blobEndpoint}workflows-package'
   operationsPackageContainer: '${packages.outputs.blobEndpoint}operations-package'
+  workflowsBlob: workflowStorage.outputs.blobEndpoint
+  workflowsQueue: workflowStorage.outputs.queueEndpoint
+  workflowsTable: workflowStorage.outputs.tableEndpoint
+  operationsBlob: operationsStorage.outputs.blobEndpoint
+  operationsQueue: operationsStorage.outputs.queueEndpoint
+  operationsTable: operationsStorage.outputs.tableEndpoint
+}
+
+output privateServiceEndpoints object = {
+  registryData: platform.outputs.registryDataEndpointHostNames
+  telemetryResourceId: monitoring.outputs.insightsId
 }
 
 output runtimeUrls object = deployRuntime ? {
@@ -515,3 +550,4 @@ output runtimeUrls object = deployRuntime ? {
   operations: runtime!.outputs.operationsUrl
 } : {}
 output runtimeResources object = deployRuntime ? runtime!.outputs.resources : {}
+output runtimePrivateHostNames object = deployRuntime ? runtime!.outputs.privateHostNames : {}

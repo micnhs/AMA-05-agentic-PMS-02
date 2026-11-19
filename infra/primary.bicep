@@ -43,11 +43,9 @@ module platform 'main.bicep' = {
     workflowsSubnetPrefix: profile.network.workflows
     operationsSubnetPrefix: profile.network.operations
     privateEndpointsSubnetPrefix: profile.network.privateEndpoints
-    egressSubnetPrefix: profile.network.egress
     operatorSubnetPrefix: profile.network.operator
     clientSubnetPrefix: profile.network.client
     bastionSubnetPrefix: profile.network.bastion
-    nvaPrivateIp: profile.network.nvaPrivateIp
     sqlVcores: 2
     sqlMaxSizeGiB: 32
     sqlPitrDays: 14
@@ -58,6 +56,7 @@ module platform 'main.bicep' = {
     searchReplicas: 1
     containerAppsZoneRedundant: false
     containerAppsWorkloadProfileType: profile.containerAppsProfile
+    containerAppsMaxReplicas: 1
     deployModel: profile.model.enabled
     modelName: profile.model.name
     modelVersion: profile.model.version
@@ -82,14 +81,29 @@ module platform 'main.bicep' = {
   }
 }
 
+module edgeMonitoring 'modules/primary-edge-monitoring.bicep' = if (!contains(networkPhase.network, 'sharedHubGeneration')) {
+  name: '${profile.namePrefix}-edge-metrics'
+  scope: workload
+  params: {
+    firewallName: networkPhase.?edge.?resourceNames.?firewall ?? ''
+    gatewayName: networkPhase.?edge.?resourceNames.?gateway ?? ''
+    workspaceId: platform.outputs.platformResourceIds.workspace
+  }
+}
+
 output platform object = {
   resources: platform.outputs.platformResourceIds
   identities: platform.outputs.workloadIdentities
   endpoints: platform.outputs.integrationEndpoints
+  privateServiceEndpoints: platform.outputs.privateServiceEndpoints
   runtimeUrls: platform.outputs.runtimeUrls
   runtimeResources: platform.outputs.runtimeResources
+  runtimePrivateHostNames: platform.outputs.runtimePrivateHostNames
   workloadName: platform.outputs.workloadName
   databaseName: platform.outputs.sqlDatabaseName
+  containerEnvironmentDomain: platform.outputs.containerEnvironmentDomain
+  containerEnvironmentStaticIp: platform.outputs.containerEnvironmentStaticIp
 }
 output access object = networkPhase.access
+output edgeMonitoring object = edgeMonitoring.?outputs.resources ?? {}
 output ownedResourceGroups array = networkPhase.ownedResourceGroups

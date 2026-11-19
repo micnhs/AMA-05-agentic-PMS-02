@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import MagicMock, patch
 
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
@@ -84,6 +85,41 @@ class PrimaryBootstrapTests(unittest.TestCase):
             bootstrap.approval_check(self.approval, self.plan, self.manifest, self.now)
         self.manifest["containerAppsProfile"] = "D4"
         bootstrap.approval_check(self.approval, self.plan, self.manifest, self.now)
+
+    def test_owned_shutdown_does_not_depend_on_a_healthy_completed_network_checkpoint(self):
+        approval = {
+            "policyReviewSha256": "1" * 64, "readinessEvidenceSha256": "2" * 64, "costReviewSha256": "3" * 64,
+            "evidenceFiles": {"policyReviewSha256": "policy.json", "readinessEvidenceSha256": "readiness.json",
+                              "costReviewSha256": "cost.json"},
+        }
+        for phase in ("stop", "cleanup"):
+            journal, engine = MagicMock(), MagicMock()
+            journal.state = {"outputs": {}}
+            engine.outputs = {}
+            manifest = {**self.manifest, "controlTokenBindings": {}}
+            with (self.subTest(phase=phase),
+                  patch.object(bootstrap, "load_manifest", return_value=manifest),
+                  patch.object(bootstrap, "Journal") as journal_type,
+                  patch.object(bootstrap, "require_committed_controller"),
+                  patch.object(bootstrap, "require_plan"),
+                  patch.object(bootstrap, "read_json", side_effect=[{"phase": phase}, approval]),
+                  patch.object(bootstrap, "approval_check") as approve,
+                  patch.object(bootstrap, "file_hash", side_effect=["1" * 64, "2" * 64, "3" * 64]),
+                  patch("primary_model_gate.require_model_acceptance", return_value=None),
+                  patch.object(bootstrap, "bound_client"),
+                  patch.object(bootstrap, "Bootstrap", return_value=engine),
+                  patch.object(bootstrap, "verify_network_checkpoint",
+                               side_effect=GateError("Network unavailable")) as network_check,
+                  patch("primary_release.execute_phase", return_value={"ownedShutdownRequested": True}) as execute,
+                  patch("builtins.print")):
+                journal_type.return_value.__enter__.return_value = journal
+                self.assertEqual(bootstrap.main([
+                    "apply", "--manifest", "unused.json", "--journal", "journal.json",
+                    "--plan", "plan.json", "--approval", "approval.json",
+                ]), 0)
+                approve.assert_called_once()
+                network_check.assert_not_called()
+                execute.assert_called_once_with(engine, phase, approval)
 
 
 if __name__ == "__main__":

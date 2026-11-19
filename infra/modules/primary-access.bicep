@@ -5,7 +5,9 @@ param location string
 @description('Subnet IDs produced by this bootstrap, not operator inputs.')
 param subnets object
 @description('Own transparent-filter IPv4 address.')
-param nvaPrivateIp string
+param nvaPrivateIp string = ''
+@description('Historical NVA path only. The selected managed-edge primary sets false and creates no filter VM, NIC or public IP.')
+param includeFilterVm bool = true
 @description('Explicit immutable Canonical image reference, including version.')
 param linuxImage object
 @description('Reviewed regional VM SKU. Availability and vCPU quota remain live gates.')
@@ -46,7 +48,7 @@ resource deadlineIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024
   tags: tags
 }
 
-resource filterPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = {
+resource filterPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = if (includeFilterVm) {
   name: 'pip-${name}-filter-egress'
   location: location
   tags: tags
@@ -55,11 +57,11 @@ resource filterPublicIp 'Microsoft.Network/publicIPAddresses@2024-07-01' = {
 }
 
 var machines = [
-  { role: 'filter', subnet: subnets.egress, size: linuxVmSize }
+  { role: 'filter', subnet: subnets.?egress ?? '', size: linuxVmSize }
   { role: 'operator', subnet: subnets.operator, size: linuxVmSize }
 ]
 
-resource nics 'Microsoft.Network/networkInterfaces@2024-07-01' = [for machine in machines: {
+resource nics 'Microsoft.Network/networkInterfaces@2024-07-01' = [for machine in machines: if (machine.role != 'filter' || includeFilterVm) {
   name: 'nic-${name}-${machine.role}'
   location: location
   tags: tags
@@ -76,14 +78,14 @@ resource nics 'Microsoft.Network/networkInterfaces@2024-07-01' = [for machine in
           privateIPAddressVersion: 'IPv4'
         }, machine.role == 'filter' ? {
           privateIPAddress: nvaPrivateIp
-          publicIPAddress: { id: filterPublicIp.id }
+          publicIPAddress: { id: filterPublicIp!.id }
         } : {})
       }
     ]
   }
 }]
 
-resource vms 'Microsoft.Compute/virtualMachines@2024-11-01' = [for (machine, i) in machines: {
+resource vms 'Microsoft.Compute/virtualMachines@2024-11-01' = [for (machine, i) in machines: if (machine.role != 'filter' || includeFilterVm) {
   name: 'vm-${name}-${machine.role}'
   location: location
   tags: tags
@@ -249,7 +251,7 @@ resource clientLogins 'Microsoft.Authorization/roleAssignments@2022-04-01' = [fo
 var readerScopes = includeInteractiveClient ? [client.id, clientNic.id, bastion.id] : []
 
 output operatorVmId string = vms[1].id
-output filterVmId string = vms[0].id
+output filterVmId string? = includeFilterVm ? vms[0].id : null
 output clientVmId string? = includeInteractiveClient ? client.id : null
 output bastionId string? = includeInteractiveClient ? bastion.id : null
 output clientReaderScopes array = readerScopes

@@ -6,7 +6,7 @@ import re
 from primary_control import GateError, digest, file_hash, parse_time, read_json, utcnow
 
 
-LIVE_PHASES = {"runtime", "seed", "publish-functions", "activate"}
+LIVE_PHASES = {"runtime", "runtime-policy", "seed", "publish-functions", "client-access", "activate"}
 TASKS = {"Ingestion", "CausalityRisk", "EvidenceAssurance", "VigilanceAuthoring", "TrendSignal", "PsurAuthoring"}
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 

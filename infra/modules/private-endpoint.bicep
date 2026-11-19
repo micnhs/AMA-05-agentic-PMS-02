@@ -16,6 +16,8 @@ param groupId string
 @description('Authoritative private DNS zone resource IDs for this endpoint.')
 @minLength(1)
 param privateDnsZoneIds string[]
+@description('False for shared-hub consumers: only the hub owner registers observed records. No shared-zone join/write side effect.')
+param managePrivateDns bool = true
 
 @description('Non-sensitive cost and ownership tags.')
 param tags object
@@ -40,7 +42,7 @@ resource endpoint 'Microsoft.Network/privateEndpoints@2024-07-01' = {
   }
 }
 
-resource dnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-07-01' = {
+resource dnsGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-07-01' = if (managePrivateDns) {
   parent: endpoint
   name: 'default'
   properties: {

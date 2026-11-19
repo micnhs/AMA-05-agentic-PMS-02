@@ -15,6 +15,8 @@ param endpointSubnetId string
 
 @description('Registry and vault private DNS zone resource IDs.')
 param dns object
+@description('Shared-hub consumer mode delegates all record registration to the hub owner.')
+param managePrivateDns bool = true
 
 @description('Log Analytics workspace resource ID.')
 param workspaceId string
@@ -121,6 +123,7 @@ module registryEndpoint 'private-endpoint.bicep' = {
     targetResourceId: registry.id
     groupId: 'registry'
     privateDnsZoneIds: [dns.registry]
+    managePrivateDns: managePrivateDns
     tags: tags
   }
 }
@@ -134,11 +137,13 @@ module vaultEndpoint 'private-endpoint.bicep' = {
     targetResourceId: vault.id
     groupId: 'vault'
     privateDnsZoneIds: [dns.vault]
+    managePrivateDns: managePrivateDns
     tags: tags
   }
 }
 
 output registryId string = registry.id
 output registryLoginServer string = registry.properties.loginServer
+output registryDataEndpointHostNames string[] = registry.properties.dataEndpointHostNames
 output vaultId string = vault.id
 output vaultUri string = vault.properties.vaultUri

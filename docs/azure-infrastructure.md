@@ -7,15 +7,294 @@ Der synthetische Pilot behaelt getrennte menschliche medizinische und regulatori
 Freigaben. Behoerden, Kliniken und FSCA-Versand bleiben Simulatoren; echte oeffentliche
 Quellen sind ausschliesslich lesend und im Standard-CI deaktiviert.
 
-## Automatischer Primaerbootstrap: noch geschlossenes Implementierungspaket
+## Aktueller privater Hub-/Spoke-Vertrag: lokale Implementierung, Gates offen
+
+Das aktuelle Ziel ist **ein gemeinsamer privater Hub** mit eigener Netzwerk-RG,
+Azure Firewall Standard, Entra-P2S-Gateway und einem privaten WAF_v2. Primary und
+Fabric haben getrennte Spokes. Die technische WAF-Entscheidung ist keine
+Internet-, Feature-Registrierungs-, SKU-Kapazitaets-, Kosten- oder
+Bereitstellungsfreigabe. Der bisherige separate Primary-Netzentwurf ist unter
+`infra/primary-network-v2.bicep` erhalten und **nicht das neue Deploymentziel**.
+Der Dispatcher `primary-network.bicep` enthaelt alle drei expliziten Zweige
+`separate-primary-v2`, `shared-hub-v1` und `shared-primary-v3`; der historische
+Default wird nicht still umgedeutet. Der unveraenderte Originalvalidator scannt
+weiterhin seine drei Roots einschliesslich aller eingebetteten Hubressourcen.
+
+`primary_bootstrap.py` verwendet weiterhin denselben gebundenen Azure-Client,
+Quell-/Paketnachweis, exklusiven hashverketteten Journal, Phasenplan, genehmigten
+What-if und Intent-vor-Effekt-Mechanismus. `shared_hub.py` prueft die versionierten
+Vertraege; `shared_hub_control.py` ist der begrenzte Adapter fuer Readbacks,
+Receipts, Peering und Referenzfreigabe, keine zweite Provisionierungsplattform.
+Die JSON-Vorlagen `shared-hub.manifest.template.json` und
+`primary-spoke.manifest.template.json` unter `infra/parameters` enthalten bewusst
+`null` fuer unbekannte Adressen, Region, Identitaeten, Fristen, Kostenbelege und
+Releasewerte. Sie sind nicht lauffaehige Startmanifeste. Bestehende private
+Identitaets-/Budget-/Fristbelege muessen wiederverwendet werden; keine neue
+Directorysuche, Token-/Cachekopie oder Laufzeitgeneration ist damit gestattet.
+
+| Vertrag | Verantwortungsgrenze |
+| --- | --- |
+| `cohors-shared-hub-bootstrap-1` | Hubowner: genau eigene Hub-RG, Firewall/VPN/WAF, Certificate-Vault/UAMI, zentrale DNS-Zonen/Records und Hub-Peeringhaelften. Gemeinsame VPN-Audience/SP mit AssignmentRequired und genau den vier vorher aufgeloesten Benutzern, ohne PMS-/Produkt-/Azure-Rollenerweiterung. |
+| `cohors-primary-bootstrap-3` | Primary: eigene zwei RGs, Spoke, eigene Peeringhaelfte, Operator und Workloads. Eigene Fach-Apps bleiben getrennt; keine eigene VPN-App, kein Hub-/DNS-/WAF-Lifecycle und keine PE-Zonegroups gegen Hubzonen. D4, ein Knoten und min=max1 je App bleiben unveraendert. |
+| `cohors-shared-hub-bindings-1` | Vollstaendiger monotonic snapshot mit `previousSha256`, genau einem `changedConsumer` und unveraenderter anderer Consumerbindung. Identitaet, Quelle, Adressen, Soll-Egress und Frist sind unveraenderlich; Datenreferenzen werden bis zum expliziten Offboarding nicht still ersetzt/vergessen. |
+| `cohors-shared-hub-consumer-1` | Hashgebundener, maximal24h frischer ARM-Metadatenreceipt. `trafficAccepted`, `capacityAccepted` und `costAccepted` bleiben immer false. `receiptSha256` ist SHA256 des restlichen JSON, UTF-8, sortierte Schluessel, kompakte Trennzeichen, ASCII-Escaping wie `primary_control.canonical`. |
+
+Der konkrete v1-Draft im Repository ist anhand seiner **Datei-SHA256** mit dem
+Consumer abzugleichen, nicht nur anhand des Vertragsnamens. Gegenueber dem ersten
+Draft sind `peered`, das Pflichtfeld `vpn.clientPool` und genaue HTTPS-/Web-/PE-
+Strukturen hinzugekommen. `egress.httpsRules` hat exakt
+`{name,sourceAddresses,targetFqdns}` mit `primary-`/`fabric-`-Praefix. In `reserved`
+bleibt dies die normalisierte **Soll**-Liste, noch keine installierte Firewall-
+Freigabe. Die aktive Liste wird gegen echte Regeln geprueft. Fabric-Eigentum
+verwendet `tags.deploymentId` und `tags.manifestSha256`; letzterer ist der opaque
+Consumerhash, keine Neuberechnung mit Primary-Canonical. Receipts enthalten nur
+Hub-RG und die jeweilige eigene Spoke-RG, keine fremden Primary-/Fabric-Readrechte.
+
+Die aktuelle Bytebindung bleibt
+`43eee0651b0525f42115185540324e447a78ff0ff82eba73dd1087187c10ca19`.
+`infra/contracts/.gitattributes` setzt **nur diese Schemadatei auf `-text`**:
+die bereits gemeinsam gepinnten UTF-8/CRLF-Bytes bleiben unveraendert,
+unabhaengig von `core.autocrlf`. Keine Mehrfachhash-Ausnahme oder globale
+Git-Konfigurationsaenderung. Nur fuer diese Datei erkennt `cr-at-eol` den
+erhaltenen CRLF-Zeilenabschluss an; die normalen Whitespacefehler bleiben
+aktiv und ein Gegenfall mit echtem nachgestelltem Leerzeichen bleibt negativ.
+Ein gezielter Offlinetest staged die echte Datei
+mit Git-Clean und erzeugt neue Checkouts mit Windows- und Linux-EOL-Konfiguration;
+Gitblob und ausgecheckte Bytes muessen identisch bleiben. Die Attributdatei ist
+selbst Bestandteil der Controllerquellbindung und des Infra-Pakets.
+
+### Zyklusfreie Reihenfolge und tatsaechliche Readbacks
+
+1. Hub `identities`, `network`, `edge-bind`: eigene Netzbasis und unabhaengiger
+   Certificate-Vault vor Apps. Erst die echte Firewall-IP bindet DNS und P2S;
+   noch keine Weblistener oder erfundene Backendnamen.
+2. Owner `hub-bindings --input <snapshot>` erzeugt `reserved`. Consumer liest
+   `bind-hub --input <receipt>` und erstellt nur sein VNet und `to-shared-hub`
+   mit `useRemoteGateways=false`. Noch keine Daten-/Appaktivierung.
+3. Owner erzeugt seine `to-primary`/`to-fabric`-Haelfte mit
+   `allowGatewayTransit=true`, `allowForwardedTraffic=false`. Der `peered`-
+   Receipt verlangt beide Haelften tatsaechlich Connected. Der Consumer setzt
+   erst jetzt seinen eigenen Peer auf `useRemoteGateways=true`,
+   `allowForwardedTraffic=true`, `allowGatewayTransit=false`.
+4. Ein frisch gegengelesener `connected`-Receipt erlaubt die Primary-Foundation.
+   `data-bound` bindet erst danach echte PE-Service-/Group-/NIC-/IP-/FQDN- und
+   Approved-Connection-Metadaten, eigene DNS-Records und exakte NSG/UDR-
+   Verknuepfungen. Consumer haben keine indirekten DNS-Schreibrechte durch
+   Zonegroups. Dieselbe Revisionsnummer darf nur Beobachtungszeit und Receipt-
+   Hash auffrischen; neue Bindungen brauchen eine neue Revision.
+5. `web-bound` benoetigt separat das echte menschliche HTTPS-Backend, Host/SNI,
+   privates Frontend, versioniertes Hub-Vault-Zertifikat, Probe und gepruefte
+   Limits. `export-hub --consumer primary|fabric --out <new-file>` erzeugt nur
+   aus erneut gelesenen eigenen Ressourcen einen Receipt. Die Read-only-
+   Austauschbefehle schaffen weder Deploymentfreigabe noch Trafficbelege.
+
+Hub und Spoke schreiben **jeweils nur ihre eigene Peeringrichtung**. Auch
+What-if/Apply duerfen die fremde RG nicht beruehren. Ein Spoke hat keinen
+Gateway-/Firewall-Subnetzbestand. Default-UDRs zeigen auf die beobachtete
+Firewall-IP, BGP-Propagation bleibt an. Keine pauschale Hub-CIDR-UDR und kein
+P2S-Rueckweg ueber die Firewall: spezifische private Peering-/Gatewayrouten
+muessen symmetrisch bleiben. `GatewaySubnet` bekommt weder NSG noch Default-UDR.
+VPN -> privates WAF -> Web-HTTPS ist vom Workload-Egress -> Firewall getrennt.
+NSGs und die explizite Firewall-Private-Transit-Denyregel verhindern implizite
+Spoke-zu-Spoke- und VPN-Datenbankpfade. Fabric hat nur seine einzeln gebundenen
+Operator-PEs:443 als Ausnahme, nicht VM/ACR/Hosted/DB. Sein verwalteter
+Spark-/Notebook-/OneLake-Verkehr wird nicht durch Azure-Spoke-UDRs kontrolliert.
+
+### WAF, TLS und Appgrenzen
+
+[Private-only Application Gateway](https://learn.microsoft.com/azure/application-gateway/application-gateway-private-deployment)
+ist GA, benoetigt aber das tatsaechliche Subscription-Opt-in
+`EnableApplicationGatewayNetworkIsolation` und die Subnetzdelegation
+`Microsoft.Network/applicationGateways`. Der Controller liest den Status und
+**registriert nichts**. Kein Public-IP-Frontend oder AppGateway-Private-Link-
+Fallback; Backend-/Vault-PE-Pfade ueber Global VNet Peering werden nicht akzeptiert.
+Regionswechsel ist keine Fehlerbehandlung. Siehe auch die
+[parallele Firewall-/Application-Gateway-Architektur](https://learn.microsoft.com/azure/architecture/example-scenario/gateway/firewall-application-gateway).
+
+Pro Consumer: eigener Host, HTTPS-Listener, Backend, Probe und Prevention-Policy.
+Backendport443 nutzt dessen echten FQDN als Host und SNI, mit Zertifikatsketten-/
+Ablauf-/SNI-Pruefung. Der interne Primary-Containerport bleibt8080.
+Ein privater Root-CA-Bedarf darf nicht durch Abschalten der TLS-Pruefung geloest
+werden. Hub-UAMI und eigener privater RBAC-/Purge-Protected-Vault sind vom
+Consumerabbau unabhaengig; Leserechte sind auf die jeweilige Certificate-Secret-
+Ressource begrenzt. Beschaffung, sichere private Befuellung, SAN/Chain/Ablauf und
+tatsaechlicher Zugriff sind noch nachzuweisen, kein Secretimport wird erfunden.
+Die beiden Consumer benoetigen unterschiedliche Secret-Namen/Scopes, auch bei
+gleichem Zertifikatsinhalt; dadurch entstehen weder doppelte Azure-RBAC-
+Assignments fuer denselben Scope noch beim Einzelabbau geloeschte gemeinsame Grants.
+
+Primary `/health/live` und `/health/ready` sind bestehende Apppfade; readiness
+prueft SQL, **nicht den KI-/Modellpfad**. MSAL verwendet `location.origin`.
+Der SPA-Redirect wird daher ausschliesslich an `https://<privater-WAF-Clienthost>`
+gebunden, nicht an den internen ACA-SNI-Host. `forwardedHeadersEvidenceSha256`
+bezeichnet eine Vertragspruefung; der Modus `not-used` ist ausdruecklich gueltig.
+Es gibt keine pauschale neue ForwardedHeaders-/Trusted-Proxy-Konfiguration.
+Fabric hat noch kein qualifiziertes menschliches Backend; Hosted8088,
+`/readiness`, `/invocations` und MCP/SSE sind keine solchen Frontends.
+
+Der Pilotvertrag verlangt explizite Body-/Upload-/Timeoutwerte, aktiviert
+Body-/Upload-Enforcement und OWASP3.2 ohne Exclusions oder kurzschliessende
+Allowrule. Unbewiesenes Streaming bleibt `none`, HTTP2 aus, Buffering an,
+Drainfenster mindestens Requesttimeout. Echte Datei-/Multipart-/Fehler-/Header-
+und Uebergangstests bleiben Gate; die
+[WAF-Uploadgrenzen](https://learn.microsoft.com/azure/web-application-firewall/ag/application-gateway-waf-request-size-limits)
+haben unter anderem einen4KiB-Dateipuffer. Keine stillen Limitanhebungen.
+[Log-Scrubbing](https://learn.microsoft.com/azure/web-application-firewall/ag/waf-sensitive-data-protection)
+deckt IP/Header/Cookie/Argumente ab, beseitigt aber nicht Microsoft-interne
+IP-Verarbeitung. Request-/Accesslogexport ist nicht aktiviert; Hubmetriken und
+Alarmzustellung sind kein nachgewiesener Betriebspass und duerfen nicht an einen
+abbauenden Consumerworkspace gekoppelt werden.
+
+### Getrennter Abbau, gemeinsame Stoerungsdomaene und Kosten
+
+Primary `stop` betrifft nur eigene Laufzeit. `detach-hub` verlangt zusaetzlich
+quellgebundene Belege fuer gestoppte Worker/Callbacks, widerrufene **eigene**
+Credentials/Grants und abgelaufene ausstehende Tokens; es entfernt nur den
+eigenen Spokepeer. Diese Nachweise werden nicht aus einer ARM-Statusanzeige
+erfunden. Der Hubowner prueft dessen wirkliche Abwesenheit und die Belege,
+aktualisiert seine gesamte gemeinsame Konfiguration unter Erhalt des anderen
+Consumers und loescht nur gespeicherte eigene Peer-/DNS-/Policy-/Grantreferenzen.
+Incremental ARM allein loescht ausgelassene Ressourcen nicht. Der letzte
+unreferenzierte WAF wird deshalb separat journalisiert entfernt; kein
+`wafId:null` als Ersatz fuer Loeschung. Leere hub-eigene DNS-Zonen koennen bis
+zum finalen Hubabbau bleiben und weiter Kosten verursachen.
+
+Die gebundene, ausschliesslich entfernende Hubrevision bleibt wie `stop` und
+`cleanup` auch bei abgelaufenem Originalpaket zulaessig: sie benoetigt weiterhin
+den vorher abgeschlossenen eigenen Hubzustand, Quellbindung, frische genehmigte
+Belege und den exakten What-if, darf jedoch **keine Ressource neu anlegen oder
+neu erzeugen**. Die drei Offboardingbelege sind hoechstens24h gueltig; sonstige
+Aktivierungsbelege bleiben an die urspruengliche Pilotfrist gebunden. Dies
+qualifiziert keinen Release und oeffnet keine Erstellungs-/Aktivierungsphase.
+
+Primary-`cleanup` braucht danach den frischen `offboarded`-Receipt und entfernt
+nur eigene RGs/Fach-Directoryobjekte. Ein terminaler, frischer Offboardingreceipt
+darf auch nach der urspruenglichen Frist zur Entfernung verwendet werden,
+**nicht** zur Reaktivierung. Hubstop/-retirement verweigert aktive/reservierte
+Consumer und unvollstaendige gemeinsame Revisionen. Weder Consumer-Offboarding
+noch Consumer-Cleanup loescht die gemeinsame Audience oder die vier gemeinsamen
+VPN-Grants. Hub-/DNS-/Egress-/WAF-Ausfall betrifft beide Varianten; vollstaendige
+betriebliche Unabhaengigkeit wird nicht behauptet. WAF-Konfigupdates erhalten
+die andere Backendbindung, benoetigen aber reale Drain-/Readinesspruefung;
+kein unbewiesenes Zero-Downtime-/HA-/SLO-Versprechen.
+
+Der vorhandene Intakevertrag ist `cohors-shared-hub-bindings-1` in
+`shared_hub.py::validate_bindings`: der Consumer liefert nur seinen eigenen
+Slot, der Owner setzt ihn in die vollstaendige vorgaengerhashgebundene Revision
+ein. Kein zweiter Hubinstaller oder frei schreibbarer Registrierungsendpunkt.
+PE-Inputs sind exakt `id/serviceId/subnetId/groupIds/fqdns`; NIC, IP und
+ConnectionState liest `shared_hub_control.py::observe_endpoint` selbst aus den
+eigenen referenzierten Ressourcen. DNS verlangt
+`zone/name/addresses/sourceResourceId/dnsEvidenceSha256`, Operatorausnahmen
+`privateEndpointId/addresses/fqdns/port` mit ausschliesslich443.
+Die drei Offboardinghashes binden `cohors-hub-prerequisite-evidence-1`
+(`check_evidence`/`evidence_subject`). Erst die quellengebundene Entfernung mit
+GET404 und erhaltenem anderem Consumer erzeugt das bestehende Ownerreceipt
+`state=offboarded` als Acknowledgement. Fabric-Driverintegration und native
+Release-/Abbaupruefung sind dadurch noch nicht nachgewiesen oder freigegeben.
+Fuer `purpose=dns-chain` ist ein Null-Schritt-Namensnachweis vor dem DNS-Apply
+zulaessig, wenn der unveraenderte PE-/NIC-Readback bereits exakt den privaten
+Zielnamen `name.zone` liefert. Ein bloss oeffentlicher Service-FQDN oder ein
+errechneter Alias braucht dagegen die echte CNAME-Ableitung. Die urspruenglichen
+Beobachtungs-/Querybytes bleiben erhalten; `check_evidence` bindet den
+genehmigten Beleg, ersetzt aber keinen DNS-Queryreplayer. Weder Null-Schritt
+noch ARM-A-Readback beweisen private Aufloesung oder Anwendungstraffic.
+
+Die komplette neue gemeinsame BOM ist **noch nicht preislich abgenommen**:
+
+| Kostenblock | Vor kostenpflichtiger Erstellung zu binden |
+| --- | --- |
+| Gemeinsame Firewall Standard | Gatewaystunden und verarbeitete GB, eigene Standard/static-Public-IP; kein doppelter Ansatz pro Consumer. |
+| Gemeinsames VpnGw1AZ | Gatewaystunden, seine Public-IP, erforderlicher Transfer und tatsaechliche P2S-Anwendbarkeit. Vier Personen bedeuten nicht vier neue Gateways. |
+| Ein privates WAF_v2 | Regionaler fester Gatewaypreis plus tatsaechlich massgebliche Capacity Units/Instanzen, Datenverarbeitung und Traffic; kein erfundener Preis oder Kostenpass aus `instanceCount`. Private-only beseitigt die WAF-Kosten nicht. |
+| Hub-Vault/UAMI/PE/DNS | Vault-Operationen/Zertifikatsbeschaffung, eigener Vault-PE Stunden/GB, alle kanonischen/dynamischen Zonen und Queries, DNS-Sicherheits-/Resolverpolicy-Meter nach wirklicher Anwendbarkeit. |
+| Netztransfer und Betrieb | Beide Peeringrichtungen/regionale Transfers, Egress, Metriken/Alerts/gegebenenfalls spaeter freigegebene Logs, unabhaengige Betriebs-/Alarmzustaendigkeit. |
+| Consumer | Primary-D4 und genau eine anwendbare Dedicated-Managementposition, ACA-Plattformreserve/Netzressourcen, Flex, SQL, Storage, Search, Foundry, bestehende PEs und Operator/optionaler Client. Fabric-Kapazitaet/Hosted-/SaaS-Gebuehren separat. |
+
+Zwei getrennte WAFs haetten zwei feste WAF-Kosten-/Lifecyclepositionen und
+kleinere WAF-Aenderungsdomaenen; das ist keine jetzt zusaetzlich gewaehlte
+Variante. Gegen die historische Doppel-Gateway-BOM entfallen die doppelten
+Firewall-/VPN-Fixpositionen, es kommen jedoch WAF, Hub-Vault/PE, Peering und
+gemeinsamer Betrieb hinzu. **Keine Nettospar-/Gesamtkostenbehauptung.** Weder
+Budgets noch der urspruengliche Zeitraum werden beim Hub-/Backenduebergang
+erhoeht oder erneuert. Zusaetzliche Zustimmung bleibt erforderlich, wenn die
+vollstaendige aktuelle BOM nicht in die bestehenden Grenzen passt.
+
+### Lokale Gates und vorhandene Push-Auswirkungen
+
+Die erfolgreiche prozesslokale Azure-CLI-Isolation mit eigenem leerem
+`AZURE_EXTENSION_DIR` aendert weder Installation/ACLs noch `AZURE_CONFIG_DIR`
+oder Authkontext. Dynamische Extensioninstallation bleibt nur in diesem Prozess
+aus. Sie erlaubt lokale Bicep-Builds, keinen Cloudzugriff. Checkov3.4.5 fehlt:
+der letzte normale PyPI-Versuch scheiterte mit `SSLV3_ALERT_HANDSHAKE_FAILURE`,
+nicht mit einem belegten Zertifikatskettenfehler; der exakt begrenzte normale
+Paketcache enthielt kein passendes Wheel. Keine weiteren Netzwerkversuche,
+Truststore-/TLS-/Pinwechsel oder Scannercontainer-Ersatzroute. Der unveraenderte
+Originalvalidator darf ohne die benoetigten Tools keinen Erfolg melden.
+Bicep/Offline-/Scaninventurpruefungen sind **kein Checkov-Sicherheitsnachweis**;
+historische negative/UNKNOWN-Berichte bleiben erhalten.
+
+Der bestehende Scanexporter verweigert unaufgeloeste ARM-`split()`-Ausdruecke und
+unbelegte DHCP-Projektionen. Deshalb uebergibt der Controller die aus verifizierten
+ARM-IDs/Secret-URIs abgeleiteten VNet-/Vault-/Secret-/Gatewaynamen als explizite
+Modulparameter. Telemetrie wird aus dem echten eigenen Application-Insights-
+Readback auf Ingestion-/Live-Endpunkte projiziert; ConnectionString und
+Instrumentation-/Application-IDs werden nicht persistiert. Der DNS-Schalter und
+Proxywert werden unveraendert aus der jeweiligen Callerphase uebergeben;
+die historische Filter-VM/NIC bleibt explizit bedingt und wird im Managed-Modus
+nicht erstellt. Der Exporter, seine vollstaendigen beiden DNS-Zweige, der
+Scannerpin und die Workflowgates wurden dafuer **nicht** veraendert.
+
+Der aktuelle lokale Quellnachweis umfasst150 bestandene Offlinetests,
+PowerShell-/Actionlint-Pruefung und alle drei Originalroots samt Parameterdatei
+ohne Bicep-Build-/Lint-Diagnostik. Der unveraenderte Exporter erfasst `main`
+mit36 Templates/38 Ansichten, `primary-network` mit17/41 und `primary` mit38/41;
+das sind vollstaendige verschachtelte Scanansichten, **keine Scanner-
+Ressourcenzaehler**. Der anschliessend tatsaechlich aufgerufene
+`Validate-Infrastructure.ps1 -SecurityScanner Local` endet weiterhin vor dem
+Scan mit `Missing validation tool: checkov`. Phase6-Sicherheitsgate bleibt
+geschlossen; Phase7 wurde nicht aufgerufen.
+
+Ein spaeter separat freizugebender Push auf
+`micnhs-cohors-azure-infrastruktur` haette mit den **unveraenderten Workflows**
+folgende automatischen Auswirkungen:
+
+| Workflow | Tatsaechlicher Trigger/Inhalt, keine Ausfuehrung dieses Auftrags |
+| --- | --- |
+| `cohors-ci.yml` | Jeder Push: aktuelle Infra-Bicep-/Lint-/Parameter-/PowerShell-/Actionlint-/Offlinetests und der vorhandene gepinnte Checkov-Container; ausserdem vorhandene native Linux-NVA-Fixture, nicht ACA/Hub-Traffic. Der App-Referenzjob liest weiterhin exakt dd112/Run44355710367; die separate SQL/.NET/Chromium-Lane ist auf diesem Branch skipped. Kein automatischer Wechsel auf2b3 oder einen spaeteren App-SHA. |
+| `cohors-primary-package.yml` | Branchpush mit `infra/**`-Aenderungen (ausser alleinigem `test_workflow_contract.py`) startet unabhaengig von CI einen neuen Build. Standard-App bleibt exakt dd112. Paket: originale API/AgentHost/Bootstrap-Binaries, React, originale Flex-ZIPs, zwei Linux/amd64-OCI-Archive, gebundene .NET-Runtime/SQL-Helfer, historische Python-Proxy-Wheels und der gesamte aktuelle Infra-Quellbaum. Artefakt `cohors-primary-release`,14Tage. Keine ACR-/Azure-Publikation; ein erfolgreiches Paket ist kein App- oder Security-Pass. |
+| `cohors-deploy.yml` | Kein Pushtrigger; weiterhin nur bewusst manuell, OIDC und die bereits vorhandenen Umgebungs-/Freigabegates. |
+
+`primary_acceptance.py` emittiert neu
+`cohors-existing-application-acceptance-2`: **nur** das originale erfolgreiche,
+vollstaendig terminale Appjob-/Teststep-Ergebnis. Repo, Workflow, natuerlicher
+Primary-Branchpush, App-SHA, erwarteter Attempt, Job und nummerierter Teststep
+werden exakt geprueft; ein konkurrierender Rerun wird verworfen. Omitted
+Attempt bedeutet explizit1, kein Folgen des neuesten Attempts. Der aggregierte
+Teststep fuehrt den gebundenen originalen SQL/.NET-/Bootstrap-/Browserpfad aus;
+Fehler, Skip, Cancel oder unvollstaendige Ausfuehrung werden nicht akzeptiert.
+Das historische `runConclusion` wird unveraendert gespeichert: Appsuccess plus
+separater alter Infrafehler kann **App-only** positiv sein, nie Security-/Release-
+positiv. Alte v1-Artefakte werden nicht uminterpretiert oder ueberschrieben.
+`require_hosted_qualification` verlangt weiterhin das exakte Paket **und** den
+vollstaendig erfolgreichen aktuellen Infra-SHA/Attempt mit seinen originalen
+erwarteten Jobs. App-only-Erfolg ersetzt das nicht. dd112 bleibt real negativ;
+auch der gemeldete2b3-Run44472201364 ist wegen seines tatsaechlichen Appfehlers
+kein Apprelease und kein Scan des neuen Hubstands.
+
+## Historischer separater Primaerbootstrap und bisherige Belege
 
 Der neue Pfad `infra/scripts/primary_bootstrap.py` ergaenzt die unten beschriebene
 historische, auf vorhandene Plattformverweise angewiesene `main.bicep`-Schnittstelle.
 Er ist **noch kein fertig abgenommener Gesamtinstaller**. `primary-network.bicep`
-und `primary.bicep` verdrahten eigene Gruppen, Netz, NVA, privaten Operator,
-optionalen Bastion-/Windows-Client, Action Group und Datenplattform aus
+und `primary.bicep` verdrahteten im separaten Vertrag `cohors-primary-bootstrap-2`
+eigene Gruppen, Azure Firewall Standard, ein eigenes VpnGw1AZ-Gateway, privaten
+Operator, optionalen Bastion-/Windows-Client, Action Group und Datenplattform aus
 journalisierten Ausgaben statt abzutippender Azure-Ressourcen-IDs.
-Keine bestehende fremde Ressource wird uebernommen; Azure Firewall/VPN bleiben aus.
+Firewall und P2S-VPN sind vom Nutzer zur Mitbereitstellung ausgewaehlt,
+**nicht bereits bereitgestellt**. Keine bestehende fremde Ressource wird
+uebernommen; kein gemeinsamer Fabric-Hub, Gateway oder implizites Peering.
+Der neue Primary-Ausfuehrungspfad installiert keine parallele NVA.
 Der gewaehlte Initialactor bleibt der separat gebundene delegierte Benutzer.
 `controlTokenBindings` bindet beobachtete ARM-/Graph-Audience und Issuer, nicht
 aus `/.default` abgeleitete Werte. Private Personen-/Tenant-/Subscriptionbindungen
@@ -80,8 +359,10 @@ dd112-Suite erneut zu starten. Der Readback bleibt negativ; Paketbau und
 Manifest-Hashes koennen ihn nicht ersetzen. `releaseBundle` bindet getrennt
 `validationRunId` fuer Infra und `applicationValidationRunId` fuer die Anwendung.
 
-Die eigene NVA ist eine **zusaetzliche kostenpflichtige Filterkomponente** mit
-eigenem Betrieb: Linux-VM, Disk, Public IP, Updates, Ausfall- und Messverfahren.
+**Historischer NVA-Teilnachweis, nicht auf Azure Firewall uebertragbar:** Der
+fruehere Entwurf verwendete eine zusaetzliche kostenpflichtige Linux-Filter-VM
+mit Disk, Public IP, Updates, Ausfall- und Messverfahren. Die generischen
+Legacy-Module und Fixtures bleiben erhalten, der Primary-Vertrag v2 nutzt sie nicht.
 Der gepinnte mitmproxy-Parser/TCP-Mechanismus leitet TLS verschluesselt weiter;
 keine Zertifizierungsstelle, Inhaltsentschluesselung oder TLS-Abschwaechung.
 Der Filtercode verweigert ungeprueftes/fehlendes SNI, ECH/eSNI und unerlaubtes
@@ -94,19 +375,36 @@ ECH/IPv6 haben nur Unitnachweise. FQDN/SNI ist keine HTTP-Pfad-/Inhaltskontrolle
 und kein umfassender Exfiltrationsschutz. Diese Teilnachweise sind ausdruecklich
 **kein DNS-End-to-end-/ACA-/Flex-/Operator-/Browser-Cloudnachweis**.
 
-**Offene Profilentscheidung:** Der historische ACA-Kandidat ist Consumption,
-nicht Dedicated. Laut
+**Versionierter D4-Arbeitskandidat:** Der generische historische ACA-Default
+bleibt Consumption. Der Koordinator hat fuer Primary D4 mit einem Knoten
+(`minimumCount=maximumCount=1`) technisch zugeordnet; das ist keine behauptete
+ausdrueckliche Nutzer-SKU-Wahl oder neue Kostenfreigabe. Laut
 [profilbezogener Custom-DNS-Dokumentation](https://learn.microsoft.com/azure/container-apps/private-endpoints-with-dns#custom-dns)
 braucht Consumption `AzurePlatformDNS` auch mit Custom DNS. Eine UDR erzwingt
 diesen Pfad nicht; die Plattform-IP168.63.129.16 umgeht UDRs.
 Der neue Strict-DNS-Bootstrap verweigert daher Network/Foundation mit Consumption,
-statt still einen DNS-Bypass zu oeffnen. `containerAppsWorkloadProfileType=D4`
-ist lediglich ein **expliziter Alternativkandidat** mit einem Dedicated-Knoten
-(Minimum=Maximum=1); beide echten Container Apps bekommen dieselbe explizite
-Profilzuordnung. Kein stiller Defaultwechsel, keine HA-/SLO-Zusage. D4-Region,
+statt still einen DNS-Bypass zu oeffnen. Jedes v2-Environment behaelt sein
+[verpflichtendes Consumption-Profil](https://learn.microsoft.com/azure/container-apps/structure);
+im neuen Primary bleibt es ungenutzt. Beide echten Container Apps werden
+ausdruecklich D4 zugeordnet. Der Readback prueft die beiden Profile, den
+tatsaechlichen D4-Knotenbestand und beide App-Zuordnungen getrennt; die
+Foundation ohne Runtime behauptet nicht, bereits zwei Apps beobachtet zu haben.
+Kein stiller Defaultwechsel, keine HA-/SLO-Zusage. D4-Region,
 Kapazitaet, Mehrkosten und die obligatorische Aufloesung unter anderem von
 `*.hcp.<region>.azmk8s.io`/`mcr.microsoft.com` sowie deren tatsaechliche Nutzpfade
 muessen gebunden werden. DNS-Aufloesbarkeit allein ist keine HTTPS-Abnahme.
+Die technische Koordinatorentscheidung begrenzt **nur den versionierten
+D4-Einknoten-Primary auf minReplicas=maxReplicas=1 je App** (0.5 vCPU/1 GiB).
+Der generische Default max3 bleibt unveraendert. Selbst zwei ueberlappende
+Revisionen beider Apps ergeben damit zunaechst nur rechnerisch 2 vCPU/4 GiB;
+Plattformreserve, weitere Container und tatsaechliche Platzierung sind separat
+zu pruefen. Der Readback verweigert abweichende Replikagrenzen, Ressourcen,
+zusaetzliche Appcontainer und einen Wechsel aus Single-Revision.
+Laut [Revisionsvertrag](https://learn.microsoft.com/azure/container-apps/revisions)
+bleibt die alte Revision aktiv, bis die neue ihre Readiness erfuellt.
+Kein vorzeitiges Abschalten als Kapazitaetsworkaround, keine weitere Node oder
+Budgeterhoehung. Die [Plattformreserve](https://learn.microsoft.com/azure/container-apps/workload-profiles-overview)
+und reale Rollout-/HA-/Produktionslastfaehigkeit sind damit nicht nachgewiesen.
 
 **Modellqualitaet vor Preis:** Der aktuelle Appvertrag hat genau ein gemeinsames
 Foundry-Profil fuer alle sechs Rollen; aus Infra-Metadaten entsteht kein
@@ -138,6 +436,152 @@ folgt daraus. Reale Zustellung, menschliche 15-Minuten-Bestaetigung, Stellvertre
 und unabhaengige Eskalation bleiben offen. Diese Teilinputs sind noch kein
 vollstaendiges deploybares oder genehmigtes Startmanifest.
 
+### Eigene Managed-Edge-Stufen und private Pfade
+
+Die Reihenfolge lautet `identities`, `network`, `edge-bind`, `foundation`,
+`edge-policy`, `grants`, `initialize`, `runtime`, `runtime-policy`, `seed`,
+`publish-functions`, `client-access`, `activate`. Jede schreibende Stufe
+benoetigt unveraendert ihre eigene quell-/manifest-/vorergebnisgebundene
+Risiko-, Policy-, Kosten- und Bereitschaftsfreigabe; ARM zusaetzlich ein
+aktuelles additives What-if. Der Architekturstatus `approved` ersetzt das nicht.
+
+| Stufen | Grenze |
+| --- | --- |
+| `identities` | Eigene getrennte VPN-Audience-App/SP, AssignmentRequired und genau die vier bereits benannten Benutzer. Nur Default-Access fuer VPN, keine zusaetzlichen PMS-/Produkt-/Azure-/Directoryrechte. Der Microsoft-registrierte VPN-Client wird nur fuer den eigenen Admin-Consent-Scope vorautorisiert; kein tenantweiter Microsoft-Client-Consent. |
+| `network` | Eigene Firewall, Gateway, Standard/static/IPv4-PIPs und Subnetze; Workloadrouten zunaechst Blackhole, noch keine P2S-Authentifizierung. Die wirkliche Firewall-IP wird gelesen, nicht als `.4` angenommen. |
+| `edge-bind` | Eigene DNS-/UDR-Bindung an genau diese frisch bestaetigte IP, DNS-Allowlist plus Default-Block, eigene Entra-P2S-Konfiguration und privater Operator. Noch kein P2S-API-Allow. |
+| `foundation`, `edge-policy` | Datenplattform/Monitor/D4 und ausschliesslich Firewall-/Gateway-Metriken; danach die tatsaechlichen privaten Service-FQDNs in DNS/No-public-fallback-Regeln binden. |
+| `grants`, `initialize` | Nur gebundene eigene Rechte, echte Paketbytes, Originalmigrationen und private Initialisierung. Der Operator muss eine gepruefte Softwarebasis mit `skopeo` besitzen; kein implizites `apt-get`, HTTP-Mirror oder Aufweiten der Egressregeln. |
+| `runtime`, `runtime-policy` | Beide D4-Apps und getrennte Flex-Hosts; anschliessend echte rollenspezifische `enabledHostNames` einschliesslich SCM binden. Keine Namenskonstruktion, auch nicht fuer regionale/Unique-Domain-Hostnamen. |
+| `seed`, `publish-functions` | Nur synthetischer Seed und die gebundenen Originalpakete ueber den tatsaechlich zur jeweiligen Function gehoerenden privaten SCM-Host. |
+| `client-access`, `activate` | P2S erst dann per HTTPS zum tatsaechlichen privaten API/UI-FQDN erlauben; Aktivierung behaelt App-/Operations-/Modell-/Alarmgates. Profilgenerierung, Clientinstallation und echte VPN-Anmeldung sind kein Ergebnis dieser ARM-Konfiguration. |
+
+| Kandidatenbereich | Wert / Zweck |
+| --- | --- |
+| Eigenes VNet | `10.42.0.0/16`; keine reale Ueberschneidungspruefung behauptet |
+| ACA / Workflows / Operations | `10.42.0.0/23`, `10.42.2.0/26`, `10.42.2.64/26` |
+| Private Endpoints / Operator | `10.42.3.0/24`, `10.42.4.32/27` |
+| Optionaler Client / Bastion | `10.42.4.64/27`, `10.42.5.0/26`; keine automatische Clientbereitstellung |
+| AzureFirewallSubnet / GatewaySubnet | `10.42.6.0/26`, `10.42.6.64/27` |
+| Gerouteter P2S-Pool | `172.28.240.0/24`; weiterhin gegen echte Client-/Fremdnetze zu pruefen |
+
+Der verworfene Poolkandidat `172.30.240.0/24` liegt in einem
+[ACA/AKS-reservierten Bereich](https://learn.microsoft.com/azure/container-apps/custom-virtual-networks#restrictions-for-subnet-address-ranges).
+Der v2-Validator vermeidet diese Bereiche auch fuer geroutete P2S-Adressen,
+nicht nur fuer ACA-Subnetze. Das ist keine neue IP-Zuteilung oder reale Netzabnahme.
+GatewaySubnet erhaelt kein NSG, keine `0.0.0.0/0`-Route und keine deaktivierte
+BGP-Routenpropagation. Spezifische Zielrouten fuehren zum eigenen Firewall-IP;
+Workload-Default und P2S-Rueckweg ebenfalls. Der P2S-Pool darf Datenendpunkte
+nicht direkt ansprechen. Die ACA-Ingressregel erlaubt den HTTPS-Proxyweg von
+der Firewall-IP (443/31443), nicht einen direkten P2S-Bypass.
+
+`primary_network.py` liest Routen und deren echte Subnetzassoziation, private
+Firewall-IP, PIP-/Zonen-/Gatewaybindung, DNS-Regeln/-Links, komplette
+Firewall-Collections, VPN-Zuweisungen und D4-Platzierung zurueck. Ein Checkpoint
+bleibt an **seinen gespeicherten Policyinput** gebunden; spaetere Runtimeausgaben
+deuten ihn nicht nachtraeglich um. Reine Policystufen rollen keine VMs,
+Gatewaykonfiguration oder OS-Credentials erneut aus. Fuer Stop/Cleanup bleiben
+die eigenen Eigentums-/Inventurgates massgeblich; ein kaputter Netzpfad darf
+nicht erst einen erfolgreichen Traffic-Readback als Loeschvoraussetzung verlangen.
+Die bereits beobachtete Firewall-/Policy-Eigentumsbindung wird unabhaengig vom
+spaeteren Netzphasenpass gesichert und beim Cleanup frisch geprueft. Eine
+fehlgeschlagene DNS-/Profilabnahme wird dadurch weder als bestanden markiert
+noch zur pauschalen Erlaubnis, ungetaggte oder gedriftete Ressourcen zu loeschen.
+
+Die [dokumentierte Firewall-Policy-Taglimitation](https://learn.microsoft.com/azure/firewall/firewall-known-issues)
+ist keine pauschale Eigentumsausnahme: eine ungetaggte Policy wird nur ueber
+die exakt gebundene, korrekt getaggte eigene Firewall und deren frisch gelesene
+Policyreferenz akzeptiert. Kein PowerShell-Tagworkaround oder Authentifizierungswechsel.
+ARM erhaelt nur benoetigte Profilfelder, nicht das gesamte private Manifest mit
+signierten Paket-URLs, Tokenbindungen oder den vier VPN-Benutzerlisten.
+
+**Noch fehlender Nutzpfadnachweis:** Die aktuelle
+[ACA-Firewall-Dokumentation](https://learn.microsoft.com/azure/container-apps/use-azure-firewall)
+nennt fuer die Plattform unter anderem `mcr.microsoft.com`,
+`*.data.mcr.microsoft.com`, `packages.aks.azure.com`, `acs-mirror.azureedge.net`
+und fuer Managed Identity die dokumentierten Identity-/Login-Namen.
+Das ist kein Auftrag fuer einen eigenen AKS-Cluster oder ein pauschales Internet-Allow.
+Jeder benoetigte DNS-/HTTPS-Pfad ist je Quellsegment zu binden und tatsaechlich
+zu beobachten; Service-Tag-Allow und Application-Allow nicht unnoetig parallel setzen.
+DNS-Policies erlauben auch Nachkommen einer Domain, nicht nur einen exakten
+QNAME und nicht getrennt je Quellsegment. ACR-Login **und**
+[tatsaechliche dedizierte Datenendpunkte](https://learn.microsoft.com/azure/container-registry/container-registry-firewall-access-rules),
+regionale Application-Insights-Ingestion-/Live-Endpunkte, alle Blob/Queue/Table-
+Abhaengigkeiten und echte Functions-/SCM-Namen werden aus Provideroutputs
+uebernommen; keine pauschale `*.blob.core.windows.net`-Ausnahme fuer eigene Daten.
+Private DNS und Readbacks beweisen noch keinen Imagepull, Entra-Tokenabruf,
+OneDeploy, Functionstart, Alarm oder Browserzugriff. Auch Gatewaykontrollpfad,
+Operator-/VM-Agent-/Artefakttransport und HTTPS-faehige Softwarebereitstellung
+bleiben konkret zu qualifizieren.
+
+Firewall/Gateway erhalten im Foundation-Modul ausschliesslich `AllMetrics` an
+den eigenen privaten Workspace, keine Traffic-, DNS-, Paket- oder P2S-Identitaetslogs.
+Die [Firewall-Metriken](https://learn.microsoft.com/azure/azure-monitor/reference/supported-metrics/microsoft-network-azurefirewalls-metrics)
+und [Gateway-Metriken](https://learn.microsoft.com/azure/azure-monitor/reference/supported-metrics/microsoft-network-virtualnetworkgateways-metrics)
+unterscheiden DS-exportierbare und nicht exportierbare Metriken. Beispielsweise
+ist Firewall-Throughput nicht ueber Diagnostic Settings exportierbar; keine
+vollstaendige Metrikabdeckung daraus ableiten. Der Readback verweigert fremde
+Senken, aktivierte Rohlogkategorien oder parallele ungepruefte Settings.
+Reale Ingestion, Netzalarme, Zugangsausfall und Benachrichtigung bleiben offen.
+
+### Kostenabgrenzung fuer D4, Firewall und VPN
+
+Anonyme Microsoft-Retailbelege vom 2026-11-19, France Central, USD/Consumption:
+D4-Compute `4 * 0.057077 + 16 * 0.004978 = 0.307956 USD/h`,
+Firewall Standard `1.25 USD/h`, VpnGw1AZ `0.21 USD/h`.
+Fuer ein **reines 336-Stunden-Rechenbeispiel** sind das
+`103.473216 + 420 + 70.56 = 594.033216 USD`, noch ohne Management und weitere BOM.
+Das erneuert keine Pilotfrist und ist weder Vertragspreis noch Gesamtkostenfreigabe.
+
+Laut [Billing](https://learn.microsoft.com/azure/container-apps/billing) und
+[Preisseite](https://azure.microsoft.com/en-us/pricing/details/container-apps/)
+faellt fuer Dedicated eine Managementgebuehr an; weitere ausgewaehlte
+Managementfeatures werden einzeln addiert. Hier ist **nur Dedicated** ausgewaehlt:
+kein ACA-Environment-Private-Endpoint, keine Planned Maintenance, kein Premium
+Ingress. VNet-internes ACA ist kein solcher Environment-Private-Endpoint.
+Der Retailkatalog enthaelt sowohl `Dedicated Plan Management` als auch ab
+2026-11-01 `Environment Management Hour`, jeweils `0.10 USD/h`.
+Das Rechenbeispiel fuehrt deshalb **eine** dedizierte Managementposition
+(`33.60 USD/336h`, Teilsumme `627.633216 USD`), nicht beide Namen als zwei
+ausgewaehlte Features. Der tatsaechlich anzuwendende Abrechnungsmeter und
+Vertrags-/Umstellungsbeleg bleiben vor Kostenfreigabe zu klaeren.
+
+Bei [VpnGw1AZ](https://azure.microsoft.com/en-us/pricing/details/vpn-gateway/)
+sind die ersten 128 P2S-Verbindungen eingeschlossen. Vier zugewiesene Benutzer
+sind weder vier laufende Verbindungen noch vier zusaetzlich kostenpflichtige
+Connection-Hours. S2S ist nicht ausgewaehlt; Ausgangsbandbreite bleibt separat.
+Firewall-Datenverarbeitung (`0.016 USD/GB`) und eventuelle Capacity-Unit-Gebuehren
+(`0.07 USD/CU-h`) sind keine Nullpositionen: laut
+[Prescaling-Regel](https://learn.microsoft.com/azure/firewall/prescaling) sind
+die zwei Defaultinstanzen von der zusaetzlichen CU-Gebuehr ausgenommen.
+Hier ist kein Prescaling ausgewaehlt; Konfiguration/Verbrauch muessen dennoch
+gelesen werden. Weglassen eines Feldes entfernt keine bestehenden Prescalingwerte.
+
+Die folgenden Positionen muessen **alle** in die abschliessende BOM, auch wenn
+ihr aktueller Preis oder die Nutzungsmenge noch offen ist:
+
+| Position | Kandidatenmenge / noch zu bepreisen |
+| --- | --- |
+| ACA | Ein D4-Knoten (4 vCPU/16 GiB), eine Dedicated-Managementposition, keine Apps im Pflicht-Consumption-Profil |
+| Eigener Netzrand | Eine Standard-Firewall/Policy, ein VpnGw1AZ, zwei eigene Standard-PIPs; Daten/CU/Bandwidth separat |
+| ACA-Plattformnetz | Zusaetzlicher providerverwalteter Standard-LB und Egress-PIP sowie Managementdaten laut [VNet-Dokumentation](https://learn.microsoft.com/azure/container-apps/custom-virtual-networks#managed-resources); nicht als kostenfrei oder durch Firewall ersetzt behandeln |
+| Private Netzauflosung | 15 Daten-/Monitor-DNS-Zonen plus ACA-Ingresszone; Resolver-Policy/Domainlisten/Link und DNS-Anfragen separat, kein eigener Resolver-Inbound-/Outbound-Endpunkt ausgewaehlt |
+| Private Endpoints | Neun Storage-Subresource-Endpunkte, je einer fuer ACR/Vault/SQL/Search/Foundry/AMPLS, zwei fuer Flex: Kandidat insgesamt17; reale Providerressourcen und Nutzungsgebuehren pruefen |
+| SQL | GP_Gen5 provisioniert2 vCores, max32 GiB, Local-PITR14 Tage; Speicher/Backups und zeitweilige Restorekopien separat |
+| Storage | Vier ZRS-Konten fuer Evidenz/Hosts/Pakete, ein LRS-Digestkonto; GB, Operationen, Versionen, Soft Delete und Backup-/Wiederherstellungsvolumen |
+| Registry / Vault / Search | Premium-ACR, Standard-Key-Vault, Search Basic1 Partition/1 Replikat; GB, Operationen und gegebenenfalls Sicherheitsprodukte |
+| Flex | Zwei FC1-Plaene; drei Always-ready-Gruppeninstanzen zu jeweils2048 MiB im Kandidaten, zusaetzliche Laufzeit/Executions/Skalierung nicht durch max40 je Gruppe als Kostenobergrenze gedeckelt |
+| Operator / optionaler Client | Genau ein eigener Linuxoperator ohne NVA; SKU/Image, OS-Disk, Bootdiagnostik und Werkzeugversorgung noch binden. Optional Windowsclient, Disk, Bastion/PIP und Lizenz nur bei separater Auswahl/Freigabe |
+| Modell / Monitor / Betrieb | Exaktes regionales Modell und Tokenlast, Logs/Metriken/Retention, Alerts/Zustellung, Bandwidth, temporare Ressourcen, Aufbewahrung und Restkosten nach Stop |
+
+Dies ist eine vollstaendige **Pruefliste der Kostenpositionen**, kein
+vollstaendig bezifferter oder genehmigter Gesamtpreis. Bestehende Budget- und
+Zeitgrenzen bleiben unveraendert. Ressourcenstopp beendet feste Firewall-/VPN-,
+D4-/Daten-/Disk-/Netzkosten nicht automatisch. Providerverwaltete
+`ME_...`-Ressourcen werden nicht anhand eines Namenspraefixes direkt geloescht;
+ihre tatsaechliche Bindung und spaetere Abwesenheit/Restabrechnung bleiben
+ein eigenes Lifecycle-Gate.
+
 Noch offen sind der echte SQL-/Entra-Nachweis, Plattform-/Ausfallpruefungen,
 vollstaendiger Deadline-/Aktivierungs-/Cleanupabschluss, produktbezogene
 Personenrechte, Alarmabnahme, Lizenzen, vollstaendige aktuelle Kosten sowie
@@ -145,6 +589,11 @@ die Sicherheitskontrollen und unbewerteten Scannerchecks.
 Runtimephasen bleiben geschlossen; ein bloss passender Manifest-SHA oeffnet sie
 nicht. Die nachfolgenden historischen Voraussetzungen sind kein Beleg, dass
 diese neuen Aufgaben schon abgeschlossen waeren.
+Die enge Hosted-Linux-Dateizugriffsreparatur ist separat abgeschlossen und wird
+nicht erneut ausgefuehrt. Ihr Nachweis ersetzt keinen Restore-/App-/Cloudpass.
+Die Primary-Apppublikation wartet unabhaengig auf die Entscheidung zu geerbten
+Office-Metadaten; diese Sperre wird weder durch die Netzquelle noch durch einen
+anderen Application-SHA umgangen.
 
 ## Artefakte und Architektur
 

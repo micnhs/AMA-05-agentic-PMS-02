@@ -1,0 +1,74 @@
+{
+  "contract": "cohors-primary-bootstrap-3",
+  "deploymentAuthorized": false,
+  "deploymentId": null,
+  "bindingHash": null,
+  "binding": {
+    "tenantId": null,
+    "subscriptionId": null,
+    "principalObjectId": null,
+    "oauthClientId": null
+  },
+  "controlTokenBindings": null,
+  "releaseBundle": {
+    "repository": null,
+    "applicationCommit": null,
+    "infrastructureCommit": null,
+    "runId": null,
+    "artifactId": null,
+    "artifactDigest": null,
+    "bundleSha256": null,
+    "validationRunId": null,
+    "validationRunAttempt": 1,
+    "applicationValidationRunId": null,
+    "applicationValidationRunAttempt": 1
+  },
+  "namePrefix": null,
+  "names": { "workloadResourceGroup": null, "accessResourceGroup": null },
+  "location": null,
+  "createdAtUtc": null,
+  "expiresAtUtc": null,
+  "hubBinding": {
+    "generation": null,
+    "bindingHash": null,
+    "resourceGroupId": null,
+    "infrastructureCommit": null
+  },
+  "containerAppsProfile": "D4",
+  "network": {
+    "vnet": null,
+    "containerApps": null,
+    "workflows": null,
+    "operations": null,
+    "privateEndpoints": null,
+    "operator": null,
+    "client": null,
+    "bastion": null
+  },
+  "edgePolicy": { "dnsDomains": [], "httpsRules": [] },
+  "access": {
+    "sshPublicKey": null,
+    "linuxImage": null,
+    "linuxVmSize": null,
+    "includeInteractiveClient": false,
+    "windowsImage": null,
+    "windowsVmSize": null,
+    "clientOperatorObjectIds": []
+  },
+  "model": {
+    "sku": "Standard",
+    "autoUpgrade": false,
+    "region": null,
+    "enabled": false,
+    "name": null,
+    "version": null,
+    "deploymentName": null,
+    "capacity": null
+  },
+  "actors": [],
+  "products": [],
+  "productGrants": {},
+  "alertEmailReceivers": [],
+  "boundaryReview": null,
+  "operationsSqlContract": null
+}

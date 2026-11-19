@@ -32,6 +32,8 @@ param endpointSubnetId string
 
 @description('All five AMPLS private DNS zone IDs, including the shared blob zone.')
 param privateDnsZoneIds string[]
+@description('Shared-hub consumer mode leaves AMPLS record registration to the hub owner.')
+param managePrivateDns bool = true
 
 @description('Non-sensitive cost and ownership tags.')
 param tags object
@@ -126,6 +128,7 @@ module endpoint 'private-endpoint.bicep' = {
     targetResourceId: scope.id
     groupId: 'azuremonitor'
     privateDnsZoneIds: privateDnsZoneIds
+    managePrivateDns: managePrivateDns
     tags: tags
   }
   dependsOn: [workspaceLink, insightsLink]

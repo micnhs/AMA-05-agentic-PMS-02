@@ -11,6 +11,11 @@ param environmentId string
 @allowed(['Consumption', 'D4'])
 param workloadProfileName string = 'Consumption'
 
+@description('Per-app ceiling, explicitly narrowed to one only by the single-node primary caller.')
+@minValue(1)
+@maxValue(10)
+param containerAppsMaxReplicas int = 3
+
 @description('Registry FQDN and immutable API/AgentHost image references.')
 param images object
 
@@ -40,6 +45,8 @@ param model object
 
 @description('Dedicated Flex subnets, endpoint subnet and Functions private DNS zone.')
 param network object
+@description('Shared-hub consumer mode never registers site/SCM DNS as a PE-zone-group side effect.')
+param managePrivateDns bool = true
 
 @description('Host accounts and dedicated package-container URIs for both Functions.')
 param functionStorage object
@@ -78,6 +85,8 @@ module agents 'container-app.bicep' = {
     location: location
     environmentId: environmentId
     workloadProfileName: workloadProfileName
+    minReplicas: 1
+    maxReplicas: containerAppsMaxReplicas
     image: images.agents
     registryServer: images.registry
     identityResourceId: identities.agents.id
@@ -118,6 +127,8 @@ module api 'container-app.bicep' = {
     location: location
     environmentId: environmentId
     workloadProfileName: workloadProfileName
+    minReplicas: 1
+    maxReplicas: containerAppsMaxReplicas
     image: images.api
     registryServer: images.registry
     identityResourceId: identities.api.id
@@ -156,6 +167,7 @@ module workflows 'flex-function.bicep' = {
     subnetId: network.workflowsSubnetId
     endpointSubnetId: network.endpointSubnetId
     privateDnsZoneId: network.functionsDnsZoneId
+    managePrivateDns: managePrivateDns
     identityResourceId: identities.workflows.id
     identityClientId: identities.workflows.clientId
     hostStorageAccountName: functionStorage.workflowsAccount
@@ -183,6 +195,7 @@ module operations 'flex-function.bicep' = {
     subnetId: network.operationsSubnetId
     endpointSubnetId: network.endpointSubnetId
     privateDnsZoneId: network.functionsDnsZoneId
+    managePrivateDns: managePrivateDns
     identityResourceId: identities.operations.id
     identityClientId: identities.operations.clientId
     hostStorageAccountName: functionStorage.operationsAccount
@@ -204,6 +217,10 @@ output apiUrl string = api.outputs.url
 output agentsUrl string = agents.outputs.url
 output workflowsUrl string = workflows.outputs.url
 output operationsUrl string = operations.outputs.url
+output privateHostNames object = {
+  workflows: workflows.outputs.enabledHostNames
+  operations: operations.outputs.enabledHostNames
+}
 output resources object = {
   api: api.outputs.id
   agents: agents.outputs.id

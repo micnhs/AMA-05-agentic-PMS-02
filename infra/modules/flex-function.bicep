@@ -12,6 +12,8 @@ param endpointSubnetId string
 
 @description('privatelink.azurewebsites.net resource ID.')
 param privateDnsZoneId string
+@description('Shared-hub consumer mode leaves site/SCM record registration to the hub owner.')
+param managePrivateDns bool = true
 
 @description('User-assigned identity resource ID with host/package storage data roles.')
 param identityResourceId string
@@ -144,9 +146,11 @@ module endpoint 'private-endpoint.bicep' = {
     targetResourceId: app.id
     groupId: 'sites'
     privateDnsZoneIds: [privateDnsZoneId]
+    managePrivateDns: managePrivateDns
     tags: tags
   }
 }
 
 output id string = app.id
 output url string = 'https://${app.properties.defaultHostName}'
+output enabledHostNames string[] = app.properties.enabledHostNames

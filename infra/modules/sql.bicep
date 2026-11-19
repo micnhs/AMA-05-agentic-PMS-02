@@ -45,6 +45,8 @@ param endpointSubnetId string
 
 @description('SQL private DNS zone resource ID.')
 param privateDnsZoneId string
+@description('Shared-hub consumer mode leaves record registration to the hub owner.')
+param managePrivateDns bool = true
 
 @description('Log Analytics workspace resource ID.')
 param workspaceId string
@@ -192,6 +194,7 @@ module endpoint 'private-endpoint.bicep' = {
     targetResourceId: server.id
     groupId: 'sqlServer'
     privateDnsZoneIds: [privateDnsZoneId]
+    managePrivateDns: managePrivateDns
     tags: tags
   }
 }

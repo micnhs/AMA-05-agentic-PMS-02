@@ -19,6 +19,8 @@ param zoneRedundant bool
 @description('Explicit hosting candidate. D4 is not selected implicitly by choosing a workload-profiles environment.')
 @allowed(['Consumption', 'D4'])
 param workloadProfileType string = 'Consumption'
+@description('False only for a shared-hub consumer; its actual default domain/static IP is registered by the hub owner.')
+param managePrivateDns bool = true
 
 @description('Non-sensitive cost and ownership tags.')
 param tags object
@@ -34,15 +36,19 @@ resource environment 'Microsoft.App/managedEnvironments@2025-07-01' = {
       internal: true
       infrastructureSubnetId: subnetId
     }
-    workloadProfiles: [
-      union({
-        name: workloadProfileType
-        workloadProfileType: workloadProfileType
-      }, workloadProfileType == 'Consumption' ? {} : {
+    workloadProfiles: concat([
+      {
+        name: 'Consumption'
+        workloadProfileType: 'Consumption'
+      }
+    ], workloadProfileType == 'D4' ? [
+      {
+        name: 'D4'
+        workloadProfileType: 'D4'
         minimumCount: 1
         maximumCount: 1
-      })
-    ]
+      }
+    ] : [])
     appLogsConfiguration: {
       destination: 'azure-monitor'
     }
@@ -66,7 +72,7 @@ resource logs 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
   }
 }
 
-module ingressDns 'private-ingress-dns.bicep' = {
+module ingressDns 'private-ingress-dns.bicep' = if (managePrivateDns) {
   name: 'ingress-dns-${name}'
   params: {
     name: name
@@ -79,4 +85,5 @@ module ingressDns 'private-ingress-dns.bicep' = {
 
 output id string = environment.id
 output defaultDomain string = environment.properties.defaultDomain
+output staticIp string = environment.properties.staticIp
 output workloadProfileName 'Consumption' | 'D4' = workloadProfileType

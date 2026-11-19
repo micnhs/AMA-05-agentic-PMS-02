@@ -1,0 +1,60 @@
+{
+  "contract": "cohors-shared-hub-bootstrap-1",
+  "deploymentAuthorized": false,
+  "deploymentId": null,
+  "generation": null,
+  "bindingHash": null,
+  "binding": {
+    "tenantId": null,
+    "subscriptionId": null,
+    "principalObjectId": null,
+    "oauthClientId": null
+  },
+  "controlTokenBindings": null,
+  "releaseBundle": {
+    "repository": null,
+    "applicationCommit": null,
+    "infrastructureCommit": null,
+    "runId": null,
+    "artifactId": null,
+    "artifactDigest": null,
+    "bundleSha256": null,
+    "validationRunId": null,
+    "validationRunAttempt": 1,
+    "applicationValidationRunId": null,
+    "applicationValidationRunAttempt": 1
+  },
+  "namePrefix": null,
+  "names": { "hubResourceGroup": null },
+  "location": null,
+  "createdAtUtc": null,
+  "expiresAtUtc": null,
+  "pilotBoundary": {
+    "createdAtUtc": null,
+    "expiresAtUtc": null,
+    "budgetBindingSha256": null,
+    "sourceEvidenceSha256": null
+  },
+  "consumerSlots": ["primary", "fabric"],
+  "network": {
+    "vnet": null,
+    "firewall": null,
+    "gateway": null,
+    "waf": null,
+    "endpoints": null,
+    "vpnClientPool": null,
+    "zones": null
+  },
+  "waf": {
+    "sku": "WAF_v2",
+    "frontendPrivateIp": null,
+    "instanceCount": null
+  },
+  "vpnUserObjectIds": null,
+  "resolvedUsersEvidenceSha256": null,
+  "addressReviewSha256": null,
+  "capacityReviewSha256": null,
+  "budgetBindingSha256": null,
+  "dnsZones": null,
+  "edgePolicy": { "dnsDomains": [], "httpsRules": [] }
+}

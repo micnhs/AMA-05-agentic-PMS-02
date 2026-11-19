@@ -30,6 +30,8 @@ param endpointSubnetId string
 
 @description('Private DNS zone IDs keyed by blob, queue and table.')
 param dns object
+@description('Shared-hub consumer mode never writes or joins shared private DNS zones.')
+param managePrivateDns bool = true
 
 @description('Log Analytics workspace resource ID for metrics only.')
 param workspaceId string
@@ -124,6 +126,7 @@ module endpoints 'private-endpoint.bicep' = [for service in services: {
     targetResourceId: account.id
     groupId: service
     privateDnsZoneIds: [dns[service]]
+    managePrivateDns: managePrivateDns
     tags: tags
   }
 }]

@@ -44,22 +44,32 @@ def qualified_artifact(binding):
 def require_hosted_qualification(binding):
     qualified_artifact(binding)
     run = github_json(f"repos/{binding['repository']}/actions/runs/{binding['validationRunId']}")
-    if (run.get("status") != "completed" or run.get("conclusion") != "success"
+    attempt = binding.get("validationRunAttempt", 1)
+    if (type(attempt) is not int or attempt < 1 or run.get("id") != binding["validationRunId"]
+            or run.get("run_attempt") != attempt or run.get("status") != "completed" or run.get("conclusion") != "success"
             or run.get("head_sha") != binding["infrastructureCommit"]
             or run.get("path") != ".github/workflows/cohors-ci.yml"
             or run.get("head_branch") != "micnhs-cohors-azure-infrastruktur"
             or run.get("repository", {}).get("full_name") != binding["repository"]
             or run.get("event") not in ("push", "workflow_dispatch")):
         raise GateError("The exact candidate lacks a completed successful security/native/application CI run.")
-    jobs = github_json(f"repos/{binding['repository']}/actions/runs/{binding['validationRunId']}/jobs?per_page=100")
+    jobs = github_json(f"repos/{binding['repository']}/actions/runs/{binding['validationRunId']}/attempts/{attempt}/jobs?per_page=100")
     expected = {"Bicep and local security gates": "success",
                 "Bound application acceptance (existing run)": "success",
                 "SQL, .NET and Chromium acceptance": "skipped"}
     if (jobs.get("total_count") != len(expected) or len(jobs.get("jobs", [])) != len(expected)
-            or {job.get("name"): job.get("conclusion") for job in jobs["jobs"]} != expected):
+            or {job.get("name"): job.get("conclusion") for job in jobs["jobs"]} != expected
+            or any(job.get("status") != "completed" or job.get("run_id") != binding["validationRunId"]
+                   or job.get("run_attempt") != attempt or job.get("head_sha") != binding["infrastructureCommit"]
+                   for job in jobs["jobs"])):
         raise GateError("Skipped, missing or failed qualification jobs cannot authorize provisioning.")
+    fresh_run = github_json(f"repos/{binding['repository']}/actions/runs/{binding['validationRunId']}")
+    if any(fresh_run.get(key) != run.get(key) for key in
+           ("id", "head_sha", "path", "head_branch", "repository", "event", "run_attempt", "status", "conclusion")):
+        raise GateError("The infrastructure qualification changed during readback; no stale release.")
     require_application_acceptance(binding["repository"], binding["applicationValidationRunId"],
-                                   binding["applicationCommit"], github_json)
+                                   binding["applicationCommit"], github_json,
+                                   expected_attempt=binding.get("applicationValidationRunAttempt", 1))
 
 
 def artifact_url(binding):
@@ -89,26 +99,9 @@ def artifact_url(binding):
     return url
 
 
-def nva_policy(manifest, platform=None):
-    policy = dict(manifest["nvaPolicy"])
-    policy.update(contract="cohors-nva-policy-1", expiresAtUtc=manifest["expiresAtUtc"],
-                  bindingHash=manifest["bindingHash"], sourceNetwork=manifest["network"]["vnet"],
-                  listenAddress=manifest["network"]["nvaPrivateIp"])
-    private = []
-    if platform:
-        for key, value in platform["endpoints"].items():
-            if key in ("sqlServer", "registry"):
-                private.append(value)
-            else:
-                private.append(urllib.parse.urlsplit(value).hostname)
-        private.extend(urllib.parse.urlsplit(value).hostname for value in platform.get("runtimeUrls", {}).values())
-    policy["privateOnlyHosts"] = sorted(set(private))
-    return policy
-
-
 def host_request(engine, phase, *, vm=None):
     manifest, outputs = engine.manifest, engine.outputs
-    network = outputs["phase-network"]
+    network = outputs["phase-edge-bind"]
     stage = outputs.get("phase-runtime") or outputs.get("phase-foundation") or {}
     request = {"contract": "cohors-primary-private-request-1", "bindingHash": manifest["bindingHash"],
                "phase": phase, "vmId": vm or network["access"]["operatorVmId"],
@@ -118,8 +111,7 @@ def host_request(engine, phase, *, vm=None):
                "platform": stage.get("platform"), "identities": network["access"]["identities"],
                "directory": outputs["phase-identities"],
                "runtimeIdentities": outputs.get("phase-grants", {}).get("runtimeIdentities", {}),
-               "model": manifest["model"], "boundaryReview": manifest["boundaryReview"],
-               "nvaPolicy": nva_policy(manifest, stage.get("platform"))}
+               "model": manifest["model"], "boundaryReview": manifest["boundaryReview"]}
     return request
 
 
@@ -243,18 +235,36 @@ def verify_model(engine):
             "noAutoUpgrade": True}
 
 
-def inventory(engine, *, allow_deleted=False):
-    from primary_bootstrap import own_group_ids
+def inventory(engine, *, allow_deleted=False, network_stage=None):
+    from primary_bootstrap import NETWORK_PHASES, assert_owned_id, own_group_ids
+    network_stage = network_stage or engine.outputs.get("phase-edge-bind") or engine.outputs.get("phase-network")
+    edge_ids = (network_stage or {}).get("edge", {}).get("resources", {})
+    if not edge_ids:
+        edge_ids = next((engine.outputs["edge-ownership-" + phase] for phase in reversed(NETWORK_PHASES)
+                         if "edge-ownership-" + phase in engine.outputs), {})
     result = {}
     for index, group in enumerate(own_group_ids(engine.manifest)):
         if allow_deleted and "cleanup-rg-" + str(index) in engine.outputs:
             continue
         rows = engine.client.collection(ARM + group + "/resources?api-version=2021-04-01")
         owned = {row["id"].lower() for row in rows
-                 if row.get("tags", {}).get("cohorsBinding") == engine.manifest["bindingHash"]}
+                 if (row.get("tags") or {}).get("cohorsBinding") == engine.manifest["bindingHash"]}
         for row in rows:
             if row["id"].lower() in owned:
                 continue
+            if (row.get("type", "").lower() == "microsoft.network/firewallpolicies"
+                    and row["id"].lower() == edge_ids.get("firewallPolicyId", "").lower()
+                    and (row.get("tags") or {}).get("cohorsBinding") is None
+                    and edge_ids.get("firewallId", "").lower() in owned):
+                assert_owned_id(row["id"], engine.manifest)
+                firewall = engine.client.get(ARM + edge_ids["firewallId"] + "?api-version=2024-07-01")
+                if (firewall.get("tags", {}).get("cohorsBinding") == engine.manifest["bindingHash"]
+                        and str(firewall.get("id", "")).lower() == edge_ids["firewallId"].lower()
+                        and firewall.get("properties", {}).get("firewallPolicy", {}).get("id", "").lower()
+                        == row["id"].lower()):
+                    # ARM policy tag persistence is a documented provider limitation.
+                    owned.add(row["id"].lower())
+                    continue
             # Managed OS disks have no inherited tag; their exact VM link must be read back.
             if row.get("type", "").lower() == "microsoft.compute/disks":
                 disk = engine.client.get(ARM + row["id"] + "?api-version=2024-03-02")
@@ -294,7 +304,7 @@ def cleanup(engine):
     if not captured:
         raise GateError("Cleanup needs the actual captured ownership inventory, not generated names alone.")
     current = inventory(engine, allow_deleted=True)
-    expected = {group: values for index, (group, values) in enumerate(captured.items())
+    expected = {group: captured[group] for index, group in enumerate(own_group_ids(engine.manifest))
                 if "cleanup-rg-" + str(index) not in engine.outputs}
     if current != expected:
         raise GateError("Resource inventory drifted; explicit ownership review is required before group deletion.")
@@ -332,8 +342,15 @@ def latest_inventory(engine):
                  if event["kind"] == "completed" and event["operation"].startswith("inventory-")), None)
 
 
-def checkpoint_inventory(engine, phase):
-    owned = inventory(engine)
+def checkpoint_inventory(engine, phase, network_stage=None):
+    owned = inventory(engine, network_stage=network_stage)
+    if network_stage and network_stage.get("edge", {}).get("resources"):
+        edge_ids = {key: network_stage["edge"]["resources"][key] for key in ("firewallId", "firewallPolicyId")}
+        operation = "edge-ownership-" + phase
+        if engine.journal.begin(operation, "READ-OWNED", phase, {"bindingHash": engine.manifest["bindingHash"]}):
+            engine.journal.complete(operation, edge_ids)
+        elif engine.outputs[operation] != edge_ids:
+            raise GateError("Owned Firewall/Policy bindings changed since the actual inventory checkpoint.")
     operation = "inventory-" + phase
     if engine.journal.begin(operation, "READ-OWNED", phase, {"bindingHash": engine.manifest["bindingHash"]}):
         engine.journal.complete(operation, owned)
@@ -342,23 +359,34 @@ def checkpoint_inventory(engine, phase):
 
 
 def execute_phase(engine, phase, approval):
+    from shared_hub import HUB_CONTRACT, PRIMARY_CONTRACT
+    if engine.manifest.get("contract") == HUB_CONTRACT:
+        from shared_hub_control import require_retirement
+        if phase not in ("stop", "cleanup"):
+            raise GateError("This non-ARM phase is not part of the shared network owner contract.")
+        require_retirement(engine)
+        if phase == "stop":
+            return {"bothConsumersOffboarded": True, "sharedNetworkStillBillableUntilExplicitCleanup": True}
+    if engine.manifest.get("contract") == PRIMARY_CONTRACT:
+        from shared_hub_control import require_consumer_offboarding, require_primary_phase_receipt
+        if phase == "cleanup":
+            require_consumer_offboarding(engine)
+        if phase in ("edge-policy", "runtime-policy", "client-access"):
+            receipt = require_primary_phase_receipt(engine, phase)
+            return {"hubReceiptSha256": receipt["receiptSha256"], "hubMutated": False,
+                    "trafficAccepted": False, "spaClientOrigin": "https://" + receipt["web"]["frontendHost"] if receipt["web"] else None}
     if phase == "stop":
         return stop(engine)
     if phase == "cleanup":
         return cleanup(engine)
-    if phase == "filter":
-        return run_private(engine, "filter-install", host_request(engine, "filter",
-                           vm=engine.outputs["phase-network"]["access"]["filterVmId"]))
     if phase == "initialize":
         observation = verify_model(engine)
-        run_private(engine, "filter-private-data", host_request(engine, "filter",
-                    vm=engine.outputs["phase-network"]["access"]["filterVmId"]))
         result = run_private(engine, "private-initialize", host_request(engine, phase))
         return {**result, "modelObservation": observation}
     if phase == "publish-functions":
         for role in ("workflows", "operations"):
             engine.arm_role("publish-" + role, engine.outputs["phase-runtime"]["platform"]["runtimeResources"][role],
-                            engine.outputs["phase-network"]["access"]["identities"]["publisher"]["objectId"],
+                            engine.outputs["phase-edge-bind"]["access"]["identities"]["publisher"]["objectId"],
                             "de139f84-1756-47ae-9be6-808fbbe84772")
     if phase in ("seed", "publish-functions"):
         return run_private(engine, "private-" + phase, host_request(engine, phase))
@@ -373,7 +401,9 @@ def reconcile(engine, plan):
         operation, details = event["operation"], event["details"]
         target = details["target"]
         if details["method"] == "PUT" and "/runCommands/" in target:
-            request_phase = ("filter" if operation.startswith("filter-") else operation.removeprefix("private-"))
+            if not operation.startswith("private-"):
+                raise GateError("No legacy NVA or unrecognized RunCommand may be adopted into the managed-edge profile.")
+            request_phase = operation.removeprefix("private-")
             vm = target.removeprefix(ARM).split("/runCommands/")[0]
             request = host_request(engine, request_phase, vm=vm)
             value = engine.client.get(target + "&$expand=instanceView")
