@@ -416,13 +416,32 @@ This source path has not created a role or demonstrated effective Azure access.
 Inherited grants, condition enforcement/propagation, private lease/read/write
 access and cross-path denials still need native evidence. It does not prove a
 checkpoint is immutable against a compromised writer or replace the separate
-Ledger/WORM contract. Ordered removal of both assignments and the own role
-definition remains part of the unfinished full cleanup; removing the resource
-group alone is not proof that the role definition is gone.
+Ledger/WORM contract. `CleanupBlobCheckpointAccess` now removes only the two
+original grants before the own role definition, using the original cleanup
+reserve and deadline even after normal execution expires. It validates the
+complete retained requests against the own storage/container, principals and
+role identity, and obtains fresh GET absence readbacks. An unattempted or
+explicitly rejected create is not ownership; a 404 after an uncertain create is
+not proof that no resource was created. Unknown creates/deletes only reconcile,
+never replay a write. Reappearing objects or changed observed creation metadata
+block deletion. All control/checkpoint journal write failures now fence further
+I/O until reopening the original journal; uncertain debits are not refunded.
+
+This is an inventory-cleanup component, not a worker/task stop or proof of
+effective authorization-cache revocation. Checkpoint data and service identities
+are not deleted by it. The full driver must order runtime shutdown/cancellation
+and data/identity teardown around this step; that integration and native deletion
+remain unproven. Removing the resource group alone is not proof that the role
+definition is gone. Extra assignments of the custom role must not be deleted
+by broad enumeration; a provider refusal leaves that role visible for review.
+ARM's documented PUT/DELETE contracts do not establish a conditional CAS fence
+against another privileged writer between the ownership read and mutation.
 Provider references: [custom role creation](https://learn.microsoft.com/rest/api/authorization/role-definitions/create-or-update?view=rest-authorization-2022-04-01),
 [role assignments](https://learn.microsoft.com/rest/api/authorization/role-assignments/create?view=rest-authorization-2022-04-01),
 [Blob path conditions](https://learn.microsoft.com/azure/storage/blobs/storage-auth-abac-examples#blob-container-names-or-paths)
-and [lease authorization](https://learn.microsoft.com/rest/api/storageservices/lease-blob#authorization).
+and [lease authorization](https://learn.microsoft.com/rest/api/storageservices/lease-blob#authorization),
+[assignment deletion](https://learn.microsoft.com/rest/api/authorization/role-assignments/delete?view=rest-authorization-2022-04-01)
+and [role-definition deletion](https://learn.microsoft.com/rest/api/authorization/role-definitions/delete?view=rest-authorization-2022-04-01).
 The existing 39 preparation mappings,
 18 execution fields and seven caller fields are unchanged; these additional
 storage documents are a separate implementation contract. All five full-driver

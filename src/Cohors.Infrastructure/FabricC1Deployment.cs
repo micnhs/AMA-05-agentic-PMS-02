@@ -872,20 +872,15 @@ public sealed partial class FabricC1Provisioner
         RequireCertainCheckpointJournal();
         Guard.Against(!FabricC1Deployment.ValidCleanupLimits(input), "c1_deploy_cleanup_limits",
             "A reviewed cleanup reserve must be bound before the first control-plane request.", 409);
-        var now = time.GetUtcNow();
         DateTimeOffset deadline;
         FabricC1DeploymentJournal next;
         if (cleanup)
         {
-            Guard.Against(uri.IdnHost != "graph.microsoft.com" || method != HttpMethod.Get && method != HttpMethod.Delete,
-                "c1_deploy_cleanup_scope", "Identity cleanup can only read or delete its bound Graph inventory.", 409);
-            var started = state.CleanupStartedAtUtc ?? now;
-            deadline = started.AddSeconds(input.Cleanup!.MaxDurationSeconds!.Value);
-            if (input.Cleanup.VerificationDeadlineUtc!.Value < deadline) deadline = input.Cleanup.VerificationDeadlineUtc.Value;
-            Guard.Against((long)state.Requests + PrepaidCheckpointRequests() >= input.MaxControlRequests ||
-                state.CleanupRequests >= input.Cleanup.ReservedRequests ||
-                now >= deadline, "c1_deploy_cleanup_budget", "Persisted cleanup reserve/deadline exhausted; no reset or request.", 409);
-            next = state with { Requests = state.Requests + 1, CleanupRequests = state.CleanupRequests + 1, CleanupStartedAtUtc = started };
+            Guard.Against(uri.Scheme != "https" || !uri.IsDefaultPort || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 ||
+                body is not null || method != HttpMethod.Get && method != HttpMethod.Delete ||
+                uri.IdnHost != "graph.microsoft.com" && !IsCheckpointAccessCleanupUri(uri),
+                "c1_deploy_cleanup_scope", "Cleanup can only read/delete its bound Graph or original checkpoint access inventory.", 409);
+            (next, deadline) = PlanCleanupRequests(1);
         }
         else
         {

@@ -169,12 +169,21 @@ access is intended. This requires explicit role-definition as well as
 role-assignment start rights and original-intent/readback ownership. It adds
 no rights to the four human VPN accounts. Source preparation is not a grant,
 an effective-access verdict or approval to start a paid partial deployment.
-Native condition enforcement, privilege propagation and ordered assignment/
+Native condition enforcement, privilege propagation and actual assignment/
 role-definition cleanup remain required before full-driver acceptance. Existing
 unjournaled roles/grants, changed permissions/scope/conditions and unknown missing
 write outcomes block progression rather than being adopted or reissued. A fresh
 readback is required after creation. This path does not start the C1 checkpoint
 clock or borrow its prepaid I/O; all IAM calls use the original control budget.
+The source cleanup component now checks the complete original request/ownership
+bindings, removes both grants before the subscription-level role definition and
+records fresh endpoint absence using the original cleanup reserve/deadline. It
+does not touch checkpoint data, human grants or other assignments of that role.
+Unknown creates/deletes, changed ownership and reappearing objects block replay
+or broad cleanup. Journal-write uncertainty now fences all control/checkpoint
+I/O, including request debits. Native effective revocation, provider concurrency
+semantics, prior worker/task shutdown and full teardown integration remain open;
+no full-cleanup, deadline-executor or native C1 pass is supplied by these contracts.
 
 The newly selected network graph replaces the earlier NAT candidate, not an
 existing resource: own Standard Firewall with DNS proxy and two fixed default

@@ -1146,6 +1146,296 @@ public sealed class FabricC1DeploymentTests
         Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put && request.Uri.AbsolutePath == plan[1].Id);
     }
 
+    [Fact]
+    public async Task CheckpointAccessCleanupUsesOriginalReserveAfterExpiryAndDeletesAssignmentsBeforeRole()
+    {
+        using var run = new Harness();
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        var started = run.Store.Current!.StartedAtUtc;
+        run.Clock.Advance(TimeSpan.FromHours(1));
+        QueueCheckpointAccessRemoval(run, resources);
+        var result = await run.Provisioner.CleanupBlobCheckpointAccess(default);
+        Assert.Equal("CheckpointAccessInventoryAbsent", result.Status);
+        Assert.Equal(resources.Select(resource => resource.Key), result.AbsentKeys);
+        Assert.Empty(result.UnresolvedKeys);
+        Assert.Empty(result.NotManagedKeys);
+        Assert.False(result.CompleteC1Cleanup);
+        Assert.Equal(resources.Select(resource => resource.Id),
+            run.Api.Requests.Where(request => request.Method == HttpMethod.Delete).Select(request => request.Uri.AbsolutePath));
+        Assert.Equal(18, run.Store.Current.Requests);
+        Assert.Equal(9, run.Store.Current.CleanupRequests);
+        Assert.Equal(started, run.Store.Current.StartedAtUtc);
+        var cleanupStart = run.Store.Current.CleanupStartedAtUtc;
+        Assert.All(result.AbsentKeys, key =>
+        {
+            var receipt = run.Store.Current.CleanupReceipts[key].Response;
+            Assert.False(receipt["effectiveAccessRevoked"]!.GetValue<bool>());
+            Assert.False(receipt["checkpointDataDeleted"]!.GetValue<bool>());
+            Assert.False(receipt["workersStopped"]!.GetValue<bool>());
+        });
+        Assert.Equal("c1_deploy_cleanup_started", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.Preflight(default))).Code);
+        run.Restart();
+        foreach (var _ in resources) run.Api.Reply(404, new());
+        Assert.Empty((await run.Provisioner.CleanupBlobCheckpointAccess(default)).UnresolvedKeys);
+        Assert.Equal(3, run.Api.Requests.Count(request => request.Method == HttpMethod.Delete));
+        Assert.Equal(12, run.Store.Current.CleanupRequests);
+        Assert.Equal(cleanupStart, run.Store.Current.CleanupStartedAtUtc);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CleanupNeverTreatsUnknownAccessCreateAsAbsenceOrReplaysItsPut(bool grant)
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var plan = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        if (grant)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, CheckpointAccessResponse(plan[0]));
+            run.Api.Reply(200, CheckpointAccessResponse(plan[0]));
+        }
+        var target = plan[grant ? 1 : 0];
+        run.Api.Reply(404, new());
+        run.Api.Fail(new IOException("synthetic lost access create"));
+        await Assert.ThrowsAsync<IOException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default));
+        run.Restart();
+        run.Api.Reply(404, new());
+        var unresolved = await run.Provisioner.CleanupBlobCheckpointAccess(default);
+        Assert.Contains(target.Key, unresolved.UnresolvedKeys);
+        Assert.Empty(unresolved.AbsentKeys);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+        Assert.True(run.Store.Current!.PendingCreates.ContainsKey(target.Key));
+        run.Restart();
+        QueueCheckpointAccessRemoval(run, grant ? [target, plan[0]] : [target]);
+        var completed = await run.Provisioner.CleanupBlobCheckpointAccess(default);
+        Assert.Empty(completed.UnresolvedKeys);
+        Assert.Equal(grant ? 2 : 1, completed.AbsentKeys.Length);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put && request.Uri.AbsolutePath == target.Id);
+    }
+
+    [Fact]
+    public async Task AccessPlanWithoutACreateAttemptNeverAuthorizesCleanupOfAnExistingRole()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var role = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control)[0];
+        run.Api.Reply(200, CheckpointAccessResponse(role));
+        Assert.Equal("c1_deploy_foreign", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default))).Code);
+        var result = await run.Provisioner.CleanupBlobCheckpointAccess(default);
+        Assert.Equal("CheckpointAccessNotManaged", result.Status);
+        Assert.Empty(result.AbsentKeys);
+        Assert.Equal(3, result.NotManagedKeys.Length);
+        Assert.Single(run.Api.Requests);
+    }
+
+    [Fact]
+    public async Task UnknownCheckpointAccessDeleteOnlyReconcilesAndKeepsTheRoleUntilBothGrantsAreAbsent()
+    {
+        using var run = new Harness();
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        run.Api.Reply(200, CheckpointAccessResponse(resources[0]));
+        run.Api.Fail(new IOException("synthetic lost access delete"));
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.CleanupBlobCheckpointAccess(default));
+        run.Restart();
+        run.Api.Reply(200, CheckpointAccessResponse(resources[0]));
+        Assert.Equal(3, (await run.Provisioner.CleanupBlobCheckpointAccess(default)).UnresolvedKeys.Length);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+        run.Restart();
+        run.Api.Reply(404, new());
+        QueueCheckpointAccessRemoval(run, resources.Skip(1));
+        Assert.Empty((await run.Provisioner.CleanupBlobCheckpointAccess(default)).UnresolvedKeys);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete && request.Uri.AbsolutePath == resources[0].Id);
+        Assert.Equal(3, run.Api.Requests.Count(request => request.Method == HttpMethod.Put));
+    }
+
+    [Theory]
+    [InlineData("scope")]
+    [InlineData("principal")]
+    [InlineData("missing-intent")]
+    public async Task CleanupRejectsChangedOrMissingOriginalAccessTargetsBeforeIo(string changed)
+    {
+        using var run = new Harness();
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        var key = resources[0].Key + "-intent";
+        var original = run.Store.Current!.Objects[key];
+        var body = (JsonObject)original.Response.DeepClone();
+        if (changed == "missing-intent") run.Store.Current.Objects.Remove(key);
+        else
+        {
+            var id = original.Id;
+            if (changed == "scope")
+            {
+                id = id.Replace(run.Input.SubscriptionId!, Guid.NewGuid().ToString("D"), StringComparison.Ordinal);
+                body["id"] = id;
+            }
+            else body["request"]!["properties"]!["principalId"] = Guid.NewGuid().ToString("D");
+            run.Store.Current.Objects[key] = original with
+                { Id = id, RequestHash = Canonical.Hash(body["request"]), Response = body };
+        }
+        run.Restart();
+        await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.CleanupBlobCheckpointAccess(default));
+        Assert.Equal(9, run.Api.Requests.Count);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Theory]
+    [InlineData("condition")]
+    [InlineData("description")]
+    [InlineData("createdOn")]
+    public async Task CleanupRefusesCurrentGrantDriftOrReplacementRatherThanDeletingIt(string changed)
+    {
+        using var run = new Harness();
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        var current = CheckpointAccessResponse(resources[0]);
+        current["properties"]![changed] = changed == "createdOn" ? "2026-11-18T12:01:00Z" : "not-the-original-value";
+        run.Api.Reply(200, current);
+        await Assert.ThrowsAsync<DomainException>(() => run.Provisioner.CleanupBlobCheckpointAccess(default));
+        Assert.Equal(10, run.Api.Requests.Count);
+        Assert.DoesNotContain(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
+    [Fact]
+    public async Task RejectedAccessDeleteCanResumeTheOriginalRequestWithoutRestartingCleanup()
+    {
+        using var run = new Harness();
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        run.Api.Reply(200, CheckpointAccessResponse(resources[0]));
+        run.Api.Reply(403, new());
+        Assert.Equal("c1_deploy_http_403", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupBlobCheckpointAccess(default))).Code);
+        var started = run.Store.Current!.CleanupStartedAtUtc;
+        Assert.Empty(run.Store.Current.PendingDeletes);
+        Assert.Equal(403, run.Store.Current.DeniedRequests["cleanup-" + resources[0].Key].Status);
+        run.Restart();
+        QueueCheckpointAccessRemoval(run, resources);
+        Assert.Empty((await run.Provisioner.CleanupBlobCheckpointAccess(default)).UnresolvedKeys);
+        Assert.Equal(started, run.Store.Current.CleanupStartedAtUtc);
+        Assert.Equal(11, run.Store.Current.CleanupRequests);
+        Assert.Equal(2, run.Api.Requests.Count(request => request.Method == HttpMethod.Delete && request.Uri.AbsolutePath == resources[0].Id));
+    }
+
+    [Fact]
+    public async Task ReappearingAccessAfterConfirmedAbsenceIsNotDeletedAgain()
+    {
+        using var run = new Harness();
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        QueueCheckpointAccessRemoval(run, resources);
+        await run.Provisioner.CleanupBlobCheckpointAccess(default);
+        run.Restart();
+        run.Api.Reply(200, CheckpointAccessResponse(resources[0]));
+        Assert.Equal("c1_deploy_cleanup_restored", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupBlobCheckpointAccess(default))).Code);
+        Assert.Equal(3, run.Api.Requests.Count(request => request.Method == HttpMethod.Delete));
+    }
+
+    [Fact]
+    public async Task UnknownAccessAbsenceSaveFencesFurtherCallsUntilOriginalJournalRecovery()
+    {
+        using var run = new Harness();
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        run.Api.Reply(200, CheckpointAccessResponse(resources[0]));
+        run.Api.Reply(200, CheckpointAccessResponse(resources[0]));
+        run.Api.ReplyComputed(404, () => { run.Store.FailAfterSave = true; return new(); });
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.CleanupBlobCheckpointAccess(default));
+        Assert.True(run.Store.Current!.CleanupReceipts.ContainsKey(resources[0].Key));
+        run.Store.FailAfterSave = false;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupBlobCheckpointAccess(default))).Code);
+        Assert.Equal(12, run.Api.Requests.Count);
+        run.Restart();
+        run.Api.Reply(404, new());
+        QueueCheckpointAccessRemoval(run, resources.Skip(1));
+        Assert.Empty((await run.Provisioner.CleanupBlobCheckpointAccess(default)).UnresolvedKeys);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete && request.Uri.AbsolutePath == resources[0].Id);
+    }
+
+    [Fact]
+    public async Task UnknownControlDebitSaveAlsoFencesNormalAndCleanupIoWithoutRefundingTheDebit()
+    {
+        using var run = new Harness();
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var resources = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        run.Api.Fail(new IOException("synthetic initial GET loss"));
+        await Assert.ThrowsAsync<IOException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default));
+        run.Store.FailAfterSave = true;
+        await Assert.ThrowsAsync<IOException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default));
+        Assert.Equal(2, run.Store.Current!.Requests);
+        run.Store.FailAfterSave = false;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default))).Code);
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupBlobCheckpointAccess(default))).Code);
+        Assert.Single(run.Api.Requests);
+        run.Restart();
+        foreach (var resource in resources)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, CheckpointAccessResponse(resource));
+            run.Api.Reply(200, CheckpointAccessResponse(resource));
+        }
+        await run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default);
+        Assert.Equal(11, run.Store.Current.Requests);
+        Assert.Equal(10, run.Api.Requests.Count);
+    }
+
+    [Fact]
+    public async Task CheckpointAccessCleanupCannotBorrowNormalBudgetAfterItsOwnReserveIsSpent()
+    {
+        using var run = new Harness(maxRequests: 21);
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        QueueCheckpointAccessRemoval(run, resources);
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupBlobCheckpointAccess(default))).Code);
+        Assert.Equal(7, run.Store.Current!.CleanupRequests);
+        Assert.Equal(16, run.Store.Current.Requests);
+        Assert.Equal(2, run.Api.Requests.Count(request => request.Method == HttpMethod.Delete));
+        run.Restart();
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupBlobCheckpointAccess(default))).Code);
+        Assert.Equal(16, run.Api.Requests.Count);
+    }
+
+    [Theory]
+    [InlineData(601)]
+    [InlineData(-1)]
+    public async Task OriginalAccessCleanupDeadlineAndClockFenceSurviveRestart(int elapsedSeconds)
+    {
+        using var run = new Harness();
+        await CreateCheckpointAccessForCleanup(run);
+        run.Api.Reply(404, new());
+        run.Api.Fail(new IOException("synthetic next access GET loss"));
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.CleanupBlobCheckpointAccess(default));
+        var started = run.Store.Current!.CleanupStartedAtUtc;
+        run.Clock.Advance(TimeSpan.FromSeconds(elapsedSeconds));
+        run.Restart();
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupBlobCheckpointAccess(default))).Code);
+        Assert.Equal(started, run.Store.Current.CleanupStartedAtUtc);
+        Assert.Equal(11, run.Api.Requests.Count);
+    }
+
+    [Fact]
+    public async Task AccessAbsenceReturnedAfterCleanupDeadlineCannotBeRecordedAsSuccess()
+    {
+        using var run = new Harness();
+        var resources = await CreateCheckpointAccessForCleanup(run);
+        run.Api.Reply(200, CheckpointAccessResponse(resources[0]));
+        run.Api.Reply(204, new());
+        run.Api.ReplyComputed(404, () => { run.Clock.Advance(TimeSpan.FromSeconds(601)); return new(); });
+        Assert.Equal("c1_deploy_cleanup_budget", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.CleanupBlobCheckpointAccess(default))).Code);
+        Assert.Empty(run.Store.Current!.CleanupReceipts);
+        Assert.True(run.Store.Current.PendingDeletes.ContainsKey(resources[0].Key));
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
+    }
+
     [Theory]
     [InlineData("operation")]
     [InlineData("profile")]
@@ -2950,7 +3240,11 @@ public sealed class FabricC1DeploymentTests
         public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext requestContext, CancellationToken cancellationToken) =>
             ValueTask.FromResult(GetToken(requestContext, cancellationToken));
     }
-    private sealed class Clock(DateTimeOffset now) : TimeProvider { public override DateTimeOffset GetUtcNow() => now; }
+    private sealed class Clock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+        public void Advance(TimeSpan elapsed) => now += elapsed;
+    }
     private sealed record Request(HttpMethod Method, Uri Uri, JsonObject? Body, string? ETag);
     private sealed class FakeApi : IFabricC1DeploymentApi
     {
@@ -3092,9 +3386,34 @@ public sealed class FabricC1DeploymentTests
         response["id"] = resource.Id;
         response["name"] = resource.Id.Split('/')[^1];
         response["type"] = "Microsoft.Authorization/" + (resource.Kind == "CheckpointStorageRole" ? "roleDefinitions" : "roleAssignments");
+        response["properties"]!["createdOn"] = "2026-11-18T12:00:00Z";
         if (resource.Kind == "CheckpointStorageGrant")
             response["properties"]!["scope"] = resource.Id[..resource.Id.LastIndexOf("/providers/", StringComparison.Ordinal)];
         return response;
+    }
+
+    private static async Task<FabricC1CheckpointAccessResource[]> CreateCheckpointAccessForCleanup(Harness run)
+    {
+        var (execution, direct, hosted, control) = CheckpointRuntimes(run);
+        var plan = run.Provisioner.PlanBlobCheckpointAccess(execution, direct, hosted, control);
+        foreach (var resource in plan)
+        {
+            run.Api.Reply(404, new());
+            run.Api.Reply(201, CheckpointAccessResponse(resource));
+            run.Api.Reply(200, CheckpointAccessResponse(resource));
+        }
+        await run.Provisioner.EnsureBlobCheckpointAccess(execution, direct, hosted, control, default);
+        return [plan[1], plan[2], plan[0]];
+    }
+
+    private static void QueueCheckpointAccessRemoval(Harness run, IEnumerable<FabricC1CheckpointAccessResource> resources)
+    {
+        foreach (var resource in resources)
+        {
+            run.Api.Reply(200, CheckpointAccessResponse(resource));
+            run.Api.Reply(200, CheckpointAccessResponse(resource));
+            run.Api.Reply(404, new());
+        }
     }
 
     private static (FabricC1ExecutionSettings Execution, FabricC1BlobCheckpointBinding Direct,

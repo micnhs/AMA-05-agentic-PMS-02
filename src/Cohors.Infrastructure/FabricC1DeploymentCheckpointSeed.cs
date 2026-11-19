@@ -26,7 +26,7 @@ public sealed partial class FabricC1Provisioner
             "c1_cloud_ci_prohibited", "The source build runner cannot materialize private checkpoint state.", 409);
         FabricC1Execution.RequireSourceBuild(execution);
         var endpoint = ValidateCheckpointDeployment(execution, binding);
-        RequireCheckpointContainer(binding);
+        RequireCheckpointContainer(binding.StorageAccountResourceId);
         FabricC1PrivateFiles.RequireFile(binding.Identity.CredentialReference!);
         using var credential = new FabricC1Credential(binding.Identity, 10);
         using var client = FabricC1Execution.PrivateHttpClient(endpoint, binding.PrivateAddresses, 10);
@@ -37,7 +37,7 @@ public sealed partial class FabricC1Provisioner
         FabricC1BlobCheckpointBinding binding, HttpClient client, TokenCredential credential, CancellationToken ct)
     {
         var endpoint = ValidateCheckpointDeployment(execution, binding);
-        RequireCheckpointContainer(binding);
+        RequireCheckpointContainer(binding.StorageAccountResourceId);
         var allocation = PrepareBlobCheckpoint(execution, binding);
         var deadline = allocation.Seed.Checkpoint.DeadlineUtc;
         Guard.Against(time.GetUtcNow() >= deadline, "c1_deploy_checkpoint_deadline",
@@ -135,12 +135,12 @@ public sealed partial class FabricC1Provisioner
         return receipt;
     }
 
-    private void RequireCheckpointContainer(FabricC1BlobCheckpointBinding binding)
+    private void RequireCheckpointContainer(string storageAccountResourceId)
     {
         var foundation = Owned("arm-foundation", "ArmDeployment");
         var container = foundation["properties"]?["outputs"]?["checkpointContainer"]?["value"] as JsonObject;
         Guard.Against(container is null ||
-            !SameArmId(container["id"]?.GetValue<string>(), binding.StorageAccountResourceId + "/blobServices/default/containers/c1-checkpoints") ||
+            !SameArmId(container["id"]?.GetValue<string>(), storageAccountResourceId + "/blobServices/default/containers/c1-checkpoints") ||
             !string.Equals(container["type"]?.GetValue<string>(), "Microsoft.Storage/storageAccounts/blobServices/containers",
                 StringComparison.OrdinalIgnoreCase) || container["properties"]?["publicAccess"]?.GetValue<string>() != "None",
             "c1_deploy_checkpoint_container", "The own completed foundation must bind the nonpublic checkpoint container.", 409);

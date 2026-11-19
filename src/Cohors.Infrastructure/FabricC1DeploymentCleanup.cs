@@ -16,6 +16,23 @@ public sealed partial class FabricC1Provisioner
     private sealed record IdentityCleanupTarget(string Key, string Kind, string Collection, string Name,
         JsonObject CreationBody, string FilterProperty = "displayName");
 
+    private (FabricC1DeploymentJournal Next, DateTimeOffset Deadline) PlanCleanupRequests(int requests)
+    {
+        RequireCertainCheckpointJournal();
+        Guard.Against(!FabricC1Deployment.ValidCleanupLimits(input), "c1_deploy_cleanup_limits", "Cleanup reserve is not bound.", 409);
+        var now = time.GetUtcNow();
+        var started = state.CleanupStartedAtUtc ?? now;
+        var deadline = started.AddSeconds(input.Cleanup!.MaxDurationSeconds!.Value);
+        if (input.Cleanup.VerificationDeadlineUtc!.Value < deadline) deadline = input.Cleanup.VerificationDeadlineUtc.Value;
+        Guard.Against(requests < 0 || (long)state.Requests + PrepaidCheckpointRequests() + requests > input.MaxControlRequests ||
+            (long)state.CleanupRequests + requests > input.Cleanup.ReservedRequests || now < started || now >= deadline,
+            "c1_deploy_cleanup_budget", "Persisted cleanup reserve/deadline exhausted; no reset or request.", 409);
+        return (state with
+        {
+            Requests = state.Requests + requests, CleanupRequests = state.CleanupRequests + requests, CleanupStartedAtUtc = started
+        }, deadline);
+    }
+
     public async Task<FabricC1IdentityCleanupResult> CleanupIdentityPhase(CancellationToken ct)
     {
         Guard.Against(!FabricC1Deployment.ValidCleanupLimits(input), "c1_deploy_cleanup_limits", "Cleanup reserve is not bound.", 409);

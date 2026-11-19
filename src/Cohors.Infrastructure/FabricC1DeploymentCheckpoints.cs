@@ -192,18 +192,18 @@ public sealed partial class FabricC1Provisioner
 
     private void SaveCheckpointJournal(FabricC1DeploymentJournal next)
     {
-        try { SaveJournal(next); }
-        catch { checkpointJournalUncertain = true; throw; }
+        SaveJournal(next);
         state = next;
     }
 
     private void RequireCertainCheckpointJournal() =>
         Guard.Against(checkpointJournalUncertain, "c1_deploy_checkpoint_journal_unknown",
-            "The local checkpoint debit may have persisted; reopen its original exclusive journal before any more work.", 409);
+            "The original control/checkpoint journal write may have persisted; reopen it exclusively before any more work.", 409);
 
     private void SaveJournal(FabricC1DeploymentJournal next)
     {
         RequireCertainCheckpointJournal();
-        journal.Save(next);
+        try { journal.Save(next); }
+        catch { checkpointJournalUncertain = true; throw; }
     }
 }

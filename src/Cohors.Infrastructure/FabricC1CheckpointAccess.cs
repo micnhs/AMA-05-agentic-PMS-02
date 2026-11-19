@@ -6,9 +6,20 @@ namespace Cohors.Infrastructure;
 
 public sealed record FabricC1CheckpointAccessResource(string Key, string Id, string Kind, JsonObject Request);
 
+public sealed record FabricC1CheckpointAccessCleanupResult(string Status, string[] AbsentKeys,
+    string[] UnresolvedKeys, string[] NotManagedKeys)
+{
+    public bool CompleteC1Cleanup => false;
+    public string Scope => "checkpoint-access-inventory-only-not-worker-stop-or-effective-revocation";
+}
+
 public sealed partial class FabricC1Provisioner
 {
     private const string BlobDataAction = "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/";
+    private static readonly string[] CheckpointAccessKeys =
+        ["checkpoint-storage-runtime-grant", "checkpoint-storage-control-grant", "checkpoint-storage-role"];
+    private string CheckpointRoleId => "/subscriptions/" + input.SubscriptionId +
+        "/providers/Microsoft.Authorization/roleDefinitions/" + GuidValue(input.DeploymentId!).ToString("D");
 
     public FabricC1CheckpointAccessResource[] PlanBlobCheckpointAccess(FabricC1ExecutionSettings execution,
         FabricC1BlobCheckpointBinding direct, FabricC1BlobCheckpointBinding hosted, FabricC1BlobCheckpointBinding control)
@@ -17,7 +28,7 @@ public sealed partial class FabricC1Provisioner
         var directEndpoint = ValidateCheckpointDeployment(execution, direct);
         var hostedEndpoint = ValidateCheckpointDeployment(execution, hosted);
         var controlEndpoint = ValidateCheckpointDeployment(execution, control);
-        RequireCheckpointContainer(direct);
+        RequireCheckpointContainer(direct.StorageAccountResourceId);
         Guard.Against(direct.Runtime != "direct" || hosted.Runtime != "hosted" || control.Runtime != "hosted-control" ||
             !SameArmId(direct.StorageAccountResourceId, hosted.StorageAccountResourceId) ||
             !SameArmId(direct.StorageAccountResourceId, control.StorageAccountResourceId) ||
@@ -27,8 +38,7 @@ public sealed partial class FabricC1Provisioner
             "c1_checkpoint_access_binding", "Separate own runtime/control callers and one original checkpoint account are required.", 409);
 
         var group = FabricC1Deployment.GroupId(input);
-        var roleId = "/subscriptions/" + input.SubscriptionId +
-            "/providers/Microsoft.Authorization/roleDefinitions/" + GuidValue(input.DeploymentId!).ToString("D");
+        var roleId = CheckpointRoleId;
         var container = direct.StorageAccountResourceId + "/blobServices/default/containers/c1-checkpoints";
         var definition = new JsonObject
         {
@@ -204,5 +214,202 @@ public sealed partial class FabricC1Provisioner
                     (actual["canDelegate"] is not JsonValue delegation || !delegation.TryGetValue<bool>(out var canDelegate) || canDelegate),
                 "c1_checkpoint_access_readback", "Checkpoint grant caller, exact path condition, container scope or delegation differs.", 409);
         }
+    }
+
+    public async Task<FabricC1CheckpointAccessCleanupResult> CleanupBlobCheckpointAccess(CancellationToken ct)
+    {
+        RequireCertainCheckpointJournal();
+        var resources = ReadCheckpointAccessIntents();
+        if (resources.Length == 0) return CheckpointAccessCleanupResult();
+        var (fenced, _) = PlanCleanupRequests(0);
+        if (state.CleanupStartedAtUtc is null) SaveCheckpointJournal(fenced);
+        foreach (var resource in resources)
+            if (!await DeleteCheckpointAccess(resource, ct)) break;
+        return CheckpointAccessCleanupResult();
+    }
+
+    private FabricC1CheckpointAccessResource[] ReadCheckpointAccessIntents()
+    {
+        Guard.Against(state.Objects.Keys.Any(key => key.StartsWith("checkpoint-storage-", StringComparison.Ordinal) &&
+                !CheckpointAccessKeys.Any(expected => key == expected || key == expected + "-intent")) ||
+            state.PendingCreates.Keys.Concat(state.PendingDeletes.Keys).Concat(state.CleanupReceipts.Keys)
+                .Any(key => key.StartsWith("checkpoint-storage-", StringComparison.Ordinal) && !CheckpointAccessKeys.Contains(key)),
+            "c1_checkpoint_access_cleanup_journal", "Unknown checkpoint access inventory cannot be omitted from cleanup.", 409);
+        if (CheckpointAccessKeys.All(key => !state.Objects.ContainsKey(key + "-intent")))
+        {
+            Guard.Against(CheckpointAccessKeys.Any(key => state.Objects.ContainsKey(key) ||
+                state.PendingCreates.ContainsKey(key) || state.PendingDeletes.ContainsKey(key) || state.CleanupReceipts.ContainsKey(key)),
+                "c1_checkpoint_access_cleanup_journal", "The original complete access intents are missing.", 409);
+            return [];
+        }
+        var foundation = Owned("arm-foundation", "ArmDeployment");
+        var storage = foundation["properties"]?["outputs"]?["storage"]?["value"] as JsonObject ??
+            throw new DomainException("c1_checkpoint_access_cleanup_journal", "Original storage ownership is missing.", 409);
+        RequireArmOwnership(storage);
+        var storageId = RequireTypedArmResource(storage, "Microsoft.Storage/storageAccounts");
+        RequireCheckpointContainer(storageId);
+        var resources = new List<FabricC1CheckpointAccessResource>();
+        foreach (var key in CheckpointAccessKeys)
+        {
+            if (!state.Objects.TryGetValue(key + "-intent", out var intent) || intent.Kind != "CheckpointStorageIntent")
+                throw new DomainException("c1_checkpoint_access_cleanup_journal", "The complete original access plan is required.", 409);
+            var resource = intent.Response.Deserialize<FabricC1CheckpointAccessResource>(Canonical.Json) ??
+                throw new DomainException("c1_checkpoint_access_cleanup_journal", "The original access request is missing.", 409);
+            var properties = resource.Request?["properties"] as JsonObject ??
+                throw new DomainException("c1_checkpoint_access_cleanup_journal", "The original access properties are missing.", 409);
+            var role = key == "checkpoint-storage-role";
+            Guard.Against(resource.Key != key || string.IsNullOrWhiteSpace(resource.Id) ||
+                resource.Kind != (role ? "CheckpointStorageRole" : "CheckpointStorageGrant") ||
+                !SameArmId(intent.Id, resource.Id) || intent.RequestHash != Canonical.Hash(resource.Request) ||
+                properties["description"]?.GetValue<string>() != Marker,
+                "c1_checkpoint_access_cleanup_journal", "Original access identity, marker or request hash differs.", 409);
+            if (role)
+            {
+                Guard.Against(!SameArmId(resource.Id, CheckpointRoleId) ||
+                    properties["roleName"]?.GetValue<string>() != "cohors-fabric-c1-checkpoint-" + GuidValue(input.DeploymentId!).ToString("D") ||
+                    properties["assignableScopes"] is not JsonArray { Count: 1 } scopes ||
+                    !SameArmId(scopes[0]?.GetValue<string>(), FabricC1Deployment.GroupId(input)),
+                    "c1_checkpoint_access_cleanup_journal", "Only the original own role definition is a cleanup target.", 409);
+            }
+            else
+            {
+                var name = key == "checkpoint-storage-runtime-grant" ? "runtime" : "control";
+                var principal = properties["principalId"]?.GetValue<string>() ??
+                    throw new DomainException("c1_checkpoint_access_cleanup_journal", "Original access principal is missing.", 409);
+                var identityRole = name == "control" ? "hosted-control" : "runtime";
+                var original = Owned(identityRole + "-sp", "ServicePrincipal");
+                RequireMarker(original, true);
+                SameId(principal, Text(original, "id"));
+                Guard.Against(GuidValue(principal) == GuidValue(input.BootstrapIdentity!.PrincipalObjectId!),
+                    "c1_deploy_cleanup_actor", "The initial deployer is never a checkpoint access target.", 409);
+                var separator = resource.Id.LastIndexOf("/providers/", StringComparison.Ordinal);
+                var container = separator < 0 ? "" : resource.Id[..separator];
+                var assignment = Guid.ParseExact(Canonical.Hash(new { state.BindingHash, role = name, principal, container })[..32], "N").ToString("D");
+                Guard.Against(!SameArmId(container, storageId + "/blobServices/default/containers/c1-checkpoints") ||
+                    !SameArmId(resource.Id, container + "/providers/Microsoft.Authorization/roleAssignments/" + assignment) ||
+                    !SameArmId(properties["roleDefinitionId"]?.GetValue<string>(), CheckpointRoleId) ||
+                    properties["principalType"]?.GetValue<string>() != "ServicePrincipal",
+                    "c1_checkpoint_access_cleanup_journal", "Only the original container and own runtime/control assignments can be removed.", 409);
+            }
+            state.Objects.TryGetValue(key, out var known);
+            state.PendingCreates.TryGetValue(key, out var pending);
+            Guard.Against(known is not null && (pending is not null || known.Kind != resource.Kind ||
+                    !SameArmId(known.Id, resource.Id) || known.RequestHash != intent.RequestHash) ||
+                pending is not null && pending != intent.RequestHash ||
+                known is null && (state.PendingDeletes.ContainsKey(key) || state.CleanupReceipts.ContainsKey(key)),
+                "c1_checkpoint_access_cleanup_journal", "The original create/delete inventory is inconsistent.", 409);
+            if (known is not null) VerifyCheckpointAccess(resource, known.Response);
+            resources.Add(resource);
+        }
+        return resources.ToArray();
+    }
+
+    private bool IsCheckpointAccessCleanupUri(Uri uri) =>
+        uri.Scheme == "https" && uri.IdnHost == "management.azure.com" && uri.IsDefaultPort &&
+        uri.UserInfo.Length == 0 && uri.Fragment.Length == 0 &&
+        ReadCheckpointAccessIntents().Any(resource =>
+            uri.AbsoluteUri == "https://management.azure.com" + resource.Id + "?api-version=2022-04-01" &&
+            (state.Objects.ContainsKey(resource.Key) || state.PendingCreates.ContainsKey(resource.Key)));
+
+    private async Task<bool> DeleteCheckpointAccess(FabricC1CheckpointAccessResource resource, CancellationToken ct)
+    {
+        state.Objects.TryGetValue(resource.Key, out var known);
+        var pendingCreate = state.PendingCreates.ContainsKey(resource.Key);
+        if (known is null && !pendingCreate) return true;
+        var uri = new Uri("https://management.azure.com" + resource.Id + "?api-version=2022-04-01");
+        var requestHash = Canonical.Hash(resource.Request);
+        var hash = Canonical.Hash(new { Method = "DELETE", Uri = uri.AbsoluteUri, RequestHash = requestHash, ObjectId = resource.Id });
+        state.PendingDeletes.TryGetValue(resource.Key, out var pending);
+        state.CleanupReceipts.TryGetValue(resource.Key, out var receipt);
+        Guard.Against(pending is not null && (pending != hash || receipt is not null) ||
+            receipt is not null && (receipt.Kind != "CheckpointAccessAbsent" || !SameArmId(receipt.Id, resource.Id) || receipt.RequestHash != hash) ||
+            state.DeniedRequests.TryGetValue("cleanup-" + resource.Key, out var rejected) &&
+                (rejected.RequestHash != hash || rejected.Status is not (401 or 403)),
+            "c1_checkpoint_access_cleanup_journal", "The original access deletion binding differs.", 409);
+        var current = await Send(HttpMethod.Get, uri, ct: ct, cleanup: true);
+        RequireStatus(current, 200, 404);
+        if (current.Status == 404)
+        {
+            if (known is null) return false;
+            RecordCheckpointAccessAbsence(resource, hash);
+            return true;
+        }
+        VerifyCheckpointAccess(resource, current.Body);
+        Guard.Against(receipt is not null, "c1_deploy_cleanup_restored",
+            "Previously absent checkpoint access reappeared; do not delete it automatically.", 409);
+        if (known is not null)
+            foreach (var field in new[] { "createdOn", "createdBy" })
+                Guard.Against(known.Response["properties"]?[field] is { } original &&
+                    Canonical.Hash(original) != Canonical.Hash(current.Body["properties"]?[field]),
+                    "c1_deploy_cleanup_restored", "Checkpoint access creation metadata changed.", 409);
+        if (pending is not null) return false;
+        PlanCleanupRequests(0);
+        if (known is null)
+        {
+            var creates = new Dictionary<string, string>(state.PendingCreates, StringComparer.Ordinal);
+            creates.Remove(resource.Key);
+            SaveCheckpointJournal(state with
+            {
+                PendingCreates = creates,
+                Objects = new(state.Objects, StringComparer.Ordinal)
+                { [resource.Key] = new(resource.Kind, resource.Id, requestHash, (JsonObject)current.Body.DeepClone()) }
+            });
+        }
+        SaveCheckpointJournal(state with
+        { PendingDeletes = new(state.PendingDeletes, StringComparer.Ordinal) { [resource.Key] = hash } });
+        var deleted = await Send(HttpMethod.Delete, uri, ct: ct, cleanup: true);
+        if (deleted.Status is 401 or 403)
+        {
+            var deletes = new Dictionary<string, string>(state.PendingDeletes, StringComparer.Ordinal);
+            deletes.Remove(resource.Key);
+            SaveCheckpointJournal(state with
+            {
+                PendingDeletes = deletes,
+                DeniedRequests = new(state.DeniedRequests, StringComparer.Ordinal)
+                { ["cleanup-" + resource.Key] = new(hash, deleted.Status) }
+            });
+        }
+        RequireStatus(deleted, 200, 204, 404);
+        if (deleted.Status == 200) VerifyCheckpointAccess(resource, deleted.Body);
+        var readback = await Send(HttpMethod.Get, uri, ct: ct, cleanup: true);
+        RequireStatus(readback, 200, 404);
+        if (readback.Status == 200)
+        {
+            VerifyCheckpointAccess(resource, readback.Body);
+            return false;
+        }
+        RecordCheckpointAccessAbsence(resource, hash);
+        return true;
+    }
+
+    private void RecordCheckpointAccessAbsence(FabricC1CheckpointAccessResource resource, string hash)
+    {
+        PlanCleanupRequests(0);
+        var deletes = new Dictionary<string, string>(state.PendingDeletes, StringComparer.Ordinal);
+        deletes.Remove(resource.Key);
+        SaveCheckpointJournal(state with
+        {
+            PendingDeletes = deletes,
+            CleanupReceipts = new(state.CleanupReceipts, StringComparer.Ordinal)
+            {
+                [resource.Key] = new("CheckpointAccessAbsent", resource.Id, hash, new()
+                {
+                    ["status"] = "ActiveArmEndpointNotFound", ["observedAtUtc"] = time.GetUtcNow().ToString("O"),
+                    ["effectiveAccessRevoked"] = false, ["checkpointDataDeleted"] = false, ["workersStopped"] = false
+                })
+            }
+        });
+    }
+
+    private FabricC1CheckpointAccessCleanupResult CheckpointAccessCleanupResult()
+    {
+        var absent = CheckpointAccessKeys.Where(key => state.CleanupReceipts.ContainsKey(key)).ToArray();
+        var unresolved = CheckpointAccessKeys.Where(key => state.PendingCreates.ContainsKey(key) ||
+            state.PendingDeletes.ContainsKey(key) || state.Objects.ContainsKey(key) && !state.CleanupReceipts.ContainsKey(key)).ToArray();
+        var notManaged = CheckpointAccessKeys.Where(key => !state.Objects.ContainsKey(key) && !state.PendingCreates.ContainsKey(key)).ToArray();
+        var status = unresolved.Length != 0 ? "CheckpointAccessCleanupPendingReconciliation" :
+            notManaged.Length == CheckpointAccessKeys.Length ? "CheckpointAccessNotManaged" : "CheckpointAccessInventoryAbsent";
+        return new(status,
+            absent, unresolved, notManaged);
     }
 }
