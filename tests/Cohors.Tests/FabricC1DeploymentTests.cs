@@ -1527,8 +1527,8 @@ public sealed class FabricC1DeploymentTests
         artifact.QueueGuestAgent();
         run.Api.Reply(200, completed);
         Assert.Equal(Canonical.Hash(result), Canonical.Hash(await artifact.Deliver()));
-        Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Put &&
-            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal)));
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put &&
+            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1549,8 +1549,8 @@ public sealed class FabricC1DeploymentTests
         artifact.QueueGuestAgent();
         run.Api.ReplyComputed(200, () => artifact.Command("Succeeded"));
         Assert.True((await artifact.Deliver()).ArtifactVerified);
-        Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Put &&
-            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal)));
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put &&
+            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1593,8 +1593,8 @@ public sealed class FabricC1DeploymentTests
         artifact.QueueGuestAgent();
         run.Api.ReplyComputed(200, () => artifact.Command("Succeeded"));
         Assert.True((await artifact.Deliver()).ArtifactVerified);
-        Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Put &&
-            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal)));
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Put &&
+            request.Uri.AbsolutePath.Contains("/runCommands/", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -1761,7 +1761,7 @@ public sealed class FabricC1DeploymentTests
         Assert.False(result.CompleteC1Cleanup);
         Assert.Equal(requests, run.Store.Current.Requests);
         Assert.Equal(4, run.Store.Current.CleanupRequests);
-        var deletion = Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Delete));
+        var deletion = Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
         Assert.Equal("https://management.azure.com" + result.CommandResourceId + "?api-version=2024-07-01", deletion.Uri.AbsoluteUri);
     }
 
@@ -1784,7 +1784,7 @@ public sealed class FabricC1DeploymentTests
         run.Api.Reply(404, new());
         Assert.Equal("ArtifactCommandInventoryAbsent", (await run.Provisioner.CleanupPrivateArtifactDelivery(default)).Status);
         Assert.Equal(started, run.Store.Current.CleanupStartedAtUtc);
-        Assert.Single(run.Api.Requests.Where(request => request.Method == HttpMethod.Delete));
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Delete);
     }
 
     [Fact]
