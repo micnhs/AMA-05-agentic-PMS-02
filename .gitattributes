@@ -26,6 +26,8 @@ docs/requirements/coordinator-* -text
 docs/requirements/extract-cohors-terminology.py -text
 # Approved Fabric inputs and their reviewed distribution manifest are hash-bound bytes.
 docs/fabric/baseline/** -text whitespace=cr-at-eol
+# Keep the infrastructure owner's schema and synthetic collector fixtures byte-identical.
+tests/fixtures/fabric/shared-hub/*.json -text whitespace=cr-at-eol
 src/Cohors.Api/ReportFonts/*.ttf binary
 src/Cohors.Api/ReportFonts/*LICENSE -text
 # Preserve the hash-pinned upstream license, including its trailing space.

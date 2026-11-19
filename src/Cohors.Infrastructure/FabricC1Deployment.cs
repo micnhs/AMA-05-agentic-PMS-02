@@ -12,6 +12,8 @@ public sealed record FabricC1DeploymentNetwork(string? VnetPrefix, string? Clien
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public FabricC1OperatorNetwork? OperatorAccess { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FabricC1SharedHubBinding? SharedHub { get; init; }
 }
 public sealed record FabricC1DeploymentCompute(string? Size, string? ImagePublisher, string? ImageOffer,
     string? ImageSku, string? ImageVersion, string? SshPublicKey);
@@ -88,7 +90,8 @@ public static partial class FabricC1Deployment
             Required("network.egressReviewSha256", FabricC1Execution.Hex(network.EgressReviewSha256, 64));
             Required("network.operatorReviewSha256", FabricC1Execution.Hex(network.OperatorReviewSha256, 64));
             Required("network.prefixes", ValidPrefixes(network));
-            foreach (var missingNetworkInput in OperatorNetworkMissingInputs(input))
+            foreach (var missingNetworkInput in network.SharedHub is not null ? SharedHubMissingInputs(input) :
+                new[] { "network.sharedHub" }.Concat(OperatorNetworkMissingInputs(input)))
                 Required(missingNetworkInput, false);
         }
         Required("compute", input.Compute is not null);
@@ -113,11 +116,11 @@ public static partial class FabricC1Deployment
         return new("Blocked", Canonical.Hash(input), missing.ToArray(), ImplementationBlockers.ToArray(),
         [
             "Own resource group; one F2, overage disabled",
-            "Own VNet, separate workload/internal/operator-endpoint subnets; no public VM IP or peering",
-            "Own Standard Azure Firewall with DNS proxy, exact reviewed HTTPS FQDNs and workload-only default routes; no NAT gateway",
-            "Own VpnGw1AZ/OpenVPN gateway and restricted own Entra audience; GatewaySubnet has no NSG/default route",
-            "Two dedicated Standard static IPv4 addresses for firewall and active-passive VPN, not public application endpoints",
-            "Private DNS, Fabric workspace PLS/PE, Foundry/ACR/Vault/Blob PE",
+            "Own four-subnet Fabric spoke; no public VM IP, local gateway/firewall or spoke-to-spoke route",
+            "Owner-issued shared-hub receipt; own spoke-to-hub peering uses reserved/peered/connected handshake",
+            "Shared Firewall/P2S/WAF/DNS remain infrastructure-owned; exact source-scoped egress and four-user VPN hashes only",
+            "Own Fabric workspace PLS/PE and Foundry/ACR/Vault/Blob PE; DNS records/links remain hub-owner-only",
+            "No consumer DNS zone groups, shared VPN application, WAF listener or hub IAM writes",
             "Foundry account with network injection from creation and separate project identity",
             "Premium ACR, RBAC Key Vault, private Blob evidence storage, private probe VM",
             "Own checkpoint read/write-only custom role limited to this group; separate exact-path runtime/control container grants",
@@ -126,7 +129,7 @@ public static partial class FabricC1Deployment
         ],
         [
             "Graph application with public certificate, service principal, exact ownership",
-            "Separate credential-free VPN audience and operator assignment; not a Fabric runtime identity or Cohors approval role",
+            "Read-only hub/audience binding; VPN grants neither Fabric runtime nor Cohors approval roles",
             "Fabric capacity ID readback; owned workspaces; full Deny/Deny communication policies with ETags",
             "Owned Lakehouse/DataAgent item APIs, published definition readback, scoped workspace assignments",
             "Private source/credential/Hosted bootstrap and complete output binding: BLOCKED, see implementationBlockers"
@@ -326,7 +329,15 @@ public sealed partial class FabricC1Provisioner
             "Microsoft.Authorization/roleDefinitions/write", "Microsoft.Authorization/roleDefinitions/delete",
             "Microsoft.CognitiveServices/accounts/write", "Microsoft.ContainerRegistry/registries/write",
             "Microsoft.KeyVault/vaults/write", "Microsoft.Storage/storageAccounts/write"
-        })
+        }.Where(action => input.Network?.SharedHub is null || action is not (
+            "Microsoft.Network/azureFirewalls/write" or "Microsoft.Network/firewallPolicies/write" or
+            "Microsoft.Network/firewallPolicies/ruleCollectionGroups/write" or "Microsoft.Network/virtualNetworkGateways/write" or
+            "Microsoft.Network/publicIPAddresses/write" or "Microsoft.Network/privateDnsZones/write"))
+            .Concat(input.Network?.SharedHub is null ? [] : new[]
+            {
+                "Microsoft.Network/virtualNetworks/virtualNetworkPeerings/read", "Microsoft.Network/virtualNetworks/virtualNetworkPeerings/write",
+                "Microsoft.Network/virtualNetworks/virtualNetworkPeerings/delete"
+            }))
             Guard.Against(!FabricC1Deployment.AllowsAction(values, action), "c1_deploy_rights", "Required ARM creation action is absent.", 403);
         Guard.Against(permissions["nextLink"] is not null, "c1_deploy_permissions_paging", "Incomplete permission response; no assumed rights.", 403);
         // ARM permissions are not Graph consent, Fabric policy, data-plane grants or a guarantee against Azure Policy/deny assignments.
@@ -525,7 +536,9 @@ public sealed partial class FabricC1Provisioner
 
     public async Task<JsonObject> DeployArm(string stage, JsonObject template, JsonObject parameters, CancellationToken ct)
     {
-        Guard.Against(stage is not ("network-access" or "foundation" or "private-endpoints"), "c1_deploy_stage", "Unknown ARM stage.", 409);
+        if (input.Network?.SharedHub is not null)
+            await ValidateSharedHubArmStage(stage, template, parameters, ct);
+        else Guard.Against(stage is not ("network-access" or "foundation" or "private-endpoints"), "c1_deploy_stage", "Unknown ARM stage.", 409);
         if (stage == "network-access")
             Guard.Against(!JsonNode.DeepEquals(parameters, OperatorNetworkArmParameters()),
                 "c1_deploy_operator_network", "Network parameters must originate from the own verified VPN identity.", 409);
@@ -971,6 +984,7 @@ public sealed partial class FabricC1Provisioner
         string? ifMatch = null, CancellationToken ct = default, bool cleanup = false, DateTimeOffset? operationDeadlineUtc = null)
     {
         RequireCertainCheckpointJournal();
+        FabricC1Deployment.RequireSharedHubMutationScope(input, method, uri);
         Guard.Against(!FabricC1Deployment.ValidCleanupLimits(input), "c1_deploy_cleanup_limits",
             "A reviewed cleanup reserve must be bound before the first control-plane request.", 409);
         DateTimeOffset deadline;

@@ -153,6 +153,13 @@ $cleanupRefusal = Get-Content -LiteralPath $cleanupLog -Raw | ConvertFrom-Json
 if ($cleanupRefusal.code -cne 'c1_deploy_ci_prohibited' -or (Test-Path -LiteralPath (Join-Path $temporary 'not-created-cleanup.json'))) {
     throw 'Cleanup acquired credentials or invented an inventory on the build runner.'
 }
+$hubLog = Join-Path $temporary 'hub-bind-refusal.log'
+dotnet src/Cohors.Api/bin/Release/net10.0/Cohors.Api.dll --fabric-c1-deploy bind-hub --manifest (Join-Path $temporary 'not-read-hub-manifest.json') --journal (Join-Path $temporary 'not-created-hub.json') --hub-receipt (Join-Path $temporary 'not-read-hub.json') 2> $hubLog
+if ($LASTEXITCODE -ne 2) { throw 'Hub readback is forbidden on the credential-free build runner.' }
+$hubRefusal = Get-Content -LiteralPath $hubLog -Raw | ConvertFrom-Json
+if ($hubRefusal.code -cne 'c1_deploy_ci_prohibited' -or (Test-Path -LiteralPath (Join-Path $temporary 'not-created-hub.json'))) {
+    throw 'Hub import read private bindings, acquired credentials or started an inventory on the build runner.'
+}
 [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
 $testSummary = @()
 foreach ($class in $classes) {

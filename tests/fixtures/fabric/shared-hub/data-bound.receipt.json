@@ -1,0 +1,396 @@
+{
+  "contract": "cohors-shared-hub-consumer-1",
+  "generation": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  "revision": 4,
+  "hubBindingHash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "consumer": "fabric",
+  "consumerBindingHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "state": "data-bound",
+  "expiresAtUtc": "2026-11-29T00:00:00Z",
+  "hub": {
+    "resourceGroupId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub",
+    "vnetId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub",
+    "location": "francecentral",
+    "addressPrefix": "10.80.0.0/16",
+    "subnets": {
+      "firewall": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/AzureFirewallSubnet",
+        "addressPrefix": "10.80.0.0/26"
+      },
+      "gateway": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/GatewaySubnet",
+        "addressPrefix": "10.80.0.64/27"
+      },
+      "waf": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/snet-waf",
+        "addressPrefix": "10.80.1.0/24"
+      },
+      "endpoints": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/snet-hub-endpoints",
+        "addressPrefix": "10.80.2.0/27"
+      }
+    },
+    "firewallId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/azureFirewalls/afw-testhub-hub",
+    "firewallPolicyId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub",
+    "firewallPrivateIp": "10.80.0.10",
+    "vpnGatewayId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworkGateways/vgw-testhub-hub",
+    "dnsPolicyId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub",
+    "dnsServerIp": "10.80.0.10",
+    "wafId": null,
+    "wafPrivateIp": null
+  },
+  "spoke": {
+    "resourceGroupId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload",
+    "vnetId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke",
+    "location": "francecentral",
+    "addressPrefix": "10.82.0.0/16",
+    "subnets": {
+      "client": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke/subnets/client",
+        "addressPrefix": "10.82.0.0/26"
+      },
+      "agents": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke/subnets/agents",
+        "addressPrefix": "10.82.1.0/26"
+      },
+      "endpoints": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke/subnets/endpoints",
+        "addressPrefix": "10.82.2.0/26"
+      },
+      "operatorEndpoints": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke/subnets/operatorEndpoints",
+        "addressPrefix": "10.82.3.0/26"
+      }
+    }
+  },
+  "peering": {
+    "hubToSpoke": {
+      "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/virtualNetworkPeerings/to-fabric",
+      "remoteVirtualNetworkId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke",
+      "allowVirtualNetworkAccess": true,
+      "allowForwardedTraffic": false,
+      "allowGatewayTransit": true,
+      "useRemoteGateways": false,
+      "peeringState": "Connected"
+    },
+    "spokeToHub": {
+      "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke/virtualNetworkPeerings/to-shared-hub",
+      "remoteVirtualNetworkId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub",
+      "allowVirtualNetworkAccess": true,
+      "allowForwardedTraffic": true,
+      "allowGatewayTransit": false,
+      "useRemoteGateways": true,
+      "peeringState": "Connected"
+    }
+  },
+  "vpn": {
+    "audienceClientId": "aaaaaaaa-0000-4000-8000-000000000011",
+    "servicePrincipalObjectId": "aaaaaaaa-0000-4000-8000-000000000012",
+    "assignmentRequired": true,
+    "userSetSha256": "66b10ee832884325130488d8ce667e59deaac41f27a1b4c0986a8ab2698cc296",
+    "resolvedUsersEvidenceSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "businessRolesChanged": false,
+    "clientPool": "172.28.240.0/24"
+  },
+  "dns": {
+    "owner": "hub",
+    "registrationMode": "hub-owner-only-no-consumer-zone-groups",
+    "zones": [
+      {
+        "name": "privatelink.blob.core.windows.net",
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net"
+      },
+      {
+        "name": "privatelink.vaultcore.azure.net",
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net"
+      }
+    ],
+    "recordSets": [
+      "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/A/artifact"
+    ]
+  },
+  "egress": {
+    "defaultNextHop": "VirtualAppliance",
+    "nextHopIp": "10.80.0.10",
+    "bgpPropagation": true,
+    "hubPrefixRoute": false,
+    "spokeToSpoke": false,
+    "vpnDatabaseAccess": false,
+    "dnsDomains": [
+      "login.microsoftonline.com"
+    ],
+    "httpsRules": [
+      {
+        "name": "fabric-identity",
+        "sourceAddresses": [
+          "10.82.0.0/26"
+        ],
+        "targetFqdns": [
+          "login.microsoftonline.com"
+        ]
+      }
+    ]
+  },
+  "web": null,
+  "operatorEndpoints": [
+    {
+      "privateEndpointId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/privateEndpoints/pe-artifact",
+      "addresses": [
+        "10.82.3.10"
+      ],
+      "fqdns": [
+        "artifact.blob.core.windows.net"
+      ],
+      "port": 443
+    }
+  ],
+  "ownership": {
+    "hubLifecycleOwner": "hub",
+    "consumerMayCreateHub": false,
+    "consumerMayDeleteHub": false,
+    "consumerMayChangeSharedDirectory": false,
+    "consumerMayChangeHubDns": false,
+    "offboarding": "stop-own-work-then-owner-releases-exact-consumer-references",
+    "sharedFailureDomain": true
+  },
+  "readback": {
+    "observedAtUtc": "2026-11-19T08:00:00Z",
+    "infrastructureCommit": "dddddddddddddddddddddddddddddddddddddddd",
+    "compiledTemplateSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "deploymentResourceId": "/subscriptions/11111111-2222-4333-8444-555555555555/providers/Microsoft.Resources/deployments/synthetic-hub-bindings-000004",
+    "resources": [
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/networkInterfaces/pe-artifact",
+        "apiVersion": "2024-07-01",
+        "sha256": "128d56f09e81c5727320bf01bd4b7572685cd664e49a094ad93d8c3d62633487",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/networkSecurityGroups/agents",
+        "apiVersion": "2024-07-01",
+        "sha256": "5a234d32dfa74f480fe6bc284950b335ace95206750197caa15218ec216524e5",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/networkSecurityGroups/client",
+        "apiVersion": "2024-07-01",
+        "sha256": "78b00414d59ab302cca05860b956f95a34b8466f88a79419788e0f6d74d8a44d",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/networkSecurityGroups/endpoints",
+        "apiVersion": "2024-07-01",
+        "sha256": "6e79f7aac1402596c759f86848defbde25822cd13c679358921add670a46678c",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/networkSecurityGroups/operatorEndpoints",
+        "apiVersion": "2024-07-01",
+        "sha256": "50f441b14fb4c4611d9e3388bf40864c193dde7d183ee39ee4405a83df1d1207",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/privateEndpoints/pe-artifact",
+        "apiVersion": "2024-07-01",
+        "sha256": "d3d6efa5c906be05e52f5e9752fb802947491500399c9616fe7e2155c39561e2",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/routeTables/controlled-egress",
+        "apiVersion": "2024-07-01",
+        "sha256": "37c8d91b53c58dec5074f29f749d83b1e67b20e33442acc37fc93c12fcc0ea38",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke",
+        "apiVersion": "2024-07-01",
+        "sha256": "5998889bb0d74d760b8b5000c493dc6c847613bf5acfcc8030db9859d17fbf56",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-fabric-workload/providers/Microsoft.Network/virtualNetworks/vnet-fabric-spoke/virtualNetworkPeerings/to-shared-hub",
+        "apiVersion": "2024-07-01",
+        "sha256": "ac1e2a53f1dbf66f3ed6d2514b93b1a08d1460bd68c9efef9b7899bf8ebf1463",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.KeyVault/vaults/kv-synthetic-hub",
+        "apiVersion": "2024-11-01",
+        "sha256": "8b064b3b93695b07a7214f2c74aeeec091f7ef7bb159bf3f3be7470bb0ac1b2f",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-testhub-waf",
+        "apiVersion": "2024-11-30",
+        "sha256": "70f3fe13fb44ad65e5e6319c78675bb61047f006f8859949ce39bf2c31b7b979",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/azureFirewalls/afw-testhub-hub",
+        "apiVersion": "2024-07-01",
+        "sha256": "7753872b475e9afc19d7c8e5644d00fdb99820261ad3587d90c9aea5942964e3",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverDomainLists/dnsdl-testhub-allow",
+        "apiVersion": "2025-05-01",
+        "sha256": "23ea0f873da7546e9b2f9252cfc48250c572a08f6d405523b6e32e94c03f49f5",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverDomainLists/dnsdl-testhub-deny",
+        "apiVersion": "2025-05-01",
+        "sha256": "ee55f31c216fdfc43735403c08050aaae4c62fc8ee8abdfeff0a96897a176f46",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub",
+        "apiVersion": "2025-05-01",
+        "sha256": "6b574a93c76d9d62f9df3e23d3f7478ff99c83cd84a5857f73b477f3b55903c7",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/dnsSecurityRules/allow-reviewed-domains",
+        "apiVersion": "2025-05-01",
+        "sha256": "326d847bad94726223ab54dc12bcf668216ae4ef4756deb9c2616a7913a6afa1",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/dnsSecurityRules/deny-unmatched",
+        "apiVersion": "2025-05-01",
+        "sha256": "acbc400d9dc2c464a8ca13152a8cca4bc0b87778ce95c1c1a195572fba4ea7dd",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/virtualNetworkLinks/shared-hub",
+        "apiVersion": "2025-05-01",
+        "sha256": "c79f85354236e08323580300e33c7617c5ddde7ea8901fd250d3e270c4dccda1",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub",
+        "apiVersion": "2024-07-01",
+        "sha256": "53fbf12ab1b69f66760b4ee9c1ebf34655f75e5ae915839d6c5c03dbff6e3fcb",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub/ruleCollectionGroups/private-data-no-egress",
+        "apiVersion": "2024-07-01",
+        "sha256": "f5dec0d605fc4590f06cdf8e888721ad1ca366ab3638593c75b9918aa6f9d092",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub/ruleCollectionGroups/reviewed-https",
+        "apiVersion": "2024-07-01",
+        "sha256": "4a4c23112400bf6234b89cb3ffc6bb58f3365a5f57af8fbebb1de221fa54d2c4",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkInterfaces/pe-testhub-vault",
+        "apiVersion": "2024-07-01",
+        "sha256": "2abb17a90e168eb868b477dd10aa1d55c7e6908c0442fc6ef636153fd9bbb76b",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkSecurityGroups/nsg-testhub-pe",
+        "apiVersion": "2024-07-01",
+        "sha256": "4ebe2ebb6397825abba8448c9301c3d15a8fd14edfdd70104d20ffe57d92645a",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkSecurityGroups/nsg-testhub-waf",
+        "apiVersion": "2024-07-01",
+        "sha256": "29ae6193b4c0aa95c7d298354a25567e5124c2f800d638e319290ba696c4e7f6",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net",
+        "apiVersion": "2020-06-01",
+        "sha256": "d23869f47c79a58b34ab67d4d91a4a75e310f2bd019d009847fa75f2be76644c",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/A/artifact",
+        "apiVersion": "2020-06-01",
+        "sha256": "99bb11a0f64615082e384d5a2fec43d18552acc407f52c47de18c47d21966cc6",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/virtualNetworkLinks/consumer-fabric",
+        "apiVersion": "2020-06-01",
+        "sha256": "1d791047804e7badb6a8e8d1b1107ed86aac6437bdd6d1d53c0af562fcdcc950",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/virtualNetworkLinks/hub",
+        "apiVersion": "2020-06-01",
+        "sha256": "53d336d92f1277cba60b0ddbdb43429fdcfb67e9410cba7ee87211566cd705ad",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net",
+        "apiVersion": "2020-06-01",
+        "sha256": "ea0fd689e31dff84d5e63b257b21f859ea9ab04f999c996c37b7c8e38e7f485c",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net/virtualNetworkLinks/consumer-fabric",
+        "apiVersion": "2020-06-01",
+        "sha256": "87830580eafe697dbc7bb754e4b8ab612b494e8c5336a84c0a73c6df672471c1",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net/virtualNetworkLinks/hub",
+        "apiVersion": "2020-06-01",
+        "sha256": "672fff5ac245634c2c24794aa040953f0c7a8d324740a5c713960808039f41e4",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateEndpoints/pe-testhub-vault",
+        "apiVersion": "2024-07-01",
+        "sha256": "ed863d5d6fa1f209360b45e7da7d59e527422f5166192252c58b774bc02e9197",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/publicIPAddresses/pip-testhub-firewall",
+        "apiVersion": "2024-07-01",
+        "sha256": "0beb33be4edd52340e23776fb45800ee6596ad317caf6b7aaac391d2ca40e108",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/publicIPAddresses/pip-testhub-vpn",
+        "apiVersion": "2024-07-01",
+        "sha256": "6a33a79997a59f0163cd4a14991059f173664988a477449b806220cc8d5e5dbc",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/routeTables/rt-testhub-waf",
+        "apiVersion": "2024-07-01",
+        "sha256": "f77e9645b7d437a7ec009648e9bb05f2de562808b09c76f8c95b1aa2561d5811",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworkGateways/vgw-testhub-hub",
+        "apiVersion": "2024-07-01",
+        "sha256": "63c8cb816858d8ecadb50d897a169722d3a413723a5090fd6aad4a3c4b75b070",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub",
+        "apiVersion": "2024-07-01",
+        "sha256": "a752e8efdcc325ce5a6bc852d06c6600b8acba12764b57b174fcb19f56da58bc",
+        "etag": "W/\"synthetic-fixture-1\""
+      },
+      {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/virtualNetworkPeerings/to-fabric",
+        "apiVersion": "2024-07-01",
+        "sha256": "7de2dc7c2a63e509f324e9497650996fbb0b4e8c6fbf97234ebd1b5a0e63ed1c",
+        "etag": "W/\"synthetic-fixture-1\""
+      }
+    ],
+    "trafficAccepted": false,
+    "capacityAccepted": false,
+    "costAccepted": false
+  },
+  "receiptSha256": "2aa0a24d1c46a21fb16f745bd7d4e8badae83afcd2ebfe94c142e077d0aad275"
+}

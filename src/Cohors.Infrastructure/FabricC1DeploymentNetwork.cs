@@ -104,7 +104,7 @@ public static partial class FabricC1Deployment
 
 public sealed partial class FabricC1Provisioner
 {
-    private string[] CleanupIdentityRoles => input.Network?.OperatorAccess is null
+    private string[] CleanupIdentityRoles => input.Network?.OperatorAccess is null || input.Network.SharedHub is not null
         ? IdentityRoles : [.. IdentityRoles, FabricC1Deployment.VpnIdentityRole];
     private string[] OperatorVpnUsers => FabricC1Deployment.VpnUserObjectIds(input, allowHistoricalCleanup: true);
     private string OperatorVpnAssignmentKey(string user) =>
@@ -114,7 +114,7 @@ public sealed partial class FabricC1Provisioner
 
     public async Task EnsureOperatorNetworkIdentity(FabricC1GraphRights rights, CancellationToken ct)
     {
-        Guard.Against(FabricC1Deployment.OperatorNetworkMissingInputs(input).Length != 0 ||
+        Guard.Against(input.Network?.SharedHub is not null || FabricC1Deployment.OperatorNetworkMissingInputs(input).Length != 0 ||
             input.BootstrapIdentity?.CredentialKind != "DelegatedAzureCli",
             "c1_deploy_operator_network", "This operator connection requires the original explicitly bound delegated user.", 409);
         rights.Require(FabricC1GraphOperation.OwnApplications);
@@ -281,7 +281,7 @@ public sealed partial class FabricC1Provisioner
 
     public JsonObject OperatorNetworkArmParameters()
     {
-        Guard.Against(FabricC1Deployment.OperatorNetworkMissingInputs(input).Length != 0,
+        Guard.Against(input.Network?.SharedHub is not null || FabricC1Deployment.OperatorNetworkMissingInputs(input).Length != 0,
             "c1_deploy_operator_network", "The selected isolated operator network is not completely bound.", 409);
         var app = Owned(FabricC1Deployment.VpnIdentityRole + "-app", "Application");
         var principal = Owned(FabricC1Deployment.VpnIdentityRole + "-sp", "ServicePrincipal");
@@ -307,7 +307,7 @@ public sealed partial class FabricC1Provisioner
 
     public JsonObject NetworkedFoundationArmParameters()
     {
-        Guard.Against(FabricC1Deployment.OperatorNetworkMissingInputs(input).Length != 0,
+        Guard.Against(input.Network?.SharedHub is not null || FabricC1Deployment.OperatorNetworkMissingInputs(input).Length != 0,
             "c1_deploy_operator_network", "Foundation needs the complete selected operator network binding.", 409);
         var parameters = FabricC1Deployment.ArmParameters(input);
         parameters["firewallPrivateIp"] = new JsonObject { ["value"] = BoundFirewallPrivateAddress() };

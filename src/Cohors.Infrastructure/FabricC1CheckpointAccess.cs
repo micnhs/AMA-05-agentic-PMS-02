@@ -15,13 +15,24 @@ public sealed record FabricC1CheckpointAccessCleanupResult(string Status, string
     public string Scope => "checkpoint-access-inventory-only-not-worker-stop-or-effective-revocation";
 }
 
+public static partial class FabricC1Deployment
+{
+    internal static string CheckpointStorageRoleId(FabricC1DeploymentInputs input) => "/subscriptions/" + input.SubscriptionId +
+        "/providers/Microsoft.Authorization/roleDefinitions/" + Guid.Parse(input.DeploymentId!).ToString("D");
+
+    internal static string ArtifactStorageRoleId(FabricC1DeploymentInputs input, string purpose)
+    {
+        var id = Guid.ParseExact(Canonical.Hash(new { BindingHash = Canonical.Hash(input), role = "artifact-" + purpose })[..32], "N").ToString("D");
+        return "/subscriptions/" + input.SubscriptionId + "/providers/Microsoft.Authorization/roleDefinitions/" + id;
+    }
+}
+
 public sealed partial class FabricC1Provisioner
 {
     private const string BlobDataAction = "Microsoft.Storage/storageAccounts/blobServices/containers/blobs/";
     private static readonly string[] CheckpointAccessKeys =
         ["checkpoint-storage-runtime-grant", "checkpoint-storage-control-grant", "checkpoint-storage-role"];
-    private string CheckpointRoleId => "/subscriptions/" + input.SubscriptionId +
-        "/providers/Microsoft.Authorization/roleDefinitions/" + GuidValue(input.DeploymentId!).ToString("D");
+    private string CheckpointRoleId => FabricC1Deployment.CheckpointStorageRoleId(input);
 
     public FabricC1CheckpointAccessResource[] PlanBlobCheckpointAccess(FabricC1ExecutionSettings execution,
         FabricC1BlobCheckpointBinding direct, FabricC1BlobCheckpointBinding hosted, FabricC1BlobCheckpointBinding control)

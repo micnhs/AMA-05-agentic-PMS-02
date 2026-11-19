@@ -133,9 +133,8 @@ public sealed partial class FabricC1Provisioner
         var path = state.BindingHash + "/" + input.SourceCommit + "/" + Text(target, "outerArchiveSha256") + ".zip";
         FabricC1StorageAccessResource Role(string purpose, string[] actions)
         {
-            var id = Guid.ParseExact(Canonical.Hash(new { state.BindingHash, role = "artifact-" + purpose })[..32], "N").ToString("D");
             return new("artifact-storage-" + purpose + "-role",
-                "/subscriptions/" + input.SubscriptionId + "/providers/Microsoft.Authorization/roleDefinitions/" + id,
+                FabricC1Deployment.ArtifactStorageRoleId(input, purpose),
                 "ArtifactStorageRole", new()
                 {
                     ["properties"] = new JsonObject

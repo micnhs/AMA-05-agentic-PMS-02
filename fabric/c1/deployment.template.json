@@ -24,20 +24,20 @@
     "endpointPrefix": null,
     "egressReviewSha256": null,
     "operatorReviewSha256": null,
-    "operatorAccess": {
-      "contract": "cohors-fabric-c1-operator-network-1",
-      "gatewayPrefix": null,
-      "firewallPrefix": null,
+    "sharedHub": {
+      "contract": "cohors-shared-hub-consumer-1",
+      "schemaSha256": "43eee0651b0525f42115185540324e447a78ff0ff82eba73dd1087187c10ca19",
+      "generation": null,
+      "hubBindingHash": null,
+      "resourceGroupId": null,
+      "infrastructureCommit": null,
+      "compiledTemplateSha256": null,
       "operatorEndpointPrefix": null,
-      "vpnClientPrefix": null,
-      "operatorObjectId": null,
-      "vpnUsers": {
-        "objectIds": [],
-        "authorizationSha256": null,
-        "directoryEvidenceSha256": null
-      },
+      "vpnUserSetSha256": null,
+      "resolvedUsersEvidenceSha256": null,
       "excludedPrefixes": [],
-      "httpsEgressFqdns": [],
+      "dnsDomains": [],
+      "httpsRules": [],
       "addressPlanReviewSha256": null,
       "clientPrerequisitesReviewSha256": null
     }

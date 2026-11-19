@@ -1,0 +1,746 @@
+{
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.KeyVault/vaults/kv-synthetic-hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.KeyVault/vaults/kv-synthetic-hub",
+    "name": "kv-synthetic-hub",
+    "type": "Microsoft.KeyVault/vaults",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "publicNetworkAccess": "Disabled",
+      "enableRbacAuthorization": true,
+      "enablePurgeProtection": true,
+      "enableSoftDelete": true,
+      "softDeleteRetentionInDays": 90,
+      "enabledForDeployment": false,
+      "enabledForDiskEncryption": false,
+      "enabledForTemplateDeployment": false,
+      "networkAcls": {
+        "bypass": "None",
+        "defaultAction": "Deny",
+        "ipRules": [],
+        "virtualNetworkRules": []
+      },
+      "vaultUri": "https://kv-synthetic-hub.vault.azure.net/"
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-testhub-waf": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-testhub-waf",
+    "name": "id-testhub-waf",
+    "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "principalId": "aaaaaaaa-0000-4000-8000-000000000001"
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/azureFirewalls/afw-testhub-hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/azureFirewalls/afw-testhub-hub",
+    "name": "afw-testhub-hub",
+    "type": "Microsoft.Network/azureFirewalls",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "sku": {
+        "name": "AZFW_VNet",
+        "tier": "Standard"
+      },
+      "firewallPolicy": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub"
+      },
+      "ipConfigurations": [
+        {
+          "properties": {
+            "privateIPAddress": "10.80.0.10",
+            "subnet": {
+              "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/AzureFirewallSubnet"
+            },
+            "publicIPAddress": {
+              "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/publicIPAddresses/pip-testhub-firewall"
+            }
+          }
+        }
+      ]
+    },
+    "zones": [
+      "1"
+    ]
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverDomainLists/dnsdl-testhub-allow": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverDomainLists/dnsdl-testhub-allow",
+    "name": "dnsdl-testhub-allow",
+    "type": "Microsoft.Network/dnsResolverDomainLists",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "domains": [
+        "kv-synthetic-hub.vault.azure.net",
+        "privatelink.blob.core.windows.net",
+        "privatelink.vaultcore.azure.net"
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverDomainLists/dnsdl-testhub-deny": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverDomainLists/dnsdl-testhub-deny",
+    "name": "dnsdl-testhub-deny",
+    "type": "Microsoft.Network/dnsResolverDomainLists",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "domains": [
+        "."
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub",
+    "name": "dnsp-testhub-hub",
+    "type": "Microsoft.Network/dnsResolverPolicies",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded"
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/dnsSecurityRules/allow-reviewed-domains": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/dnsSecurityRules/allow-reviewed-domains",
+    "name": "allow-reviewed-domains",
+    "type": "Microsoft.Network/dnsResolverPolicies/dnsSecurityRules",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "dnsSecurityRuleState": "Enabled",
+      "priority": 100,
+      "action": {
+        "actionType": "Allow"
+      },
+      "dnsResolverDomainLists": [
+        {
+          "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverDomainLists/dnsdl-testhub-allow"
+        }
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/dnsSecurityRules/deny-unmatched": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/dnsSecurityRules/deny-unmatched",
+    "name": "deny-unmatched",
+    "type": "Microsoft.Network/dnsResolverPolicies/dnsSecurityRules",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "dnsSecurityRuleState": "Enabled",
+      "priority": 65000,
+      "action": {
+        "actionType": "Block"
+      },
+      "dnsResolverDomainLists": [
+        {
+          "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverDomainLists/dnsdl-testhub-deny"
+        }
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/virtualNetworkLinks/shared-hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/dnsResolverPolicies/dnsp-testhub-hub/virtualNetworkLinks/shared-hub",
+    "name": "shared-hub",
+    "type": "Microsoft.Network/dnsResolverPolicies/virtualNetworkLinks",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "virtualNetwork": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub"
+      }
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub",
+    "name": "afwp-testhub-hub",
+    "type": "Microsoft.Network/firewallPolicies",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {},
+    "properties": {
+      "provisioningState": "Succeeded",
+      "sku": {
+        "tier": "Standard"
+      },
+      "threatIntelMode": "Deny",
+      "dnsSettings": {
+        "enableProxy": true,
+        "requireProxyForNetworkRules": true
+      }
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub/ruleCollectionGroups/private-data-no-egress": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub/ruleCollectionGroups/private-data-no-egress",
+    "name": "private-data-no-egress",
+    "type": "Microsoft.Network/firewallPolicies/ruleCollectionGroups",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {},
+    "properties": {
+      "provisioningState": "Succeeded",
+      "priority": 100,
+      "ruleCollections": [
+        {
+          "name": "deny-spoke-transit",
+          "priority": 100,
+          "ruleCollectionType": "FirewallPolicyFilterRuleCollection",
+          "action": {
+            "type": "Deny"
+          },
+          "rules": [
+            {
+              "name": "no-implicit-private-transit",
+              "ruleType": "NetworkRule",
+              "ipProtocols": [
+                "Any"
+              ],
+              "sourceAddresses": [
+                "10.80.1.0/24",
+                "172.28.240.0/24"
+              ],
+              "destinationAddresses": [
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16"
+              ],
+              "destinationPorts": [
+                "*"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "deny-private-data-egress",
+          "priority": 110,
+          "ruleCollectionType": "FirewallPolicyFilterRuleCollection",
+          "action": {
+            "type": "Deny"
+          },
+          "rules": [
+            {
+              "name": "private-data-stays-private",
+              "ruleType": "NetworkRule",
+              "ipProtocols": [
+                "TCP"
+              ],
+              "sourceAddresses": [
+                "10.80.1.0/24",
+                "172.28.240.0/24"
+              ],
+              "destinationFqdns": [
+                "kv-synthetic-hub.vault.azure.net"
+              ],
+              "destinationPorts": [
+                "443",
+                "1433"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub/ruleCollectionGroups/reviewed-https": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/firewallPolicies/afwp-testhub-hub/ruleCollectionGroups/reviewed-https",
+    "name": "reviewed-https",
+    "type": "Microsoft.Network/firewallPolicies/ruleCollectionGroups",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {},
+    "properties": {
+      "provisioningState": "Succeeded",
+      "priority": 200,
+      "ruleCollections": []
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkInterfaces/pe-testhub-vault": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkInterfaces/pe-testhub-vault",
+    "name": "pe-testhub-vault",
+    "type": "Microsoft.Network/networkInterfaces",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {},
+    "properties": {
+      "provisioningState": "Succeeded",
+      "ipConfigurations": [
+        {
+          "properties": {
+            "subnet": {
+              "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/snet-hub-endpoints"
+            },
+            "privateIPAddress": "10.80.2.10",
+            "privateLinkConnectionProperties": {
+              "fqdns": [
+                "kv-synthetic-hub.vault.azure.net"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkSecurityGroups/nsg-testhub-pe": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkSecurityGroups/nsg-testhub-pe",
+    "name": "nsg-testhub-pe",
+    "type": "Microsoft.Network/networkSecurityGroups",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "securityRules": [
+        {
+          "name": "WafPrivateVaultOnly",
+          "properties": {
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "sourceAddressPrefix": "10.80.1.0/24",
+            "destinationAddressPrefix": "10.80.2.0/27",
+            "sourcePortRange": "*",
+            "destinationPortRange": "443",
+            "priority": 100
+          }
+        },
+        {
+          "name": "DenyOtherInbound",
+          "properties": {
+            "direction": "Inbound",
+            "access": "Deny",
+            "protocol": "*",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "*",
+            "sourcePortRange": "*",
+            "destinationPortRange": "*",
+            "priority": 4096
+          }
+        }
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkSecurityGroups/nsg-testhub-waf": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkSecurityGroups/nsg-testhub-waf",
+    "name": "nsg-testhub-waf",
+    "type": "Microsoft.Network/networkSecurityGroups",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "securityRules": [
+        {
+          "name": "RequiredAzureLoadBalancerHealth",
+          "properties": {
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "*",
+            "sourceAddressPrefix": "AzureLoadBalancer",
+            "destinationAddressPrefix": "*",
+            "sourcePortRange": "*",
+            "destinationPortRange": "*",
+            "priority": 110
+          }
+        },
+        {
+          "name": "DenyOtherInbound",
+          "properties": {
+            "direction": "Inbound",
+            "access": "Deny",
+            "protocol": "*",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "*",
+            "sourcePortRange": "*",
+            "destinationPortRange": "*",
+            "priority": 4096
+          }
+        },
+        {
+          "name": "HubDnsProxyOnly",
+          "properties": {
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "*",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "10.80.0.10",
+            "sourcePortRange": "*",
+            "destinationPortRange": "53",
+            "priority": 110
+          }
+        },
+        {
+          "name": "ReviewedHttpsViaFirewall",
+          "properties": {
+            "direction": "Outbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "Internet",
+            "sourcePortRange": "*",
+            "destinationPortRange": "443",
+            "priority": 120
+          }
+        },
+        {
+          "name": "DenyPlatformDnsBypass",
+          "properties": {
+            "direction": "Outbound",
+            "access": "Deny",
+            "protocol": "*",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "AzurePlatformDNS",
+            "sourcePortRange": "*",
+            "destinationPortRange": "53",
+            "priority": 130
+          }
+        },
+        {
+          "name": "DenyOtherOutbound",
+          "properties": {
+            "direction": "Outbound",
+            "access": "Deny",
+            "protocol": "*",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "*",
+            "sourcePortRange": "*",
+            "destinationPortRange": "*",
+            "priority": 4096
+          }
+        }
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net",
+    "name": "privatelink.blob.core.windows.net",
+    "type": "Microsoft.Network/privateDnsZones",
+    "location": "global",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded"
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/virtualNetworkLinks/hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/virtualNetworkLinks/hub",
+    "name": "hub",
+    "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+    "location": "global",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "registrationEnabled": false,
+      "virtualNetwork": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub"
+      }
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net",
+    "name": "privatelink.vaultcore.azure.net",
+    "type": "Microsoft.Network/privateDnsZones",
+    "location": "global",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded"
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net/virtualNetworkLinks/hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net/virtualNetworkLinks/hub",
+    "name": "hub",
+    "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+    "location": "global",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "registrationEnabled": false,
+      "virtualNetwork": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub"
+      }
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateEndpoints/pe-testhub-vault": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateEndpoints/pe-testhub-vault",
+    "name": "pe-testhub-vault",
+    "type": "Microsoft.Network/privateEndpoints",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "subnet": {
+        "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/snet-hub-endpoints"
+      },
+      "networkInterfaces": [
+        {
+          "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkInterfaces/pe-testhub-vault"
+        }
+      ],
+      "privateLinkServiceConnections": [
+        {
+          "properties": {
+            "privateLinkServiceId": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.KeyVault/vaults/kv-synthetic-hub",
+            "groupIds": [
+              "vault"
+            ],
+            "privateLinkServiceConnectionState": {
+              "status": "Approved"
+            }
+          }
+        }
+      ],
+      "customDnsConfigs": [
+        {
+          "fqdn": "kv-synthetic-hub.vault.azure.net",
+          "ipAddresses": [
+            "10.80.2.10"
+          ]
+        }
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/publicIPAddresses/pip-testhub-firewall": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/publicIPAddresses/pip-testhub-firewall",
+    "name": "pip-testhub-firewall",
+    "type": "Microsoft.Network/publicIPAddresses",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "publicIPAllocationMethod": "Static",
+      "publicIPAddressVersion": "IPv4"
+    },
+    "sku": {
+      "name": "Standard",
+      "tier": "Regional"
+    },
+    "zones": [
+      "1"
+    ]
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/publicIPAddresses/pip-testhub-vpn": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/publicIPAddresses/pip-testhub-vpn",
+    "name": "pip-testhub-vpn",
+    "type": "Microsoft.Network/publicIPAddresses",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "publicIPAllocationMethod": "Static",
+      "publicIPAddressVersion": "IPv4"
+    },
+    "sku": {
+      "name": "Standard",
+      "tier": "Regional"
+    },
+    "zones": [
+      "1"
+    ]
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/routeTables/rt-testhub-waf": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/routeTables/rt-testhub-waf",
+    "name": "rt-testhub-waf",
+    "type": "Microsoft.Network/routeTables",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "disableBgpRoutePropagation": false,
+      "routes": [
+        {
+          "name": "reviewed-public-egress-only",
+          "properties": {
+            "addressPrefix": "0.0.0.0/0",
+            "nextHopType": "VirtualAppliance",
+            "nextHopIpAddress": "10.80.0.10"
+          }
+        }
+      ]
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworkGateways/vgw-testhub-hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworkGateways/vgw-testhub-hub",
+    "name": "vgw-testhub-hub",
+    "type": "Microsoft.Network/virtualNetworkGateways",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "gatewayType": "Vpn",
+      "vpnType": "RouteBased",
+      "vpnGatewayGeneration": "Generation1",
+      "enableBgp": false,
+      "activeActive": false,
+      "sku": {
+        "name": "VpnGw1AZ",
+        "tier": "VpnGw1AZ"
+      },
+      "ipConfigurations": [
+        {
+          "properties": {
+            "subnet": {
+              "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/GatewaySubnet"
+            },
+            "publicIPAddress": {
+              "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/publicIPAddresses/pip-testhub-vpn"
+            }
+          }
+        }
+      ],
+      "vpnClientConfiguration": {
+        "aadAudience": "aaaaaaaa-0000-4000-8000-000000000011",
+        "aadIssuer": "https://sts.windows.net/99999999-8888-4777-8666-555555555555/",
+        "aadTenant": "https://login.microsoftonline.com/99999999-8888-4777-8666-555555555555",
+        "vpnClientProtocols": [
+          "OpenVPN"
+        ],
+        "vpnAuthenticationTypes": [
+          "AAD"
+        ],
+        "vpnClientAddressPool": {
+          "addressPrefixes": [
+            "172.28.240.0/24"
+          ]
+        }
+      }
+    }
+  },
+  "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub": {
+    "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub",
+    "name": "vnet-testhub-hub",
+    "type": "Microsoft.Network/virtualNetworks",
+    "location": "francecentral",
+    "etag": "W/\"synthetic-fixture-1\"",
+    "tags": {
+      "cohorsBinding": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "properties": {
+      "provisioningState": "Succeeded",
+      "addressSpace": {
+        "addressPrefixes": [
+          "10.80.0.0/16"
+        ]
+      },
+      "dhcpOptions": {
+        "dnsServers": [
+          "10.80.0.10"
+        ]
+      },
+      "subnets": [
+        {
+          "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/AzureFirewallSubnet",
+          "name": "AzureFirewallSubnet",
+          "properties": {
+            "addressPrefix": "10.80.0.0/26",
+            "defaultOutboundAccess": false
+          }
+        },
+        {
+          "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/GatewaySubnet",
+          "name": "GatewaySubnet",
+          "properties": {
+            "addressPrefix": "10.80.0.64/27",
+            "defaultOutboundAccess": false
+          }
+        },
+        {
+          "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/snet-waf",
+          "name": "snet-waf",
+          "properties": {
+            "addressPrefix": "10.80.1.0/24",
+            "defaultOutboundAccess": false,
+            "networkSecurityGroup": {
+              "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkSecurityGroups/nsg-testhub-waf"
+            },
+            "routeTable": {
+              "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/routeTables/rt-testhub-waf"
+            },
+            "delegations": [
+              {
+                "properties": {
+                  "serviceName": "Microsoft.Network/applicationGateways"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/subnets/snet-hub-endpoints",
+          "name": "snet-hub-endpoints",
+          "properties": {
+            "addressPrefix": "10.80.2.0/27",
+            "defaultOutboundAccess": false,
+            "networkSecurityGroup": {
+              "id": "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/networkSecurityGroups/nsg-testhub-pe"
+            },
+            "privateEndpointNetworkPolicies": "Enabled"
+          }
+        }
+      ]
+    }
+  }
+}

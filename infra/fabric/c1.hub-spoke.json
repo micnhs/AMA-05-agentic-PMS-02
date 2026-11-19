@@ -1,0 +1,144 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "name": { "type": "string" },
+    "location": { "type": "string", "allowedValues": ["francecentral"] },
+    "tags": { "type": "object" },
+    "network": { "type": "object" },
+    "firewallPrivateIp": { "type": "string" }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/routeTables", "apiVersion": "2024-07-01",
+      "name": "[concat(parameters('name'), '-egress-routes')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "properties": {
+        "disableBgpRoutePropagation": false,
+        "routes": [{
+          "name": "ReviewedHubFirewallEgress",
+          "properties": { "addressPrefix": "0.0.0.0/0", "nextHopType": "VirtualAppliance", "nextHopIpAddress": "[parameters('firewallPrivateIp')]" }
+        }]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups", "apiVersion": "2024-07-01",
+      "name": "[concat(parameters('name'), '-nsg')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "properties": {
+        "securityRules": [
+          { "name": "DenyInbound", "properties": {
+            "priority": 4000, "direction": "Inbound", "access": "Deny", "protocol": "*",
+            "sourcePortRange": "*", "destinationPortRange": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*"
+          }},
+          { "name": "OwnPrivateHttps", "properties": {
+            "priority": 200, "direction": "Outbound", "access": "Allow", "protocol": "Tcp",
+            "sourcePortRange": "*", "destinationPortRange": "443",
+            "sourceAddressPrefixes": ["[parameters('network').clientPrefix]", "[parameters('network').agentPrefix]"],
+            "destinationAddressPrefixes": ["[parameters('network').endpointPrefix]", "[parameters('network').operatorEndpointPrefix]"]
+          }},
+          { "name": "HubInspectedHttps", "properties": {
+            "priority": 210, "direction": "Outbound", "access": "Allow", "protocol": "Tcp",
+            "sourcePortRange": "*", "destinationPortRange": "443",
+            "sourceAddressPrefixes": ["[parameters('network').clientPrefix]", "[parameters('network').agentPrefix]"],
+            "destinationAddressPrefix": "Internet"
+          }},
+          { "name": "GuestAgentWireServer", "properties": {
+            "priority": 220, "direction": "Outbound", "access": "Allow", "protocol": "Tcp",
+            "sourcePortRange": "*", "destinationPortRanges": ["80", "32526"],
+            "sourceAddressPrefix": "[parameters('network').clientPrefix]", "destinationAddressPrefix": "168.63.129.16"
+          }},
+          { "name": "HubDnsProxy", "properties": {
+            "priority": 230, "direction": "Outbound", "access": "Allow", "protocol": "*",
+            "sourcePortRange": "*", "destinationPortRange": "53",
+            "sourceAddressPrefixes": ["[parameters('network').clientPrefix]", "[parameters('network').agentPrefix]"],
+            "destinationAddressPrefix": "[parameters('firewallPrivateIp')]"
+          }},
+          { "name": "DenyPlatformDnsBypass", "properties": {
+            "priority": 240, "direction": "Outbound", "access": "Deny", "protocol": "*",
+            "sourcePortRange": "*", "destinationPortRange": "53",
+            "sourceAddressPrefixes": ["[parameters('network').clientPrefix]", "[parameters('network').agentPrefix]"],
+            "destinationAddressPrefix": "AzurePlatformDNS"
+          }},
+          { "name": "DenyOtherOutbound", "properties": {
+            "priority": 4000, "direction": "Outbound", "access": "Deny", "protocol": "*",
+            "sourcePortRange": "*", "destinationPortRange": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*"
+          }}
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups", "apiVersion": "2024-07-01",
+      "name": "[concat(parameters('name'), '-endpoint-nsg')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "properties": {
+        "securityRules": [
+          { "name": "OwnRuntimePrivateHttps", "properties": {
+            "priority": 200, "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+            "sourcePortRange": "*", "destinationPortRange": "443",
+            "sourceAddressPrefixes": ["[parameters('network').clientPrefix]", "[parameters('network').agentPrefix]"],
+            "destinationAddressPrefix": "[parameters('network').endpointPrefix]"
+          }},
+          { "name": "DenyOtherInbound", "properties": {
+            "priority": 4000, "direction": "Inbound", "access": "Deny", "protocol": "*",
+            "sourcePortRange": "*", "destinationPortRange": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*"
+          }}
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups", "apiVersion": "2024-07-01",
+      "name": "[concat(parameters('name'), '-operator-endpoint-nsg')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "properties": {
+        "securityRules": [
+          { "name": "OwnRuntimePrivateHttps", "properties": {
+            "priority": 200, "direction": "Inbound", "access": "Allow", "protocol": "Tcp",
+            "sourcePortRange": "*", "destinationPortRange": "443",
+            "sourceAddressPrefixes": ["[parameters('network').clientPrefix]", "[parameters('network').agentPrefix]"],
+            "destinationAddressPrefix": "[parameters('network').operatorEndpointPrefix]"
+          }},
+          { "name": "DenyOtherInbound", "properties": {
+            "priority": 4000, "direction": "Inbound", "access": "Deny", "protocol": "*",
+            "sourcePortRange": "*", "destinationPortRange": "*", "sourceAddressPrefix": "*", "destinationAddressPrefix": "*"
+          }}
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks", "apiVersion": "2024-07-01",
+      "name": "[concat(parameters('name'), '-vnet')]", "location": "[parameters('location')]", "tags": "[parameters('tags')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('name'), '-nsg'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('name'), '-endpoint-nsg'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('name'), '-operator-endpoint-nsg'))]",
+        "[resourceId('Microsoft.Network/routeTables', concat(parameters('name'), '-egress-routes'))]"
+      ],
+      "properties": {
+        "addressSpace": { "addressPrefixes": ["[parameters('network').vnetPrefix]"] },
+        "dhcpOptions": { "dnsServers": ["[parameters('firewallPrivateIp')]"] },
+        "subnets": [
+          { "name": "client", "properties": {
+            "addressPrefix": "[parameters('network').clientPrefix]", "defaultOutboundAccess": false,
+            "routeTable": { "id": "[resourceId('Microsoft.Network/routeTables', concat(parameters('name'), '-egress-routes'))]" },
+            "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('name'), '-nsg'))]" }
+          }},
+          { "name": "agents", "properties": {
+            "addressPrefix": "[parameters('network').agentPrefix]", "defaultOutboundAccess": false,
+            "routeTable": { "id": "[resourceId('Microsoft.Network/routeTables', concat(parameters('name'), '-egress-routes'))]" },
+            "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('name'), '-nsg'))]" },
+            "delegations": [{ "name": "foundry", "properties": { "serviceName": "Microsoft.App/environments" } }]
+          }},
+          { "name": "endpoints", "properties": {
+            "addressPrefix": "[parameters('network').endpointPrefix]", "privateEndpointNetworkPolicies": "Enabled",
+            "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('name'), '-endpoint-nsg'))]" }
+          }},
+          { "name": "operator-endpoints", "properties": {
+            "addressPrefix": "[parameters('network').operatorEndpointPrefix]", "privateEndpointNetworkPolicies": "Enabled",
+            "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', concat(parameters('name'), '-operator-endpoint-nsg'))]" }
+          }}
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "vnet": { "type": "object", "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', concat(parameters('name'), '-vnet')), '2024-07-01', 'Full')]" },
+    "egressRoutes": { "type": "object", "value": "[reference(resourceId('Microsoft.Network/routeTables', concat(parameters('name'), '-egress-routes')), '2024-07-01', 'Full')]" }
+  }
+}

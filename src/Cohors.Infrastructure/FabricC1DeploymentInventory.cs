@@ -75,6 +75,7 @@ public sealed partial class FabricC1Provisioner
         {
             var id = Text(resource, "id");
             var type = Text(resource, "type");
+            if (await VerifyInventoriedHubPeer(resource, candidateStage, candidateHash, candidate, ct)) continue;
             var network = type.Equals("Microsoft.Network/networkInterfaces", StringComparison.OrdinalIgnoreCase);
             var matches = parents.Where(parent => ReferencesArmChild(parent.Snapshot, id, network)).ToArray();
             if (resource["tags"] is not (null or JsonObject { Count: 0 }))

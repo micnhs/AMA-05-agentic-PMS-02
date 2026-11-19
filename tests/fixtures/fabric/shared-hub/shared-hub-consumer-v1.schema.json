@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cohors:shared-hub-consumer:1",
+  "title": "Cohors shared hub consumer receipt, version 1",
+  "description": "A private, source- and ARM-readback-bound receipt. A template, digest or successful ARM readback is not traffic, capacity, cost, identity-token or application acceptance. No example addresses or identities are allocated by this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract", "generation", "revision", "hubBindingHash", "consumer",
+    "consumerBindingHash", "state", "expiresAtUtc", "hub", "spoke", "peering",
+    "vpn", "dns", "egress", "web", "operatorEndpoints", "ownership", "readback", "receiptSha256"
+  ],
+  "properties": {
+    "contract": { "const": "cohors-shared-hub-consumer-1" },
+    "generation": { "$ref": "#/$defs/guid" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "hubBindingHash": { "$ref": "#/$defs/hash" },
+    "consumer": { "enum": ["primary", "fabric"] },
+    "consumerBindingHash": { "$ref": "#/$defs/hash" },
+    "state": { "enum": ["reserved", "peered", "connected", "data-bound", "web-bound", "offboarded"] },
+    "expiresAtUtc": { "type": "string", "format": "date-time" },
+    "hub": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resourceGroupId", "vnetId", "location", "addressPrefix", "subnets", "firewallId", "firewallPolicyId", "firewallPrivateIp", "vpnGatewayId", "dnsPolicyId", "dnsServerIp", "wafId", "wafPrivateIp"],
+      "properties": {
+        "resourceGroupId": { "$ref": "#/$defs/armId" },
+        "vnetId": { "$ref": "#/$defs/armId" },
+        "location": { "type": "string", "minLength": 1 },
+        "addressPrefix": { "$ref": "#/$defs/cidr" },
+        "subnets": {
+          "type": "object", "additionalProperties": false,
+          "required": ["firewall", "gateway", "waf", "endpoints"],
+          "properties": {
+            "firewall": { "$ref": "#/$defs/subnet" },
+            "gateway": { "$ref": "#/$defs/subnet" },
+            "waf": { "$ref": "#/$defs/subnet" },
+            "endpoints": { "$ref": "#/$defs/subnet" }
+          }
+        },
+        "firewallId": { "$ref": "#/$defs/armId" },
+        "firewallPolicyId": { "$ref": "#/$defs/armId" },
+        "firewallPrivateIp": { "type": "string", "format": "ipv4" },
+        "vpnGatewayId": { "$ref": "#/$defs/armId" },
+        "dnsPolicyId": { "$ref": "#/$defs/armId" },
+        "dnsServerIp": { "type": "string", "format": "ipv4" },
+        "wafId": { "oneOf": [{ "$ref": "#/$defs/armId" }, { "type": "null" }] },
+        "wafPrivateIp": { "type": ["string", "null"], "format": "ipv4" }
+      }
+    },
+    "spoke": {
+      "type": "object", "additionalProperties": false,
+      "required": ["resourceGroupId", "vnetId", "location", "addressPrefix", "subnets"],
+      "properties": {
+        "resourceGroupId": { "$ref": "#/$defs/armId" },
+        "vnetId": { "$ref": "#/$defs/armId" },
+        "location": { "type": "string", "minLength": 1 },
+        "addressPrefix": { "$ref": "#/$defs/cidr" },
+        "subnets": { "type": "object", "minProperties": 4, "additionalProperties": { "$ref": "#/$defs/subnet" } }
+      }
+    },
+    "peering": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["hubToSpoke", "spokeToHub"],
+          "properties": {
+            "hubToSpoke": { "$ref": "#/$defs/peering" },
+            "spokeToHub": { "$ref": "#/$defs/peering" }
+          }
+        }
+      ]
+    },
+    "vpn": {
+      "type": "object", "additionalProperties": false,
+      "required": ["audienceClientId", "servicePrincipalObjectId", "assignmentRequired", "userSetSha256", "resolvedUsersEvidenceSha256", "businessRolesChanged", "clientPool"],
+      "properties": {
+        "audienceClientId": { "$ref": "#/$defs/guid" },
+        "servicePrincipalObjectId": { "$ref": "#/$defs/guid" },
+        "assignmentRequired": { "const": true },
+        "userSetSha256": { "$ref": "#/$defs/hash" },
+        "resolvedUsersEvidenceSha256": { "$ref": "#/$defs/hash" },
+        "businessRolesChanged": { "const": false },
+        "clientPool": { "$ref": "#/$defs/cidr" }
+      }
+    },
+    "dns": {
+      "type": "object", "additionalProperties": false,
+      "required": ["owner", "registrationMode", "zones", "recordSets"],
+      "properties": {
+        "owner": { "const": "hub" },
+        "registrationMode": { "const": "hub-owner-only-no-consumer-zone-groups" },
+        "zones": { "type": "array", "items": { "$ref": "#/$defs/zone" } },
+        "recordSets": { "type": "array", "items": { "$ref": "#/$defs/armId" }, "uniqueItems": true }
+      }
+    },
+    "egress": {
+      "type": "object", "additionalProperties": false,
+      "required": ["defaultNextHop", "nextHopIp", "bgpPropagation", "hubPrefixRoute", "spokeToSpoke", "vpnDatabaseAccess", "dnsDomains", "httpsRules"],
+      "properties": {
+        "defaultNextHop": { "const": "VirtualAppliance" },
+        "nextHopIp": { "type": "string", "format": "ipv4" },
+        "bgpPropagation": { "const": true },
+        "hubPrefixRoute": { "const": false },
+        "spokeToSpoke": { "const": false },
+        "vpnDatabaseAccess": { "const": false },
+        "dnsDomains": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "httpsRules": { "type": "array", "items": { "$ref": "#/$defs/httpsRule" }, "description": "Consumer-prefixed normalized desired rules. In reserved state these are not installed; later active states require matching actual source-scoped Firewall rules. Empty after offboarding." }
+      }
+    },
+    "web": { "oneOf": [{ "$ref": "#/$defs/web" }, { "type": "null" }], "description": "Separately observed human HTTPS backend; never C1 Hosted8088 or the Fabric MCP/SSE endpoint. Backend SNI and the private client origin are distinct." },
+    "operatorEndpoints": { "type": "array", "items": { "$ref": "#/$defs/operatorEndpoint" }, "description": "Fabric-only explicit operator PE:443 exceptions, with ARM/NIC/IP/DNS observations. Empty for Primary; never VPN DB/VM/ACR/Hosted rights." },
+    "ownership": {
+      "type": "object", "additionalProperties": false,
+      "required": ["hubLifecycleOwner", "consumerMayCreateHub", "consumerMayDeleteHub", "consumerMayChangeSharedDirectory", "consumerMayChangeHubDns", "offboarding", "sharedFailureDomain"],
+      "properties": {
+        "hubLifecycleOwner": { "const": "hub" },
+        "consumerMayCreateHub": { "const": false },
+        "consumerMayDeleteHub": { "const": false },
+        "consumerMayChangeSharedDirectory": { "const": false },
+        "consumerMayChangeHubDns": { "const": false },
+        "offboarding": { "const": "stop-own-work-then-owner-releases-exact-consumer-references" },
+        "sharedFailureDomain": { "const": true }
+      }
+    },
+    "readback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observedAtUtc", "infrastructureCommit", "compiledTemplateSha256", "deploymentResourceId", "resources", "trafficAccepted", "capacityAccepted", "costAccepted"],
+      "properties": {
+        "observedAtUtc": { "type": "string", "format": "date-time" },
+        "infrastructureCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "compiledTemplateSha256": { "$ref": "#/$defs/hash" },
+        "deploymentResourceId": { "type": "string", "pattern": "^/subscriptions/[0-9a-f-]{36}/providers/Microsoft.Resources/deployments/[A-Za-z0-9_-]+$" },
+        "resources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/observation" } },
+        "trafficAccepted": { "const": false },
+        "capacityAccepted": { "const": false },
+        "costAccepted": { "const": false }
+      }
+    },
+    "receiptSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "httpsRule": {
+      "type": "object", "additionalProperties": false, "required": ["name", "sourceAddresses", "targetFqdns"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^(primary|fabric)-[a-z][a-z0-9-]{1,60}$" },
+        "sourceAddresses": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/cidr" } },
+        "targetFqdns": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "operatorEndpoint": {
+      "type": "object", "additionalProperties": false, "required": ["privateEndpointId", "addresses", "fqdns", "port"],
+      "properties": {
+        "privateEndpointId": { "$ref": "#/$defs/armId" },
+        "addresses": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "format": "ipv4" } },
+        "fqdns": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "port": { "const": 443 }
+      }
+    },
+    "web": {
+      "type": "object", "additionalProperties": false,
+      "required": ["frontendHost", "frontendZone", "frontendRecord", "certificateSecretId", "certificateEvidenceSha256",
+        "backendFqdn", "backendResourceId", "backendPrivateIp", "backendRegion", "backendKind", "backendRootCertificate",
+        "probe", "limits", "applicationContractSha256", "forwardedHeadersEvidenceSha256", "privateDnsEvidenceSha256"],
+      "properties": {
+        "frontendHost": { "type": "string", "minLength": 1 },
+        "frontendZone": { "type": "string", "minLength": 1 },
+        "frontendRecord": { "type": "string", "pattern": "^[a-z][a-z0-9-]{0,62}$" },
+        "certificateSecretId": { "type": "string", "pattern": "^https://[a-z0-9-]+\\.vault\\.azure\\.net/secrets/[A-Za-z0-9-]+/[0-9a-f]{32}$" },
+        "certificateEvidenceSha256": { "$ref": "#/$defs/hash" },
+        "backendFqdn": { "type": "string", "minLength": 1 },
+        "backendResourceId": { "$ref": "#/$defs/armId" },
+        "backendPrivateIp": { "type": "string", "format": "ipv4" },
+        "backendRegion": { "type": "string", "minLength": 1 },
+        "backendKind": { "enum": ["ContainerAppInternal", "PrivateEndpointWeb"] },
+        "backendRootCertificate": { "type": ["string", "null"] },
+        "probe": {
+          "type": "object", "additionalProperties": false, "required": ["host", "path", "port", "statusCodes"],
+          "properties": {
+            "host": { "type": "string", "minLength": 1 }, "path": { "type": "string", "pattern": "^/[A-Za-z0-9/_-]+$" },
+            "port": { "const": 443 }, "statusCodes": { "const": ["200"] }
+          }
+        },
+        "limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["bodyKb", "uploadMb", "requestTimeoutSeconds", "drainSeconds", "streaming"],
+          "properties": {
+            "bodyKb": { "type": "integer", "minimum": 8, "maximum": 128 },
+            "uploadMb": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "requestTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 240 },
+            "drainSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+            "streaming": { "const": "none" }
+          }
+        },
+        "applicationContractSha256": { "$ref": "#/$defs/hash" },
+        "forwardedHeadersEvidenceSha256": { "$ref": "#/$defs/hash", "description": "Review evidence, including explicit not-used. Does not require adding ForwardedHeaders or broad proxy trust." },
+        "privateDnsEvidenceSha256": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "guid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "armId": { "type": "string", "pattern": "^/subscriptions/[0-9a-f-]{36}/resourceGroups/[A-Za-z0-9_.()-]+(/providers/[A-Za-z0-9./_-]+)?$" },
+    "cidr": { "type": "string", "pattern": "^[0-9.]+/[0-9]{1,2}$" },
+    "subnet": {
+      "type": "object", "additionalProperties": false, "required": ["id", "addressPrefix"],
+      "properties": { "id": { "$ref": "#/$defs/armId" }, "addressPrefix": { "$ref": "#/$defs/cidr" } }
+    },
+    "zone": {
+      "type": "object", "additionalProperties": false, "required": ["name", "id"],
+      "properties": { "name": { "type": "string" }, "id": { "$ref": "#/$defs/armId" } }
+    },
+    "peering": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "remoteVirtualNetworkId", "allowVirtualNetworkAccess", "allowForwardedTraffic", "allowGatewayTransit", "useRemoteGateways", "peeringState"],
+      "properties": {
+        "id": { "$ref": "#/$defs/armId" },
+        "remoteVirtualNetworkId": { "$ref": "#/$defs/armId" },
+        "allowVirtualNetworkAccess": { "const": true },
+        "allowForwardedTraffic": { "type": "boolean" },
+        "allowGatewayTransit": { "type": "boolean" },
+        "useRemoteGateways": { "type": "boolean" },
+        "peeringState": { "const": "Connected" }
+      }
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false, "required": ["id", "apiVersion", "sha256", "etag"],
+      "properties": {
+        "id": { "$ref": "#/$defs/armId" }, "apiVersion": { "type": "string" },
+        "sha256": { "$ref": "#/$defs/hash" }, "etag": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

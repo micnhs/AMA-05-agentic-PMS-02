@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "name": { "type": "string" },
+    "hubVnetId": { "type": "string" },
+    "useRemoteGateways": { "type": "bool" }
+  },
+  "resources": [{
+    "type": "Microsoft.Network/virtualNetworks/virtualNetworkPeerings", "apiVersion": "2024-07-01",
+    "name": "[concat(parameters('name'), '-vnet/to-shared-hub')]",
+    "properties": {
+      "remoteVirtualNetwork": { "id": "[parameters('hubVnetId')]" },
+      "allowVirtualNetworkAccess": true,
+      "allowForwardedTraffic": true,
+      "allowGatewayTransit": false,
+      "useRemoteGateways": "[parameters('useRemoteGateways')]"
+    }
+  }],
+  "outputs": {
+    "peering": {
+      "type": "object",
+      "value": "[reference(resourceId('Microsoft.Network/virtualNetworks/virtualNetworkPeerings', concat(parameters('name'), '-vnet'), 'to-shared-hub'), '2024-07-01', 'Full')]"
+    }
+  }
+}

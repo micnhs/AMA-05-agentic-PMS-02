@@ -11,6 +11,9 @@
     <PackageReference Include="Azure.Search.Documents" Version="12.0.0" />
     <EmbeddedResource Include="Migrations\*.sql" />
     <EmbeddedResource Include="..\..\fabric\c1\synthetic-source.json" LogicalName="Cohors.Fabric.C1.SyntheticSource.json" />
+    <EmbeddedResource Include="..\..\infra\fabric\c1.hub-*.json" LogicalName="Cohors.Fabric.C1.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\infra\fabric\c1.foundation.json" LogicalName="Cohors.Fabric.C1.Foundation.json" />
+    <EmbeddedResource Include="..\..\infra\fabric\c1.workspace-network.json" LogicalName="Cohors.Fabric.C1.WorkspaceNetwork.json" />
     <EmbeddedResource Include="..\..\contracts\regulatory-schemas\mir\incident-*.xsd" LogicalName="Cohors.Mir.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\..\contracts\terminology\fda-imdrf-2026.json" LogicalName="Cohors.Terminology.Fda2026.json" />
     <EmbeddedResource Include="..\..\contracts\domibus\5.2.2-jee10\*.*" LogicalName="Cohors.Domibus.%(Filename)%(Extension)" />

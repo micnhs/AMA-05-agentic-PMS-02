@@ -11,14 +11,14 @@ using Cohors.Infrastructure;
 
 namespace Cohors.Tests;
 
-public sealed class FabricC1DeploymentTests
+public sealed partial class FabricC1DeploymentTests
 {
     [Fact]
     public void CompleteStartValuesDoNotHideUnimplementedPrivateBootstrapOrRequireManualTargets()
     {
         using var run = new Harness(operatorNetwork: true);
         var plan = FabricC1Deployment.Plan(run.Input, run.Clock.GetUtcNow());
-        Assert.Empty(plan.MissingInputs);
+        Assert.Equal(["network.sharedHub"], plan.MissingInputs);
         Assert.False(plan.CanApply);
         Assert.Equal("Blocked", plan.Status);
         Assert.NotEmpty(plan.ImplementationBlockers);
@@ -6392,7 +6392,8 @@ except RuntimeError as error:
         public FabricC1Provisioner Provisioner { get; private set; }
         public string CapacityId { get; } = Guid.NewGuid().ToString("D");
         public Harness(int maxRequests = 100, string[]? requiredTenantSettingNames = null, bool delegated = false,
-            bool delegatedAdministrator = true, bool operatorNetwork = false, int vpnUserCount = 1, bool manualTimers = false)
+            bool delegatedAdministrator = true, bool operatorNetwork = false, int vpnUserCount = 1, bool manualTimers = false,
+            bool sharedHub = false)
         {
             Clock = new(DateTimeOffset.Parse("2026-11-18T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture), manualTimers);
             var tenant = Guid.NewGuid().ToString("D");
@@ -6426,13 +6427,24 @@ except RuntimeError as error:
                         new(users, new string('b', 64), new string('c', 64)))
                 }};
             }
+            if (sharedHub)
+                Input = Input with { Network = Input.Network! with
+                {
+                    SharedHub = new(FabricC1Deployment.SharedHubContract, FabricC1Deployment.SharedHubSchemaSha256,
+                        Guid.NewGuid().ToString("D"), new string('d', 64),
+                        "/subscriptions/" + Input.SubscriptionId + "/resourceGroups/synthetic-shared-hub",
+                        new string('e', 40), "10.241.6.0/27", new string('1', 64), new string('2', 64), hash, hash,
+                        ["192.168.10.0/24"], ["management.azure.com", "login.microsoftonline.com"],
+                        [new("control", ["client", "agents"], ["management.azure.com", "login.microsoftonline.com"])],
+                        new string('f', 64))
+                }};
             Provisioner = new(Input, Api, Store, Clock);
         }
         public void Capacity() => Seed("fabric-capacity", "FabricCapacity", new() { ["id"] = CapacityId });
-        public void Seed(string key, string kind, JsonObject body)
+        public void Seed(string key, string kind, JsonObject body, string requestHash = "synthetic-fixture-not-a-request")
         {
             var state = Store.Load() ?? new(Canonical.Hash(Input), new(), new());
-            state.Objects[key] = new(kind, body["id"]!.GetValue<string>(), "synthetic-fixture-not-a-request", body);
+            state.Objects[key] = new(kind, body["id"]!.GetValue<string>(), requestHash, body);
             Store.Save(state);
             Restart();
         }

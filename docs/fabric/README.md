@@ -156,13 +156,20 @@ not converted into successful deployment. This path is prohibited in the
 credential-free hosted verification job and has not been run against a tenant.
 This is not the requested finished automatic C1 deployment.
 
+The current target is an infrastructure-owned **shared hub and an own Fabric
+spoke**, not the earlier own Firewall/VPN deployment. The standalone templates,
+operator audience implementation and R4-R6 evidence below remain historical
+source/cleanup contracts. A new manifest selects `network.sharedHub`; it cannot
+also select `operatorAccess` or silently fall back to those standalone stages.
+See the shared-hub consumer section below. No new cloud execution follows.
+
 Implemented source components:
 
-- `infra\fabric\c1.foundation.json` describes an isolated F2 (overage disabled),
+- Historical standalone `infra\fabric\c1.foundation.json` describes an isolated F2 (overage disabled),
   private VM/VNet/subnets, DNS, Key Vault, private storage/ACR, and a Foundry
   account with injection at creation plus a separate project identity.
   The selected technical work profile is F2/FranceCentral, not a live quota/cost
-  result. The new `c1.network-access.json` stage owns its Standard Firewall,
+  result. The historical `c1.network-access.json` stage owns its Standard Firewall,
   DNS proxy, two fixed default instances, active-passive VpnGw1AZ/OpenVPN
   gateway and their separate static Standard IPv4 addresses. Foundation v2
   consumes the observed firewall address before creating workloads, sets VNet
@@ -178,7 +185,7 @@ Implemented source components:
   NSG-protected `operator-endpoints` subnet. P2S has HTTPS access only there,
   not to VM/ACR/Hosted endpoints. Workload callers retain HTTPS to both endpoint
   subnets. The service-specific identity and data grants still apply.
-- `FabricC1OperatorNetwork` binds nonoverlapping canonical private prefixes,
+- Historical `FabricC1OperatorNetwork` binds nonoverlapping canonical private prefixes,
   explicit excluded workstation/other-network prefixes, exact reviewed HTTPS
   hostnames and client/address-review references. Wildcards, URL/IP aliases
   and absent private routing review are not executable inputs. Null omission
@@ -288,14 +295,14 @@ and final execution binding; an independent deadline/stop/cleanup executor.
 The foundation
 NSG is only a deny-by-default candidate, **not an implemented FQDN filter or
 working Managed Run Command route**. Do not deploy the template alone and
-leave paid resources waiting for these gaps. The user has now explicitly selected
-an own Azure Firewall and own Point-to-Site VPN gateway into the own Azure VNet,
-not into Fabric SaaS and not a shared primary network. B5 still uses documented
-delegated notebook authoring. Its transport selection is resolved; installation,
-configuration and native private access are not thereby proven.
-The implementation binds an isolated VPN Entra audience and four individually
-selected pilot-user assignments,
-separate from the unchanged Fabric/deployment OAuth client and Cohors roles.
+leave paid resources waiting for these gaps. The later user decision supersedes
+the separate Firewall/P2S topology with an infrastructure-owned shared hub,
+separate primary/Fabric spokes and a technically selected shared private WAF_v2.
+This is not Internet, current cost or cloud activation approval. B5 still uses
+documented delegated notebook authoring through P2S to the Azure hub/spoke
+network, not a VPN gateway in Fabric SaaS. Native private access is unproven.
+The hub owner manages the audience and four individually selected pilot-user
+assignments; the Fabric/deployment OAuth client and Cohors roles do not change.
 Client prerequisites, private DNS, narrow service access, costs and stop/removal
 must be bound before activation. No automatic client install or connection is
 assumed. Managed Run Command, public workspace calls, an HTTP-parsing Relay or
@@ -928,6 +935,82 @@ remove hub resources or identities, expose full `apply`, or supply the
 independent deadline executor. No native deletion has been performed.
 
 Reference: [delete the specified workspace and its items](https://learn.microsoft.com/rest/api/fabric/core/workspaces/delete-workspace).
+
+## Shared-hub consumer
+
+The sole schema authority is infrastructure's `cohors-shared-hub-consumer-1`,
+pinned to SHA256
+`43eee0651b0525f42115185540324e447a78ff0ff82eba73dd1087187c10ca19`.
+Earlier v1 draft hashes are not accepted. The Fabric input binds the expected
+hub generation, opaque hub hash, owner resource group, infrastructure commit,
+compiled-template digest, original four-user/evidence hashes and reviewed
+spoke/local-route/egress requirements. None are populated with live identities
+in public source. The owner consumes Fabric's existing canonical manifest hash
+and `deploymentId`/`manifestSha256` tags; Fabric does not change its historical
+payload hashing to the owner's Python wire format.
+The owner's final Git byte policy is `-text`, preserving the sole pinned
+schema rather than accepting a second normalized hash. The mirrored schema
+and synthetic fixtures retain their original bytes under the same policy.
+
+`bind-hub --manifest PRIVATE_FILE --journal EXISTING_PRIVATE_FILE
+--hub-receipt PRIVATE_FILE` imports the owner-issued receipt using the original
+bound actor. It performs only exact, budgeted ARM GETs in the hub and own spoke
+groups, checks actual body hashes/ETags and source provenance, then journals
+the receipt and its history. It neither performs a directory lookup nor changes
+Azure resources. It is prohibited on the credential-free build runner, requires
+the existing private journal, and cannot restart budgets or timeboxes.
+Same-revision refresh may advance only the observation timestamp/digest;
+resource rebinding needs a new revision. Unknown journal writes fence all work.
+Metadata keeps traffic/capacity/cost acceptance false and is not B5 acceptance.
+
+`PrepareSharedHubStage` and the existing journaled `DeployArm` use exact
+source-owned templates/parameters. They implement the cycle-free handshake:
+reservation, own four-subnet `hub-spoke`, own `hub-peer` with remote gateways
+false, owner `peered` receipt, own `hub-transit` with remote gateways true,
+then a fresh owner `connected` receipt before workload/private-endpoint stages.
+Only Fabric's `to-shared-hub` half is written; infrastructure owns `to-fabric`.
+The original own completed requests and VNet generation are required, not just
+same-name live resources. Lost ARM responses never authorize a replacement PUT.
+Readback binds both peer directions, gateway flags, workload-only default UDR,
+DNS proxy and exact restrictive NSGs, including an explicit platform-DNS
+bypass deny. Fresh rule-group, DNS-rule/link and own-peer collection reads
+reject entries omitted from the receipt. Firewall ordering and source ranges
+cannot grant Fabric access through another consumer's rule; the DNS filtering
+policy must retain its enabled allow-list and unmatched-query block.
+The shared network is explicitly one
+failure domain, not permission for spoke-to-spoke or VPN database access.
+
+`c1.hub-spoke.json` has no gateway/firewall/public-IP resources. The adapter
+reuses the existing foundation workload definitions but excludes their legacy
+network and DNS resources; the private-endpoint adapter excludes zone groups.
+Shared zones, records and links remain hub-owner-only. Operator HTTPS access
+can be prepared only after `data-bound`, to exact observed own
+workspace/vault/blob PE addresses on 443, never entire endpoint subnets or
+VM/ACR/Hosted/database targets. No VPN audience, shared assignment or hub IAM
+is created or deleted by the consumer. Its write fence preserves only the
+three already-defined own storage custom-role IDs outside the own resource
+group, not any hub or unrelated subscription role.
+
+These are source components, not a new paid partial-apply command. Complete
+driver composition, owner-issued live receipts, endpoint/DNS registration,
+independent stop and ordered own-peer offboarding remain activation gates.
+Own work and grants must stop before removing the own peer; infrastructure
+then releases only this consumer's references. No hub or shared audience
+deletion is inferred from consumer cleanup. The human Web/API HTTPS,
+probe/proxy/limits contract is still unqualified, so `web-bound` is rejected;
+Hosted 8088 and Fabric MCP/SSE are not substituted as WAF backends.
+`tests\fixtures\fabric\shared-hub` contains the owner's explicitly synthetic
+collector/emitter outputs for reserved, peered, connected and data-bound,
+with manifest SHA256
+`bbc2fa0bf89e44ad85e364b6cfb75ecf705d652ced75d1f2e35dd5d7a9910baa`.
+Tests compare original byte/canonical digests with Python. The reservation
+import test explicitly rebinds a copy in memory to a synthetic Fabric input;
+own lifecycle tests separately construct source-owned requests and journals.
+The original fixture is not adopted as an own provisioned consumer and no
+original schema, receipt or ARM file is rewritten. Focused source execution
+uses only the existing hosted lane, with results bound to its published SHA.
+Historical R4-R7, failed/NotRun cases, deadlines and budgets remain unchanged.
+No native B5/C1/model/full-installer pass follows.
 
 ## Fork and isolation
 

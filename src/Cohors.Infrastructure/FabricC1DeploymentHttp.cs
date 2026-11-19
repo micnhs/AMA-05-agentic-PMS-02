@@ -90,6 +90,7 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
 
     private (string Scope, string Audience, string? Issuer) Binding(HttpMethod method, Uri uri)
     {
+        FabricC1Deployment.RequireSharedHubMutationScope(input, method, uri);
         Guard.Against(uri.Scheme != "https" || uri.Port != 443 || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0,
             "c1_deploy_endpoint", "Only exact HTTPS API bindings are permitted.", 409);
         switch (uri.IdnHost)

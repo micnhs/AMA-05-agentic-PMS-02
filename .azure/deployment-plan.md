@@ -16,6 +16,59 @@ infrastructure owner. Work remains source-only until the complete executable
 chain, specific administrative authorizations and required validation are bound.
 NOT Ready for Validation or Validated.
 
+## Local network revision: shared-hub consumer implementation
+
+The latest verified user direction supersedes the earlier separate Firewall/
+VPN target topology: infrastructure owns one shared hub; Fabric remains an own
+spoke with separate business state, identities, private endpoints, runtimes
+and releases. The old standalone network templates and private R4-R6 records
+are historical source/evidence, not targets to deploy or silently reinterpret
+as a hub contract. Private R7 records the new direction without rewriting them.
+
+This is a source-only architecture/contract revision. No hub resource,
+VPN audience/assignment, DNS record, WAF or cloud mutation follows. An own
+live versioned consumer binding is still required for both peering directions,
+gateway transit, observed DNS/egress targets, bounded IAM, cost/deadline and
+consumer-only offboarding. Fabric must not create, change or delete hub
+resources or remove the four users' shared VPN assignments. There is no
+implicit spoke-to-spoke, database or application-role access. Shared network
+failure is an explicit exception to operational independence, not permission
+to share data or release identities.
+
+A shared private WAF_v2 with separate hosts/listeners/policies is now the
+coordinator's technical pilot decision, not a new user cloud/cost approval or
+public frontend. The C1
+Hosted probe is not the human Web/API backend; Fabric MCP retains its original
+private service FQDN and bearer destination. No address allocation, native
+network pass, new budget or full-installer readiness is claimed. Independent
+notebook, source-access and driver work continues. Consumer code will follow
+the infrastructure owner's versioned contract, not a second schema authority.
+The coordinator has clarified that reviewed generic consumer code, focused
+tests and related documentation may use the existing public-branch,
+credential-free hosted lane. Private R7, real resource/person/tenant bindings,
+credentials, native journals and raw logs stay private. This does not authorize
+a new local/alternative lane, package upload or cloud execution.
+
+The infrastructure-owned `cohors-shared-hub-consumer-1` draft is now explicitly
+pinned to SHA256 `43eee0651b0525f42115185540324e447a78ff0ff82eba73dd1087187c10ca19`.
+The consumer uses the owner's `reserved -> peered -> connected -> data-bound`
+handshake: Fabric creates only `to-shared-hub`, initially without remote
+gateways; the owner creates `to-fabric` with gateway transit. Fabric enables
+its own remote-gateway flag only after the actual paired `peered` receipt,
+then requires a new `connected` receipt before workload stages. The owner
+accepts Fabric's opaque input hash and `deploymentId`/`manifestSha256` tags;
+the consumer reads only the hub and its own spoke, never the primary group.
+The DNS policy is a DNS Resolver Policy, not a firewall rule collection.
+Shared zones/records/links and all hub resource lifecycles stay owner-only.
+The owner's final byte policy preserves this sole schema hash with `-text`.
+The original synthetic collector fixtures are present and byte-pinned; they
+are not live receipts or evidence for an own provisioned consumer. Own source
+checks cover wire-format interop and separately journaled synthetic lifecycle
+cases in the existing credential-free hosted lane. Live receipts, complete
+driver, private Web/backend qualification, current cost binding and native
+B5/C1 evidence remain missing. Historical R4-R7 and negative/NotRun evidence stay
+unchanged; no deadline, budget, identity or permission is restarted.
+
 ## Current C1 automation increment
 
 - Inspect existing deployment patterns and authoritative ARM/Graph/Fabric/
@@ -89,6 +142,16 @@ until their own ordered cleanup is implemented; the independent cloud stop
 executor and full cleanup remain open, not supplied by this increment.
 Historical v1 inputs/hashes and all seven NotRun cases remain historical.
 Private identities, paths and tenant configuration are not copied here.
+The source workspace lifecycle component now binds cleanup to the original
+materialized Released/Denied workspace IDs, creation requests and completed
+notebook receipts. Fresh closed inventory, original memberships/data roles,
+durable single-delete intents and private absence readbacks are required.
+It uses the original cleanup reserve and global provisioning fence; unknown
+DELETE outcomes reconcile without replay. It is not a granular role revoke,
+worker stop, retention purge, hub cleanup or complete paid-resource cleanup.
+Targeted synthetic checks passed in the existing hosted lane at source
+`0a080b590b95c120c971e7b3f254ca37bc770b39` (run `44472100183`);
+no native deletion, B5 result or complete-installer readiness follows.
 The R4 package still requires specific egress/operator/runtime-credential/AI-policy
 choices and effective start scopes; it does not require manually created
 runtime resources or repeat the general C1/cost approval.

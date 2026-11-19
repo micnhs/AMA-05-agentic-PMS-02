@@ -217,6 +217,6 @@ public sealed partial class FabricC1Provisioner
 
     private void RequireIdentityRole(string role) =>
         Guard.Against(!IdentityRoles.Contains(role, StringComparer.Ordinal) &&
-            !(role == FabricC1Deployment.VpnIdentityRole && input.Network?.OperatorAccess is not null),
+            !(role == FabricC1Deployment.VpnIdentityRole && input.Network?.OperatorAccess is not null && input.Network.SharedHub is null),
             "c1_deploy_identity_role", "Unknown identity role.", 409);
 }
