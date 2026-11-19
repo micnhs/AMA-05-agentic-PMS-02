@@ -3,6 +3,10 @@
   "concept_version": "0.3",
   "source_name": "PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx",
   "source_sha256": "6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca",
+  "source_sha256_scope": "original_input",
+  "repository_path": "source\\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx",
+  "repository_sha256": "751835b9950dfc8b4e1313c9e8eeed514c301d2a5b0405144d0a451495d3ae5b",
+  "repository_changes": "personal_metadata_only",
   "requirement_count": 118,
   "priority_counts": {
     "Muss": 104,

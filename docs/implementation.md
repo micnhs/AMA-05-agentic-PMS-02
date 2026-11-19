@@ -628,8 +628,12 @@ FSN-Verteilungsfassung; das ist erst nach eigenem Lauf ein Nachweis.
 Die beschriebenen neuen FSN-Ergaenzungen sind noch nicht Bestandteil
 des separat bestandenen Recovery07/Build42.
 
-## Unveraenderte Originale
+## Eingangsstand und bereinigte Repository-Fassungen
 
-`source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`, die freigegebenen Eingangsunterlagen sowie Logo und Animation werden nicht veraendert. Die unveraenderte `source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx` hat SHA256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`.
+`source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`: urspruenglicher Eingangsstand SHA256 `677ed659cd08d1b45d1b9c0e98ff84c9aadd358be5142ac544eebabd0e24857b`; metadatenbereinigte Repository-Fassung SHA256 `f9525b8c04665e69e39e1dafb0f5c5d1e085ddf5b5d86f654aa7a05ef6b95cf2`.
+
+`source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx`: urspruenglicher Eingangsstand SHA256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`; metadatenbereinigte Repository-Fassung SHA256 `751835b9950dfc8b4e1313c9e8eeed514c301d2a5b0405144d0a451495d3ae5b`. Der Einzelabgleich behaelt den Originalnachweis; `coordinator-mapping.json` kennzeichnet `source_sha256` als Originalhash und bindet die aktuelle Datei getrennt ueber `repository_sha256`.
+
+Nur persoenliche Dokumentmetadaten einschliesslich der bezeichneten Autor-/Auftraggeberwerte und des privaten Dateipfads wurden in den beiden Repository-Fassungen bereinigt. Fachinhalte und alle 62 Matrixformeln bleiben unveraendert. Externe/angehaengte Originale, die weiteren freigegebenen Eingangsunterlagen, Logo und Animation sowie die Git-Historie bleiben unangetastet. Bereits veroeffentlichte persoenliche Metadaten sind dadurch nicht aus der Historie entfernt.
 
 Alle 118 Original-IDs (104 Muss, 14 Soll) wurden vom Koordinator einzeln zugeordnet; die uebernommenen MD-/XLSX-/JSON-Nachweise stehen unter `docs\requirements`. Jeder Originalstatus bleibt **Offen**. Beschaffung und Einzelzuordnung sind abgeschlossen, nicht die Erfuellung aller Anforderungen. P/S/D praezisieren den genehmigten Piloten; Z bleibt Zielbetrieb. Die Originalformulierungen C-13/C-14/L-06 ersetzen nicht die korrigierten Awareness-Regeln; F-11 ist keine automatische 15-Jahre-Loesch- oder PMS-Stoppfreigabe.
