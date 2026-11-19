@@ -17,7 +17,7 @@ Bereitstellungsfreigabe. Der bisherige separate Primary-Netzentwurf ist unter
 `infra/primary-network-v2.bicep` erhalten und **nicht das neue Deploymentziel**.
 Der Dispatcher `primary-network.bicep` enthaelt alle drei expliziten Zweige
 `separate-primary-v2`, `shared-hub-v1` und `shared-primary-v3`; der historische
-Default wird nicht still umgedeutet. Der unveraenderte Originalvalidator scannt
+Default wird nicht still umgedeutet. Der bestehende Validator scannt
 weiterhin seine drei Roots einschliesslich aller eingebetteten Hubressourcen.
 
 `primary_bootstrap.py` verwendet weiterhin denselben gebundenen Azure-Client,
@@ -245,8 +245,8 @@ aus. Sie erlaubt lokale Bicep-Builds, keinen Cloudzugriff. Checkov3.4.5 fehlt:
 der letzte normale PyPI-Versuch scheiterte mit `SSLV3_ALERT_HANDSHAKE_FAILURE`,
 nicht mit einem belegten Zertifikatskettenfehler; der exakt begrenzte normale
 Paketcache enthielt kein passendes Wheel. Keine weiteren Netzwerkversuche,
-Truststore-/TLS-/Pinwechsel oder Scannercontainer-Ersatzroute. Der unveraenderte
-Originalvalidator darf ohne die benoetigten Tools keinen Erfolg melden.
+Truststore-/TLS-/Pinwechsel oder Scannercontainer-Ersatzroute. Der bestehende
+Validator darf ohne die benoetigten Tools keinen Erfolg melden.
 Bicep/Offline-/Scaninventurpruefungen sind **kein Checkov-Sicherheitsnachweis**;
 historische negative/UNKNOWN-Berichte bleiben erhalten.
 
@@ -261,15 +261,52 @@ die historische Filter-VM/NIC bleibt explizit bedingt und wird im Managed-Modus
 nicht erstellt. Der Exporter, seine vollstaendigen beiden DNS-Zweige, der
 Scannerpin und die Workflowgates wurden dafuer **nicht** veraendert.
 
-Der aktuelle lokale Quellnachweis umfasst150 bestandene Offlinetests,
+Der lokale Nachweis des Ausgangskandidaten1d74 umfasst150 bestandene Offlinetests,
 PowerShell-/Actionlint-Pruefung und alle drei Originalroots samt Parameterdatei
 ohne Bicep-Build-/Lint-Diagnostik. Der unveraenderte Exporter erfasst `main`
 mit36 Templates/38 Ansichten, `primary-network` mit17/41 und `primary` mit38/41;
 das sind vollstaendige verschachtelte Scanansichten, **keine Scanner-
 Ressourcenzaehler**. Der anschliessend tatsaechlich aufgerufene
-`Validate-Infrastructure.ps1 -SecurityScanner Local` endet weiterhin vor dem
-Scan mit `Missing validation tool: checkov`. Phase6-Sicherheitsgate bleibt
-geschlossen; Phase7 wurde nicht aufgerufen.
+`Validate-Infrastructure.ps1 -SecurityScanner Local` endete vor dem
+Scan mit `Missing validation tool: checkov`. Phase7 wurde nicht aufgerufen.
+
+**Zeitweilige, ausdruecklich begrenzte Netz-Security-Ausnahme:** Die direkte
+Nutzerentscheidung wird in `sharedHubCandidate.securityReview` des vorhandenen
+Plans als `deferred` gefuehrt, nicht als Securitypass. Der Validator fuehrt
+weiterhin alle drei Originalscans mit demselben Pin und denselben Scanansichten
+aus. Nur unveraenderte originale Checkausfuehrungen fuer `Microsoft.Network/*`
+im `primary-network`-Kompilat unter den exakten Topologiebedingungen
+`shared-hub-v1`/`shared-primary-v3` duerfen nicht blockieren. Zuordnung ueber
+gehashte Originalkompilatbytes, vollstaendiges Scanmanifest und jeweilige
+Datei-/Ressourcentypbindung; symbolische und numerische Templatepfade werden am
+Originalbaum aufgeloest, nicht nach Dateinummer oder Gesamtzaehler geraten.
+Auch rekursiv beobachtete Netzwerkressourcen innerhalb einer eindeutig eigenen
+Hub-/Spoke-Ansicht sind zugeordnet. Gemischte Dispatcher-Sammelansichten ohne
+eindeutige Zweigbindung bleiben verpflichtend; Typgleichheit allein rechtfertigt
+dort keine Ausnahme.
+
+`main`, `primary`, der historische `legacy`-Zweig und andere Provider bleiben
+verpflichtend, auch Vault, Identitaeten, Rollen und Operator-Compute innerhalb
+des Hub-/Spokebaums. Deren FAILED/UNKNOWN/SKIPPED/Fehler sowie nicht zugeordnete
+negative Ergebnisse blockieren weiter. Fehlende Originaleinzelrecords,
+abweichende Zaehler, Nullscans, Parserfehler und nicht zuordenbare
+Scannerdiagnostik werden ebenfalls nicht freigegeben. Historische Berichte
+werden nicht neu klassifiziert; insbesondere sind die77 alten Befunde weder
+pauschal Netzbefunde noch ein Nachweis dieses Quellstands.
+
+`cohors-infrastructure-security-gate-2` bewahrt `passed` als rohes Gesamturteil
+und trennt davon `requiredChecksPassed` als enges Fortschrittsgate. Ein erfolgreicher
+CI-Job mit ausschliesslich aufgeschobenen Netzbefunden ist **kein globaler
+Securitypass**; Originalreports, Exitcodes, UNKNOWNs und Einzelrecords bleiben
+im vorhandenen Artefakt erhalten. Build/Syntax, reale Privatkonfiguration,
+DNS/Erreichbarkeit, Rechte/Eigentum, Wiederaufnahme/WAF-Abbau, Kosten/Kapazitaet,
+Originalfrist, App-/Paket-/Quellbindung und Office-/Publikationsschutz bleiben
+unveraendert. Keine neue Lane, Scanunterdrueckung oder Ausfuehrungsfreigabe.
+
+Der konkrete Deploymentblocker ist damit **nicht aufgehoben**: Checkov fehlt
+auch fuer die weiterhin zwingenden Nichtnetz-/Nichtscope-Pruefungen; ein echter
+aktueller gruener Nachweis dieser Pruefungen liegt nicht vor. Die neue
+Zuordnung ist Offline-Gatelogik, kein nachgeholter Scan oder Cloudnachweis.
 
 Ein spaeter separat freizugebender Push auf
 `micnhs-cohors-azure-infrastruktur` haette mit den **unveraenderten Workflows**
@@ -297,6 +334,10 @@ vollstaendig erfolgreichen aktuellen Infra-SHA/Attempt mit seinen originalen
 erwarteten Jobs. App-only-Erfolg ersetzt das nicht. dd112 bleibt real negativ;
 auch der gemeldete2b3-Run44472201364 ist wegen seines tatsaechlichen Appfehlers
 kein Apprelease und kein Scan des neuen Hubstands.
+Die eng dokumentierte Netz-Deferral aendert nur das Urteil des vorhandenen
+Infra-Validierungsschritts, nicht diese Releasekonjunktion oder die Job-/Attempt-
+Bindung. Auch nach erfolgreicher Apppruefung bleiben fehlendes aktuelles
+Infraergebnis und fehlendes exaktes Paket eigenstaendige Sperren.
 
 ## Historischer separater Primaerbootstrap und bisherige Belege
 
@@ -1108,8 +1149,10 @@ nicht die nachfolgenden Kontrollen.
 Ein einzelner DNS-Server bleibt ein echter CKV_AZURE_182-Befund; ein nicht
 aufgeloester Adressvergleich bleibt unbewertet, nicht bestanden.
 `checkov_observe.py` beobachtet die unveraenderten Python-Checkrueckgaben und
-erneut geworfenen Exceptions. UNKNOWN, SKIPPED, Ausfuehrungsfehler und sonstige
-Scannerdiagnostik schliessen den Gate auch bei null Parsingfehlern.
+erneut geworfenen Exceptions. UNKNOWN, SKIPPED und Ausfuehrungsfehler bleiben
+roh negativ/unbewertet. Ausserhalb der oben exakt gebundenen zeitweiligen
+Netzausnahme blockieren sie weiter; nicht zugeordnete Scannerdiagnostik
+schliesst das Gate weiterhin auch bei null Parsingfehlern.
 Dieser Beobachter ist keine eigene Implementierung der Checkov-Kontrollen.
 
 **CKV_AZURE_23:** Eine eigenstaendige Server-`auditingSettings`-Ressource wird
@@ -1172,8 +1215,9 @@ python infra\scripts\checkov_templates.py $compiledTemplate $freshScanDirectory
 ```
 
 Es gibt keine `skip-check`-Liste, Suppressions oder automatische Freigabe anhand
-der folgenden Einordnung. Nullscans, Parserfehler, Skips und verbleibende Befunde
-lassen den Sicherheitsgate fehlschlagen. Ohne heruntergeladene SaaS-Metadaten
+der folgenden Einordnung. Nullscans und Parserfehler blockieren unveraendert;
+Skips und verbleibende Befunde erzeugen keinen Securitypass. Nur die oben
+explizit abgegrenzte Netzpruefung ist vorerst nicht blockierend. Ohne heruntergeladene SaaS-Metadaten
 liegen keine belastbaren Severity-Einstufungen vor; deshalb wird insbesondere
 nicht behauptet, es gaebe keine offenen High/Critical-Befunde.
 

@@ -9,7 +9,7 @@ Set-Location $root
 $scannerCommand = if ($SecurityScanner -eq 'Container') { 'docker' } else { 'checkov' }
 foreach ($tool in @('az', 'python', 'actionlint', $scannerCommand)) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-        throw "Missing validation tool: $tool. Install the documented pinned tool; this gate is not passed."
+        throw "Missing validation tool: $tool. Install the documented pinned tool; this gate is not passed. The shared-network security deferral does not waive non-network or unclassified evidence."
     }
 }
 $checkovImage = 'bridgecrew/checkov@sha256:122602cf32cc72286155d39f1f234b7b594818f7b8d7fdf490701620e521368b'
@@ -95,13 +95,15 @@ foreach ($name in $templates) {
     $observation | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $observationPath -Encoding utf8NoBOM
     $diagnostics = ($diagnosticLines | Where-Object { -not $_.StartsWith($marker) }) -join "`n"
     Write-Output "Checkov $name Python executions: $($observation.counts | ConvertTo-Json -Compress)."
-    $passed = $exitCode -eq 0 -and $summary.failed -eq 0 -and $summary.parsing_errors -eq 0 -and
-        $summary.skipped -eq 0 -and [int]$summary.passed -gt 0 -and [int]$summary.resource_count -gt 0 -and
-        $observation.contract -eq 'cohors-checkov-python-execution-1' -and
-        $observation.completeWithoutUnknownSkippedOrErrors -eq $true -and
-        [string]::IsNullOrWhiteSpace($diagnostics)
+    $hasDiagnostics = (-not [string]::IsNullOrWhiteSpace($diagnostics)).ToString().ToLowerInvariant()
+    $assessmentText = & python (Join-Path $PSScriptRoot 'checkov_observe.py') --assess $name `
+        $reportPath $observationPath "$scanInput.manifest.json" $exitCode $hasDiagnostics
+    if ($LASTEXITCODE -ne 0) { throw 'Scoped security assessment failed; no totals-only or unclassified waiver.' }
+    $assessment = ($assessmentText -join "`n") | ConvertFrom-Json
+    Write-Output "Checkov $name scoped review: rawPassed=$($assessment.passed); requiredChecksPassed=$($assessment.requiredChecksPassed); deferredNetworkExecutions=$($assessment.deferred.executed)."
     $checks += @{
-        template = $name; passed = $passed; exitCode = $exitCode; summary = $summary
+        template = $name; passed = $assessment.passed; requiredChecksPassed = $assessment.requiredChecksPassed
+        exitCode = $exitCode; summary = $summary; assessment = $assessment
         hasScannerDiagnostics = -not [string]::IsNullOrWhiteSpace($diagnostics)
         reportSha256 = (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant()
         diagnosticsSha256 = (Get-FileHash -LiteralPath $diagnosticPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -112,9 +114,14 @@ foreach ($name in $templates) {
     if (-not [string]::IsNullOrWhiteSpace($diagnostics)) { Write-Output $diagnostics }
 }
 $gatePassed = @($checks | Where-Object { -not $_.passed }).Count -eq 0
-@{ contract = 'cohors-infrastructure-security-gate-1'; passed = $gatePassed; checks = $checks } |
+$requiredChecksPassed = @($checks | Where-Object { -not $_.requiredChecksPassed }).Count -eq 0
+@{ contract = 'cohors-infrastructure-security-gate-2'; passed = $gatePassed
+    requiredChecksPassed = $requiredChecksPassed; checks = $checks } |
     ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $output 'security-gate.json') -Encoding utf8NoBOM
-if (-not $gatePassed) {
-    throw "Security gate is NOT passed. Review all three reports and stderr logs in $output. Zero parsing_errors never waives failed check execution or unresolved controls."
+if (-not $requiredChecksPassed) {
+    throw "Required security gate is NOT passed. Review all three original reports, execution records and scoped assessments in $output. Non-network, out-of-scope and unclassified failures remain blocking."
 }
-Write-Output 'Local infrastructure gate passed. No Azure login, deployment, what-if, application integration or restore was executed.'
+if (-not $gatePassed) {
+    Write-Warning 'Shared private-network security review is DEFERRED, not passed. Original failed/unknown results remain intact; this is not a global security pass.'
+}
+Write-Output 'Required local infrastructure checks passed under the explicit scoped review policy. No Azure login, deployment, what-if, application integration or restore was executed.'
