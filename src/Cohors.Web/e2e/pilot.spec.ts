@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
+import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, EvidenceDocument, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
 import type { ActorApplication, IntegrationWorkspace } from '../src/EudamedWorkspace'
 import type { DossierView, EudamedDossier } from '../src/EudamedDossiers'
 
@@ -71,6 +71,11 @@ function readSmallAuditZip(bytes: Buffer) {
 function requireWorkspaceIsolation(baseURL: string | undefined) {
   if (!baseURL || new URL(baseURL).port === '5187' || !process.env.COHORS_TEST_ACCESS_FILE || !process.env.COHORS_UI_ARTIFACT_DIR)
     throw new Error('Cockpit/calendar acceptance requires the private Test-Ui.ps1 fixture, never the user-active demo.')
+}
+
+function calendarMonth(instant: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit' }).formatToParts(new Date(instant))
+  return `${parts.find(part => part.type === 'year')!.value}-${parts.find(part => part.type === 'month')!.value}`
 }
 
 const eudamedReason = 'SYNTHETISCH: Die konkrete Antragsrevision, Referenzzuordnung und Kanalwirkung werden menschlich begruendet geprueft. Keine amtliche SRN, externe Sendung oder reale Servicefreigabe.'
@@ -1858,6 +1863,18 @@ test('UI02: historical library document, long narrow content, access failure and
       scenario: 'case-documents-ui', synthetic: true })
     const original = ((await (await pms.get('/api/evidence')).json()) as Evidence[]).find(e => e.id === 'ortho-spec-v3')!
     expect(original).toBeTruthy()
+    const baselineResponse = await pms.get(`/api/evidence/${original.id}/versions/1/content`)
+    expect(baselineResponse.status()).toBe(200)
+    const baseline = await baselineResponse.json() as EvidenceDocument
+    expect(baseline.hashVerified).toBe(true)
+    expect(baseline.evidence.id).toBe(original.id)
+    expect(baseline.evidence.version).toBe(1)
+    expect(createHash('sha256').update(baseline.content, 'utf8').digest('hex')).toBe(baseline.evidence.hash)
+    const content = baseline.content + `\n\nSYNTHETISCHE UI-REVISION ${original.version + 1}\n` +
+      'SYNTHETISCHE LESERPRÜFUNG: Randbedingungen bleiben anhand tatsächlicher Befunde getrennt zu beurteilen.\n'.repeat(150) +
+      '\n' + 'LANGE_UNGEBROCHENE_TESTREFERENZ_'.repeat(20) + '\nENDE DER SYNTHETISCHEN LANGFASSUNG.'
+    expect(content.length).toBeGreaterThanOrEqual(50)
+    expect(content.length).toBeLessThanOrEqual(30_000)
     let change = await command<ChangeRequest>(pms, csrf, '/changes', { caseId: c.id, productId: 'ortho',
       documentId: original.id, documentVersion: original.version,
       proposedChange: 'Synthetischen kontrollierten Lesetext ergänzen, um historische Revision und lange Dokumentansicht zu prüfen.',
@@ -1865,12 +1882,12 @@ test('UI02: historical library document, long narrow content, access failure and
     change = await command<ChangeRequest>(quality, qualityCsrf, `/changes/${change.id}/approve`, { expectedVersion: change.version,
       reason: 'Getrennte QM-Identität genehmigt ausschließlich die nachvollziehbare synthetische Testrevision.' })
     const revised = await command<Evidence>(quality, qualityCsrf, `/evidence/${original.id}/revise`, {
-      expectedVersion: original.version, changeId: change.id, title: original.title + ' / synthetische UI-Langfassung',
-      content: original.content + '\n\n' + 'SYNTHETISCHE LESERPRÜFUNG: Randbedingungen bleiben anhand tatsächlicher Befunde getrennt zu beurteilen.\n'.repeat(150) +
-        '\n' + 'LANGE_UNGEBROCHENE_TESTREFERENZ_'.repeat(20) + '\nENDE DER SYNTHETISCHEN LANGFASSUNG.',
+      expectedVersion: original.version, changeId: change.id, title: `${baseline.evidence.title} / synthetische UI-Langfassung v${original.version + 1}`,
+      content,
       validFrom: new Date(Date.now() + 86_400_000).toISOString(),
       reason: 'Genehmigte synthetische Revision nur im isolierten Prüfbestand; Originalfassung bleibt unverändert erhalten.',
     })
+    expect(revised.hash).not.toBe(original.hash)
     context = await browser.newContext({ storageState: await pms.storageState() })
     const page = await context.newPage()
     await page.goto(baseURL!)
@@ -2102,13 +2119,14 @@ test('SQL-backed complaint → grounded assessment → distinct approvals → un
   expect(c.followUps![0].sourceReportHash).toBe(c.currentReport?.scopeHash)
   await expect(raPage.locator('.case-context')).toContainText('ZUGESAGTER FOLGETERMIN')
   await raPage.getByRole('navigation').getByRole('button', { name: 'Fristen', exact: true }).click()
-  await raPage.getByLabel('Kalendermonat', { exact: true }).fill(nextDate.slice(0, 7))
+  const displayTimeZone = await raPage.getByRole('combobox', { name: 'Anzeigezeitzone', exact: true }).inputValue()
+  await raPage.getByLabel('Kalendermonat', { exact: true }).fill(calendarMonth(c.followUps![0].schedule.dueAt, displayTimeZone))
   await raPage.getByRole('combobox', { name: 'Fristtyp', exact: true }).selectOption('FollowUp')
   const calendarEvent = raPage.getByTestId('calendar-event').filter({ hasText: incidentKey })
   await expect(calendarEvent).toContainText('Bestätigter Folgetermin')
   await expect(calendarEvent).toContainText('Offen')
   await expect(calendarEvent).toContainText('Europe/Dublin')
-  await raPage.getByLabel('Kalendermonat', { exact: true }).fill(due.slice(0, 7))
+  await raPage.getByLabel('Kalendermonat', { exact: true }).fill(calendarMonth(due, displayTimeZone))
   await raPage.getByRole('combobox', { name: 'Fristtyp', exact: true }).selectOption('LegalDue')
   await expect(calendarEvent).toContainText('Simuliert erledigt')
   await expect(calendarEvent).toContainText('Keine offene Terminpflicht')

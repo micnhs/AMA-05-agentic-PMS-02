@@ -2,6 +2,83 @@
 
 **Arbeitsstand, kein Abschluss der Gesamt- oder Fachabnahme.** Dieser Nachweis wird mit den tatsaechlich ausgefuehrten Paketen fortgeschrieben.
 
+## Hosted-CI-Browserintegration: Quellkorrektur, noch kein neuer Lauf
+
+Der natuerliche [Cohors-CI-Lauf 44478644967](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44478644967),
+Attempt 1, bleibt unveraendert an `1f8122df67f92f12aeb22b7abd457a0affe7edb8` gebunden:
+Appjob `135405215212` erreichte **395/395 .NET**, **39/39 Bootstrap**
+(synthetische SQL-/Search-Fakes) und tatsaechlich **32 Chromium-Faelle:
+9 bestanden, 23 fehlgeschlagen, keine Skips**. Infrajob `135405215541`
+bleibt separat negativ: 47 Offline-Vertragsfaelle bestanden,
+Checkov 186 bestanden / 77 fehlgeschlagen. Das ist kein App-Gesamtpass
+und kein Security-/Cloudnachweis.
+
+Die nachfolgende Quellkorrektur ersetzt nur die bisher gemeinsame,
+nicht isolierte Browser-Fixture durch den vorhandenen `scripts/Test-Ui.ps1`.
+`Invoke-CohorsCi.ps1` publiziert die bereits gebaute API einmal lokal im
+ephemeren Runner (`--no-build --no-restore`) und ruft alle elf bestehenden
+Profile seriell auf: Preview, AuditExport, SummaryReport, CaseDocuments,
+ReportPrefill, InformationLifecycle, EudamedConfiguration, EudamedDossiers,
+CockpitCalendar, SignalReview und PhysicalRetention. Die Auswahl bleibt
+32 Faelle; PrimaryBaseline ist keine zusaetzliche oder ersetzende Auswahl.
+
+Der ausdrueckliche `-HostedCi`-Opt-in verlangt Linux, GitHub Actions,
+den identischen `GITHUB_WORKSPACE` und das gemeinsame Credentialinventar.
+Jedes Profil erhaelt durch den bestehenden Runner eine eigene Datenbank,
+API, echte private Konfiguration, scoped synthetische Konten und ein
+eigenes Artefaktverzeichnis. Die bestehenden Rollen-/Produktgrenzen,
+Signalfixture, isolierte physische Retention, Port-5187-Sperre,
+Fristen und Stop-/Stream-/Cleanupgrenzen bleiben erhalten. Neue
+Testpasswoerter, Salts und Hashes werden vor dem API-Start ebenfalls
+maskiert und in die bisherige Artefakt-Geheimnispruefung aufgenommen.
+Nur die im Runnerprozess ausgefuehrte Signalfixture erhaelt eine
+nicht gepoolte Verbindung zur eigenen Testdatenbank, damit sie nach
+Disposal keine Session zurueckhaelt. Anwendungs-Pooling, fremde Pools
+und die bestehende Verweigerung bei verbleibenden SQL-Sessions bleiben
+unveraendert; es gibt kein pauschales `ClearAllPools`.
+
+Ein Browserfehler bleibt ein Fehler. Nur bei vollstaendig belegtem
+Terminal-Cleanup darf das naechste Profil beginnen; ohne diesen Beleg
+werden auch der uebergeordnete SQL-Container und seine Konfiguration
+nicht blind entfernt. Ausfuehrungs- und Cleanupfehler bleiben getrennt
+erhalten. Die aggregierte JUnit behaelt alle ausgefuehrten Testfaelle
+einschliesslich Fehlern/Skips, Projektidentitaet und Originaldetails;
+Profil-JUnit- und Terminal-Hashes sowie der Cleanupstatus werden gebunden.
+Fehlende Projekte, reduzierte Fallzahlen oder widerspruechliche Zaehler
+blockieren Erfolg. Das Aggregat ist ausdruecklich als abgeleitet markiert.
+Zusaetzlich bleiben die elf originalen JUnitdateien und elf originalen
+`owned-resources-terminal.json` im selben synthetischen Testartefakt
+unter `browser-originals/<projekt>/` nachpruefbar. Die Allowlist benennt
+alle 27 Dateien einzeln: diese 22 Originalbelege, drei bisherige
+Hauptberichte und zwei Screenshots ausschliesslich aus Preview.
+Keine Rekursion oder Wildcards, privaten API-/Browserlogs, Zugangsdaten,
+Runtimeverzeichnisse oder weiteren Screenshots werden hochgeladen.
+Saemtliche vorhandenen Textbelege durchlaufen vor jeglicher Freigabe
+dieselbe vollstaendige Credentialpruefung einschliesslich aller neuen
+scoped Konten. Es werden genau die geprueften Originalbytes kopiert,
+auch bei Testfehlern; ein Geheimnisfund sperrt die Veroeffentlichung,
+statt Originale nachtraeglich zu bereinigen oder zu ueberschreiben.
+Diese Terminalbelege sind keine unabhaengige v8/v14-Closure.
+
+Zwei weitere Originalfehler sind davon unabhaengig korrigiert:
+UI02 verwendete wiederholt den jeweils aktuellen Langtext als Basis
+(16.590, danach 32.869 Zeichen). Die synthetische neue Fassung basiert
+jetzt auf der hashverifizierten unveraenderlichen Revision 1, bleibt
+mit eigenem Revisionsmarker unterscheidbar und innerhalb der
+unveraenderten Grenze 50 bis 30.000 Zeichen. Die Kalenderpruefung
+waehlt den Monat aus dem gespeicherten LegalDue-/Follow-up-Instant
+in der tatsaechlich ausgewaehlten Anzeigezeitzone. Beispielsweise liegt
+der 30. November, 23:59 Uhr in Dublin, bereits im Dezember in Berlin.
+Gesetzliche Berechnung, gespeicherte Frist, Erledigungsstatus und
+fachliche Assertions wurden nicht abgeschwaecht.
+
+Bislang wurden nur Quellsyntax, reine In-Memory-Vertraege fuer
+Auswahl/JUnit/Credentials/Cleanup und isolierte Text-/Zeitzonenausdruecke
+geprueft. **Keine lokale Build-, SQL-, API- oder Browserausfuehrung,
+kein neuer Hosted-Lauf und keine Paket-/Previewpromotion** erfolgten
+fuer diese Korrektur. Ein vollstaendiger Appnachweis bleibt offen;
+die vorherigen negativen Ergebnisse werden nicht umetikettiert.
+
 ## Lokaler EUDAMED-Actor-/Konfigurationsschnitt
 
 Anwendungsstand `7335caec08ea9f32c2d6cf768b5b2202e650f3eb` und

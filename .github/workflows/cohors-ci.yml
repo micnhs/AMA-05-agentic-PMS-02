@@ -73,5 +73,27 @@ jobs:
             ${{ runner.temp }}/cohors-test-evidence/e2e-results.xml
             ${{ runner.temp }}/cohors-test-evidence/cohors-cockpit.png
             ${{ runner.temp }}/cohors-test-evidence/cohors-workbench.png
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/preview/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/preview/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/audit-export/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/audit-export/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/summary-report/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/summary-report/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/case-documents/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/case-documents/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/report-prefill/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/report-prefill/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/information-lifecycle/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/information-lifecycle/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/eudamed-configuration/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/eudamed-configuration/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/eudamed-dossiers/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/eudamed-dossiers/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/cockpit-calendar/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/cockpit-calendar/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/signal-review/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/signal-review/owned-resources-terminal.json
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/physical-retention/e2e-results.xml
+            ${{ runner.temp }}/cohors-test-evidence/browser-originals/physical-retention/owned-resources-terminal.json
           if-no-files-found: error
           retention-days: 7

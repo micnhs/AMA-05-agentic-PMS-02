@@ -4,7 +4,9 @@ param(
     [Parameter(Mandatory)][string]$ApplicationDirectory,
     [Parameter(Mandatory)][string]$ArtifactDirectory,
     [ValidateSet('Preview','PrimaryBaseline','AuditExport','SummaryReport','CaseDocuments','ReportPrefill','InformationLifecycle','EudamedConfiguration','EudamedDossiers','CockpitCalendar','SignalReview','PhysicalRetention')][string]$Profile = 'Preview',
-    [int]$Port = 5197
+    [int]$Port = 5197,
+    [switch]$HostedCi,
+    [Collections.Generic.List[string]]$CredentialInventory
 )
 $ErrorActionPreference = 'Stop'
 function HashFile([string]$path) {
@@ -157,8 +159,17 @@ function Confirm-BrowserSelection($selection) {
         sourceFiles = $sourceFiles
     }
 }
-if ($env:GITHUB_ACTIONS -eq 'true') { throw 'This is the explicit local browser runner, not GitHub Actions.' }
 $root = Split-Path $PSScriptRoot -Parent
+if ($HostedCi) {
+    if ($env:GITHUB_ACTIONS -cne 'true' -or -not $IsLinux -or
+        [string]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE) -or
+        [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)) -cne $root -or
+        $null -eq $CredentialInventory -or $CredentialInventory.Count -eq 0) {
+        throw 'Hosted browser acceptance requires the explicit Linux Actions checkout and its shared credential inventory.'
+    }
+} elseif ($env:GITHUB_ACTIONS -eq 'true' -or $null -ne $CredentialInventory) {
+    throw 'GitHub Actions must opt in through the owned Hosted CI lifecycle; local runs do not accept a CI credential inventory.'
+}
 . (Join-Path $PSScriptRoot 'Backup-Local.ps1') -ApplicationDirectory $ApplicationDirectory
 $application = Assert-RecoveryPath $ApplicationDirectory
 $artifacts = Assert-RecoveryPath $ArtifactDirectory -New
@@ -283,6 +294,12 @@ try {
         if (@($config.Authentication.Users | Where-Object { $_.Username -ceq $username }).Count) {
             throw 'An isolated scoped test account already exists; do not overwrite or duplicate it.'
         }
+        if ($HostedCi) {
+            foreach ($value in @($secret, [Convert]::ToBase64String($salt), [Convert]::ToBase64String($hash))) {
+                $CredentialInventory.Add($value)
+                Write-Output "::add-mask::$value"
+            }
+        }
         $config.Authentication.Users = @($config.Authentication.Users) + @{
             Id = [Guid]::NewGuid().ToString(); Username = $username; Name = "Synthetic $($account.Product)-scoped reviewer"
             Role = $account.Role; Products = @($account.Product); Salt = [Convert]::ToBase64String($salt); Hash = [Convert]::ToBase64String($hash)
@@ -333,7 +350,10 @@ try {
             [Cohors.Domain.Canonical].Assembly.Location -cne (Join-Path $application 'Cohors.Domain.dll')) {
             throw 'The synthetic fixture must use the explicitly bound test and application assemblies in this fresh process.'
         }
-        $fixture = [Cohors.Tests.SignalReviewBrowserFixture]::Create($sql.ConnectionString, (Join-Path $root 'policies')).GetAwaiter().GetResult()
+        # This in-process fixture must not retain SQL sessions after the owned API stops.
+        $fixtureSql = [Microsoft.Data.SqlClient.SqlConnectionStringBuilder]::new($sql.ConnectionString)
+        $fixtureSql.set_Pooling($false)
+        $fixture = [Cohors.Tests.SignalReviewBrowserFixture]::Create($fixtureSql.ConnectionString, (Join-Path $root 'policies')).GetAwaiter().GetResult()
         [IO.File]::WriteAllText((Join-Path $artifacts 'synthetic-signal-fixture.json'), [Cohors.Domain.Canonical]::Serialize($fixture))
         $sourceFiles['tests\Cohors.Tests\bin\Debug\net10.0\Cohors.Tests.dll'] = (Get-FileHash -LiteralPath $testAssembly).Hash.ToLowerInvariant()
     }
@@ -368,7 +388,8 @@ try {
         $assemblies[$name] = $applicationFiles[$name]
     }
     $report = [ordered]@{
-        scope = 'Isolated local synthetic Replay browser; local outbox/watchdog emulation, not separate Functions/Azure/live AI'
+        scope = 'Isolated synthetic Replay browser; local outbox/watchdog emulation, not separate Functions/Azure/live AI'
+        hostKind = if ($HostedCi) { 'GitHubActionsLinux' } else { 'Local' }
         profile = $Profile; retentionPhysicalMode = $config.Retention.PhysicalMode
         startedUtc = $started; finishedUtc = [DateTimeOffset]::UtcNow.ToString('O')
         sourceCommit = (& git -C $root rev-parse HEAD); sourceTreeDirty = @(& git -C $root status --porcelain --untracked-files=normal).Count -gt 0

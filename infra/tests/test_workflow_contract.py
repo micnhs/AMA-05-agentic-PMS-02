@@ -38,8 +38,18 @@ class WorkflowContractTests(unittest.TestCase):
                                 "cohors-cockpit.png", "cohors-workbench.png",
                             )
                         }
+                        if path.name == "cohors-ci.yml":
+                            expected.update(
+                                f"${{{{ runner.temp }}}}/cohors-test-evidence/browser-originals/{project}/{name}"
+                                for project in (
+                                    "preview", "audit-export", "summary-report", "case-documents", "report-prefill",
+                                    "information-lifecycle", "eudamed-configuration", "eudamed-dossiers",
+                                    "cockpit-calendar", "signal-review", "physical-retention",
+                                )
+                                for name in ("e2e-results.xml", "owned-resources-terminal.json")
+                            )
                         self.assertCountEqual(paths, expected)
-                        self.assertNotRegex(step["with"]["path"], r"settings|demo-access|trace|storageState|\*\*")
+                        self.assertNotRegex(step["with"]["path"], r"settings|demo-access|trace|storageState|private-|runtime/|\*")
 
 
 if __name__ == "__main__":
