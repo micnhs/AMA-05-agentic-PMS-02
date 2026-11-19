@@ -386,19 +386,51 @@ public sealed partial class FabricC1Provisioner
 
     public async Task DenyWorkspacePublicAccess(string key, CancellationToken ct)
     {
+        Guard.Against(key is not ("agent" or "released" or "denied"), "c1_deploy_workspace", "Unknown own workspace.", 409);
         var id = Text(Owned("workspace-" + key, "Workspace"), "id");
         await RequireWorkspaceInboundEnabled(ct);
         var uri = new Uri($"https://api.fabric.microsoft.com/v1/workspaces/{id}/networking/communicationPolicy");
         var before = await Send(HttpMethod.Get, uri, ct: ct);
         RequireStatus(before, 200);
+        var objectKey = "policy-" + key;
+        if (state.Objects.TryGetValue(objectKey, out var saved))
+        {
+            Guard.Against(saved.Kind != "CommunicationPolicy" || saved.Id != id ||
+                saved.RequestHash != Canonical.Hash(saved.Response) || !JsonNode.DeepEquals(saved.Response, before.Body),
+                "c1_deploy_policy_readback", "The original deny policy changed; resume never silently overwrites it.", 409);
+            return;
+        }
+        var intentKey = "policy-intent-" + key;
+        if (state.Objects.TryGetValue(intentKey, out var intent))
+        {
+            state.PendingCreates.TryGetValue(objectKey, out var originalHash);
+            Guard.Against(intent.Kind != "CommunicationPolicyIntent" || intent.Id != id ||
+                intent.RequestHash != Canonical.Hash(intent.Response) ||
+                originalHash is null ||
+                originalHash != Canonical.Hash(intent.Response["request"]),
+                "c1_deploy_policy_binding", "The original complete policy write intent is inconsistent.", 409);
+            Guard.Against(!JsonNode.DeepEquals(intent.Response["request"], before.Body), "c1_deploy_unknown",
+                "The earlier full-policy PUT is unresolved; never replay it or adopt another policy.", 409);
+            SaveObject(objectKey, "CommunicationPolicy", id, originalHash!, before.Body);
+            return;
+        }
         Guard.Against(string.IsNullOrWhiteSpace(before.ETag), "c1_deploy_etag", "Policy ETag is absent; do not overwrite.", 409);
         var body = FabricC1Deployment.LockCommunicationPolicy(before.Body);
+        if (JsonNode.DeepEquals(body, before.Body))
+        {
+            SaveObject(objectKey, "CommunicationPolicy", id, Canonical.Hash(body), before.Body);
+            return;
+        }
+        var writeIntent = new JsonObject
+        { ["request"] = body.DeepClone(), ["previous"] = before.Body.DeepClone(), ["etag"] = before.ETag };
+        SaveObject(intentKey, "CommunicationPolicyIntent", id, Canonical.Hash(writeIntent), writeIntent);
+        Pending(objectKey, Canonical.Hash(body));
         var updated = await Send(HttpMethod.Put, uri, body, QuoteETag(before.ETag!), ct);
         RequireStatus(updated, 200);
         var after = await Send(HttpMethod.Get, uri, ct: ct);
         RequireStatus(after, 200);
         Guard.Against(!JsonNode.DeepEquals(body, after.Body), "c1_deploy_policy_readback", "Full networking policy readback differs.", 409);
-        SaveObject("policy-" + key, "CommunicationPolicy", id, Canonical.Hash(body), after.Body);
+        SaveObject(objectKey, "CommunicationPolicy", id, Canonical.Hash(body), after.Body);
     }
 
     public async Task<JsonObject> EnsureLakehouse(string workspace, CancellationToken ct)
@@ -992,10 +1024,11 @@ public sealed partial class FabricC1Provisioner
         if (cleanup)
         {
             Guard.Against(uri.Scheme != "https" || !uri.IsDefaultPort || uri.UserInfo.Length != 0 || uri.Fragment.Length != 0 ||
-                body is not null || method != HttpMethod.Get && method != HttpMethod.Delete ||
-                uri.IdnHost != "graph.microsoft.com" && !IsCheckpointAccessCleanupUri(uri) && !IsArtifactAccessCleanupUri(uri) &&
-                    !IsArtifactCommandCleanupUri(method, uri) && !IsSourceWorkspaceCleanupUri(method, uri),
-                "c1_deploy_cleanup_scope", "Cleanup can only read/delete its bound identity, storage, Run Command or materialized-source inventory.", 409);
+                body is not null || !IsPrivateCleanupUri(method, uri) &&
+                (method != HttpMethod.Get && method != HttpMethod.Delete ||
+                 uri.IdnHost != "graph.microsoft.com" && !IsCheckpointAccessCleanupUri(uri) && !IsArtifactAccessCleanupUri(uri) &&
+                    !IsArtifactCommandCleanupUri(method, uri) && !IsSourceWorkspaceCleanupUri(method, uri)),
+                "c1_deploy_cleanup_scope", "Cleanup is restricted to original owned inventory and exact journal-bound stop/delete requests; hub access is read-only.", 409);
             (next, deadline) = PlanCleanupRequests(1);
         }
         else

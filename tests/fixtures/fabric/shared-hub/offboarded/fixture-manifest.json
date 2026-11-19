@@ -1,0 +1,29 @@
+{
+  "contract": "cohors-synthetic-hub-fixture-1",
+  "synthetic": true,
+  "cloudObserved": false,
+  "schemaSha256": "43eee0651b0525f42115185540324e447a78ff0ff82eba73dd1087187c10ca19",
+  "canonicalization": "Python JSON sort_keys=True separators=(',',':') ensure_ascii=True UTF-8",
+  "producerSourceSha256": {
+    "shared_hub.py": "54e1f23a2f9ea89e5784f936decd7870e9ee5846a2f91d95c766ed4038406bfb",
+    "shared_hub_control.py": "5a5b56de0b0e3dbbbdb10f9525e9420e641861ec85321f960ad0aa84888ef31b",
+    "primary_control.py": "77e46a84d5652af5b05e6928f05997d7e7e9d059148af0cc1e4194068ae69aa3",
+    "primary_bootstrap.py": "db7f727bcaac5b3f7e2576fe9a6273ec5ccb95e70c1a16366068aa2faee58c4a"
+  },
+  "fixtureSourceSha256": "88c7508712736cc338178e50483289b0c15ffd15e3fdcffc662571c09daf8aa4",
+  "observedAtUtc": "2026-11-19T08:00:00Z",
+  "trafficAccepted": false,
+  "capacityAccepted": false,
+  "costAccepted": false,
+  "cases": [
+    {
+      "state": "offboarded",
+      "receiptFile": "offboarded.receipt.json",
+      "armFile": "offboarded.arm.json",
+      "receiptFileSha256": "d38ee32c78e49a16b5da0ab9f586e86378823abe19f1c60f8694fd96de2a4f1e",
+      "armFileSha256": "0c9659c865dd92860638f89c3e974e0b8a8b29115eacd83f3e90382cbbdfad31",
+      "receiptCanonicalSha256": "c734fa3ba2f0319a3678179af5d84f01cae0b832b63e4c22233523e2b2d61bf9",
+      "armCanonicalSha256": "e2c9df749c35e811131727f1dff96bddeb08e8fd90595eb94364c9d0e9539c09"
+    }
+  ]
+}

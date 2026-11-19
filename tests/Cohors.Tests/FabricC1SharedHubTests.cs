@@ -12,6 +12,71 @@ public sealed partial class FabricC1DeploymentTests
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..")),
         "tests", "fixtures", "fabric", "shared-hub", file);
 
+    [Fact]
+    public void FinalOwnerProvenanceDoesNotReplaceAnyOriginalReceiptOrSchemaBytes()
+    {
+        var bytes = File.ReadAllBytes(HubFixturePath("fixture-manifest-owner-final.json"));
+        Assert.Equal("830b4e094a6440f9eea347a6bfd425bf672ca640b3c81ada302da29e78cd3c48",
+            Convert.ToHexStringLower(SHA256.HashData(bytes)));
+        var final = JsonNode.Parse(bytes)!;
+        var original = JsonNode.Parse(File.ReadAllBytes(HubFixturePath("fixture-manifest.json")))!;
+        Assert.True(JsonNode.DeepEquals(original["cases"], final["cases"]));
+        Assert.Equal(original["schemaSha256"]!.GetValue<string>(), final["schemaSha256"]!.GetValue<string>());
+        Assert.True(final["synthetic"]!.GetValue<bool>());
+        Assert.False(final["cloudObserved"]!.GetValue<bool>());
+        Assert.Equal("54e1f23a2f9ea89e5784f936decd7870e9ee5846a2f91d95c766ed4038406bfb",
+            final["producerSourceSha256"]!["shared_hub.py"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task OriginalOffboardedOwnerFixturePreservesOtherHubReferencesButDoesNotSupplyConsumerStopEvidence()
+    {
+        static byte[] Bytes(string name) => File.ReadAllBytes(HubFixturePath(Path.Combine("offboarded", name)));
+        static string Hash(string name) => Convert.ToHexStringLower(SHA256.HashData(Bytes(name)));
+        Assert.Equal("988fd24bbf8b6577035d89fd082f3639f4c03ec8819201c8914e3a04346817cc", Hash("fixture-manifest.json"));
+        Assert.Equal("aa2cdddb1a378680e5b6d572bc958f2b6ee34d294aef33571565a649f34702d0", Hash("owner-lifecycle.json"));
+        var manifest = JsonNode.Parse(Bytes("fixture-manifest.json"))!;
+        var entry = Assert.Single(manifest["cases"]!.AsArray())!;
+        Assert.Equal(FabricC1Deployment.SharedHubSchemaSha256, manifest["schemaSha256"]!.GetValue<string>());
+        Assert.Equal(entry["receiptFileSha256"]!.GetValue<string>(), Hash("offboarded.receipt.json"));
+        Assert.Equal(entry["armFileSha256"]!.GetValue<string>(), Hash("offboarded.arm.json"));
+        var receipt = JsonNode.Parse(Bytes("offboarded.receipt.json"))!.AsObject();
+        var arm = JsonNode.Parse(Bytes("offboarded.arm.json"))!.AsObject();
+        var unsigned = (JsonObject)receipt.DeepClone();
+        unsigned.Remove("receiptSha256");
+        var receiptHash = receipt["receiptSha256"]!.GetValue<string>();
+        Assert.Equal(entry["receiptCanonicalSha256"]!.GetValue<string>(), receiptHash);
+        Assert.Equal(receiptHash, FabricC1Deployment.HubWireHash(unsigned));
+        Assert.Equal(entry["armCanonicalSha256"]!.GetValue<string>(), FabricC1Deployment.HubWireHash(arm));
+        var hubGroup = receipt["hub"]!["resourceGroupId"]!.GetValue<string>();
+        foreach (var observation in receipt["readback"]!["resources"]!.AsArray())
+        {
+            var id = observation!["id"]!.GetValue<string>();
+            Assert.StartsWith(hubGroup + "/", id, StringComparison.Ordinal);
+            Assert.Equal(observation["sha256"]!.GetValue<string>(), FabricC1Deployment.HubWireHash(arm[id]));
+        }
+        Assert.Empty(receipt["egress"]!["httpsRules"]!.AsArray());
+        Assert.Empty(receipt["operatorEndpoints"]!.AsArray());
+        Assert.Null(receipt["peering"]);
+        Assert.False(receipt["readback"]!["trafficAccepted"]!.GetValue<bool>());
+        var lifecycle = JsonNode.Parse(Bytes("owner-lifecycle.json"))!;
+        Assert.False(lifecycle["consumerPrerequisiteGateExecuted"]!.GetValue<bool>());
+        Assert.False(lifecycle["consumerStopGrantPeerRequestsGenerated"]!.GetValue<bool>());
+        foreach (var id in lifecycle["deletedHubReferences"]!.AsArray())
+            Assert.False(arm.ContainsKey(id!.GetValue<string>()));
+        Assert.Equal(3, arm.Count(item => item.Key.EndsWith("/consumer-primary", StringComparison.Ordinal) ||
+            item.Key.EndsWith("/to-primary", StringComparison.Ordinal)));
+        Assert.All(arm.Select(item => item.Key), id => Assert.StartsWith(hubGroup + "/", id, StringComparison.Ordinal));
+        await AssertPythonContract("""
+            import hashlib, json, sys
+            data = json.load(sys.stdin)
+            assert data["receipt"].pop("receiptSha256") == data["receiptHash"]
+            for name in ("receipt", "arm"):
+                wire = json.dumps(data[name], sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+                assert hashlib.sha256(wire.encode()).hexdigest() == data[name + "Hash"]
+            """, new { receipt, arm, receiptHash, armHash = FabricC1Deployment.HubWireHash(arm) });
+    }
+
     [Theory]
     [InlineData("reserved")]
     [InlineData("peered")]
@@ -546,9 +611,12 @@ public sealed partial class FabricC1DeploymentTests
         private string DnsPolicy => HubGroup + "/providers/Microsoft.Network/dnsResolverPolicies/dns";
         private readonly string vnetGeneration = Guid.NewGuid().ToString("D");
 
-        public HubFixture(Harness run)
+        private readonly bool registrationDns;
+
+        public HubFixture(Harness run, bool registrationDns = false)
         {
             this.run = run;
+            this.registrationDns = registrationDns;
             var binding = run.Input.Network!.SharedHub!;
             var hubSubnets = new JsonObject
             {
@@ -655,6 +723,13 @@ public sealed partial class FabricC1DeploymentTests
                     ["aadIssuer"] = "https://sts.windows.net/" + run.Input.TenantId + "/"
                 }
             });
+            if (registrationDns)
+            {
+                var zone = HubGroup + "/providers/Microsoft.Network/privateDnsZones/privatelink.synthetic.example.invalid";
+                Add(zone, new());
+                Receipt["dns"]!["zones"] = new JsonArray(new JsonObject
+                { ["id"] = zone, ["name"] = "privatelink.synthetic.example.invalid" });
+            }
             RefreshHashes();
         }
 
@@ -710,9 +785,9 @@ public sealed partial class FabricC1DeploymentTests
                     HubVnet, false, stage == "hub-transit") }
             });
 
-        public static async Task<HubFixture> Connected(Harness run)
+        public static async Task<HubFixture> Connected(Harness run, bool registrationDns = false)
         {
-            var hub = new HubFixture(run);
+            var hub = new HubFixture(run, registrationDns);
             await hub.Import();
             hub.SeedSpoke();
             hub.SeedPeer("hub-peer", run.Provisioner.PrepareSharedHubStage("hub-peer"));
@@ -724,7 +799,7 @@ public sealed partial class FabricC1DeploymentTests
             return hub;
         }
 
-        public FabricC1HubArmRequest SeedEndpoints()
+        public FabricC1HubArmRequest SeedEndpoints(bool cnameForVault = false)
         {
             SeedDeployment("foundation", run.Provisioner.PrepareSharedHubStage("foundation"), new());
             var workspaces = new JsonArray();
@@ -755,8 +830,26 @@ public sealed partial class FabricC1DeploymentTests
                 ["tags"] = new JsonObject { ["value"] = FabricC1Deployment.Tags(run.Input) },
                 ["workspaces"] = new JsonObject { ["value"] = workspaces }, ["endpoints"] = new JsonObject { ["value"] = endpoints }
             });
+            var originals = CreateEndpointResources(request.Parameters, cnameForVault);
+            SeedDeployment("private-endpoints", request, new() { ["privateEndpoints"] = new JsonObject { ["value"] = originals } });
+            foreach (var endpoint in originals)
+            {
+                var id = endpoint!["properties"]!["networkInterfaces"]![0]!["id"]!.GetValue<string>();
+                run.Seed("arm-child-" + Canonical.HashText(id.ToLowerInvariant()), "ArmGeneratedChild", new()
+                {
+                    ["id"] = id, ["parentId"] = endpoint["id"]!.DeepClone(),
+                    ["instanceId"] = Resources[id]["properties"]!["resourceGuid"]!.DeepClone(),
+                    ["parentRequestHash"] = run.Store.Current!.Objects["arm-private-endpoints"].RequestHash
+                });
+            }
+            return request;
+        }
+
+        public JsonArray CreateEndpointResources(JsonObject parameters, bool cnameForVault = false, bool workspaceDns = false)
+        {
+            var endpoints = parameters["endpoints"]!["value"]!.AsArray();
+            var workspaces = parameters["workspaces"]!["value"]!.AsArray();
             var originals = new JsonArray();
-            var children = new List<(string Id, string Parent, string Instance)>();
             for (var index = 0; index < endpoints.Count; index++)
             {
                 var target = endpoints[index]!;
@@ -768,7 +861,10 @@ public sealed partial class FabricC1DeploymentTests
                 var subnet = SpokeVnet + "/subnets/" + (isOperator ? "operator-endpoints" : "endpoints");
                 var prefix = isOperator ? run.Input.Network!.SharedHub!.OperatorEndpointPrefix! : run.Input.Network!.EndpointPrefix!;
                 var address = string.Join(".", prefix.Split('.').Take(3)) + "." + (index + 5);
-                var host = key == "vault" ? Name + "kv.vault.azure.net" : key + ".synthetic.example.invalid";
+                var host = registrationDns ? key + (key == "vault" && cnameForVault ? ".public." : ".privatelink.") +
+                    "synthetic.example.invalid" : key == "vault" ? Name + "kv.vault.azure.net" : key + ".synthetic.example.invalid";
+                if (workspaceDns && key is "agent" or "released" or "denied")
+                    host = FabricC1Provisioner.WorkspaceHost(workspaces.Single(item => item!["key"]!.GetValue<string>() == key)!["id"]!.GetValue<string>());
                 Add(id, new()
                 {
                     ["subnet"] = new JsonObject { ["id"] = subnet },
@@ -791,7 +887,6 @@ public sealed partial class FabricC1DeploymentTests
                 }, own: true);
                 Resources[nicId]["tags"] = new JsonObject();
                 originals.Add(Resources[id].DeepClone());
-                children.Add((nicId, id, instance));
                 if (key == "vault")
                     Receipt["operatorEndpoints"] = new JsonArray(new JsonObject
                     {
@@ -799,14 +894,7 @@ public sealed partial class FabricC1DeploymentTests
                         ["fqdns"] = new JsonArray(host), ["port"] = 443
                     });
             }
-            SeedDeployment("private-endpoints", request, new() { ["privateEndpoints"] = new JsonObject { ["value"] = originals } });
-            foreach (var child in children)
-                run.Seed("arm-child-" + Canonical.HashText(child.Id.ToLowerInvariant()), "ArmGeneratedChild", new()
-                {
-                    ["id"] = child.Id, ["parentId"] = child.Parent, ["instanceId"] = child.Instance,
-                    ["parentRequestHash"] = run.Store.Current!.Objects["arm-private-endpoints"].RequestHash
-                });
-            return request;
+            return originals;
         }
 
         private void SeedDeployment(string stage, FabricC1HubArmRequest request, JsonObject outputs)
@@ -884,7 +972,8 @@ public sealed partial class FabricC1DeploymentTests
         };
         private static JsonObject PeerResource(string id, string remote, bool hub, bool transit) => new()
         {
-            ["id"] = id, ["etag"] = "synthetic-etag", ["properties"] = new JsonObject
+            ["id"] = id, ["type"] = "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+            ["etag"] = "synthetic-etag", ["properties"] = new JsonObject
             {
                 ["provisioningState"] = "Succeeded", ["remoteVirtualNetwork"] = new JsonObject { ["id"] = remote },
                 ["allowVirtualNetworkAccess"] = true, ["allowForwardedTraffic"] = !hub, ["allowGatewayTransit"] = hub,
@@ -895,7 +984,8 @@ public sealed partial class FabricC1DeploymentTests
         {
             Receipt["readback"]!["resources"] = new JsonArray(Resources.OrderBy(item => item.Key, StringComparer.Ordinal).Select(item => (JsonNode)new JsonObject
             {
-                ["id"] = item.Key, ["apiVersion"] = item.Key.Contains("/dnsResolver", StringComparison.Ordinal) ? "2025-05-01" : "2024-07-01",
+                ["id"] = item.Key, ["apiVersion"] = item.Key.Contains("/dnsResolver", StringComparison.Ordinal) ? "2025-05-01" :
+                    item.Key.Contains("/privateDnsZones/", StringComparison.Ordinal) ? "2020-06-01" : "2024-07-01",
                 ["sha256"] = FabricC1Deployment.HubWireHash(item.Value), ["etag"] = item.Value["etag"]!.DeepClone()
             }).ToArray());
             Sign();
@@ -905,19 +995,47 @@ public sealed partial class FabricC1DeploymentTests
             Receipt.Remove("receiptSha256");
             Receipt["receiptSha256"] = FabricC1Deployment.HubWireHash(Receipt);
         }
-        public void Queue(string? firstEtag = null, JsonObject? extraPolicy = null)
+        public void Queue(string? firstEtag = null, JsonObject? extraPolicy = null, bool hubOnly = false)
         {
             var index = 0;
             foreach (var item in Receipt["readback"]!["resources"]!.AsArray())
+            {
+                if (hubOnly && !item!["id"]!.GetValue<string>().StartsWith(HubGroup + "/", StringComparison.Ordinal)) continue;
                 run.Api.Reply(200, Resources[item!["id"]!.GetValue<string>()], index++ == 0 ? firstEtag : null);
+            }
             foreach (var prefix in new[] { FirewallPolicy + "/ruleCollectionGroups/", DnsPolicy + "/dnsSecurityRules/", DnsPolicy + "/virtualNetworkLinks/" })
             {
                 var entries = Resources.Where(item => item.Key.StartsWith(prefix, StringComparison.Ordinal)).Select(item => item.Value);
                 if (prefix == FirewallPolicy + "/ruleCollectionGroups/" && extraPolicy is not null) entries = entries.Append(extraPolicy);
                 run.Api.List(entries.ToArray());
             }
-            if (Receipt["state"]!.GetValue<string>() != "reserved")
+            if (!hubOnly && Receipt["state"]!.GetValue<string>() != "reserved")
                 run.Api.List(Resources[SpokeVnet + "/virtualNetworkPeerings/to-shared-hub"]);
+        }
+
+        public FabricC1HubDnsSelection[] RegistrationSelections() => Resources.Values
+            .Where(item => item["type"]?.GetValue<string>() == "Microsoft.Network/privateEndpoints")
+            .Select(item => new FabricC1HubDnsSelection(item["id"]!.GetValue<string>(),
+                item["properties"]!["customDnsConfigs"]![0]!["fqdn"]!.GetValue<string>(),
+                "privatelink.synthetic.example.invalid",
+                item["id"]!.GetValue<string>().Split('/')[^1][(Name.Length + 1)..^3])).ToArray();
+
+        public void QueueRegistration()
+        {
+            Queue(hubOnly: true);
+            foreach (var id in new[] { SpokeVnet, OwnGroup + "/providers/Microsoft.Network/routeTables/" + Name + "-egress-routes" }
+                .Concat(new[] { "-nsg", "-endpoint-nsg", "-operator-endpoint-nsg" }
+                    .Select(suffix => OwnGroup + "/providers/Microsoft.Network/networkSecurityGroups/" + Name + suffix)))
+                run.Api.Reply(200, Resources[id]);
+            run.Api.List(Resources[SpokeVnet + "/virtualNetworkPeerings/to-shared-hub"]);
+            var endpoints = Resources.Values.Where(item => item["type"]?.GetValue<string>() == "Microsoft.Network/privateEndpoints")
+                .OrderBy(item => item["id"]!.GetValue<string>(), StringComparer.Ordinal).ToArray();
+            run.Api.List(endpoints);
+            foreach (var endpoint in endpoints)
+            {
+                run.Api.Reply(200, endpoint);
+                run.Api.Reply(200, Resources[endpoint["properties"]!["networkInterfaces"]![0]!["id"]!.GetValue<string>()]);
+            }
         }
         public Task<FabricC1HubConsumerResult> Import()
         {

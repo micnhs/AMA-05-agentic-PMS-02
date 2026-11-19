@@ -85,8 +85,10 @@ public sealed partial class FabricC1Provisioner
             "TenantSettingsReview", "ApprovedTenantPlan", "ScopedTenantSetting",
             "SharedTenantEnableIntent", "SharedTenantSettingEffect"
         };
+        var ordered = PrivateIdentityCleanupScopeKeys();
         Guard.Against(state.PendingOperations.Count != 0 ||
             state.Objects.Any(pair => !kinds.ContainsKey(pair.Key) &&
+                !ordered.Contains(pair.Key) &&
                 !(pair.Key.StartsWith("tenant-", StringComparison.Ordinal) && administration.Contains(pair.Value.Kind))) ||
             state.PendingCreates.Keys.Any(key => !(kinds.ContainsKey(key) && key != "fabric-api-members") &&
                 !key.StartsWith("tenant-change-", StringComparison.Ordinal) && key != "tenant-shared-inbound-enable"),
@@ -165,6 +167,8 @@ public sealed partial class FabricC1Provisioner
         if (target.Kind is "Application" or "ServicePrincipal")
             SameId(Text(current.Body, "appId"), Text(known.Response, "appId"));
         if (pending is not null) return false;
+        if (state.Objects.ContainsKey(PrivateOriginalKey) || HasIdentityOnlyPrivateFence())
+            await RequirePrivateUnusedIdentityCredentials(target, current.Body, ct);
         await VerifyGraphBinding(target.Kind, target.Collection, current.Body, target.CreationBody, ct, cleanup: true);
         if (target.Kind == "ServicePrincipal")
         {

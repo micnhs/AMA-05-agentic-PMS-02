@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 using Azure.Core;
 using Azure.Identity;
 using Cohors.Domain;
@@ -11,7 +12,8 @@ using Microsoft.IdentityModel.JsonWebTokens;
 namespace Cohors.Infrastructure;
 
 public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, TokenCredential credential,
-    IReadOnlyDictionary<string, HttpClient> clients, TimeProvider? time = null) : IFabricC1DeploymentApi
+    IReadOnlyDictionary<string, HttpClient> clients, TimeProvider? time = null,
+    Func<string, HttpClient?>? privateClientFactory = null) : IFabricC1DeploymentApi
 {
     private readonly TimeProvider clock = time ?? TimeProvider.System;
 
@@ -27,7 +29,10 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
                 body!["enabledSecurityGroups"] is not (null or JsonArray { Count: 0 }) ||
                 body["excludedSecurityGroups"] is not (null or JsonArray { Count: 0 }),
                 "c1_deploy_shared_setting_scope", "C1 cannot disable shared inbound configuration or pretend it is group-scoped.", 409);
-        if (!clients.TryGetValue(uri.IdnHost, out var client))
+        if (!clients.TryGetValue(uri.IdnHost, out var client) &&
+            uri.IdnHost is not ("graph.microsoft.com" or "management.azure.com" or "api.fabric.microsoft.com"))
+            client = privateClientFactory?.Invoke(uri.IdnHost);
+        if (client is null)
             throw new DomainException("c1_deploy_private_route", "No approved private/control client for this exact host; no public fallback.", 409);
         var token = await credential.GetTokenAsync(new TokenRequestContext([scope]), ct);
         ValidateBootstrapToken(token, input.BootstrapIdentity!, audience, clock.GetUtcNow(),
@@ -196,6 +201,7 @@ public sealed class FabricC1DeploymentHttp(FabricC1DeploymentInputs input, Token
             return method == HttpMethod.Get || method == HttpMethod.Post;
         if (parts.Length == 4 && method == HttpMethod.Get)
             return parts[1] is "applications" or "groups" && parts[3] == "owners" ||
+                parts[1] == "applications" && parts[3] == "federatedIdentityCredentials" ||
                 parts[1] == "servicePrincipals" && parts[3] == "ownedObjects";
         if (parts[1] != "groups" || parts[3] != "members") return false;
         return parts.Length == 5 && parts[4] == "$ref" && method == HttpMethod.Post ||
@@ -245,7 +251,10 @@ public sealed class FabricC1DeploymentCredential : IDisposable
 public sealed class FabricC1DeploymentFileJournal : IFabricC1DeploymentJournal, IDisposable
 {
     private readonly string path;
-    private readonly FileStream lease;
+    private readonly object sync = new();
+    private string? loadedHash;
+    private bool loaded;
+    private bool disposed;
     private const int MaximumBytes = 4 * 1024 * 1024;
     public FabricC1DeploymentFileJournal(string path)
     {
@@ -254,36 +263,77 @@ public sealed class FabricC1DeploymentFileJournal : IFabricC1DeploymentJournal, 
             File.Exists(path + ".lock") && new FileInfo(path + ".lock").LinkTarget is not null,
             "c1_deploy_journal_path", "Existing protected directory and non-link absolute journal path required.", 409);
         this.path = path;
-        lease = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
     }
     public FabricC1DeploymentJournal? Load()
     {
-        if (!File.Exists(path)) return null;
-        using var file = File.OpenRead(path);
-        Guard.Against(file.Length > MaximumBytes, "c1_deploy_journal_size", "Deployment journal exceeds limit.", 409);
-        return JsonSerializer.Deserialize<FabricC1DeploymentJournal>(file, Canonical.Json) ??
-            throw new DomainException("c1_deploy_journal_invalid", "Invalid journal; never start over silently.", 409);
+        lock (sync)
+        {
+            using var lease = Acquire();
+            var bytes = ReadBytes();
+            var state = bytes is null ? null : JsonSerializer.Deserialize<FabricC1DeploymentJournal>(bytes, Canonical.Json) ??
+                throw new DomainException("c1_deploy_journal_invalid", "Invalid journal; never start over silently.", 409);
+            loadedHash = Hash(bytes);
+            loaded = true;
+            return state;
+        }
     }
     public void Save(FabricC1DeploymentJournal state)
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(state, Canonical.Json);
         Guard.Against(bytes.Length > MaximumBytes, "c1_deploy_journal_size", "Deployment journal exceeds limit.", 409);
-        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
+        lock (sync)
         {
-            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None, Options = FileOptions.WriteThrough };
-            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            using (var file = new FileStream(temporary, options))
+            using var lease = Acquire();
+            var current = ReadBytes();
+            Guard.Against(!loaded && current is not null || Hash(current) != loadedHash, "c1_deploy_journal_conflict",
+                "Another controller changed the original journal; no stale request, budget overwrite or automatic restart.", 409);
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
             {
-                file.Write(bytes);
-                file.Flush(flushToDisk: true);
+                var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None, Options = FileOptions.WriteThrough };
+                if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                using (var file = new FileStream(temporary, options))
+                {
+                    file.Write(bytes);
+                    file.Flush(flushToDisk: true);
+                }
+                File.Move(temporary, path, overwrite: true);
+                loadedHash = Hash(bytes);
+                loaded = true;
             }
-            File.Move(temporary, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporary)) File.Delete(temporary);
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
         }
     }
-    public void Dispose() => lease.Dispose();
+
+    private FileStream Acquire()
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        Guard.Against(File.Exists(path) && new FileInfo(path).LinkTarget is not null ||
+            File.Exists(path + ".lock") && new FileInfo(path + ".lock").LinkTarget is not null,
+            "c1_deploy_journal_path", "The protected journal/lease path cannot be replaced with a link.", 409);
+        var options = new FileStreamOptions { Mode = FileMode.OpenOrCreate, Access = FileAccess.ReadWrite, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        try { return new FileStream(path + ".lock", options); }
+        catch (IOException error) when ((error.HResult & 0xffff) is 11 or 32 or 33)
+        {
+            throw new DomainException("c1_deploy_journal_busy", "Another controller holds the short journal lease; no provider request was authorized.", 409);
+        }
+    }
+
+    private byte[]? ReadBytes()
+    {
+        if (!File.Exists(path)) return null;
+        using var file = File.OpenRead(path);
+        Guard.Against(file.Length is <= 0 or > MaximumBytes, "c1_deploy_journal_size", "Deployment journal is empty or exceeds limit.", 409);
+        var bytes = new byte[checked((int)file.Length)];
+        file.ReadExactly(bytes);
+        Guard.Against(file.ReadByte() != -1, "c1_deploy_journal_conflict", "Journal size changed while locked.", 409);
+        return bytes;
+    }
+
+    private static string? Hash(byte[]? bytes) => bytes is null ? null : Convert.ToHexStringLower(SHA256.HashData(bytes));
+    public void Dispose() { lock (sync) disposed = true; }
 }

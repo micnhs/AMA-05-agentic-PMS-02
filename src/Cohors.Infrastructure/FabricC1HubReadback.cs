@@ -6,7 +6,8 @@ namespace Cohors.Infrastructure;
 
 public sealed partial class FabricC1Provisioner
 {
-    private async Task<Dictionary<string, JsonObject>> ReadHubObservations(JsonObject receipt, CancellationToken ct, bool hubOnly = false)
+    private async Task<Dictionary<string, JsonObject>> ReadHubObservations(JsonObject receipt, CancellationToken ct,
+        bool hubOnly = false, bool cleanup = false)
     {
         var observed = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in HubArray(HubObject(receipt, "readback"), "resources").OfType<JsonObject>())
@@ -14,7 +15,7 @@ public sealed partial class FabricC1Provisioner
             var id = Text(item, "id");
             if (hubOnly && !id.StartsWith(input.Network!.SharedHub!.ResourceGroupId + "/", StringComparison.Ordinal)) continue;
             var response = await Send(HttpMethod.Get, new("https://management.azure.com" + id +
-                "?api-version=" + Text(item, "apiVersion")), ct: ct);
+                "?api-version=" + Text(item, "apiVersion")), ct: ct, cleanup: cleanup);
             RequireStatus(response, 200);
             Guard.Against(!SameArmId(Text(response.Body, "id"), id) ||
                 FabricC1Deployment.HubWireHash(response.Body) != Text(item, "sha256") ||
@@ -34,13 +35,13 @@ public sealed partial class FabricC1Provisioner
         {
             var prefix = parent + "/" + collection + "/";
             var expected = observed.Where(item => item.Key.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
-            var current = await ReadAll("https://management.azure.com" + parent + "/" + collection + "?api-version=" + version, false, ct);
+            var current = await ReadAll("https://management.azure.com" + parent + "/" + collection + "?api-version=" + version, false, ct, cleanup);
             Guard.Against(current.Length != expected.Length || current.Select(item => Text(item, "id")).Distinct(StringComparer.OrdinalIgnoreCase).Count() != current.Length ||
                 current.Any(item => !expected.Any(known =>
                 SameArmId(Text(item, "id"), known.Key) && JsonNode.DeepEquals(item["properties"], known.Value["properties"]))),
                 "c1_hub_policy_inventory", "A live policy collection has injected, missing or changed entries outside its receipt.", 409);
         }
-        if (!hubOnly && Text(receipt, "state") != "reserved")
+        if (!hubOnly && Text(receipt, "state") is not ("reserved" or "offboarded"))
         {
             var peer = HubObject(HubObject(receipt, "peering"), "spokeToHub");
             var current = await ReadAll("https://management.azure.com" + Text(HubObject(receipt, "spoke"), "vnetId") +
@@ -109,7 +110,7 @@ public sealed partial class FabricC1Provisioner
         foreach (var group in groups) Ready(group);
         VerifyHubFirewallRules(receipt, groups);
 
-        if (!hubOnly && Text(receipt, "state") != "reserved")
+        if (!hubOnly && Text(receipt, "state") is not ("reserved" or "offboarded"))
         {
             var own = Resource(Text(spoke, "vnetId"));
             RequireArmOwnership(own);
@@ -158,11 +159,11 @@ public sealed partial class FabricC1Provisioner
         var rules = groups.SelectMany(group => HubArray(HubObject(group, "properties"), "ruleCollections").OfType<JsonObject>())
             .SelectMany(collection => HubArray(collection, "rules").OfType<JsonObject>().Select(rule => (collection, rule))).ToArray();
         var expectedRules = HubArray(HubObject(receipt, "egress"), "httpsRules").OfType<JsonObject>().ToArray();
-        if (Text(receipt, "state") == "reserved")
+        if (Text(receipt, "state") is "reserved" or "offboarded")
         {
             Guard.Against(rules.Any(item => item.rule["name"]?.GetValue<string>().StartsWith("fabric-", StringComparison.Ordinal) == true),
-                "c1_hub_egress", "A reservation must not claim already installed Fabric rules.", 409);
-            return;
+                "c1_hub_egress", "A reserved or offboarded consumer must not retain installed Fabric rules.", 409);
+            if (Text(receipt, "state") == "reserved") return;
         }
         Guard.Against(rules.Count(item => item.rule["name"]?.GetValue<string>().StartsWith("fabric-", StringComparison.Ordinal) == true) != expectedRules.Length,
             "c1_hub_egress", "An extra or missing Fabric rule changes the consumer policy.", 409);
@@ -184,6 +185,8 @@ public sealed partial class FabricC1Provisioner
                 "c1_hub_egress", "The observed rule broadens scope, protocols or TLS handling.", 409);
         }
         var ranges = HubObject(HubObject(receipt, "spoke"), "subnets").Select(item => Text(item.Value!.AsObject(), "addressPrefix")).ToArray();
+        string[] sourceRanges = Text(receipt, "state") == "offboarded"
+            ? [Text(HubObject(receipt, "spoke"), "addressPrefix")] : ranges;
         foreach (var group in groups)
             foreach (var collection in HubArray(HubObject(group, "properties"), "ruleCollections").OfType<JsonObject>())
             {
@@ -198,15 +201,25 @@ public sealed partial class FabricC1Provisioner
                     if (expectedRules.Any(expected => Text(expected, "name") == Text(rule, "name"))) continue;
                     Guard.Against(rule["sourceIpGroups"] is not (null or JsonArray { Count: 0 }),
                         "c1_hub_egress", "Unbound IP groups may not implicitly authorize the Fabric spoke.", 409);
+                    if (Text(receipt, "state") == "offboarded")
+                    {
+                        Guard.Against(rule["destinationIpGroups"] is not (null or JsonArray { Count: 0 }) ||
+                            rule["destinationAddresses"] is JsonArray destinations &&
+                            destinations.Any(destination => HubDestinationTouchesSpoke(destination!.GetValue<string>(), receipt)),
+                            "c1_hub_egress", "A renamed/shared allow rule cannot retain an operator or transit destination in the retired spoke.", 409);
+                        Guard.Against(rule["ruleType"]?.GetValue<string>() is not ("ApplicationRule" or "NetworkRule"),
+                            "c1_hub_egress", "An unknown allow rule cannot prove removal of the retired consumer's references.", 409);
+                    }
                     foreach (var source in HubArray(rule, "sourceAddresses"))
                     {
                         if (!IPNetwork.TryParse(source?.GetValue<string>(), out var subnet))
                             throw new DomainException("c1_hub_egress", "A foreign consumer allow rule requires an explicit disjoint source range.", 409);
-                        Guard.Against(ranges.Any(range => HubOverlaps(subnet, IPNetwork.Parse(range))),
+                        Guard.Against(sourceRanges.Any(range => HubOverlaps(subnet, IPNetwork.Parse(range))),
                             "c1_hub_egress", "Another consumer's allow rule overlaps the Fabric source scope.", 409);
                     }
                 }
             }
+        if (Text(receipt, "state") == "offboarded") return;
         Guard.Against(!rules.Any(item => item.collection["action"]?["type"]?.GetValue<string>() == "Deny" &&
             item.collection["priority"]?.GetValue<int>() == 100 &&
             item.collection["ruleCollectionType"]?.GetValue<string>() == "FirewallPolicyFilterRuleCollection" &&
@@ -220,44 +233,70 @@ public sealed partial class FabricC1Provisioner
             "c1_hub_egress", "The observed shared firewall must explicitly deny unreviewed private transit from the Fabric spoke.", 409);
     }
 
+    private static bool HubDestinationTouchesSpoke(string value, JsonObject receipt)
+    {
+        var spoke = IPNetwork.Parse(Text(HubObject(receipt, "spoke"), "addressPrefix"));
+        if (value == "*") return true;
+        if (IPAddress.TryParse(value, out var address)) return spoke.Contains(address);
+        if (IPNetwork.TryParse(value, out var range)) return HubOverlaps(spoke, range);
+        throw new DomainException("c1_hub_egress", "An unresolved destination cannot prove disjointness from the retired spoke.", 409);
+    }
+
     private void VerifyHubOperatorEndpoint(JsonObject receipt, JsonObject exception, Func<string, JsonObject> resource)
     {
         var id = Text(exception, "privateEndpointId");
+        var endpoint = ObserveOwnHubEndpoint(receipt, id, resource);
+        Guard.Against(!endpoint.Operator ||
+            !HubArray(exception, "addresses").Select(value => value!.GetValue<string>()).Order(StringComparer.Ordinal)
+                .SequenceEqual(endpoint.Addresses.Order(StringComparer.Ordinal), StringComparer.Ordinal) ||
+            !HubArray(exception, "fqdns").Select(value => value!.GetValue<string>()).Order(StringComparer.Ordinal)
+                .SequenceEqual(endpoint.Fqdns.Order(StringComparer.Ordinal), StringComparer.Ordinal),
+            "c1_hub_endpoints", "VPN may reach only the exact observed own workspace, vault or blob PE addresses/names.", 409);
+    }
+
+    private sealed record HubEndpointObservation(JsonObject Intake, bool Operator, string[] Addresses, string[] Fqdns,
+        Dictionary<string, string[]> DnsAddresses, JsonObject Endpoint, JsonObject Nic);
+
+    private HubEndpointObservation ObserveOwnHubEndpoint(JsonObject receipt, string id, Func<string, JsonObject> resource)
+    {
         var endpoint = resource(id);
         RequireArmOwnership(endpoint);
+        Guard.Against(RequireTypedArmResource(endpoint, "Microsoft.Network/privateEndpoints") != id,
+            "c1_hub_endpoints", "The observed private endpoint identity differs.", 409);
         var creation = Owned("arm-private-endpoints", "ArmDeployment");
         var originals = creation["properties"]?["outputs"]?["privateEndpoints"]?["value"] as JsonArray ??
             throw new DomainException("c1_hub_endpoints", "The original own private-endpoint output inventory is missing.", 409);
         var matches = originals.OfType<JsonObject>().Where(item => Text(item, "id") == id).ToArray();
         Guard.Against(matches.Length != 1, "c1_hub_endpoints", "An operator endpoint cannot be adopted from same-name or unjournaled ARM metadata.", 409);
         var properties = HubObject(endpoint, "properties");
-        var operatorSubnet = HubObject(HubObject(HubObject(receipt, "spoke"), "subnets"), "operatorEndpoints");
         var links = HubArray(properties, "privateLinkServiceConnections");
         Guard.Against(Text(properties, "provisioningState") != "Succeeded" ||
-            properties["subnet"]?["id"]?.GetValue<string>() != Text(operatorSubnet, "id") || links.Count != 1 ||
+            links.Count != 1 ||
             properties["manualPrivateLinkServiceConnections"] is not (null or JsonArray { Count: 0 }),
-            "c1_hub_endpoints", "An operator exception must bind its own approved dedicated private endpoint.", 409);
+            "c1_hub_endpoints", "Only one approved original private-link connection is allowed.", 409);
         var connection = links[0]?["properties"] as JsonObject ??
             throw new DomainException("c1_hub_endpoints", "The exact endpoint connection is missing.", 409);
         var groups = HubArray(connection, "groupIds");
-        var name = FabricC1Deployment.Name(input);
         var group = FabricC1Deployment.GroupId(input);
         var service = Text(connection, "privateLinkServiceId");
-        var operatorService = groups.Count == 1 && (groups[0]!.GetValue<string>() switch
-        {
-            "vault" => service == group + "/providers/Microsoft.KeyVault/vaults/" + name + "kv",
-            "blob" => service == group + "/providers/Microsoft.Storage/storageAccounts/" + name + "st",
-            "workspace" => new[] { "agent", "released", "denied" }.Any(scope =>
-                service == group + "/providers/Microsoft.Fabric/privateLinkServicesForFabric/" + name + "-" + scope + "-pls"),
-            _ => false
-        });
-        Guard.Against(!operatorService || connection["privateLinkServiceConnectionState"]?["status"]?.GetValue<string>() != "Approved",
-            "c1_hub_endpoints", "VPN may reach only exact own workspace, vault or artifact-blob PEs, never database/VM/registry/Hosted services.", 409);
+        var targets = HubEndpointTargets().Where(target => target.Value.Id == service &&
+            JsonNode.DeepEquals(groups, new JsonArray(target.Value.Group))).ToArray();
+        Guard.Against(targets.Length != 1 || connection["privateLinkServiceConnectionState"]?["status"]?.GetValue<string>() != "Approved",
+            "c1_hub_endpoints", "The observed service/group/approval is not an original own target.", 409);
+        var target = targets[0];
+        var isOperator = target.Value.Group is "vault" or "blob" or "workspace";
+        var subnet = HubObject(HubObject(HubObject(receipt, "spoke"), "subnets"), isOperator ? "operatorEndpoints" : "endpoints");
+        Guard.Against(id != group + "/providers/Microsoft.Network/privateEndpoints/" + FabricC1Deployment.Name(input) + "-" + target.Key + "-pe" ||
+            properties["subnet"]?["id"]?.GetValue<string>() != Text(subnet, "id"),
+            "c1_hub_endpoints", "The endpoint escaped its exact original target name or isolated subnet.", 409);
         var interfaces = HubArray(properties, "networkInterfaces");
         Guard.Against(interfaces.Count != 1, "c1_hub_endpoints", "The endpoint requires its exact original NIC observation.", 409);
         var nicId = Text(interfaces[0]!.AsObject(), "id");
         HubArmId(nicId, group, "Microsoft.Network/networkInterfaces");
         var nic = resource(nicId);
+        Guard.Against(RequireTypedArmResource(nic, "Microsoft.Network/networkInterfaces") != nicId,
+            "c1_hub_endpoints", "The observed NIC identity differs.", 409);
+        if (nic["tags"] is not (null or JsonObject { Count: 0 })) RequireArmOwnership(nic);
         GuidValue(Text(HubObject(nic, "properties"), "resourceGuid"));
         var childKey = "arm-child-" + Canonical.HashText(nicId.ToLowerInvariant());
         Guard.Against(!state.Objects.TryGetValue(childKey, out var originalNic) || originalNic.Kind != "ArmGeneratedChild" ||
@@ -268,20 +307,51 @@ public sealed partial class FabricC1Provisioner
             "c1_hub_endpoints", "The endpoint NIC must remain its original generated instance and creation binding.", 409);
         Guard.Against(nic["properties"]?["privateEndpoint"]?["id"]?.GetValue<string>() != id,
             "c1_hub_endpoints", "NIC reverse binding must point to the exact endpoint.", 409);
-        var configurations = HubArray(HubObject(nic, "properties"), "ipConfigurations").OfType<JsonObject>().ToArray();
-        Guard.Against(configurations.Any(config => config["properties"]?["subnet"]?["id"]?.GetValue<string>() != Text(operatorSubnet, "id") ||
-            config["properties"]?["publicIPAddress"] is not null), "c1_hub_endpoints", "An endpoint NIC must remain in its private operator subnet.", 409);
-        var addresses = configurations.Select(config => Text(HubObject(config, "properties"), "privateIPAddress")).Order(StringComparer.Ordinal).ToArray();
-        var expectedAddresses = HubArray(exception, "addresses").Select(address => address!.GetValue<string>()).Order(StringComparer.Ordinal).ToArray();
-        Guard.Against(!addresses.SequenceEqual(expectedAddresses, StringComparer.Ordinal),
-            "c1_hub_endpoints", "The exact endpoint NIC IP set differs.", 409);
-        var dns = HubArray(properties, "customDnsConfigs").OfType<JsonObject>().ToArray();
-        var expectedNames = HubArray(exception, "fqdns").Select(host => host!.GetValue<string>()).Order(StringComparer.Ordinal).ToArray();
-        var names = dns.Select(config => Text(config, "fqdn")).Concat(configurations.SelectMany(config =>
-            config["properties"]?["privateLinkConnectionProperties"]?["fqdns"] is JsonArray fqdns ?
-                fqdns.Select(host => host!.GetValue<string>()) : [])).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
-        Guard.Against(!names.SequenceEqual(expectedNames, StringComparer.Ordinal) ||
-            dns.Any(config => HubArray(config, "ipAddresses").Any(address => !expectedAddresses.Contains(address!.GetValue<string>(), StringComparer.Ordinal))),
-            "c1_hub_endpoints", "The service DNS/IP observations differ; no address-only or wildcard exception.", 409);
+        var configurations = HubArray(HubObject(nic, "properties"), "ipConfigurations");
+        var dns = properties["customDnsConfigs"] as JsonArray ?? new JsonArray();
+        Guard.Against(configurations.Count is < 1 or > 16 || configurations.Any(config => config is not JsonObject) ||
+            dns.Count > 64 || dns.Any(config => config is not JsonObject),
+            "c1_hub_endpoints", "Complete, bounded provider NIC/DNS metadata is required.", 409);
+        var addresses = new HashSet<string>(StringComparer.Ordinal);
+        var names = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        void AddDns(string host, IEnumerable<string> values)
+        {
+            Guard.Against(host != host.ToLowerInvariant() || host.Contains('*') ||
+                Uri.CheckHostName(host) != UriHostNameType.Dns,
+                "c1_hub_endpoints", "Only exact provider-returned DNS names are allowed.", 409);
+            if (!names.TryGetValue(host, out var set)) names[host] = set = new(StringComparer.Ordinal);
+            foreach (var value in values)
+            {
+                Guard.Against(!addresses.Contains(value), "c1_hub_endpoints", "Provider DNS metadata refers to an unobserved NIC address.", 409);
+                set.Add(value);
+            }
+        }
+        foreach (var config in configurations.OfType<JsonObject>())
+        {
+            var value = HubObject(config, "properties");
+            var address = Text(value, "privateIPAddress");
+            Guard.Against(value["subnet"]?["id"]?.GetValue<string>() != Text(subnet, "id") ||
+                value["publicIPAddress"] is not null || !addresses.Add(address),
+                "c1_hub_endpoints", "The original NIC must contain distinct private addresses in its bound subnet.", 409);
+            HubAddress(address, Text(subnet, "addressPrefix"));
+        }
+        foreach (var config in configurations.OfType<JsonObject>())
+            if (config["properties"]?["privateLinkConnectionProperties"]?["fqdns"] is JsonArray fqdns)
+                foreach (var host in fqdns) AddDns(host!.GetValue<string>(), [Text(HubObject(config, "properties"), "privateIPAddress")]);
+        foreach (var config in dns.OfType<JsonObject>())
+            AddDns(Text(config, "fqdn"), HubArray(config, "ipAddresses").Select(address => address!.GetValue<string>()));
+        Guard.Against(names.Count is < 1 or > 64 || names.Values.Any(values => values.Count == 0),
+            "c1_hub_endpoints", "An endpoint needs actual per-name NIC address observations, not guessed aliases.", 409);
+        var fqdnSet = names.Keys.Order(StringComparer.Ordinal).ToArray();
+        return new(new JsonObject
+        {
+            ["id"] = id, ["serviceId"] = service, ["subnetId"] = Text(subnet, "id"),
+            ["groupIds"] = groups.DeepClone(), ["fqdns"] = Strings(fqdnSet)
+        }, isOperator, addresses.Order(StringComparer.Ordinal).ToArray(), fqdnSet,
+            names.ToDictionary(pair => pair.Key, pair => pair.Value.Order(StringComparer.Ordinal).ToArray(), StringComparer.Ordinal),
+            (JsonObject)endpoint.DeepClone(), (JsonObject)nic.DeepClone());
     }
+
+    private static JsonArray Strings(IEnumerable<string> values) =>
+        new(values.Select(value => (JsonNode)JsonValue.Create(value)!).ToArray());
 }

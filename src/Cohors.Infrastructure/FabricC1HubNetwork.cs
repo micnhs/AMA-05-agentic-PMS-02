@@ -206,7 +206,9 @@ public sealed partial class FabricC1Provisioner
         var receipt = RequireStoredHubReceipt();
         var reconcilingOwnUpdate = (stage is "hub-transit" or "hub-operator-access") &&
             (state.PendingCreates.ContainsKey("arm-" + stage) || state.Objects.ContainsKey("arm-" + stage));
-        await ReadHubObservations(receipt, ct, hubOnly: reconcilingOwnUpdate);
+        var networkedWorkload = stage is "foundation" or "private-endpoints" or "hub-operator-access";
+        await ReadHubObservations(receipt, ct, hubOnly: reconcilingOwnUpdate || networkedWorkload);
+        if (networkedWorkload) await ReadOwnHubRegistrationNetwork(receipt, ct);
         if (stage is "hub-peer" or "hub-transit")
         {
             var vnet = Text(HubObject(receipt, "spoke"), "vnetId");
@@ -243,17 +245,7 @@ public sealed partial class FabricC1Provisioner
         Guard.Against(!JsonNode.DeepEquals(workspaces, expected), "c1_hub_endpoints", "Workspace private links must use the exact own workspace set.", 409);
         var endpoints = parameters["endpoints"]?["value"] as JsonArray ??
             throw new DomainException("c1_hub_endpoints", "Own private endpoint definitions are required.", 409);
-        var group = FabricC1Deployment.GroupId(input);
-        var name = FabricC1Deployment.Name(input);
-        var allowed = new Dictionary<string, (string Id, string Group)>(StringComparer.Ordinal)
-        {
-            ["vault"] = (group + "/providers/Microsoft.KeyVault/vaults/" + name + "kv", "vault"),
-            ["blob"] = (group + "/providers/Microsoft.Storage/storageAccounts/" + name + "st", "blob"),
-            ["registry"] = (group + "/providers/Microsoft.ContainerRegistry/registries/" + name + "acr", "registry"),
-            ["foundry"] = (group + "/providers/Microsoft.CognitiveServices/accounts/" + name + "-ai", "account")
-        };
-        foreach (var scope in new[] { "agent", "released", "denied" })
-            allowed[scope] = (group + "/providers/Microsoft.Fabric/privateLinkServicesForFabric/" + name + "-" + scope + "-pls", "workspace");
+        var allowed = HubEndpointTargets();
         Guard.Against(endpoints.Count != allowed.Count, "c1_hub_endpoints", "The exact isolated endpoint set is required.", 409);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in endpoints)
@@ -264,6 +256,34 @@ public sealed partial class FabricC1Provisioner
                 Text(endpoint, "resourceId") != target.Id || !JsonNode.DeepEquals(endpoint["groupIds"], new JsonArray(target.Group)),
                 "c1_hub_endpoints", "No foreign target, shared-zone join or additional endpoint service is allowed.", 409);
         }
+    }
+
+    private Dictionary<string, (string Id, string Group)> HubEndpointTargets()
+    {
+        var group = FabricC1Deployment.GroupId(input);
+        var name = FabricC1Deployment.Name(input);
+        var targets = new Dictionary<string, (string Id, string Group)>(StringComparer.Ordinal)
+        {
+            ["vault"] = (group + "/providers/Microsoft.KeyVault/vaults/" + name + "kv", "vault"),
+            ["blob"] = (group + "/providers/Microsoft.Storage/storageAccounts/" + name + "st", "blob"),
+            ["registry"] = (group + "/providers/Microsoft.ContainerRegistry/registries/" + name + "acr", "registry"),
+            ["foundry"] = (group + "/providers/Microsoft.CognitiveServices/accounts/" + name + "-ai", "account")
+        };
+        foreach (var scope in new[] { "agent", "released", "denied" })
+            targets[scope] = (group + "/providers/Microsoft.Fabric/privateLinkServicesForFabric/" + name + "-" + scope + "-pls", "workspace");
+        return targets;
+    }
+
+    public FabricC1HubArmRequest PrepareSharedHubPrivateEndpoints()
+    {
+        var parameters = FabricC1Deployment.ArmParameters(input);
+        foreach (var field in new[] { "capacityAdministrators", "network", "compute" }) parameters.Remove(field);
+        parameters["workspaces"] = HubParameter(new JsonArray(new[] { "agent", "released", "denied" }
+            .Select(scope => (JsonNode)new JsonObject
+            { ["key"] = scope, ["id"] = Text(Owned("workspace-" + scope, "Workspace"), "id") }).ToArray()));
+        parameters["endpoints"] = HubParameter(new JsonArray(HubEndpointTargets().Select(target => (JsonNode)new JsonObject
+        { ["key"] = target.Key, ["resourceId"] = target.Value.Id, ["groupIds"] = new JsonArray(target.Value.Group) }).ToArray()));
+        return PrepareSharedHubStage("private-endpoints", parameters);
     }
 
     private static JsonObject HubTemplate(string name)

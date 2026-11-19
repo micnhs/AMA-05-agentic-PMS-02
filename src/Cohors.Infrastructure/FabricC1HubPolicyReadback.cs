@@ -33,7 +33,7 @@ public sealed partial class FabricC1Provisioner
                 Guard.Against(domains.Any(domain => domain is null || domain.GetValue<string>().Contains('*') ||
                     Uri.CheckHostName(domain.GetValue<string>()) != UriHostNameType.Dns),
                     "c1_hub_dns", "Unbound wildcard/root DNS allowance is not accepted.", 409);
-                if (Text(receipt, "state") != "reserved")
+                if (Text(receipt, "state") is not ("reserved" or "offboarded"))
                     Guard.Against(HubArray(HubObject(receipt, "egress"), "dnsDomains").Any(expected =>
                         !domains.Any(domain => JsonNode.DeepEquals(domain, expected))), "c1_hub_dns",
                         "A reviewed Fabric DNS domain is missing from the installed shared allow list.", 409);

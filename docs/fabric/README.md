@@ -98,14 +98,17 @@ parent application ownership are checked before removing dependent identities.
 An uncertain DELETE is observed rather than repeated, a restored object is
 not automatically deleted again, and the initial deployer is never targeted.
 
-This command refuses journals containing workspace, paid-resource or Hosted
-consumers: their stop/cancel/session/item/private-link/resource cleanup must
-precede identity removal in the future full cleanup driver. Directory active
+This command refuses journals containing unresolved workspace, paid-resource
+or Hosted consumers. The composed private path can admit only its qualified,
+ordered original inventory; it does not turn a workspace absence or a stopped
+VM into effective credential revocation. Directory active
 endpoint absence is **not** retention purge. Shared tenant effects and scoped
 tenant-setting references stay explicitly inventoried for separate current
 administrative review; no tenant reset occurs during identity cleanup.
-The independent cloud deadline executor and full paid-resource cleanup remain
-unimplemented gates. No cleanup or cloud deployment has been executed.
+The source now includes an independent local-journal deadline watcher and
+ordered stop/cleanup commands, described below. An independently running
+native executor, complete resource deletion and effective runtime revocation
+remain gates. No cleanup or cloud deployment has been executed.
 
 The shared inbound stage is distinct from scoped runtime-group settings.
 `CanPrepareEmptyFoundation` reports tenant-setting prerequisites only, not a
@@ -991,9 +994,11 @@ is created or deleted by the consumer. Its write fence preserves only the
 three already-defined own storage custom-role IDs outside the own resource
 group, not any hub or unrelated subscription role.
 
-These are source components, not a new paid partial-apply command. Complete
-driver composition, owner-issued live receipts, endpoint/DNS registration,
-independent stop and ordered own-peer offboarding remain activation gates.
+These are source components, not a new paid partial-apply command. The source
+composition below connects the handshake, actual endpoint registration,
+source bootstrap and ordered stop/offboarding. Its explicit remaining
+implementation gaps, owner-issued live receipts and private service evidence
+still block full activation.
 Own work and grants must stop before removing the own peer; infrastructure
 then releases only this consumer's references. No hub or shared audience
 deletion is inferred from consumer cleanup. The human Web/API HTTPS,
@@ -1012,6 +1017,116 @@ uses only the existing hosted lane, with results bound to its published SHA.
 Historical R4-R7, failed/NotRun cases, deadlines and budgets remain unchanged.
 No native B5/C1/model/full-installer pass follows.
 
+### Composed private lifecycle and original owner handoff
+
+`AdvancePrivateDeployment` advances the original reserved/peered/connected
+handshake, foundation, three workspaces with Public-Deny, seven private
+endpoints, owner registration/acknowledgement and the operator-only NSG.
+It then binds private clients from the recorded provider names and addresses,
+materializes the released/denied notebook sources and creates the existing
+source-access metadata. The final source status is
+`AwaitingEffectiveSourceAndHostedRuntimeBindings`, not a complete C1 driver.
+Artifact/certificate delivery, effective app-only grant observations,
+Hosted image/version/session creation, runtime checkpoints and final C1
+bindings are not silently supplied by this composition. `apply` retains
+`RequireComplete`; there is no payable `--through network` workaround.
+
+The CLI uses the original source-bound manifest and existing private journal:
+
+| Entry after `--fabric-c1-deploy` | Additional arguments | Scope |
+|---|---|---|
+| `apply` | `--manifest FILE --journal FILE --out DIRECTORY [--dns-selections FILE]` | Composed advance, still behind the full implementation gate |
+| `export-hub` | `--manifest FILE --journal FILE --out DIRECTORY` | Re-emit completed original handshake/data/offboarding files without credentials or provider calls |
+| `stop-private` | `--manifest FILE --journal FILE` | Persist the independent stop fence only; no claimed workstop or revocation |
+| `watch-private` | `--manifest FILE --journal FILE --out DIRECTORY` | Watch the original deadline, fence, then enter ordered cleanup |
+| `cleanup-private` | `--manifest FILE --journal FILE --out DIRECTORY [--hub-receipt FILE]` | Advance original cleanup; accept a terminal receipt only after original prerequisites exist |
+
+These are source interfaces, not an instruction or authorization to start a
+native process. Private file paths must be absolute, existing and protected.
+Every native entry is refused in GitHub Actions **before** reading a private
+manifest, journal, selection or receipt, constructing credentials, writing
+handoffs or starting a watcher. CLI `plan` remains offline. Incomplete,
+waiting and inventory-only cleanup results retain exit 2 and
+`CompleteC1Deployment`/`CompleteC1Cleanup=false`; an exact file re-export can
+succeed without implying owner acceptance.
+
+The controller collects each original PE and its referenced, journal-bound
+generated NIC. The owner slot contains only the existing
+`cohors-shared-hub-bindings-1` fields; PE intake is exactly
+`id/serviceId/subnetId/groupIds/fqdns`, not an asserted NIC/IP replacement.
+Explicit DNS selections bind `privateEndpointId/fqdn/zone/name`. A provider
+readback already naming the exact private `name.zone` supports a zero-query
+**name-registration** proof only. Otherwise every CNAME hop needs the
+original TCP DNS query/response bytes from the bound hub resolver. Neither
+case claims a private A-record lookup or traffic pass. The later owner A-record
+readback and native DNS/traffic gates remain separate. A calculated workspace
+hostname without the observed PE/NIC/name chain cannot create a private client.
+
+The subject-addressed private output directory contains `consumer-slot.json`,
+`hub-evidence-files.json` and the SHA256-named **original** evidence files.
+The index is the hash-to-relative-file mapping for the owner's existing
+`hubEvidenceFiles` approval field, relative to that subject directory.
+The owner imports only this slot into its full predecessor-hash-bound
+revision and preserves the other consumer. There is no new HTTP intake or
+second schema. Partial file delivery resumes byte-for-byte; conflicting
+existing files are never overwritten. Original query/readback bytes and their
+subject binding stay in the journal and are not regenerated for a new expiry.
+
+Short file-journal leases plus exact-byte compare/exchange allow an independent
+watcher to read the same original start/deadline. A stale writer cannot
+overwrite its stop fence. Only bounded local lease/CAS contention is retried;
+unknown provider mutations are not replayed. A normal in-flight request may
+already have reached its provider when the fence wins; its original durable
+intent must still be reconciled, never pruned or replaced. Source-job and
+cleanup polling minima remain persisted as `NextPollAtUtc`.
+
+The ordered cleanup source can deallocate the original probe VM, cancel
+known private notebook jobs and suspend the original F2, with actual terminal
+readbacks required before progression. An HTTP transport failure remains an
+explicit unresolved blocker with its original intent; it does not prevent
+the other separately bound stop calls. Ownership, journal and cancellation
+errors are not swallowed. It reconciles the supported original
+access/workspace inventory and removes only `to-shared-hub`, with instance,
+ETag and 404 checks. No hub mutation or shared directory/IAM deletion is
+authorized. Original own work/credential/peer proofs produce the three
+offboarding evidence files; a metadata receipt or fixture cannot replace them.
+A fresh terminal owner receipt is accepted in the **original cleanup tail**,
+atomically with its acknowledgement, and cannot reactivate provisioning.
+Hub-owned references to the other consumer may be read within the hub group;
+their nested foreign VNet IDs are never followed.
+
+Limitations remain explicit. An unknown original submission/ARM outcome,
+unsupported Hosted work, issued credentials or effective grant revocation
+without its real contract blocks offboarding. Current final ARM deletion
+covers only its explicitly instance-bound targets; unsupported original
+resources, generated children and workspaces are retained with blockers.
+`OwnActiveInventoryAbsent` is only scoped active-inventory absence, never
+retention purge or complete C1 cleanup. Before any owner receipt, a qualified
+identity-only history can still be cleaned after the fence, but emits no
+invented hub receipt or offboarding acknowledgement. The original source SHA,
+budgets, start/expiry and cleanup limits are never rebound. A native watcher
+must itself be independently operated and shown ready; this source does not
+silently start one or erase the full-installer gate.
+
+The final producer manifest
+`fixture-manifest-owner-final.json` is pinned to
+`830b4e094a6440f9eea347a6bfd425bf672ca640b3c81ada302da29e78cd3c48`;
+its eight receipt/ARM files are unchanged from fixture 01. The separate
+`offboarded\fixture-manifest.json` is pinned to
+`988fd24bbf8b6577035d89fd082f3639f4c03ec8819201c8914e3a04346817cc`.
+Its owner-side in-memory deletion/replay preserves the other consumer, but
+its consumer-prerequisite hashes are explicitly placeholders and that
+prerequisite gate was not executed. Consumer composition cases generate
+their own requests/journals/proof bytes separately; the fixture alone is not
+a full-driver, native, DNS, traffic or cost pass.
+
+The pilot's deferred **shared-network security review** is an owner-managed
+approval decision, not a consumer-side `skip-security` switch. The receipt
+pin and source/readback/ownership/private-path invariants are unchanged.
+Negative/NotRun findings remain visible; neither the deferral nor this
+composition qualifies unrelated findings, the seven native cases, models or
+the mandatory private Web/API/WAF path.
+
 ## Fork and isolation
 
 The initial clean worktree HEAD and merge base were both
@@ -1025,6 +1140,28 @@ terminology workbook and approved reference hashes. The whole fork commit
 binds application source, configuration, schemas, rules, contracts and package
 locks. Inherited source is not an acceptance certificate. Uncommitted files
 from the primary worktree are neither inputs nor dependencies.
+
+The narrow [repository source bindings](repository-source-bindings.json)
+addendum selects only the two already-published, reviewed Office metadata
+variants for future Fabric trees. It does not replace working originals,
+recalculate the matrix or rewrite historical source/baseline hashes. Preserved
+working originals intentionally differ from their selected Git blobs; broad
+staging must not restore them into an outgoing tree. This is not a claim that
+the whole tree/history is personal-data-free or a new publication permission.
+The existing baseline validator checks the exact selected repository bytes,
+not the old working originals as an alternate accepted hash.
+
+The canonical FDA workbook `source\imdrf-2026-fda-mapping-source.xlsx` is
+explicitly excluded from metadata cleanup: blob
+`83f7b84fe257c66236de7a111a560c539db56d92`, SHA256
+`c73f606d8ffbdcf715950cf342028b45a8008440255cd5467fa74315f2e42c76`,
+408617 bytes. Its embedded publisher/author metadata belongs to the public
+third-party publication, not project/user content, and is not reproduced here.
+It remains byte-identical to the already published canonical source.
+The coordinator reports that the FDA page still links `media/192166` as
+"XLSX 485 KB" while current automated downloads return 404. Re-verification
+remains open; no current byte identity beyond `verifiedOn` 2026-11-15, new
+download or replacement is claimed.
 
 The generated concept, baseline workbook and config are retained byte-for-byte.
 The distributed baseline manifest replaces only private workstation source paths

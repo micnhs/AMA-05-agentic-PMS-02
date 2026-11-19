@@ -105,28 +105,41 @@ public sealed partial class FabricC1Provisioner
     public async Task<FabricC1HubConsumerResult> ImportSharedHubReceipt(JsonObject receipt, CancellationToken ct)
     {
         RequireCertainCheckpointJournal();
-        PlanNormalRequests(0);
         var original = (JsonObject)receipt.DeepClone();
+        var retiring = Text(original, "state") == "offboarded";
+        if (retiring) RequirePrivateOffboardingReceipt(original);
+        else PlanNormalRequests(0);
         var previous = state.Objects.TryGetValue(HubReceiptKey, out var saved) ? saved.Response : null;
         if (saved is not null)
             Guard.Against(saved.Kind != "SharedHubConsumerReceipt" || saved.RequestHash != Text(saved.Response, "receiptSha256") ||
                 saved.Id != Text(saved.Response, "generation"), "c1_hub_journal", "The original hub receipt journal changed.", 409);
-        ValidateHubReceipt(original, previous);
-        await ReadHubObservations(original, ct);
-        ValidateHubReceipt(original, previous);
+        ValidateHubReceipt(original, previous, retiring);
+        if (retiring)
+        {
+            privateCleanupHubReadback = original;
+            try
+            {
+                var observations = await ReadHubObservations(original, ct, cleanup: true);
+                await VerifyPrivateHubReferenceAbsence(original, observations, ct);
+            }
+            finally { privateCleanupHubReadback = null; }
+        }
+        else await ReadHubObservations(original, ct);
+        ValidateHubReceipt(original, previous, retiring);
         var binding = new FabricC1ProvisionedObject("SharedHubConsumerReceipt", Text(original, "generation"), Text(original, "receiptSha256"), original);
         var objects = new Dictionary<string, FabricC1ProvisionedObject>(state.Objects, StringComparer.Ordinal)
         {
             [HubReceiptKey] = binding,
             [HubReceiptKey + "-" + original["revision"]!.GetValue<int>() + "-" + Text(original, "receiptSha256")] = binding
         };
+        if (retiring) objects[PrivateOwnerKey] = PrivateOwnerAcknowledgement(original);
         var next = state with { Objects = objects };
         SaveJournal(next);
         state = next;
         return new(Text(original, "state"), original["revision"]!.GetValue<int>(), Text(original, "receiptSha256"));
     }
 
-    private void ValidateHubReceipt(JsonObject receipt, JsonObject? previous = null)
+    private void ValidateHubReceipt(JsonObject receipt, JsonObject? previous = null, bool retirement = false)
     {
         Guard.Against(FabricC1Deployment.SharedHubMissingInputs(input).Length != 0,
             "c1_hub_inputs", "The explicit shared-hub consumer input is incomplete or contains a legacy topology.", 409);
@@ -147,7 +160,8 @@ public sealed partial class FabricC1Provisioner
         Guard.Against(!HubStates.Contains(stage, StringComparer.Ordinal), "c1_hub_state", "Unknown hub state.", 409);
         Guard.Against(stage == "web-bound" || receipt["web"] is not null,
             "c1_hub_web_unqualified", "Fabric human HTTPS/proxy/probe/limits are not qualified; C1 Hosted and MCP are not WAF backends.", 409);
-        Guard.Against(stage == "offboarded", "c1_hub_offboarded", "An offboarded receipt cannot resume provisioning.", 409);
+        Guard.Against(stage == "offboarded" && !retirement, "c1_hub_offboarded", "An offboarded receipt cannot resume provisioning.", 409);
+        if (retirement) RequirePrivateOffboardingReceipt(receipt);
 
         var hub = HubObject(receipt, "hub");
         HubFields(hub, "resourceGroupId", "vnetId", "location", "addressPrefix", "subnets", "firewallId", "firewallPolicyId",
@@ -229,7 +243,7 @@ public sealed partial class FabricC1Provisioner
             comparable["receiptSha256"] = receipt["receiptSha256"]!.DeepClone();
             Guard.Against(version < priorVersion || version == priorVersion && !JsonNode.DeepEquals(comparable, receipt) ||
                 HubStateIndex(stage) < HubStateIndex(Text(previous, "state")) ||
-                HubStateIndex(stage) > HubStateIndex(Text(previous, "state")) + 1,
+                stage != "offboarded" && HubStateIndex(stage) > HubStateIndex(Text(previous, "state")) + 1,
                 "c1_hub_revision", "Hub revisions cannot roll back, change in place or resurrect retired consumers.", 409);
             foreach (var field in new[] { "generation", "hubBindingHash", "consumerBindingHash", "expiresAtUtc", "spoke", "vpn" })
                 Guard.Against(!JsonNode.DeepEquals(previous[field], receipt[field]), "c1_hub_revision",
@@ -323,9 +337,9 @@ public sealed partial class FabricC1Provisioner
     private static void ValidateHubPeering(JsonObject receipt, string spokeVnet, string hubVnet)
     {
         var state = Text(receipt, "state");
-        if (state == "reserved")
+        if (state is "reserved" or "offboarded")
         {
-            Guard.Against(receipt["peering"] is not null, "c1_hub_peering", "Reservation is not connected peering.", 409);
+            Guard.Against(receipt["peering"] is not null, "c1_hub_peering", "A reservation or retired consumer has no peering references.", 409);
             return;
         }
         var peers = HubObject(receipt, "peering");
@@ -380,7 +394,7 @@ public sealed partial class FabricC1Provisioner
             "c1_hub_egress", "No broad transit route or implicit spoke/VPN data access is allowed.", 409);
         var expected = input.Network.SharedHub!;
         var prefixes = HubSpokePrefixes();
-        var rules = new JsonArray(expected.HttpsRules!.Select(rule => (JsonNode)new JsonObject
+        var rules = Text(receipt, "state") == "offboarded" ? new JsonArray() : new JsonArray(expected.HttpsRules!.Select(rule => (JsonNode)new JsonObject
         {
             ["name"] = "fabric-" + rule.Name,
             ["sourceAddresses"] = new JsonArray(rule.SourceSegments.Select(segment => (JsonNode)JsonValue.Create(prefixes[segment])!).ToArray()),
@@ -421,8 +435,10 @@ public sealed partial class FabricC1Provisioner
         var observed = SourceUtc(readback, "observedAtUtc");
         var expiry = SourceUtc(receipt, "expiresAtUtc");
         var now = time.GetUtcNow();
-        Guard.Against(observed > now || now >= expiry || now >= observed.AddHours(24) ||
-            input.ExpiresAtUtc != expiry || input.ExpiresAtUtc <= now ||
+        var retiring = Text(receipt, "state") == "offboarded";
+        if (retiring) RequirePrivateOffboardingReceipt(receipt);
+        Guard.Against(observed > now || !retiring && now >= expiry || now >= observed.AddHours(24) ||
+            input.ExpiresAtUtc != expiry || !retiring && input.ExpiresAtUtc <= now ||
             Text(readback, "infrastructureCommit") != input.Network!.SharedHub!.InfrastructureCommit ||
             Text(readback, "compiledTemplateSha256") != input.Network.SharedHub.CompiledTemplateSha256 ||
             !Regex.IsMatch(Text(readback, "deploymentResourceId"),
@@ -449,7 +465,7 @@ public sealed partial class FabricC1Provisioner
         }
         var required = new List<string> { Text(hub, "vnetId"), Text(hub, "firewallId"), Text(hub, "firewallPolicyId"),
             Text(hub, "vpnGatewayId"), Text(hub, "dnsPolicyId") };
-        if (Text(receipt, "state") != "reserved")
+        if (Text(receipt, "state") is not ("reserved" or "offboarded"))
         {
             required.Add(Text(HubObject(receipt, "spoke"), "vnetId"));
             required.Add(Text(HubObject(HubObject(receipt, "peering"), "hubToSpoke"), "id"));

@@ -54,6 +54,8 @@ Der initiale Repository-Stand enthielt das Word-Fachkonzept unter `source\`, abe
 
 **Nachgereichter Nachweis:** Die Matrix ist nun unverändert unter `source\PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx` verfügbar; SHA-256 `6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca`. Die Tabelle `Anforderungen` auf dem Blatt `Anforderungsmatrix` umfasst `A2:L120`. Alle 118 Originalstatus stehen auf „Offen“ und werden nicht überschrieben. `docs\requirements\coordinator-analysis.md` ordnet jede ID dem Pilotumfang, Architekturstellen, Prüfansätzen und verbleibenden Grenzen zu. Vollständige Zuordnung ist nicht gleich vollständige technische oder regulatorische Erfüllung. Die Zählung „109“ im Word-Konzept bleibt ein älterer Versionsstand.
 
+**Enger Fabric-Repositorynachtrag:** Die vorstehenden Bytegleichheiten beschreiben den historischen Eingang und bleiben als Originalnachweis erhalten. Für künftige Fabric-Repositorybäume werden ausschließlich die bereits geprüften, veröffentlichten Metadatenfassungen desselben DOCX-/Matrixpfads aus `1f8122df67f92f12aeb22b7abd457a0affe7edb8` gebunden. Aktuelle Repository-SHA256: DOCX `f9525b8c04665e69e39e1dafb0f5c5d1e085ddf5b5d86f654aa7a05ef6b95cf2`, Matrix `751835b9950dfc8b4e1313c9e8eeed514c301d2a5b0405144d0a451495d3ae5b`. `docs\fabric\repository-source-bindings.json` dokumentiert die eng begrenzten Metadatenunterschiede und Gitblobs. Fach-/Formatinhalte, Anforderungen, Formeln, lebende Originale und historische Baselinebelege bleiben unverändert; dies ist keine neue fachliche Baseline oder Veröffentlichungsfreigabe.
+
 ### 2.2 Was übernommen, ergänzt oder präzisiert wird
 
 | Punkt | Bewertung | Konsequenz für Cohors |

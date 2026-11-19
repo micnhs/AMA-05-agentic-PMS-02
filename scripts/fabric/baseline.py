@@ -73,6 +73,26 @@ def verify_sources(root):
         require(path.is_relative_to(root.resolve()), "A bound source escapes this checkout.")
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         require(digest == reference["sha256"], f"Bound source hash mismatch: {reference['path']}")
+    verify_repository_source_bindings(root)
+
+
+def verify_repository_source_bindings(root):
+    bindings = load(root / "docs" / "fabric" / "repository-source-bindings.json")["bindings"]
+    expected = {
+        "source/Konzept_PMS-System_Klasse-III-Implantate_MDR.docx",
+        "source/PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx",
+    }
+    require(len(bindings) == 2 and {row["gitPath"] for row in bindings} == expected,
+            "Repository metadata bindings must cover exactly the two approved source paths.")
+    for reference in bindings:
+        path = (root / reference["gitPath"]).resolve()
+        require(path.is_relative_to(root.resolve()), "A repository source escapes this checkout.")
+        data = path.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        blob = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\0" + data,
+                            usedforsecurity=False).hexdigest()
+        require(digest == reference["repositorySha256"] and blob == reference["repositoryBlob"],
+                f"Repository source differs from its selected Git blob: {reference['gitPath']}")
 
 
 def indexed(rows, ids):

@@ -1,0 +1,56 @@
+{
+  "contract": "cohors-synthetic-hub-fixture-1",
+  "synthetic": true,
+  "cloudObserved": false,
+  "schemaSha256": "43eee0651b0525f42115185540324e447a78ff0ff82eba73dd1087187c10ca19",
+  "canonicalization": "Python JSON sort_keys=True separators=(',',':') ensure_ascii=True UTF-8",
+  "producerSourceSha256": {
+    "shared_hub.py": "54e1f23a2f9ea89e5784f936decd7870e9ee5846a2f91d95c766ed4038406bfb",
+    "shared_hub_control.py": "5a5b56de0b0e3dbbbdb10f9525e9420e641861ec85321f960ad0aa84888ef31b",
+    "primary_control.py": "77e46a84d5652af5b05e6928f05997d7e7e9d059148af0cc1e4194068ae69aa3",
+    "primary_bootstrap.py": "db7f727bcaac5b3f7e2576fe9a6273ec5ccb95e70c1a16366068aa2faee58c4a"
+  },
+  "fixtureSourceSha256": "4ca7e0e7d139cc966df4512aaad11bf53aa9dd96f6ab384561529e4aab6b89dd",
+  "observedAtUtc": "2026-11-19T08:00:00Z",
+  "trafficAccepted": false,
+  "capacityAccepted": false,
+  "costAccepted": false,
+  "cases": [
+    {
+      "state": "reserved",
+      "receiptFile": "reserved.receipt.json",
+      "armFile": "reserved.arm.json",
+      "receiptFileSha256": "5ef2a95441eb87298ddd9d9a824984f6b7cf795f92624fb0c813dda955cd86d1",
+      "armFileSha256": "6c9c536c29749d15590df01331fd2b205b161e86d8bc6a38794940895c3200bb",
+      "receiptCanonicalSha256": "9e2fe8d24ef7ddc98e8d102df738c432195e31ebe3e2234eee1d7a593defbdc4",
+      "armCanonicalSha256": "e87671660065c730373ad7b7e0ae6b7c0d6f629e7607eb1690f1c68e3cdc542a"
+    },
+    {
+      "state": "peered",
+      "receiptFile": "peered.receipt.json",
+      "armFile": "peered.arm.json",
+      "receiptFileSha256": "cea64bd618a4fa84727c7abb87ae266c063f6a5d4ba4b4156f7ce2244e867c0e",
+      "armFileSha256": "87e4f2f57f743796a0495b36ed1393508f80c8c5b56258423466fbc88764abd2",
+      "receiptCanonicalSha256": "e7eebfe90faf02b76c9c6ff9486defeda60b0c24bfaa2a4a4d007461e6fa0525",
+      "armCanonicalSha256": "1da60016ac5955c55efbce10300815d550f46b42a93d9cb34f692d521c5c6f7e"
+    },
+    {
+      "state": "connected",
+      "receiptFile": "connected.receipt.json",
+      "armFile": "connected.arm.json",
+      "receiptFileSha256": "3de03efae5487439b9421965da56d147ef77ac652e613015ee5cc288c62b91e8",
+      "armFileSha256": "d3aca9c837fadcd0a0c035a899f2c1b916d9c2493cba3f606f14b982fd59291a",
+      "receiptCanonicalSha256": "0610ccabdea4aa621d1c0466f1c3a911932300f206e8504fb5884c9ff0c4487e",
+      "armCanonicalSha256": "3be4f539abeeadad73401fc9a1001653f180e8fd6e911b1a1fe50c47daa7ba56"
+    },
+    {
+      "state": "data-bound",
+      "receiptFile": "data-bound.receipt.json",
+      "armFile": "data-bound.arm.json",
+      "receiptFileSha256": "ef0a20fc94f53669c93f43126bf03352f3608d56aba23eddd3b231c1f18fb7e1",
+      "armFileSha256": "1fb992cb99d065dece60edb1f3b3ea8574787104ab4ed36e536966be2c68c3d9",
+      "receiptCanonicalSha256": "2aa0a24d1c46a21fb16f745bd7d4e8badae83afcd2ebfe94c142e077d0aad275",
+      "armCanonicalSha256": "4eb1a2254b86ea0f0187bb227d68c61a64b265c39e454f9e66e7001113b17f3d"
+    }
+  ]
+}

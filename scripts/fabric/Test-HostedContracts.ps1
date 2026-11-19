@@ -160,6 +160,22 @@ $hubRefusal = Get-Content -LiteralPath $hubLog -Raw | ConvertFrom-Json
 if ($hubRefusal.code -cne 'c1_deploy_ci_prohibited' -or (Test-Path -LiteralPath (Join-Path $temporary 'not-created-hub.json'))) {
     throw 'Hub import read private bindings, acquired credentials or started an inventory on the build runner.'
 }
+foreach ($command in @('apply', 'stop-private', 'watch-private', 'cleanup-private', 'export-hub')) {
+    $lifecycleLog = Join-Path $temporary "$command-refusal.log"
+    $lifecycleJournal = Join-Path $temporary "$command-not-created.json"
+    $lifecycleOutput = Join-Path $temporary "$command-not-created"
+    $arguments = @('--fabric-c1-deploy', $command, '--manifest', (Join-Path $temporary "$command-not-read.json"), '--journal', $lifecycleJournal)
+    if ($command -cne 'stop-private') { $arguments += @('--out', $lifecycleOutput) }
+    if ($command -ceq 'cleanup-private') { $arguments += @('--hub-receipt', (Join-Path $temporary 'offboarding-not-read.json')) }
+    if ($command -ceq 'apply') { $arguments += @('--dns-selections', (Join-Path $temporary 'dns-not-read.json')) }
+    dotnet src/Cohors.Api/bin/Release/net10.0/Cohors.Api.dll @arguments 2> $lifecycleLog
+    if ($LASTEXITCODE -ne 2) { throw "Private lifecycle $command must be refused on the source runner." }
+    $refusal = Get-Content -LiteralPath $lifecycleLog -Raw | ConvertFrom-Json
+    if ($refusal.code -cne 'c1_deploy_ci_prohibited' -or
+        (Test-Path -LiteralPath $lifecycleJournal) -or (Test-Path -LiteralPath $lifecycleOutput)) {
+        throw "Private lifecycle $command read private inputs, created a journal/output, acquired credentials or started a watcher."
+    }
+}
 [xml]$trx = Get-Content -LiteralPath (Join-Path $results 'contracts.trx') -Raw
 $testSummary = @()
 foreach ($class in $classes) {
@@ -179,6 +195,7 @@ $summary = @(
     '- C1 executable unbound-template preflight: Blocked, exit 2, cloudExecutionAllowed=false (expected offline rejection).'
     '- C1 deployment entry: Blocked, exit 2, canApply=false; incomplete private bootstrap is not a deployment pass.'
     '- C1 identity apply is refused on this build runner before credentials, journal creation or cloud access.'
+    '- Private apply/stop/watch/cleanup/export CLI operations are refused before private inputs, credentials, output or watcher startup.'
 )
 $summary += $testSummary
 foreach ($path in @('fabric/delivery.json', 'docs/fabric/requirement-register.json', 'src/Cohors.Domain/bin/Release/net10.0/Cohors.Domain.dll')) {

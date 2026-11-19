@@ -1,0 +1,63 @@
+{
+  "synthetic": true,
+  "producerCommit": "1d74a1f63dc4b61f403676d339bfcbc78901806a",
+  "schemaSha256": "43eee0651b0525f42115185540324e447a78ff0ff82eba73dd1087187c10ca19",
+  "fixture03ManifestSha256": "830b4e094a6440f9eea347a6bfd425bf672ca640b3c81ada302da29e78cd3c48",
+  "baseDataBoundReceiptSha256": "2aa0a24d1c46a21fb16f745bd7d4e8badae83afcd2ebfe94c142e077d0aad275",
+  "primaryAdditionRevisions": [
+    {
+      "revision": 5,
+      "changedConsumer": "primary",
+      "state": "reserved",
+      "previousSha256": "c4b1367eaa8c2413bc04be0b71db0f40d9828969c3ff7d65ba167919c04d1f5e",
+      "bindingSnapshotSha256": "e0dfdf290dac83015d447b748fe1571a03ff624eef32c32a7c7c9f2d1b1a322b"
+    },
+    {
+      "revision": 6,
+      "changedConsumer": "primary",
+      "state": "peered",
+      "previousSha256": "e0dfdf290dac83015d447b748fe1571a03ff624eef32c32a7c7c9f2d1b1a322b",
+      "bindingSnapshotSha256": "16be5eef4ad50b775bf0633c5c2e627e36ccf6af6592a825e53094186fa9fa9c"
+    },
+    {
+      "revision": 7,
+      "changedConsumer": "primary",
+      "state": "connected",
+      "previousSha256": "16be5eef4ad50b775bf0633c5c2e627e36ccf6af6592a825e53094186fa9fa9c",
+      "bindingSnapshotSha256": "e116de56e4053bcd07db7f32cfd78169d77ae157af6769f7efcced6e019b6fbc"
+    }
+  ],
+  "offboardingRevision": 8,
+  "offboardingPreviousSha256": "e116de56e4053bcd07db7f32cfd78169d77ae157af6769f7efcced6e019b6fbc",
+  "bindingSnapshotSha256": "1d3cd4cfdc033e2e8c08a613612ff76d2058532e274a343f251c36857aa6dedf",
+  "deletedHubReferences": [
+    "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/A/artifact",
+    "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.blob.core.windows.net/virtualNetworkLinks/consumer-fabric",
+    "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net/virtualNetworkLinks/consumer-fabric",
+    "/subscriptions/11111111-2222-4333-8444-555555555555/resourceGroups/rg-testhub-hub/providers/Microsoft.Network/virtualNetworks/vnet-testhub-hub/virtualNetworkPeerings/to-fabric"
+  ],
+  "deleteCount": 4,
+  "repeatedDeleteCount": 0,
+  "allDeletesIfMatchBoundAndThen404": true,
+  "otherConsumerBindingUnchanged": true,
+  "otherConsumerOwnResourcesSha256BeforeAndAfter": "98c21ea58fd309721c019dc81a87c2f8fb9cbcca3750aeb9db7f82f9916fd400",
+  "fabricOwnResourcesSha256AfterExternalPeerAbsenceAndAfterOwnerRelease": "eb0e6e84e611060fcc444b4f7088debc374994ca11a28ca3da2bd986f2b96271",
+  "sharedVnetFirewallGatewayAndDirectorySha256BeforeAndAfter": "c90fbb5a5515b7f7f984e5dc4859b5f2dbd7917c574523e89fec457d45845ad9",
+  "onlyPrimaryHttpsRulesRemain": true,
+  "retainedPrimaryHubReferenceCount": 3,
+  "receiptReplayGetCount": 28,
+  "receiptReplayPrimaryGets": 0,
+  "nativeObserved": false,
+  "armApplyExecuted": false,
+  "consumerPrerequisiteGateExecuted": false,
+  "consumerStopGrantPeerRequestsGenerated": false,
+  "externalPrecondition": "Fabric spoke peer absent is a synthetic setup condition, not an owner-generated consumer request or proof.",
+  "evidencePlaceholders": "Three opaque synthetic offboarding hashes only; no positive stop/grant evidence wrappers. Consumer creates its own original journals and evidence separately.",
+  "scope": "Actual owner prepare_plan/delete_reference/collector/emitter/replay against in-memory ARM/Graph fixtures only.",
+  "ownerJournalSha256": "452f30d88350ce2db3bd55aa876136f44788e489bdb0d184f8cc9158654a46bd",
+  "fixtureSourceSha256": "88c7508712736cc338178e50483289b0c15ffd15e3fdcffc662571c09daf8aa4",
+  "supportSources": {
+    "shared_hub_fixture.py": "4ca7e0e7d139cc966df4512aaad11bf53aa9dd96f6ab384561529e4aab6b89dd",
+    "test_shared_hub.py": "d50055b287fc75d4ae7d861a432e1ad5022f935c08417dc5ca55213e0fdeafa0"
+  }
+}

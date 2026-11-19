@@ -5142,6 +5142,7 @@ except RuntimeError as error:
     [Theory]
     [InlineData("servicePrincipals", "appRoleAssignments")]
     [InlineData("applications", "owners/$ref")]
+    [InlineData("applications", "federatedIdentityCredentials")]
     [InlineData("groups", "owners/$ref")]
     public async Task GraphAuthorityCannotBeUsedForUnboundConsentOrOwnerMutation(string collection, string suffix)
     {
@@ -5166,7 +5167,57 @@ except RuntimeError as error:
     }
 
     [Fact]
-    public void FileJournalRoundTripAndExclusiveLeaseDoNotResetPendingCreates()
+    public async Task PrivateCleanupMayReadButNeverCreateFederatedIdentityCredentials()
+    {
+        using var run = new Harness(delegated: true);
+        using var handler = new JsonHandler();
+        using var client = new HttpClient(handler);
+        var credential = new BoundCredential(Token(run.Input, run.Input.ControlTokenBindings!.GraphAudience!,
+            run.Clock.GetUtcNow(), "Application.ReadWrite.All"));
+        var api = new FabricC1DeploymentHttp(run.Input, credential, new Dictionary<string, HttpClient>
+        { ["graph.microsoft.com"] = client }, run.Clock);
+        var uri = new Uri($"https://graph.microsoft.com/v1.0/applications/{Guid.NewGuid():D}/federatedIdentityCredentials");
+        Assert.Equal(200, (await api.Send(HttpMethod.Get, uri)).Status);
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal("c1_deploy_graph_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            api.Send(HttpMethod.Post, uri, new()))).Code);
+        Assert.Equal(1, handler.Requests);
+        Assert.Single(credential.Scopes);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task LazyPrivateClientUsesOnlyTheBoundHostAndNeverFallsBackWhenAbsent(bool available)
+    {
+        using var run = new Harness(delegated: true);
+        using var handler = new JsonHandler();
+        using var client = new HttpClient(handler);
+        var credential = new BoundCredential(Token(run.Input, run.Input.BootstrapIdentity!.ExpectedAudience!,
+            run.Clock.GetUtcNow(), "Workspace.ReadWrite.All"));
+        var host = FabricC1Provisioner.WorkspaceHost(Guid.NewGuid().ToString("D"));
+        var calls = new List<string>();
+        var api = new FabricC1DeploymentHttp(run.Input, credential, new Dictionary<string, HttpClient>(), run.Clock,
+            privateClientFactory: value => { calls.Add(value); return available ? client : null; });
+        var uri = new Uri($"https://{host}/v1/operations/{Guid.NewGuid():D}");
+        if (available)
+        {
+            Assert.Equal(200, (await api.Send(HttpMethod.Get, uri)).Status);
+            Assert.Single(credential.Scopes);
+            Assert.Equal(1, handler.Requests);
+        }
+        else
+        {
+            Assert.Equal("c1_deploy_private_route", (await Assert.ThrowsAsync<DomainException>(() =>
+                api.Send(HttpMethod.Get, uri))).Code);
+            Assert.Empty(credential.Scopes);
+            Assert.Equal(0, handler.Requests);
+        }
+        Assert.Equal(host, Assert.Single(calls));
+    }
+
+    [Fact]
+    public void FileJournalRoundTripAndCompareExchangeDoNotResetPendingCreates()
     {
         using var run = new Harness();
         var directory = Path.Combine(Path.GetTempPath(), "cohors-c1-deploy-" + Guid.NewGuid().ToString("N"));
@@ -5178,12 +5229,15 @@ except RuntimeError as error:
             {
                 var state = new FabricC1DeploymentJournal(Canonical.Hash(run.Input), new(), new() { ["runtime-app"] = new string('a', 64) }) { Requests = 3 };
                 file.Save(state);
-                Assert.Throws<IOException>(() => new FabricC1DeploymentFileJournal(path));
+                using var second = new FabricC1DeploymentFileJournal(path);
+                var same = Assert.IsType<FabricC1DeploymentJournal>(second.Load());
+                second.Save(same with { Requests = 4 });
+                Assert.Equal("c1_deploy_journal_conflict", Assert.Throws<DomainException>(() => file.Save(state)).Code);
             }
             using (var resumed = new FabricC1DeploymentFileJournal(path))
             {
                 var loaded = Assert.IsType<FabricC1DeploymentJournal>(resumed.Load());
-                Assert.Equal(3, loaded.Requests);
+                Assert.Equal(4, loaded.Requests);
                 Assert.Contains("runtime-app", loaded.PendingCreates.Keys);
                 Assert.Equal(Canonical.Hash(run.Input), loaded.BindingHash);
             }
@@ -5569,6 +5623,7 @@ except RuntimeError as error:
     {
         private readonly Queue<Func<FabricC1DeploymentReply>> replies = new();
         public List<Request> Requests { get; } = [];
+        public Func<Request, FabricC1DeploymentReply>? Responder { get; set; }
         public void Reply(int status, JsonObject body, string? etag = null, string? operationUrl = null, int? retryAfterSeconds = null) =>
             replies.Enqueue(() => new(status, (JsonObject)body.DeepClone(), etag, operationUrl) { RetryAfterSeconds = retryAfterSeconds });
         public void ReplyComputed(int status, Func<JsonObject> body, string? operationUrl = null, int? retryAfterSeconds = null) =>
@@ -5578,8 +5633,9 @@ except RuntimeError as error:
         public void Fail(Exception error) => replies.Enqueue(() => throw error);
         public Task<FabricC1DeploymentReply> Send(HttpMethod method, Uri uri, JsonObject? body = null, string? ifMatch = null, CancellationToken ct = default)
         {
-            Requests.Add(new(method, uri, (JsonObject?)body?.DeepClone(), ifMatch));
-            return Task.FromResult(replies.Dequeue()());
+            var request = new Request(method, uri, (JsonObject?)body?.DeepClone(), ifMatch);
+            Requests.Add(request);
+            return Task.FromResult(Responder is null ? replies.Dequeue()() : Responder(request));
         }
     }
     private sealed class MemoryJournal : IFabricC1DeploymentJournal
@@ -6072,6 +6128,58 @@ except RuntimeError as error:
         });
         return (execution, binding);
     }
+    private static JsonObject SourceNotebookDefinition(JsonObject definition)
+    {
+        var source = Encoding.UTF8.GetString(Convert.FromBase64String(definition["parts"]![0]!["payload"]!.GetValue<string>()));
+        const string begin = "# CELL ********************\n\n";
+        const string end = "\n\n# METADATA ********************";
+        var program = source[(source.IndexOf(begin, StringComparison.Ordinal) + begin.Length)..source.LastIndexOf(end, StringComparison.Ordinal)];
+        var notebook = new JsonObject
+        {
+            ["nbformat"] = 4, ["nbformat_minor"] = 5,
+            ["cells"] = new JsonArray(new JsonObject { ["cell_type"] = "code", ["source"] = new JsonArray(program + "\n") }),
+            ["metadata"] = new JsonObject { ["language_info"] = new JsonObject { ["name"] = "python" } }
+        };
+        return new()
+        {
+            ["definition"] = new JsonObject
+            {
+                ["format"] = "ipynb", ["parts"] = new JsonArray(new JsonObject
+                {
+                    ["path"] = "artifact.content.ipynb", ["payloadType"] = "InlineBase64",
+                    ["payload"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(Canonical.Serialize(notebook)))
+                })
+            }
+        };
+    }
+
+    private static JsonObject SourceNotebookJob(Harness run, string role, string notebookId, string jobId,
+        string deltaId, string status = "Completed")
+    {
+        var binding = run.Store.Current!.Objects["source-notebook-plan-" + role].Response["binding"]!;
+        var start = DateTimeOffset.Parse(run.Store.Current.Objects["source-notebook-job-intent-" + role].Response["submittedAtUtc"]!.GetValue<string>(),
+            System.Globalization.CultureInfo.InvariantCulture);
+        var schema = binding["schemaName"]?.GetValue<string>();
+        var workspace = run.Store.Current.Objects["workspace-" + role].Id;
+        var result = new JsonObject
+        {
+            ["contract"] = "cohors-fabric-c1-source-result-1", ["bindingSha256"] = Canonical.Hash(binding),
+            ["invocationId"] = binding["invocationId"]!.DeepClone(), ["fixtureSha256"] = binding["fixtureSha256"]!.DeepClone(),
+            ["scope"] = role, ["workspaceId"] = workspace, ["lakehouseId"] = run.Store.Current.Objects["lakehouse-" + role].Id,
+            ["lakehouseWorkspaceId"] = workspace, ["notebookId"] = notebookId,
+            ["actorObjectId"] = run.Input.BootstrapIdentity!.PrincipalObjectId,
+            ["tableName"] = "C1_" + role + "." + (schema is null ? "" : schema + ".") + "c1_sources",
+            ["deltaTableId"] = deltaId, ["rows"] = binding["rows"]!.DeepClone(), ["sparkVersion"] = "3.5.0-synthetic",
+            ["startedAtUtc"] = start.AddSeconds(1).ToString("O"), ["completedAtUtc"] = start.AddSeconds(10).ToString("O")
+        };
+        return new()
+        {
+            ["id"] = jobId, ["itemId"] = notebookId, ["jobType"] = "RunNotebook", ["invokeType"] = "OnDemand",
+            ["status"] = status, ["startTimeUtc"] = start.ToString("O"), ["endTimeUtc"] = start.AddSeconds(11).ToString("O"),
+            ["failureReason"] = null, ["exitValue"] = Canonical.Serialize(result)
+        };
+    }
+
     private sealed class SourceNotebookHarness
     {
         private readonly Harness run;
@@ -6122,7 +6230,6 @@ except RuntimeError as error:
         }
 
         public string WorkspaceId(string role) => run.Store.Current!.Objects["workspace-" + role].Id;
-        private JsonObject Binding(string role) => (JsonObject)run.Store.Current!.Objects["source-notebook-plan-" + role].Response["binding"]!.DeepClone();
         public JsonObject Lakehouse(string role) => (JsonObject)lakehouses[role].DeepClone();
         public JsonObject Notebook(string role) => new()
         {
@@ -6164,27 +6271,7 @@ except RuntimeError as error:
         {
             var request = run.Api.Requests.Single(value => value.Method == HttpMethod.Post &&
                 value.Uri.AbsolutePath == "/v1/workspaces/" + WorkspaceId(role) + "/notebooks");
-            var source = Encoding.UTF8.GetString(Convert.FromBase64String(request.Body!["definition"]!["parts"]![0]!["payload"]!.GetValue<string>()));
-            const string begin = "# CELL ********************\n\n";
-            const string end = "\n\n# METADATA ********************";
-            var program = source[(source.IndexOf(begin, StringComparison.Ordinal) + begin.Length)..source.LastIndexOf(end, StringComparison.Ordinal)];
-            var notebook = new JsonObject
-            {
-                ["nbformat"] = 4, ["nbformat_minor"] = 5,
-                ["cells"] = new JsonArray(new JsonObject { ["cell_type"] = "code", ["source"] = new JsonArray(program + "\n") }),
-                ["metadata"] = new JsonObject { ["language_info"] = new JsonObject { ["name"] = "python" } }
-            };
-            return new()
-            {
-                ["definition"] = new JsonObject
-                {
-                    ["format"] = "ipynb", ["parts"] = new JsonArray(new JsonObject
-                    {
-                        ["path"] = "artifact.content.ipynb", ["payloadType"] = "InlineBase64",
-                        ["payload"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(Canonical.Serialize(notebook)))
-                    })
-                }
-            };
+            return SourceNotebookDefinition(request.Body!["definition"]!.AsObject());
         }
 
         public string JobLocation(string role, bool publicLocation = false) => publicLocation
@@ -6198,30 +6285,8 @@ except RuntimeError as error:
             return await run.Provisioner.AdvanceSourceMaterialization(role, default);
         }
 
-        public JsonObject Job(string role, string status = "Completed")
-        {
-            var binding = Binding(role);
-            var start = DateTimeOffset.Parse(run.Store.Current!.Objects["source-notebook-job-intent-" + role].Response["submittedAtUtc"]!.GetValue<string>(),
-                System.Globalization.CultureInfo.InvariantCulture);
-            var schema = binding["schemaName"]?.GetValue<string>();
-            var result = new JsonObject
-            {
-                ["contract"] = "cohors-fabric-c1-source-result-1", ["bindingSha256"] = Canonical.Hash(binding),
-                ["invocationId"] = binding["invocationId"]!.DeepClone(), ["fixtureSha256"] = binding["fixtureSha256"]!.DeepClone(),
-                ["scope"] = role, ["workspaceId"] = WorkspaceId(role), ["lakehouseId"] = lakehouses[role]["id"]!.DeepClone(),
-                ["lakehouseWorkspaceId"] = WorkspaceId(role), ["notebookId"] = notebookIds[role],
-                ["actorObjectId"] = run.Input.BootstrapIdentity!.PrincipalObjectId,
-                ["tableName"] = "C1_" + role + "." + (schema is null ? "" : schema + ".") + "c1_sources",
-                ["deltaTableId"] = deltaIds[role], ["rows"] = binding["rows"]!.DeepClone(), ["sparkVersion"] = "3.5.0-synthetic",
-                ["startedAtUtc"] = start.AddSeconds(1).ToString("O"), ["completedAtUtc"] = start.AddSeconds(10).ToString("O")
-            };
-            return new()
-            {
-                ["id"] = jobIds[role], ["itemId"] = notebookIds[role], ["jobType"] = "RunNotebook", ["invokeType"] = "OnDemand",
-                ["status"] = status, ["startTimeUtc"] = start.ToString("O"), ["endTimeUtc"] = start.AddSeconds(11).ToString("O"),
-                ["failureReason"] = null, ["exitValue"] = Canonical.Serialize(result)
-            };
-        }
+        public JsonObject Job(string role, string status = "Completed") =>
+            SourceNotebookJob(run, role, notebookIds[role], jobIds[role], deltaIds[role], status);
     }
 
     private sealed class SourceAccessHarness
@@ -6393,7 +6458,7 @@ except RuntimeError as error:
         public string CapacityId { get; } = Guid.NewGuid().ToString("D");
         public Harness(int maxRequests = 100, string[]? requiredTenantSettingNames = null, bool delegated = false,
             bool delegatedAdministrator = true, bool operatorNetwork = false, int vpnUserCount = 1, bool manualTimers = false,
-            bool sharedHub = false)
+            bool sharedHub = false, int? cleanupReserve = null)
         {
             Clock = new(DateTimeOffset.Parse("2026-11-18T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture), manualTimers);
             var tenant = Guid.NewGuid().ToString("D");
@@ -6410,7 +6475,7 @@ except RuntimeError as error:
                 new(hash, hash, hash, hash, hash, hash), maxRequests, 600)
             {
                 RequiredTenantSettingNames = requiredTenantSettingNames ?? [],
-                Cleanup = new(Math.Min(20, Math.Max(1, maxRequests / 3)), 600, Clock.GetUtcNow().AddHours(4).AddMinutes(10)),
+                Cleanup = new(cleanupReserve ?? Math.Min(20, Math.Max(1, maxRequests / 3)), 600, Clock.GetUtcNow().AddHours(4).AddMinutes(10)),
                 DelegatedGroupOwnerMode = delegated ? delegatedAdministrator ? "ExplicitReviewedAdministrator" : "AutomaticReviewedNonAdministrator" : null,
                 ControlTokenBindings = new("https://management.core.windows.net/", $"https://sts.windows.net/{tenant}/",
                     "00000003-0000-0000-c000-000000000000", $"https://sts.windows.net/{tenant}/")

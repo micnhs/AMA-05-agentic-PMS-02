@@ -1,4 +1,8 @@
 import copy
+import hashlib
+import json
+from pathlib import Path
+import tempfile
 import unittest
 
 import baseline
@@ -63,6 +67,39 @@ class BaselineTests(unittest.TestCase):
                     entry["remainingBoundary"] = ""
                 with self.assertRaises(ValueError):
                     baseline.verify_register(register)
+
+    def test_selected_repository_source_bytes_are_checked_without_accepting_historical_bytes(self):
+        for mutation in (None, "working-original", "blob", "duplicate-path"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                rows = []
+                for name in ("Konzept_PMS-System_Klasse-III-Implantate_MDR.docx",
+                             "PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx"):
+                    path = root / "source" / name
+                    path.parent.mkdir(exist_ok=True)
+                    data = ("synthetic selected bytes " + name).encode("utf-8")
+                    path.write_bytes(data)
+                    rows.append({
+                        "gitPath": "source/" + name,
+                        "originalSha256": hashlib.sha256(b"synthetic historical original").hexdigest(),
+                        "repositorySha256": hashlib.sha256(data).hexdigest(),
+                        "repositoryBlob": hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\0" + data,
+                                                      usedforsecurity=False).hexdigest(),
+                    })
+                if mutation == "working-original":
+                    (root / rows[0]["gitPath"]).write_bytes(b"synthetic historical original")
+                elif mutation == "blob":
+                    rows[0]["repositoryBlob"] = "0" * 40
+                elif mutation == "duplicate-path":
+                    rows[1] = copy.deepcopy(rows[0])
+                manifest = root / "docs" / "fabric" / "repository-source-bindings.json"
+                manifest.parent.mkdir(parents=True)
+                manifest.write_text(json.dumps({"bindings": rows}), encoding="utf-8")
+                if mutation is None:
+                    baseline.verify_repository_source_bindings(root)
+                else:
+                    with self.assertRaises(ValueError):
+                        baseline.verify_repository_source_bindings(root)
 
 
 if __name__ == "__main__":

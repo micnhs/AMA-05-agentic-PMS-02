@@ -7,7 +7,7 @@ using Cohors.Infrastructure;
 
 namespace Cohors.Api;
 
-public static class FabricC1DeploymentEntry
+public static partial class FabricC1DeploymentEntry
 {
     public static int Run(string[] args) => RunAsync(args).GetAwaiter().GetResult();
 
@@ -15,6 +15,9 @@ public static class FabricC1DeploymentEntry
     {
         try
         {
+            if (args.Length != 0 && (args[0] is "stop-private" or "watch-private" or "cleanup-private" or "export-hub" ||
+                args[0] == "apply" && !args.Contains("--through", StringComparer.Ordinal)))
+                return await RunPrivateLifecycle(args);
             var bindHub = args.Length > 0 && args[0] == "bind-hub";
             Guard.Against(args.Length is not (3 or 5 or 7 or 9) || args[1] != "--manifest" || args[0] is not ("plan" or "apply" or "cleanup-identities" or "bind-hub") ||
                 args.Length >= 5 && args[3] != "--journal" ||

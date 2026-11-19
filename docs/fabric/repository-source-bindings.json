@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "scope": "fabric-future-repository-tree-metadata-only",
+  "baseCommit": "caef769b590d60268f98043da5e7b983c76b0fb5",
+  "publishedVariantCommit": "1f8122df67f92f12aeb22b7abd457a0affe7edb8",
+  "comparisonEvidenceSha256": "9e33abc0d6cb16c9e5837513d155e9c20520f4056eb2c3d38c3bf1067e61b6b4",
+  "bindings": [
+    {
+      "gitPath": "source/Konzept_PMS-System_Klasse-III-Implantate_MDR.docx",
+      "originalBlob": "560f1cc47f938ef435e8ccbbe13c081d2feeb730",
+      "originalSha256": "677ed659cd08d1b45d1b9c0e98ff84c9aadd358be5142ac544eebabd0e24857b",
+      "repositoryBlob": "98a93a231cb04fe32bb5b22899fc0e93fbf204c1",
+      "repositorySha256": "f9525b8c04665e69e39e1dafb0f5c5d1e085ddf5b5d86f654aa7a05ef6b95cf2",
+      "changes": [
+        "core.creator and core.lastModifiedBy emptied",
+        "One documented visible author/requester metadata field emptied"
+      ],
+      "unchangedMemberPayloads": 17,
+      "allOtherDocumentContentAndFormattingUnchanged": true
+    },
+    {
+      "gitPath": "source/PMS_Anforderungsmatrix_MDR_KlasseIII_Implantate.xlsx",
+      "originalBlob": "ef373693b2e9295bb1176b377cdd896683887ebb",
+      "originalSha256": "6a70b6ca1d287f340abc43097b8538ba9b0b14b676e2063a4aa70245831785ca",
+      "repositoryBlob": "13b83b5c8056c1fb60be829653eddd702c034cdc",
+      "repositorySha256": "751835b9950dfc8b4e1313c9e8eeed514c301d2a5b0405144d0a451495d3ae5b",
+      "changes": [
+        "core.creator and core.lastModifiedBy emptied",
+        "Absolute profile-path metadata wrapper removed",
+        "Only the documented requester metadata in \u00dcbersicht!B6 emptied"
+      ],
+      "unchangedMemberPayloads": 29,
+      "comparedCells": 1928,
+      "unchangedFormulaCells": 62,
+      "unchangedRequirementIds": 118,
+      "mustRequirements": 104,
+      "shouldRequirements": 14,
+      "allOtherCellValuesTypesAndFormattingUnchanged": true
+    }
+  ],
+  "preservedThirdPartySources": [
+    {
+      "gitPath": "source/imdrf-2026-fda-mapping-source.xlsx",
+      "gitBlob": "83f7b84fe257c66236de7a111a560c539db56d92",
+      "sha256": "c73f606d8ffbdcf715950cf342028b45a8008440255cd5467fa74315f2e42c76",
+      "bytes": 408617,
+      "classification": "Embedded publisher/author metadata of the publicly available FDA third-party publication; not project/user content",
+      "reason": "Preserve the exact canonical FDA provenance and integrity binding; do not sanitize or replace this source",
+      "provenance": [
+        "contracts/terminology/fda-imdrf-2026.json",
+        "fabric/delivery.json:canonicalTerminologySource"
+      ],
+      "publishedAtBaseAlready": true,
+      "verifiedOn": "2026-11-15",
+      "publisherReverification": "Open: coordinator reports media/192166 remains linked as XLSX 485 KB but current automated downloads return 404. No new download or current byte-identity claim."
+    }
+  ],
+  "archiveStorageDifference": "ZIP flag bits differ; other compared member metadata, order and archive comments are unchanged",
+  "workingOriginalsChanged": false,
+  "historicalOriginalHashesChanged": false,
+  "baselineArtifactsChanged": false,
+  "recalculationOrRegenerationPerformed": false,
+  "historyRewritten": false,
+  "wholeTreeOrHistoryPersonalDataFreeClaim": false,
+  "additionalPushPackageWorkflowOrCloudAuthorization": false
+}
