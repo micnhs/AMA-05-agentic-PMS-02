@@ -96,8 +96,8 @@ jobs:
         run: |
           python -B infra/scripts/primary_acceptance.py \
             --repository "$GITHUB_REPOSITORY" \
-            --commit dd112705af2baf6c4e7787794b782f4f8937b1e8 \
-            --run-id 44355710367 \
+            --commit 88b1904012c26db83b3d00faf147157b68899d88 \
+            --run-id 44528532161 \
             --output "$RUNNER_TEMP/cohors-application-acceptance.json"
       - name: Preserve the bound application result, including failure
         if: ${{ always() }}

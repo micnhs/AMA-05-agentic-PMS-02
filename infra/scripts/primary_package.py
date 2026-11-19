@@ -16,8 +16,8 @@ FUNCTIONS = {
     "workflows": {"DispatchOutbox", "CohorsOutboxV1", "ProcessOutbox", "WorkflowLive", "WorkflowReady"},
     "operations": {"DeadlineWatchdog", "OperationsLive", "OperationsReady"},
 }
-OPERATIONS_APPLICATION = "dd112705af2baf6c4e7787794b782f4f8937b1e8"
-OPERATIONS_DOCUMENT_SHA256 = "7baed39d5ca502c44aa7b1f3c839350cfa37595dfd52b889a359c767e8613e3b"
+OPERATIONS_APPLICATION = "88b1904012c26db83b3d00faf147157b68899d88"
+OPERATIONS_DOCUMENT_SHA256 = "8efc941957701663428d259ef2490a8e0716362445b4e8c6768d1d39557d9f12"
 OPERATIONS_MIGRATIONS = (
     "001_initial.sql", "002_outbox_delivery.sql", "003a_operations_quote.sql",
     "003b_operations_write.sql", "003c_operations_permissions.sql",

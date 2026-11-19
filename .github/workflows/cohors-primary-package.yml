@@ -6,7 +6,7 @@ name: Cohors bound primary package
       application_commit:
         description: Immutable application candidate, not an Azure release approval
         required: true
-        default: dd112705af2baf6c4e7787794b782f4f8937b1e8
+        default: 88b1904012c26db83b3d00faf147157b68899d88
         type: string
   push:
     branches: [micnhs-cohors-azure-infrastruktur]
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      APP_COMMIT: ${{ inputs.application_commit || 'dd112705af2baf6c4e7787794b782f4f8937b1e8' }}
+      APP_COMMIT: ${{ inputs.application_commit || '88b1904012c26db83b3d00faf147157b68899d88' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

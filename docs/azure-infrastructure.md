@@ -309,13 +309,13 @@ aktueller gruener Nachweis dieser Pruefungen liegt nicht vor. Die neue
 Zuordnung ist Offline-Gatelogik, kein nachgeholter Scan oder Cloudnachweis.
 
 Ein spaeter separat freizugebender Push auf
-`micnhs-cohors-azure-infrastruktur` haette mit den **unveraenderten Workflows**
-folgende automatischen Auswirkungen:
+`micnhs-cohors-azure-infrastruktur` haette mit den **lokal aktualisierten
+Appbindungen, sonst unveraenderten Workflows** folgende automatischen Auswirkungen:
 
 | Workflow | Tatsaechlicher Trigger/Inhalt, keine Ausfuehrung dieses Auftrags |
 | --- | --- |
-| `cohors-ci.yml` | Jeder Push: aktuelle Infra-Bicep-/Lint-/Parameter-/PowerShell-/Actionlint-/Offlinetests und der vorhandene gepinnte Checkov-Container; ausserdem vorhandene native Linux-NVA-Fixture, nicht ACA/Hub-Traffic. Der App-Referenzjob liest weiterhin exakt dd112/Run44355710367; die separate SQL/.NET/Chromium-Lane ist auf diesem Branch skipped. Kein automatischer Wechsel auf2b3 oder einen spaeteren App-SHA. |
-| `cohors-primary-package.yml` | Branchpush mit `infra/**`-Aenderungen (ausser alleinigem `test_workflow_contract.py`) startet unabhaengig von CI einen neuen Build. Standard-App bleibt exakt dd112. Paket: originale API/AgentHost/Bootstrap-Binaries, React, originale Flex-ZIPs, zwei Linux/amd64-OCI-Archive, gebundene .NET-Runtime/SQL-Helfer, historische Python-Proxy-Wheels und der gesamte aktuelle Infra-Quellbaum. Artefakt `cohors-primary-release`,14Tage. Keine ACR-/Azure-Publikation; ein erfolgreiches Paket ist kein App- oder Security-Pass. |
+| `cohors-ci.yml` | Jeder Push: aktuelle Infra-Bicep-/Lint-/Parameter-/PowerShell-/Actionlint-/Offlinetests und der vorhandene gepinnte Checkov-Container; ausserdem vorhandene native Linux-NVA-Fixture, nicht ACA/Hub-Traffic. Der App-Referenzjob liest exakt88b19040/Run44528532161, Attempt1; die separate SQL/.NET/Chromium-Lane ist auf diesem Branch skipped. Kein automatischer Wechsel auf einen spaeteren App-SHA oder Attempt. |
+| `cohors-primary-package.yml` | Branchpush mit `infra/**`-Aenderungen (ausser alleinigem `test_workflow_contract.py`) startet unabhaengig von CI einen neuen Build. Standard-App ist exakt88b19040. Paket: originale API/AgentHost/Bootstrap-Binaries, React, originale Flex-ZIPs, zwei Linux/amd64-OCI-Archive, gebundene .NET-Runtime/SQL-Helfer, historische Python-Proxy-Wheels und der gesamte aktuelle Infra-Quellbaum. Artefakt `cohors-primary-release`,14Tage. Keine ACR-/Azure-Publikation; ein erfolgreiches Paket ist kein App- oder Security-Pass. |
 | `cohors-deploy.yml` | Kein Pushtrigger; weiterhin nur bewusst manuell, OIDC und die bereits vorhandenen Umgebungs-/Freigabegates. |
 
 `primary_acceptance.py` emittiert neu
@@ -358,7 +358,7 @@ aus `/.default` abgeleitete Werte. Private Personen-/Tenant-/Subscriptionbindung
 und echte Alarmempfaenger gehoeren nicht ins Repository.
 
 Der aktuelle **Verpackungskandidat** ist
-`dd112705af2baf6c4e7787794b782f4f8937b1e8` / lokaler Build49, mit dem
+`88b1904012c26db83b3d00faf147157b68899d88`, mit dem unveraenderten
 quellgebundenen Vertrag `cohors-operations-write-v1`/Schema3. Die Original-CLI
 lautet `Cohors.Bootstrap sql --expect-server ... --expect-database ... --apply`
 bzw. `search ... --apply`; ohne `--apply` erfolgen echte Remote-Reads.
@@ -366,6 +366,14 @@ Der historische dd112-Vertragsabsatz mit `sql-migrate` bezeichnet **keinen**
 gueltigen CLI-Befehl. Die spaetere Dokumentationskorrektur1429877 ist kein
 Runtime-Neubuild. Migrationen und SQL-Schreibprozedur bleiben ausschliesslich
 in der originalen Anwendung, nicht als zweite Fach-DDL im Infra-Code.
+Alle fuenf Migrationen001/002/003a/003b/003c, `SqlOperationsStore.cs`,
+`OperationsFunctions.cs` und Bootstrap-`Program.cs`/`BootstrapRequest.cs`
+sind zwischen dd112 und88b190 byteidentisch. `SqlStateStore.cs` aendert nur
+die Lese-/Auditexportbindung mit `RequireAuditCommandReceipts`; die
+SQL-Vertragsdokumentation korrigiert nur CLI und Seedbeschreibung.
+Lokaler Build49 und das unten gebundene technische Hosted-Paket bleiben
+dd112-Historie, keine Binaer- oder Paketqualifikation fuer88b190.
+Dieser Referenzwechsel bindet kein neues Paket; ein durch den Push natuerlich ausgeloester Paketlauf bleibt bis zur gesonderten Pruefung ungebunden.
 
 Der lokale Build49-/Native98/99-Nachweis ist kein Entra-/Azure-/FSN-/UI-Pass.
 Build49 selbst lieferte keine Release-ZIPs oder Images. Der ausschliesslich
@@ -411,9 +419,27 @@ keiner uebersprungen. Recovery/Referenzabdeckung, FSN-Auditschnitt und die
 integrierte T12-/Operations-Historybindung bleiben beim Primaerowner offen.
 Das nimmt den gezielten lokalen Restricted-Principal-Nachweis nicht pauschal
 zurueck, qualifiziert aber auch keinen integrierten Applicationrelease.
-Der Infrabranch liest deshalb genau diesen vorhandenen Lauf, statt die gleiche
-dd112-Suite erneut zu starten. Der Readback bleibt negativ; Paketbau und
-Manifest-Hashes koennen ihn nicht ersetzen. `releaseBundle` bindet getrennt
+Dieser historische Negativbeleg bleibt unveraendert; Paketbau und Manifest-Hashes
+koennen ihn nicht ersetzen.
+
+Die aktuelle Bindung liest stattdessen den vorhandenen natuerlichen
+[CI-Lauf44528532161](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44528532161)
+fuer88b19040, Attempt1, ohne Tests erneut zu starten:
+Appjob135575411076 und sein Schritt5 sind erfolgreich, mit **431/431**
+Hauptsuite-, **39/39** Bootstrap- und **32/32 Browserfaellen insgesamt in11
+Profilen**, jeweils ohne Skip. Der unveraenderte Version2-Pruefpfad liefert
+dafuer nur **App-only `passed=true`**. Die Workflow-Conclusion bleibt
+`failure`: Ausschliesslich der eigene Primary-Infrajob135575410687,
+Schritt5, scheitert an Checkov mit186 bestanden/77 fehlgeschlagen und246
+Scanner-Ressourcenansichten, nicht246 nachgewiesenen Azure-Ressourcen.
+Derselbe Befund bestand bereits auf3c1dff im
+[CI-Lauf44512005639](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44512005639);
+dessen Infraquellen sind gegenueber88b190 unveraendert. Das ist kein Scan
+des aktuellen Infrabranchs und keine Release-, Security-, Cloud- oder
+Gesamtpilotqualifikation. **Offen bleiben** npm
+`1 high severity vulnerability` und die Vite-Warnung zu Chunks **>500kB**.
+Aktuelle Infraabnahme und exakte neue Paketbindung bleiben getrennte Gates.
+`releaseBundle` bindet unveraendert getrennt
 `validationRunId` fuer Infra und `applicationValidationRunId` fuer die Anwendung.
 
 **Historischer NVA-Teilnachweis, nicht auf Azure Firewall uebertragbar:** Der
@@ -485,7 +511,7 @@ vier lesenden Graph-GETs im gebundenen Ursprungskontext aufgeloest: aktivierte
 Konten, vier verschiedene Object-IDs, getrennte Medical-/RA-Identitaeten.
 Eingaben und Minimalbeleg bleiben privat. Das ist keine App-Role-Zuweisung,
 Produktfreigabe oder Token-/API-Abnahme; der separate Admin-Appvertrag fehlt
-im gebundenen dd112-Quellstand weiterhin.
+im historischen dd112- und im aktuell gebundenen 88b190-Quellstand.
 Auch der nutzerbenannte Alarmempfaenger liegt nur im privaten Teilinput:
 `profile.alertEmailReceivers` -> `primary.bicep` -> `main.bicep` ->
 eigene Action Group. Keine weitere Principalaufloesung, Testmail oder Mutation
@@ -925,7 +951,7 @@ Production. Die eigentliche SQL-/Search-Schemaanlage ist ein gesonderter Bootstr
 Kein Runtimehost bekommt Search Service Contributor, SQL-Administrator oder
 standardmaessig Key-Vault-Secretrechte. App-Registrierungen, App-Role-Assignments,
 SQL-contained users/grants und Migrationen fehlen nicht versehentlich: sie sind
-bewusste Bootstrap-Gates. Fuer dd112/Schema3 liefert ausschliesslich die originale
+bewusste Bootstrap-Gates. Fuer88b19040/Schema3 liefert ausschliesslich die originale
 Migration `003c_operations_permissions.sql` die dbo-eigene Operationsrolle:
 SELECT auf Aggregates/AggregateVersions/SchemaVersions, EXECUTE nur auf
 `dbo.CohorsOperationsWrite`, I/U/D-DENYs auf allen neun Anwendungstabellen,

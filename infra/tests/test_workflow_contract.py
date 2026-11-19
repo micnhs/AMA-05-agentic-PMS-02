@@ -263,8 +263,8 @@ $checks | ConvertTo-Json -Depth 4 -Compress
         self.assertEqual(existing["if"],
                          "${{ (github.head_ref || github.ref_name) == 'micnhs-cohors-azure-infrastruktur' }}")
         command = next(step["run"] for step in existing["steps"] if "run" in step)
-        self.assertIn("--commit dd112705af2baf6c4e7787794b782f4f8937b1e8", command)
-        self.assertIn("--run-id 44355710367", command)
+        self.assertIn("--commit 88b1904012c26db83b3d00faf147157b68899d88", command)
+        self.assertIn("--run-id 44528532161", command)
         self.assertNotRegex(command, r"dotnet|Invoke-CohorsCi|gh run rerun|workflow run")
 
     def test_cloud_credentials_are_only_in_protected_manual_jobs(self):
