@@ -811,6 +811,53 @@ This prerequisite does not implement notebook materialization or prove a native
 Fabric job, B5, source permission or private transport result.
 Reference: [Fabric long-running operations and polling headers](https://learn.microsoft.com/rest/api/fabric/articles/long-running-operation).
 
+### Delegated synthetic source notebooks
+
+`FabricC1SourceNotebook.cs` prepares one own notebook in each dedicated source
+workspace, never in the runtime Contributor workspace. The build embeds the
+unchanged five-row synthetic fixture. Only `C1-A@1` and `C1-B@2` go into the
+Released notebook; the other three rows go into Denied. Before creating a
+notebook, the original delegated bootstrap user, three distinct workspaces,
+current capacity/ownership, full denied communication policy and private
+Lakehouse metadata must match. Schemaless and documented `dbo` layouts are bound
+from the readback; no schema upgrade or new identity is inferred.
+
+The original source/code hashes, invocation and control window persist across
+resume. A PySpark `FabricGitSource` definition binds the own default Lakehouse.
+The `ipynb` definition readback must contain exactly the original code cell in
+the documented `artifact.content.ipynb` part, with no remote or ambiguous
+content. Shared definition LRO handling retains the same original poll schedule.
+The generated program checks actual NotebookUtils workspace, Lakehouse and user
+context, refuses pipeline/reference execution and existing tables/paths, writes
+Delta with `errorifexists`, then reads the actual schema, bounded complete
+rowset and Delta table ID. Native entry is forbidden in GitHub Actions.
+
+`FabricC1SourceMaterialization.cs` explicitly uses the documented on-demand
+Notebook workload route and its `beta=true` exit-value readback, not a generic
+Core `Completed` status or scheduler identity. An original intent precedes the
+one-use submission. Unknown POST outcomes never replay or adopt a latest run.
+Only a returned job ID bound to the exact workspace/notebook is accepted;
+canonical public Location values are identifier metadata only and are never
+followed. Every job read is reconstructed on the original private workspace
+client. The provider polling minimum is persisted without shortening the
+original window; missing minima block, throttling is surfaced without automatic
+retry, and explicit advances before the minimum perform no network request.
+
+Completion requires the exact source/invocation hashes, actual original user,
+notebook/Lakehouse/workspace IDs, full expected rows, Delta ID and bounded
+provider/script timestamps. A later result cannot replace an accepted receipt.
+Only separate completed Released and Denied receipts can produce the combined
+materialization receipt. Neither that receipt nor the hosted fake-provider and
+generated-Python cases prove effective source grants, native API/private-path
+support, runtime `userId` correspondence, B5, G03/G04 or domain acceptance.
+The full paid installer remains blocked; no source grant, delegated token relay,
+native notebook run, new validation lane or C1 model requirement is introduced.
+
+References: [notebook definitions](https://learn.microsoft.com/rest/api/fabric/articles/item-management/definitions/notebook-definition),
+[Lakehouse metadata and default schema](https://learn.microsoft.com/rest/api/fabric/lakehouse/items/get-lakehouse),
+[runtime context](https://learn.microsoft.com/fabric/data-engineering/notebookutils/notebookutils-runtime),
+[notebook workload execution and exit values](https://learn.microsoft.com/fabric/data-engineering/notebook-public-api).
+
 ## Fork and isolation
 
 The initial clean worktree HEAD and merge base were both

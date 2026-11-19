@@ -413,27 +413,33 @@ public sealed partial class FabricC1Provisioner
         var result = await EnsureCreated("data-agent", "DataAgent", $"https://{WorkspaceHost(id)}/v1/workspaces/{id}/dataAgents",
             "C1_Agent", new JsonObject { ["displayName"] = "C1_Agent", ["description"] = Marker, ["definition"] = definition.DeepClone() }, false, ct);
         var collection = $"https://{WorkspaceHost(id)}/v1/workspaces/{id}/dataAgents";
+        var readback = await ReadItemDefinition("published-definition", collection, Text(result, "id"), ct);
+        Guard.Against(readback["definition"] is not JsonObject actual ||
+            !DefinitionsEqual(definition, actual), "c1_deploy_publication_readback", "Published definition differs; no MCP readiness claim.", 409);
+        SaveObject("published-definition", "DataAgentDefinition", Text(result, "id"), Canonical.Hash(definition), readback);
+        return result;
+    }
+
+    private async Task<JsonObject> ReadItemDefinition(string key, string collection, string itemId, CancellationToken ct, string? format = null)
+    {
         FabricC1DeploymentReply readback;
-        if (state.PendingOperations.TryGetValue("published-definition", out var operation))
+        if (state.PendingOperations.TryGetValue(key, out var operation))
         {
             readback = new(200, await AwaitOperation(operation, collection, ct));
         }
         else
         {
             readback = await Send(HttpMethod.Post,
-                new($"{collection}/{Text(result, "id")}/getDefinition"), ct: ct);
+                new($"{collection}/{itemId}/getDefinition" + (format is null ? "" : "?format=" + Uri.EscapeDataString(format))), ct: ct);
             if (readback.Status == 202)
             {
                 Guard.Against(readback.OperationUrl is null, "c1_deploy_definition_pending", "Definition LRO has no supported operation URL.", 409);
-                RecordOperationDelay(readback.OperationUrl!, collection, readback.RetryAfterSeconds ?? 0, "published-definition");
+                RecordOperationDelay(readback.OperationUrl!, collection, readback.RetryAfterSeconds ?? 0, key);
                 readback = new(200, await AwaitOperation(readback.OperationUrl!, collection, ct));
             }
         }
         RequireStatus(readback, 200);
-        Guard.Against(readback.Body["definition"] is not JsonObject actual ||
-            !DefinitionsEqual(definition, actual), "c1_deploy_publication_readback", "Published definition differs; no MCP readiness claim.", 409);
-        SaveObject("published-definition", "DataAgentDefinition", Text(result, "id"), Canonical.Hash(definition), readback.Body);
-        return result;
+        return readback.Body;
     }
 
     public async Task AssignRuntimeToAgentWorkspace(CancellationToken ct)

@@ -3423,6 +3423,435 @@ public sealed class FabricC1DeploymentTests
     }
 
     [Fact]
+    public async Task SourceNotebookRequiresOriginalDelegatedActorAndSeparateWorkspaces()
+    {
+        using var appOnly = new Harness();
+        _ = new SourceNotebookHarness(appOnly);
+        Assert.Equal("c1_source_actor", (await Assert.ThrowsAsync<DomainException>(() =>
+            appOnly.Provisioner.PrepareSourceNotebook("released", default))).Code);
+        Assert.Empty(appOnly.Api.Requests);
+        using var user = new Harness(delegated: true);
+        _ = new SourceNotebookHarness(user);
+        Assert.Equal("c1_deploy_source_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            user.Provisioner.PrepareSourceNotebook("agent", default))).Code);
+        var state = user.Store.Load()!;
+        state.Objects["workspace-denied"] = state.Objects["workspace-released"];
+        user.Store.Save(state);
+        user.Restart();
+        Assert.Equal("c1_deploy_source_scope", (await Assert.ThrowsAsync<DomainException>(() =>
+            user.Provisioner.PrepareSourceNotebook("released", default))).Code);
+        Assert.Empty(user.Api.Requests);
+    }
+
+    [Theory]
+    [InlineData("workspace", "c1_deploy_context")]
+    [InlineData("capacity", "c1_deploy_context")]
+    [InlineData("policy", "c1_source_policy")]
+    [InlineData("lakehouse-workspace", "c1_deploy_context")]
+    [InlineData("schema", "c1_source_schema")]
+    public async Task SourceNotebookRefusesCurrentMetadataDriftBeforeCreatingAnything(string mutation, string code)
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        source.QueuePreparation("released", mutation);
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.PrepareSourceNotebook("released", default))).Code);
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+        Assert.False(run.Store.Current!.Objects.ContainsKey("source-notebook-plan-released"));
+    }
+
+    [Fact]
+    public async Task SourceNotebookResumesOriginalCodeInvocationAndControlWindow()
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        source.QueuePreparation("released");
+        var original = await run.Provisioner.PrepareSourceNotebook("released", default);
+        run.Clock.Advance(TimeSpan.FromSeconds(30));
+        run.Restart();
+        source.QueuePreparation("released");
+        var resumed = await run.Provisioner.PrepareSourceNotebook("released", default);
+        Assert.Equal(original.BindingSha256, resumed.BindingSha256);
+        Assert.Equal(original.Program, resumed.Program);
+        Assert.Equal(original.Definition.ToJsonString(), resumed.Definition.ToJsonString());
+        var state = run.Store.Load()!;
+        var saved = state.Objects["source-notebook-plan-released"];
+        saved.Response["programSha256"] = new string('f', 64);
+        state.Objects["source-notebook-plan-released"] = saved with { RequestHash = Canonical.Hash(saved.Response) };
+        run.Store.Save(state);
+        run.Restart();
+        source.QueuePreparation("released");
+        Assert.Equal("c1_source_binding", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.PrepareSourceNotebook("released", default))).Code);
+        Assert.All(run.Api.Requests, request => Assert.Equal(HttpMethod.Get, request.Method));
+    }
+
+    [Theory]
+    [InlineData("code")]
+    [InlineData("extra-cell")]
+    [InlineData("remote")]
+    [InlineData("duplicate-json")]
+    [InlineData("wrong-part")]
+    public async Task SourceNotebookReadbackRejectsChangedOrAmbiguousExecutableContent(string mutation)
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        source.QueueNotebook("released", definition =>
+        {
+            var part = definition["definition"]!["parts"]![0]!;
+            var text = Encoding.UTF8.GetString(Convert.FromBase64String(part["payload"]!.GetValue<string>()));
+            var notebook = JsonNode.Parse(text)!;
+            if (mutation == "code") notebook["cells"]![0]!["source"] = new JsonArray("raise RuntimeError('changed')");
+            if (mutation == "extra-cell") notebook["cells"]!.AsArray().Add(new JsonObject { ["cell_type"] = "code", ["source"] = new JsonArray("pass") });
+            text = Canonical.Serialize(notebook);
+            if (mutation == "duplicate-json") text = text.Replace("\"nbformat\":4", "\"nbformat\":4,\"nbformat\":4", StringComparison.Ordinal);
+            part["payload"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
+            if (mutation == "remote") part["payloadType"] = "InlineUrl";
+            if (mutation == "wrong-part") part["path"] = "unreviewed.py";
+        });
+        Assert.Equal("c1_source_definition", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.EnsureSourceNotebook("released", default))).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("source-notebook-definition-released"));
+        Assert.DoesNotContain(run.Api.Requests, request => request.Uri.AbsolutePath.Contains("/jobs/", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("released", null)]
+    [InlineData("released", "dbo")]
+    [InlineData("denied", null)]
+    [InlineData("denied", "dbo")]
+    public async Task GeneratedSourceProgramChecksActualContextNoOverwriteAndExactSparkReadback(string role, string? schema)
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run, schema);
+        source.QueuePreparation(role);
+        var plan = await run.Provisioner.PrepareSourceNotebook(role, default);
+        await AssertPythonContract("""
+import copy, json, os, sys, uuid
+from datetime import datetime, timedelta
+from types import SimpleNamespace
+
+data = json.load(sys.stdin)
+module = {"__name__": "synthetic_source_contract"}
+exec(compile(data["program"], "<generated-source-notebook>", "exec"), module)
+binding = json.loads(module["SOURCE_BYTES"])
+assert binding == data["binding"]
+expected_ids = ["C1-A@1", "C1-B@2"] if binding["scope"] == "released" else ["C1-A@2", "C1-C@1", "C1-D@1"]
+assert [row["sourceId"] + "@" + str(row["revision"]) for row in binding["rows"]] == expected_ids
+if binding["scope"] == "released":
+    assert all(row["marker"].startswith("SYNTHETIC-ALLOW-") for row in binding["rows"])
+start = datetime.fromisoformat(binding["startedAtUtc"].replace("Z", "+00:00"))
+expiry = datetime.fromisoformat(binding["expiresAtUtc"].replace("Z", "+00:00"))
+now = start + timedelta(seconds=1)
+notebook_id, delta_id = str(uuid.uuid4()), str(uuid.uuid4())
+table = binding["lakehouseName"] + "." + (binding["schemaName"] + "." if binding["schemaName"] else "") + "c1_sources"
+path = "Tables/" + (binding["schemaName"] + "/" if binding["schemaName"] else "") + "c1_sources"
+context = {
+    "currentWorkspaceId": binding["workspaceId"], "defaultLakehouseId": binding["lakehouseId"],
+    "defaultLakehouseWorkspaceId": binding["workspaceId"], "defaultLakehouseName": binding["lakehouseName"],
+    "currentNotebookId": notebook_id, "userId": binding["actorObjectId"],
+    "isForPipeline": False, "isReferenceRun": False,
+}
+types = [("sourceId", "string"), ("productId", "string"), ("revision", "int"),
+         ("state", "string"), ("releaseState", "string"), ("marker", "string")]
+
+class Row(dict):
+    def asDict(self, recursive=False):
+        assert recursive
+        return dict(self)
+
+class Frame:
+    def __init__(self, owner):
+        self.owner, self.write = owner, self
+        self.dtypes = types if not owner.options.get("schema") else types[:-1]
+        self.maximum = None
+    def format(self, value):
+        assert value == "delta"
+        return self
+    def mode(self, value):
+        assert value == "errorifexists"
+        return self
+    def saveAsTable(self, value):
+        assert value == table
+        self.owner.writes += 1
+    def orderBy(self, *columns):
+        assert columns == ("sourceId", "revision")
+        return self
+    def limit(self, value):
+        assert value == len(binding["rows"]) + 1
+        self.maximum = value
+        return self
+    def collect(self):
+        rows = copy.deepcopy(binding["rows"])
+        if self.owner.options.get("rows"):
+            rows[0]["marker"] = "unreviewed"
+        if self.owner.options.get("extra"):
+            rows.append(rows[0])
+        return [Row(row) for row in rows[:self.maximum]]
+
+class Spark:
+    version = "3.5.0-synthetic"
+    def __init__(self, **options):
+        self.options, self.writes = options, 0
+        self.catalog = SimpleNamespace(tableExists=self.exists)
+    def exists(self, name):
+        assert name == table
+        return self.options.get("table_exists", False)
+    def createDataFrame(self, rows, ddl):
+        assert rows == binding["rows"] and ddl == ", ".join(name + " " + kind for name, kind in types)
+        return Frame(self)
+    def table(self, name):
+        assert name == table and self.writes == 1
+        return Frame(self)
+    def sql(self, text):
+        assert text == "DESCRIBE DETAIL " + ".".join("`" + part + "`" for part in table.split("."))
+        detail = {"format": "delta", "id": delta_id}
+        if self.options.get("format"): detail["format"] = "parquet"
+        if self.options.get("delta"): detail["id"] = str(uuid.UUID(int=0))
+        return SimpleNamespace(collect=lambda: [detail])
+
+def utilities(actual_context, existing=False):
+    def exists(value):
+        assert value == path
+        return existing
+    return SimpleNamespace(runtime=SimpleNamespace(context=actual_context), fs=SimpleNamespace(exists=exists))
+
+result = module["materialize_source"](utilities(context), Spark(), lambda: now)
+assert result["rows"] == binding["rows"] and result["notebookId"] == notebook_id
+assert result["deltaTableId"] == delta_id and result["actorObjectId"] == binding["actorObjectId"]
+assert result["bindingSha256"] == module["SOURCE_HASH"] and result["tableName"] == table
+
+def rejected(actual_context=context, existing=False, expected="c1_source_context", clock=lambda: now, writes=0, **options):
+    spark = Spark(**options)
+    try:
+        module["materialize_source"](utilities(actual_context, existing), spark, clock)
+        raise AssertionError("invalid source execution accepted")
+    except RuntimeError as error:
+        assert str(error) == expected
+    assert spark.writes == writes
+
+for field in ("currentWorkspaceId", "defaultLakehouseId", "defaultLakehouseWorkspaceId", "userId"):
+    changed = dict(context)
+    changed[field] = str(uuid.uuid4())
+    rejected(changed)
+for field in ("isForPipeline", "isReferenceRun"):
+    changed = dict(context)
+    changed[field] = True
+    rejected(changed)
+for field in ("currentNotebookId", "defaultLakehouseName"):
+    changed = dict(context)
+    changed[field] = "invalid"
+    rejected(changed)
+rejected(table_exists=True, expected="c1_source_already_exists")
+rejected(existing=True, expected="c1_source_already_exists")
+rejected(clock=lambda: expiry, expected="c1_source_deadline")
+rejected(clock=lambda: start - timedelta(seconds=1), expected="c1_source_deadline")
+for index, count in ((1, 0), (2, 1), (3, 1)):
+    ticks = iter([now] * index + [expiry])
+    rejected(clock=lambda: next(ticks), expected="c1_source_deadline", writes=count)
+rejected(schema=True, expected="c1_source_schema", writes=1)
+rejected(rows=True, expected="c1_source_rows", writes=1)
+rejected(extra=True, expected="c1_source_rows", writes=1)
+rejected(format=True, expected="c1_source_table", writes=1)
+rejected(delta=True, expected="c1_source_table", writes=1)
+module["SOURCE_HASH"] = "0" * 64
+rejected(expected="c1_source_binding")
+os.environ["GITHUB_ACTIONS"] = "true"
+try:
+    module["main"]()
+    raise AssertionError("native source execution allowed in CI")
+except RuntimeError as error:
+    assert str(error) == "c1_source_native_ci_forbidden"
+""", new { program = plan.Program, binding = plan.Binding });
+        Assert.False(run.Store.Current!.Objects.ContainsKey("materialization"));
+    }
+
+    [Fact]
+    public async Task SourceJobsResumeOriginalIdsAndWaitBeforePrivateBetaReadbackForBothScopes()
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        foreach (var role in new[] { "released", "denied" })
+        {
+            var pending = await source.Submit(role, publicLocation: true);
+            var started = run.Store.Current!.StartedAtUtc;
+            var requests = run.Api.Requests.Count;
+            run.Clock.Advance(TimeSpan.FromSeconds(59));
+            run.Restart();
+            Assert.Equal(pending.NextPollAtUtc, (await run.Provisioner.AdvanceSourceMaterialization(role, default)).NextPollAtUtc);
+            Assert.Equal(requests, run.Api.Requests.Count);
+            run.Clock.Advance(TimeSpan.FromSeconds(1));
+            run.Api.Reply(200, source.Job(role));
+            var done = await run.Provisioner.AdvanceSourceMaterialization(role, default);
+            Assert.Equal("SourceReadbackObserved", done.Status);
+            Assert.Equal(pending.JobId, done.JobId);
+            Assert.Equal(started, run.Store.Current.StartedAtUtc);
+            var request = run.Api.Requests[^1];
+            Assert.Equal(FabricC1Provisioner.WorkspaceHost(source.WorkspaceId(role)), request.Uri.Host);
+            Assert.EndsWith("/notebooks/" + done.NotebookId + "/jobs/execute/instances/" + done.JobId, request.Uri.AbsolutePath, StringComparison.Ordinal);
+            Assert.Equal("?beta=true", request.Uri.Query);
+            Assert.Equal(role == "denied", run.Store.Current.Objects.ContainsKey("materialization"));
+        }
+        Assert.Equal(2, run.Api.Requests.Count(request => request.Method == HttpMethod.Post && request.Uri.AbsolutePath.Contains("/jobs/", StringComparison.Ordinal)));
+        Assert.False(run.Store.Current!.Objects.ContainsKey("source-grants"));
+        Assert.Equal("c1_deploy_binding_incomplete", Assert.Throws<DomainException>(run.Provisioner.RequireFullBindings).Code);
+    }
+
+    [Fact]
+    public async Task SourceJobThrottlingPreservesLongerOriginalMinimumWithoutAutomaticRetry()
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        await source.Submit("released");
+        run.Clock.Advance(TimeSpan.FromSeconds(60));
+        run.Api.Reply(429, new(), retryAfterSeconds: 90);
+        Assert.Equal("c1_deploy_http_429", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvanceSourceMaterialization("released", default))).Code);
+        var requests = run.Api.Requests.Count;
+        run.Restart();
+        run.Clock.Advance(TimeSpan.FromSeconds(89));
+        Assert.Equal("Pending", (await run.Provisioner.AdvanceSourceMaterialization("released", default)).Status);
+        Assert.Equal(requests, run.Api.Requests.Count);
+        run.Clock.Advance(TimeSpan.FromSeconds(1));
+        run.Api.Reply(200, source.Job("released", "InProgress"), retryAfterSeconds: 75);
+        var pending = await run.Provisioner.AdvanceSourceMaterialization("released", default);
+        Assert.Equal(run.Clock.GetUtcNow().AddSeconds(75), pending.NextPollAtUtc);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post && request.Uri.AbsolutePath.Contains("/jobs/", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("unconfirmed", "c1_deploy_http_500", "c1_source_job_unknown")]
+    [InlineData("missing-location", "c1_source_job_location", "c1_source_job_unknown")]
+    [InlineData("foreign-location", "c1_source_job_location", "c1_source_job_unknown")]
+    [InlineData("wrong-workspace", "c1_source_job_location", "c1_source_job_unknown")]
+    [InlineData("missing-minimum", "c1_source_job_poll", "c1_source_job_poll")]
+    [InlineData("outside-window", "c1_deploy_budget", "c1_deploy_budget")]
+    public async Task SourceJobSubmissionCannotBeReplayedOrAssignedAnInventedPollingWindow(string fault, string code, string resumeCode)
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        source.QueueNotebook("released");
+        string? location = source.JobLocation("released");
+        if (fault == "missing-location") location = null;
+        if (fault == "foreign-location") location = location!.Replace("api.fabric.microsoft.com", "example.invalid", StringComparison.Ordinal);
+        if (fault == "wrong-workspace") location = location!.Replace("/workspaces/" + source.WorkspaceId("released"),
+            "/workspaces/" + Guid.NewGuid().ToString("D"), StringComparison.Ordinal);
+        run.Api.Reply(fault == "unconfirmed" ? 500 : 202, new(), operationUrl: location,
+            retryAfterSeconds: fault == "missing-minimum" ? null : fault == "outside-window" ? 600 : 60);
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvanceSourceMaterialization("released", default))).Code);
+        var requests = run.Api.Requests.Count;
+        run.Restart();
+        Assert.Equal(resumeCode, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvanceSourceMaterialization("released", default))).Code);
+        Assert.Equal(requests, run.Api.Requests.Count);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post && request.Uri.AbsolutePath.Contains("/jobs/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SourceJobReceiptSaveUncertaintyFencesUntilOriginalJournalIsReopened()
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        source.QueueNotebook("released");
+        run.Api.ReplyComputed(202, () => { run.Store.FailAfterSave = true; return new(); },
+            source.JobLocation("released"), 60);
+        await Assert.ThrowsAsync<IOException>(() => run.Provisioner.AdvanceSourceMaterialization("released", default));
+        var requests = run.Api.Requests.Count;
+        Assert.Equal("c1_deploy_checkpoint_journal_unknown", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvanceSourceMaterialization("released", default))).Code);
+        Assert.Equal(requests, run.Api.Requests.Count);
+        run.Store.FailAfterSave = false;
+        run.Restart();
+        Assert.Equal("Pending", (await run.Provisioner.AdvanceSourceMaterialization("released", default)).Status);
+        Assert.Equal(requests, run.Api.Requests.Count);
+        run.Clock.Advance(TimeSpan.FromSeconds(60));
+        run.Api.Reply(200, source.Job("released"));
+        Assert.Equal("SourceReadbackObserved", (await run.Provisioner.AdvanceSourceMaterialization("released", default)).Status);
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post && request.Uri.AbsolutePath.Contains("/jobs/", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("missing-result", "c1_source_result")]
+    [InlineData("duplicate-json", "c1_source_result")]
+    [InlineData("rows", "c1_source_result")]
+    [InlineData("actor", "c1_deploy_context")]
+    [InlineData("notebook", "c1_deploy_context")]
+    [InlineData("lakehouse-workspace", "c1_deploy_context")]
+    [InlineData("delta", "c1_deploy_response_id")]
+    [InlineData("provider-time", "c1_source_time")]
+    [InlineData("script-time", "c1_source_time")]
+    [InlineData("schedule", "c1_source_job_binding")]
+    [InlineData("core-invoke", "c1_source_job_binding")]
+    [InlineData("failure", "c1_source_result")]
+    public async Task CompletedNotebookStillNeedsItsExactOriginalSourceAndActualExecutionEvidence(string mutation, string code)
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        await source.Submit("released");
+        run.Clock.Advance(TimeSpan.FromSeconds(60));
+        var job = source.Job("released");
+        var result = JsonNode.Parse(job["exitValue"]!.GetValue<string>())!.AsObject();
+        if (mutation == "rows") result["rows"]![0]!["marker"] = "unreviewed";
+        if (mutation == "actor") result["actorObjectId"] = Guid.NewGuid().ToString("D");
+        if (mutation == "notebook") result["notebookId"] = Guid.NewGuid().ToString("D");
+        if (mutation == "lakehouse-workspace") result["lakehouseWorkspaceId"] = Guid.NewGuid().ToString("D");
+        if (mutation == "delta") result["deltaTableId"] = Guid.Empty.ToString("D");
+        if (mutation == "script-time") result["completedAtUtc"] = run.Clock.GetUtcNow().AddMinutes(1).ToString("O");
+        job["exitValue"] = Canonical.Serialize(result);
+        if (mutation == "missing-result") job.Remove("exitValue");
+        if (mutation == "duplicate-json") job["exitValue"] = Canonical.Serialize(result).Replace("\"scope\":\"released\"",
+            "\"scope\":\"released\",\"scope\":\"released\"", StringComparison.Ordinal);
+        if (mutation == "provider-time") job["startTimeUtc"] = run.Clock.GetUtcNow().AddMinutes(-2).ToString("O");
+        if (mutation == "schedule") job["invokeType"] = "Scheduled";
+        if (mutation == "core-invoke") job["invokeType"] = "Manual";
+        if (mutation == "failure") job["failureReason"] = new JsonObject { ["message"] = "synthetic failure" };
+        run.Api.Reply(200, job);
+        Assert.Equal(code, (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvanceSourceMaterialization("released", default))).Code);
+        Assert.False(run.Store.Current!.Objects.ContainsKey("source-materialization-released"));
+        Assert.False(run.Store.Current.Objects.ContainsKey("materialization"));
+    }
+
+    [Theory]
+    [InlineData("Failed")]
+    [InlineData("Cancelled")]
+    [InlineData("Deduped")]
+    public async Task SourceJobFailureDoesNotAdoptAnotherRunOrProduceMaterialization(string status)
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        await source.Submit("released");
+        run.Clock.Advance(TimeSpan.FromSeconds(60));
+        run.Api.Reply(200, source.Job("released", status));
+        Assert.Equal("c1_source_job_failed", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvanceSourceMaterialization("released", default))).Code);
+        Assert.Equal(status, run.Store.Current!.Objects["source-notebook-job-released"].Response["observation"]!["status"]!.GetValue<string>());
+        Assert.False(run.Store.Current.Objects.ContainsKey("materialization"));
+        Assert.Single(run.Api.Requests, request => request.Method == HttpMethod.Post && request.Uri.AbsolutePath.Contains("/jobs/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task LaterNotebookResultCannotReplaceOriginalAcceptedTableReceipt()
+    {
+        using var run = new Harness(delegated: true);
+        var source = new SourceNotebookHarness(run);
+        await source.Submit("released");
+        run.Clock.Advance(TimeSpan.FromSeconds(60));
+        run.Api.Reply(200, source.Job("released"));
+        await run.Provisioner.AdvanceSourceMaterialization("released", default);
+        var original = run.Store.Current!.Objects["source-materialization-released"].RequestHash;
+        var changed = source.Job("released");
+        var result = JsonNode.Parse(changed["exitValue"]!.GetValue<string>())!;
+        result["deltaTableId"] = Guid.NewGuid().ToString("D");
+        changed["exitValue"] = Canonical.Serialize(result);
+        run.Api.Reply(200, changed);
+        Assert.Equal("c1_source_result_changed", (await Assert.ThrowsAsync<DomainException>(() =>
+            run.Provisioner.AdvanceSourceMaterialization("released", default))).Code);
+        Assert.Equal(original, run.Store.Current.Objects["source-materialization-released"].RequestHash);
+    }
+
+    [Fact]
     public void ExportUsesObservedIdsButNeverInventsCredentialOntologyOrReviewBindings()
     {
         using var run = new Harness();
@@ -4690,8 +5119,8 @@ public sealed class FabricC1DeploymentTests
         public List<Request> Requests { get; } = [];
         public void Reply(int status, JsonObject body, string? etag = null, string? operationUrl = null, int? retryAfterSeconds = null) =>
             replies.Enqueue(() => new(status, (JsonObject)body.DeepClone(), etag, operationUrl) { RetryAfterSeconds = retryAfterSeconds });
-        public void ReplyComputed(int status, Func<JsonObject> body) =>
-            replies.Enqueue(() => new(status, (JsonObject)body().DeepClone()));
+        public void ReplyComputed(int status, Func<JsonObject> body, string? operationUrl = null, int? retryAfterSeconds = null) =>
+            replies.Enqueue(() => new(status, (JsonObject)body().DeepClone(), OperationUrl: operationUrl) { RetryAfterSeconds = retryAfterSeconds });
         public void List(params JsonObject[] items) =>
             Reply(200, new JsonObject { ["value"] = new JsonArray(items.Select(i => i.DeepClone()).ToArray()) });
         public void Fail(Exception error) => replies.Enqueue(() => throw error);
@@ -5191,6 +5620,145 @@ public sealed class FabricC1DeploymentTests
         });
         return (execution, binding);
     }
+    private sealed class SourceNotebookHarness
+    {
+        private readonly Harness run;
+        private readonly Dictionary<string, JsonObject> lakehouses = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> notebookIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> jobIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> deltaIds = new(StringComparer.Ordinal);
+
+        public SourceNotebookHarness(Harness run, string? schema = null)
+        {
+            this.run = run;
+            run.Capacity();
+            foreach (var role in new[] { "agent", "released", "denied" })
+                run.Seed("workspace-" + role, "Workspace", run.Workspace(role));
+            foreach (var role in new[] { "released", "denied" })
+            {
+                lakehouses[role] = new()
+                {
+                    ["id"] = Guid.NewGuid().ToString("D"), ["workspaceId"] = WorkspaceId(role),
+                    ["type"] = "Lakehouse", ["displayName"] = "C1_" + role,
+                    ["description"] = FabricC1Deployment.Marker(run.Input),
+                    ["properties"] = schema is null ? new JsonObject() : new JsonObject { ["defaultSchema"] = schema }
+                };
+                run.Seed("lakehouse-" + role, "Lakehouse", lakehouses[role]);
+                notebookIds[role] = Guid.NewGuid().ToString("D");
+                jobIds[role] = Guid.NewGuid().ToString("D");
+                deltaIds[role] = Guid.NewGuid().ToString("D");
+            }
+            var state = run.Store.Load()!;
+            foreach (var role in new[] { "released", "denied" })
+            {
+                var policy = FabricC1Deployment.LockCommunicationPolicy(new());
+                state.Objects["policy-" + role] = new("CommunicationPolicy", WorkspaceId(role), Canonical.Hash(policy), policy);
+            }
+            run.Store.Save(state);
+            run.Restart();
+        }
+
+        public string WorkspaceId(string role) => run.Store.Current!.Objects["workspace-" + role].Id;
+        private JsonObject Binding(string role) => (JsonObject)run.Store.Current!.Objects["source-notebook-plan-" + role].Response["binding"]!.DeepClone();
+
+        public void QueuePreparation(string role, string? mutation = null)
+        {
+            var workspace = (JsonObject)run.Store.Current!.Objects["workspace-" + role].Response.DeepClone();
+            var policy = (JsonObject)run.Store.Current.Objects["policy-" + role].Response.DeepClone();
+            var lakehouse = (JsonObject)lakehouses[role].DeepClone();
+            if (mutation == "workspace") workspace["id"] = Guid.NewGuid().ToString("D");
+            if (mutation == "capacity") workspace["capacityId"] = Guid.NewGuid().ToString("D");
+            if (mutation == "policy") policy["inbound"]!["publicAccessRules"]!["defaultAction"] = "Allow";
+            if (mutation == "lakehouse-workspace") lakehouse["workspaceId"] = Guid.NewGuid().ToString("D");
+            if (mutation == "schema") lakehouse["properties"]!["defaultSchema"] = "unexpected";
+            run.Api.List(InboundSetting(true));
+            run.Api.Reply(200, workspace);
+            run.Api.Reply(200, policy);
+            run.Api.Reply(200, lakehouse);
+        }
+
+        public void QueueNotebook(string role, Action<JsonObject>? mutateDefinition = null)
+        {
+            QueuePreparation(role);
+            var notebook = new JsonObject
+            {
+                ["id"] = notebookIds[role], ["workspaceId"] = WorkspaceId(role), ["type"] = "Notebook",
+                ["displayName"] = "C1_Materialize_" + role, ["description"] = FabricC1Deployment.Marker(run.Input)
+            };
+            if (run.Store.Current!.Objects.ContainsKey("source-notebook-" + role)) run.Api.Reply(200, notebook);
+            else { run.Api.List(); run.Api.Reply(201, notebook); }
+            run.Api.ReplyComputed(200, () =>
+            {
+                var definition = Definition(role);
+                mutateDefinition?.Invoke(definition);
+                return definition;
+            });
+        }
+
+        private JsonObject Definition(string role)
+        {
+            var request = run.Api.Requests.Single(value => value.Method == HttpMethod.Post &&
+                value.Uri.AbsolutePath == "/v1/workspaces/" + WorkspaceId(role) + "/notebooks");
+            var source = Encoding.UTF8.GetString(Convert.FromBase64String(request.Body!["definition"]!["parts"]![0]!["payload"]!.GetValue<string>()));
+            const string begin = "# CELL ********************\n\n";
+            const string end = "\n\n# METADATA ********************";
+            var program = source[(source.IndexOf(begin, StringComparison.Ordinal) + begin.Length)..source.LastIndexOf(end, StringComparison.Ordinal)];
+            var notebook = new JsonObject
+            {
+                ["nbformat"] = 4, ["nbformat_minor"] = 5,
+                ["cells"] = new JsonArray(new JsonObject { ["cell_type"] = "code", ["source"] = new JsonArray(program + "\n") }),
+                ["metadata"] = new JsonObject { ["language_info"] = new JsonObject { ["name"] = "python" } }
+            };
+            return new()
+            {
+                ["definition"] = new JsonObject
+                {
+                    ["format"] = "ipynb", ["parts"] = new JsonArray(new JsonObject
+                    {
+                        ["path"] = "artifact.content.ipynb", ["payloadType"] = "InlineBase64",
+                        ["payload"] = Convert.ToBase64String(Encoding.UTF8.GetBytes(Canonical.Serialize(notebook)))
+                    })
+                }
+            };
+        }
+
+        public string JobLocation(string role, bool publicLocation = false) => publicLocation
+            ? $"https://api.fabric.microsoft.com/v1/workspaces/{WorkspaceId(role)}/items/{notebookIds[role]}/jobs/instances/{jobIds[role]}"
+            : $"https://{FabricC1Provisioner.WorkspaceHost(WorkspaceId(role))}/v1/workspaces/{WorkspaceId(role)}/notebooks/{notebookIds[role]}/jobs/execute/instances/{jobIds[role]}";
+
+        public async Task<FabricC1SourceMaterializationResult> Submit(string role, bool publicLocation = false)
+        {
+            QueueNotebook(role);
+            run.Api.Reply(202, new(), operationUrl: JobLocation(role, publicLocation), retryAfterSeconds: 60);
+            return await run.Provisioner.AdvanceSourceMaterialization(role, default);
+        }
+
+        public JsonObject Job(string role, string status = "Completed")
+        {
+            var binding = Binding(role);
+            var start = DateTimeOffset.Parse(run.Store.Current!.Objects["source-notebook-job-intent-" + role].Response["submittedAtUtc"]!.GetValue<string>(),
+                System.Globalization.CultureInfo.InvariantCulture);
+            var schema = binding["schemaName"]?.GetValue<string>();
+            var result = new JsonObject
+            {
+                ["contract"] = "cohors-fabric-c1-source-result-1", ["bindingSha256"] = Canonical.Hash(binding),
+                ["invocationId"] = binding["invocationId"]!.DeepClone(), ["fixtureSha256"] = binding["fixtureSha256"]!.DeepClone(),
+                ["scope"] = role, ["workspaceId"] = WorkspaceId(role), ["lakehouseId"] = lakehouses[role]["id"]!.DeepClone(),
+                ["lakehouseWorkspaceId"] = WorkspaceId(role), ["notebookId"] = notebookIds[role],
+                ["actorObjectId"] = run.Input.BootstrapIdentity!.PrincipalObjectId,
+                ["tableName"] = "C1_" + role + "." + (schema is null ? "" : schema + ".") + "c1_sources",
+                ["deltaTableId"] = deltaIds[role], ["rows"] = binding["rows"]!.DeepClone(), ["sparkVersion"] = "3.5.0-synthetic",
+                ["startedAtUtc"] = start.AddSeconds(1).ToString("O"), ["completedAtUtc"] = start.AddSeconds(10).ToString("O")
+            };
+            return new()
+            {
+                ["id"] = jobIds[role], ["itemId"] = notebookIds[role], ["jobType"] = "RunNotebook", ["invokeType"] = "OnDemand",
+                ["status"] = status, ["startTimeUtc"] = start.ToString("O"), ["endTimeUtc"] = start.AddSeconds(11).ToString("O"),
+                ["failureReason"] = null, ["exitValue"] = Canonical.Serialize(result)
+            };
+        }
+    }
+
     private sealed class Harness : IDisposable
     {
         public Clock Clock { get; }

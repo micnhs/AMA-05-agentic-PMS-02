@@ -160,6 +160,21 @@ surfaced without automatic retry. The optional journal field preserves
 historical canonical payloads when absent. This remains source-only work for
 the same hosted lane; notebook materialization, source grants and native B5
 execution are not supplied by this polling correction.
+The source notebook component now embeds the original five-row fixture and
+prepares physically separate two-row Released/three-row Denied notebooks under
+the unchanged delegated bootstrap user. Fresh workspace/capacity, denied-policy
+and private Lakehouse readbacks precede notebook creation; original code,
+scope, invocation and control expiry are retained. The generated PySpark code
+checks actual runtime identity/context, refuses existing data and reads back
+the actual Delta schema, exact rows and table identity. A dedicated one-use
+Notebook workload job component retains the original intent, job ID and provider
+polling minimum, uses private `beta=true` status/exit-value reads, and rejects
+unknown/replayed submissions, scheduler substitutions, incomplete/changed
+results and execution outside the original window. Both independent source
+receipts are required for the combined materialization record. Source tests
+remain in the existing credential-free hosted lane; native notebook execution,
+runtime user-ID correspondence, effective source grants and B5 are unproven.
+This does not complete the full apply driver or permit an isolated paid apply.
 Final C1 binding now also requires the publication plan/readback and refuses a
 cleanup-fenced, expired or unresolved-delete journal rather than reusing its
 retained historical resource receipts as runnable state. It additionally requires

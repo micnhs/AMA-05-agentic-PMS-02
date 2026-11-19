@@ -218,14 +218,7 @@ public sealed partial class FabricC1Provisioner
         try
         {
             using var document = JsonDocument.Parse(output);
-            static bool Unique(JsonElement value) => value.ValueKind switch
-            {
-                JsonValueKind.Object => value.EnumerateObject().Select(property => property.Name).Distinct(StringComparer.Ordinal).Count() ==
-                    value.EnumerateObject().Count() && value.EnumerateObject().All(property => Unique(property.Value)),
-                JsonValueKind.Array => value.EnumerateArray().All(Unique),
-                _ => true
-            };
-            Guard.Against(!Unique(document.RootElement), "c1_artifact_stage_result", "Duplicate result fields are not accepted.", 409);
+            Guard.Against(!UniqueC1JsonProperties(document.RootElement), "c1_artifact_stage_result", "Duplicate result fields are not accepted.", 409);
             result = JsonNode.Parse(output) as JsonObject ??
                 throw new DomainException("c1_artifact_stage_result", "The receiver result is not a JSON object.", 409);
         }
@@ -260,6 +253,14 @@ public sealed partial class FabricC1Provisioner
             ["providerEndedAtUtc"] = StageUtc(ended), ["result"] = result
         };
     }
+
+    private static bool UniqueC1JsonProperties(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Object => value.EnumerateObject().Select(property => property.Name).Distinct(StringComparer.Ordinal).Count() ==
+            value.EnumerateObject().Count() && value.EnumerateObject().All(property => UniqueC1JsonProperties(property.Value)),
+        JsonValueKind.Array => value.EnumerateArray().All(UniqueC1JsonProperties),
+        _ => true
+    };
 
     private static DateTimeOffset StageTimestamp(JsonObject value, string name)
     {
