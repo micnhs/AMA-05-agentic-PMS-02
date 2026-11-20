@@ -2,10 +2,87 @@
 
 **Arbeitsstand, kein Abschluss der Gesamt- oder Fachabnahme.** Dieser Nachweis wird mit den tatsaechlich ausgefuehrten Paketen fortgeschrieben.
 
-## On-demand-Signalimport nach abd1b9be: lokaler Review-Kandidat
+## SIG-IMPORT-R04: lokale Isolation der Import-/Produktauditregression
+
+Basis ist `9a076b49221835efc82bf214d5c0d0a7be1f7b68`; dieser eng begrenzte
+Folgekandidat ist **unstaged und unveroeffentlicht**. Geaendert sind nur
+`tests/Cohors.Tests/SignalReviewTests.cs` und dieser Nachweis, keine
+Anwendungslogik, SQL-Writer, Migration, Audit-/Hashpruefung oder Paketbindung.
+
+Der natuerliche [Lauf 44609714426, Attempt 1](https://github.com/micnhs/AMA-05-agentic-PMS-02/actions/runs/44609714426)
+des veroeffentlichten candidate02 bleibt unveraendert **rot**:
+488/489 .NET-Faelle bestanden, der neue Import-/Produktauditfall scheiterte
+in `CaptureProductAudit` mit `audit_source`. Bootstrap (39) und saemtliche
+Browserfaelle (34/elf Profile, einschliesslich S05/S06) wurden danach
+nicht ausgefuehrt. Das ist kein fehlgeschlagener Browserlauf.
+Das bekannte Infra-Ergebnis 186P/77F/246 Checkov-Ansichten ist davon getrennt.
+
+Der Importtest nutzte bislang dieselbe `ICollectionFixture<SqlFixture>` wie
+`WorkspaceReadSqlTests`. Dessen reine Projektionsfixtures persistieren
+PSUR-/Review- bzw. Dossier-/Inbox-/Ledger-Daten ohne ihre gesamte konstruierte
+Quellkette. Im Original-TRX waren die beiden betreffenden Kalenderfaelle
+bereits um 20:38:13Z bestanden; das spaeter fehlgeschlagene Importszenario
+startete um 20:38:32Z und exportierte das gesamte Produkt.
+Dies belegt die fehlende Isolation, **nicht** die genaue erste vom Guard
+abgewiesene Referenz oder einen bereits reparierten Hostedlauf.
+
+Nur der bestehende Fact
+`Cohors.Tests.SignalReviewTests.Actual_document_import_binds_original_history_receipt_audit_outbox_and_explicit_medical_promotion`
+erhaelt eine eigene `SqlFixture { SeedCases = false }`.
+Initialisierung innerhalb `try` und `DisposeAsync` in `finally` verwenden
+den vorhandenen kontrollierten Fixture-Lebenszyklus; gemeinsame Daten
+anderer Tests werden weder geloescht noch angepasst. Alle 18 bisherigen
+Top-Level-Assertions, der atomare SQL-Join, die Vergleichsreferenz,
+Relevanzpruefung und getrennte Medical-Promotion bleiben erhalten.
+Alle anderen Tests dieser Klasse bleiben byteidentisch.
+
+Vor dem Import und nach der Medical-Promotion wird jeweils der echte
+Produktaudit ausgefuehrt. Unmittelbar davor schreibt der Test
+`COHORS_SIGNAL_IMPORT_AUDIT_SOURCES_V1`: eine kanonisch gehashte,
+phasenmarkierte Metadateninventur der eigenen SQL-Historie mit Kind,
+ID/Version/gespeichertem Hash, berechnetem Payload-Hash und den vom
+bestehenden Quellenleser gefundenen Referenzen. **Keine Vollpayloads,
+Verbindungsdaten oder stillen Ersatzresultate** werden protokolliert.
+Nur ein erfolgreicher Audit erzeugt anschliessend
+`COHORS_SIGNAL_IMPORT_AUDIT_CAPTURE_V1`, gebunden an Inventur- und Capture-Hash.
+Die zurueckgegebenen Versionen muessen zur gelesenen Inventur passen;
+der Postimport-Audit muss ausserdem alle Baseline-Versionen erhalten.
+Ein verbleibender Guardfehler bleibt ein Fehler mit vorherigem Quellenbeleg.
+
+| Tatsaechlich ausgefuehrte lokale Pruefung | Ergebnis und Grenze |
+| --- | --- |
+| Private .NET-Kompilation einschliesslich korrigiertem SQL-Fact | Exit 0, 0 Warnungen / 0 Fehler; kein SQL-/API-Host |
+| Bestehende `SignalDocumentTests` | **57/57** bestanden, unveraenderte Identitaeten |
+| Bestehende `SqlFixtureResourceTests` | **7/7** bestanden; Journal-/Cleanup-Vertraege ohne SQL-Datenbank |
+| Quellengebundener Deltavergleich | Alle 18 bisherigen Assertions in gleicher Reihenfolge, SQL-Join und Vergleichs-/Rollenbindung erhalten; keine Ausfuehrung des SQL-Facts |
+| Gefiltertes .NET-`--list-tests` | Genau die bisherige vollstaendige Testidentitaet gefunden; Listing ist keine Ausfuehrung |
+
+Der erste Build im frischen privaten Ausgabeordner scheiterte mit
+`NETSDK1004`. Erst danach erfolgte der bereits verwendete
+`--locked-mode`-Restore aus vorhandenem Cache ueber einen leeren lokalen
+Feed mit `NuGetAudit=false`; keine Paket-/Lockaenderung oder Audit-Passbehauptung.
+Originalausgaben einschliesslich dieses Negativversuchs, TRX,
+Quellbindungen und Reviewpatch liegen append-only unter
+`.local\eudamed-integration-01\signal-import-r04-01`.
+Candidate01/02 und saemtliche Originalrunbelege bleiben unveraendert.
+
+**NotRun fuer diesen Folgekandidaten:** echte SQL-Baseline/Postimport-
+Regression und damit ihre neuen Diagnostikausgaben, vollstaendige SQL-
+Abnahme, Bootstrap, API und alle 34 Browserfaelle. Kein neuer Webbuild,
+kein lokaler SQL-/Browserhost, keine nachgebaute Hostedumgebung.
+Die vorhandene Demo und ihre UI-Ausgaben, fremde/geschuetzte Dateien,
+Laufzeitsettings und v10 bleiben unberuehrt. Kein Staging/Commit/Push,
+CI-Eingriff, Cloud-/Directory-/Foundryzugriff oder Folgeauftrag.
+Die unabhaengige Kandidatenpruefung und gesonderte Veroeffentlichungsfreigabe
+sowie erst danach die natuerliche Hostedabnahme stehen aus.
+Kein App-, Security-, Release-, Cloud- oder Pilotpass.
+
+## On-demand-Signalimport nach abd1b9be: historischer Reviewstand
 
 Basis ist `abd1b9be1685d7cc941ba52c51a958f1b7989ff9`.
-Der Kandidat ist **unstaged und unveroeffentlicht**. Er liest tatsaechliche
+Die folgenden Candidate01/02-Angaben dokumentieren den damaligen
+**unstaged und unveroeffentlichten** Vorbereitungsstand, nicht den aktuellen
+Abnahmestand oben. Der Kandidat liest tatsaechliche
 UTF-8-Textdateien im bestehenden Quellenpfad und fuehrt weder
 Beschwerde-/Expositionsimport noch KI-Analyse, automatische Fallanlage,
 Fristaenderung oder Freigabe aus. PDF/Office/OCR sind nicht angebunden.

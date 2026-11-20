@@ -1,11 +1,12 @@
 using Cohors.Application;
 using Cohors.Domain;
 using Microsoft.Data.SqlClient;
+using Xunit.Abstractions;
 
 namespace Cohors.Tests;
 
 [Collection("SQL pilot")]
-public sealed class SignalReviewTests(SqlFixture db)
+public sealed class SignalReviewTests(SqlFixture db, ITestOutputHelper output)
 {
     private const string Reason = "SYNTHETISCH: Quellenrelevanz und fehlende Produktzuordnung begruendet pruefen; keine Nichtmeldepflichtentscheidung oder Fristaenderung.";
     private static Actor Reviewer(string role) => role == Roles.Medical ? SqlFixture.Medical : SqlFixture.Ra;
@@ -15,56 +16,101 @@ public sealed class SignalReviewTests(SqlFixture db)
     [Fact]
     public async Task Actual_document_import_binds_original_history_receipt_audit_outbox_and_explicit_medical_promotion()
     {
-        var scenario = new CaseScenario(db);
-        await scenario.Create();
-        var before = scenario.Case;
-        var count = (await db.Store.List<SafetyCase>("case", ["ortho"])).Length;
-        var sourceService = new PublicSourceService(db.Store, db.Objects, new DocumentNoNetwork(), scenario.Clock, db.Policies);
-        var input = SignalDocumentTests.Input("SQL-DOCUMENT-" + Guid.NewGuid().ToString("N")) with
-        { FirstKnownAt = scenario.Clock.GetUtcNow().AddDays(-4),
-            ComparisonCaseId = before.Id, ComparisonCaseVersion = before.Version, ComparisonReason = Reason };
-        var key = CaseScenario.Key();
-        var imported = await sourceService.ImportDocument(input, SqlFixture.Pms, key);
-        var replay = await sourceService.ImportDocument(input, SqlFixture.Pms, key);
-        Assert.True(replay.Reused);
-        Assert.Equal(Canonical.Hash(imported.Source), Canonical.Hash(replay.Source));
-        Assert.Equal(Convert.FromBase64String(input.ContentBase64),
-            (await sourceService.ReadDocument(imported.Source.Id, 1, SqlFixture.Medical)).Bytes);
-        Assert.Equal("SignalDocumentImported", Assert.Single(await db.Store.Audit(imported.Source.Id)).Action);
-        await using (var connection = await db.Store.Open())
+        var isolated = new SqlFixture { SeedCases = false };
+        try
         {
-            using var query = new SqlCommand("""
-                SELECT a.Json,h.Json,h.Hash,o.Payload,e.PayloadHash,c.Result
-                FROM dbo.Aggregates a
-                JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
-                JOIN dbo.Outbox o ON o.AggregateKind=a.Kind AND o.AggregateId=a.Id AND o.Version=a.Version
-                JOIN dbo.AuditEvents e ON e.AggregateId=a.Id AND e.Version=a.Version
-                JOIN dbo.Commands c ON c.Result=a.Json
-                WHERE a.Kind='source' AND a.Id=@id
-                """, connection);
-            query.Parameters.AddWithValue("@id", imported.Source.Id);
-            await using var rows = await query.ExecuteReaderAsync();
-            Assert.True(await rows.ReadAsync());
-            Assert.Equal(Canonical.Serialize(imported.Source), rows.GetString(0));
-            Assert.Equal(rows.GetString(0), rows.GetString(1));
-            Assert.Equal(Canonical.Hash(imported.Source), rows.GetString(2));
-            Assert.Equal(rows.GetString(0), rows.GetString(3));
-            Assert.Equal(rows.GetString(2), rows.GetString(4));
-            Assert.Equal(rows.GetString(0), rows.GetString(5));
-            Assert.False(await rows.ReadAsync());
+            await isolated.InitializeAsync();
+            var scenario = new CaseScenario(isolated);
+            await scenario.Create();
+            var before = scenario.Case;
+            var count = (await isolated.Store.List<SafetyCase>("case", ["ortho"])).Length;
+            var baseline = await CaptureImportAudit(isolated, scenario.Clock, "Baseline");
+            Assert.Equal(before.Id, Assert.Single(baseline.Aggregates, value => value.Kind == "case").Id);
+            var sourceService = new PublicSourceService(isolated.Store, isolated.Objects, new DocumentNoNetwork(), scenario.Clock, isolated.Policies);
+            var input = SignalDocumentTests.Input("SQL-DOCUMENT-" + Guid.NewGuid().ToString("N")) with
+            { FirstKnownAt = scenario.Clock.GetUtcNow().AddDays(-4),
+                ComparisonCaseId = before.Id, ComparisonCaseVersion = before.Version, ComparisonReason = Reason };
+            var key = CaseScenario.Key();
+            var imported = await sourceService.ImportDocument(input, SqlFixture.Pms, key);
+            var replay = await sourceService.ImportDocument(input, SqlFixture.Pms, key);
+            Assert.True(replay.Reused);
+            Assert.Equal(Canonical.Hash(imported.Source), Canonical.Hash(replay.Source));
+            Assert.Equal(Convert.FromBase64String(input.ContentBase64),
+                (await sourceService.ReadDocument(imported.Source.Id, 1, SqlFixture.Medical)).Bytes);
+            Assert.Equal("SignalDocumentImported", Assert.Single(await isolated.Store.Audit(imported.Source.Id)).Action);
+            await using (var connection = await isolated.Store.Open())
+            {
+                using var query = new SqlCommand("""
+                    SELECT a.Json,h.Json,h.Hash,o.Payload,e.PayloadHash,c.Result
+                    FROM dbo.Aggregates a
+                    JOIN dbo.AggregateVersions h ON h.Kind=a.Kind AND h.Id=a.Id AND h.Version=a.Version
+                    JOIN dbo.Outbox o ON o.AggregateKind=a.Kind AND o.AggregateId=a.Id AND o.Version=a.Version
+                    JOIN dbo.AuditEvents e ON e.AggregateId=a.Id AND e.Version=a.Version
+                    JOIN dbo.Commands c ON c.Result=a.Json
+                    WHERE a.Kind='source' AND a.Id=@id
+                    """, connection);
+                query.Parameters.AddWithValue("@id", imported.Source.Id);
+                await using var rows = await query.ExecuteReaderAsync();
+                Assert.True(await rows.ReadAsync());
+                Assert.Equal(Canonical.Serialize(imported.Source), rows.GetString(0));
+                Assert.Equal(rows.GetString(0), rows.GetString(1));
+                Assert.Equal(Canonical.Hash(imported.Source), rows.GetString(2));
+                Assert.Equal(rows.GetString(0), rows.GetString(3));
+                Assert.Equal(rows.GetString(2), rows.GetString(4));
+                Assert.Equal(rows.GetString(0), rows.GetString(5));
+                Assert.False(await rows.ReadAsync());
+            }
+            var signals = new SignalReviewService(isolated.Store, isolated.Objects, scenario.Clock);
+            var relevance = await signals.Decide("source", imported.Source.Id, "ConfirmRelevance",
+                new(1, input.ExternalId, Reason), SqlFixture.Ra, CaseScenario.Key());
+            var evidence = await sourceService.Approve(imported.Source.Id,
+                new(relevance.OwnerVersion, input.ExternalId, Reason), SqlFixture.Medical, CaseScenario.Key(), default);
+            Assert.Equal(imported.Source.Items[0].Summary, evidence.Content);
+            Assert.Equal(imported.Source.Document!.Text.Hash, evidence.Hash);
+            Assert.Equal(Canonical.Hash(before), Canonical.Hash(await scenario.Service.Get(before.Id, SqlFixture.Pms)));
+            Assert.Equal(count, (await isolated.Store.List<SafetyCase>("case", ["ortho"])).Length);
+            var audit = await CaptureImportAudit(isolated, scenario.Clock, "PostImport");
+            Assert.Contains(audit.Aggregates, value => value.Kind == "source" && value.Id == imported.Source.Id);
+            Assert.Contains(audit.Aggregates, value => value.Kind == "evidence" && value.Id == evidence.Id);
+            foreach (var aggregate in baseline.Aggregates)
+                foreach (var version in aggregate.Versions)
+                    Assert.Contains(audit.Aggregates, value => value.Kind == aggregate.Kind && value.Id == aggregate.Id &&
+                        value.Versions.Any(current => current.Version == version.Version && current.Hash == version.Hash));
         }
-        var relevance = await Service(scenario).Decide("source", imported.Source.Id, "ConfirmRelevance",
-            new(1, input.ExternalId, Reason), SqlFixture.Ra, CaseScenario.Key());
-        var evidence = await sourceService.Approve(imported.Source.Id,
-            new(relevance.OwnerVersion, input.ExternalId, Reason), SqlFixture.Medical, CaseScenario.Key(), default);
-        Assert.Equal(imported.Source.Items[0].Summary, evidence.Content);
-        Assert.Equal(imported.Source.Document!.Text.Hash, evidence.Hash);
-        Assert.Equal(Canonical.Hash(before), Canonical.Hash(await scenario.Service.Get(before.Id, SqlFixture.Pms)));
-        Assert.Equal(count, (await db.Store.List<SafetyCase>("case", ["ortho"])).Length);
-        var audit = await db.Store.CaptureProductAudit("ortho", SqlFixture.Pms, scenario.Clock.GetUtcNow());
-        Assert.Contains(audit.Aggregates, value => value.Kind == "source" && value.Id == imported.Source.Id);
-        Assert.Contains(audit.Aggregates, value => value.Kind == "evidence" && value.Id == evidence.Id);
+        finally { await isolated.DisposeAsync(); }
     }
+
+    private async Task<ProductAuditCapture> CaptureImportAudit(SqlFixture isolated, TimeProvider clock, string phase)
+    {
+        List<ImportAuditSource> versions = [];
+        await using (var connection = await isolated.Store.Open())
+        {
+            using var query = new SqlCommand("SELECT Kind,Id,Version,Hash,Json FROM dbo.AggregateVersions ORDER BY Kind,Id,Version", connection);
+            await using var rows = await query.ExecuteReaderAsync();
+            while (await rows.ReadAsync())
+            {
+                var json = rows.GetString(4);
+                versions.Add(new(rows.GetString(0), new(rows.GetString(1), rows.GetInt32(2), rows.GetString(3)),
+                    Canonical.HashText(json), ProductAuditRules.Sources(json).OrderBy(value => value.Id, StringComparer.Ordinal)
+                        .ThenBy(value => value.Version).ThenBy(value => value.Hash, StringComparer.Ordinal).ToArray()));
+            }
+        }
+        var inventory = new { Phase = phase, ProductId = "ortho", Versions = versions
+            .OrderBy(value => value.Kind, StringComparer.Ordinal).ThenBy(value => value.Source.Id, StringComparer.Ordinal)
+            .ThenBy(value => value.Source.Version).ToArray() };
+        var sourcesHash = Canonical.Hash(inventory);
+        output.WriteLine("COHORS_SIGNAL_IMPORT_AUDIT_SOURCES_V1=" + Canonical.Serialize(new { Hash = sourcesHash, Inventory = inventory }));
+        var audit = await isolated.Store.CaptureProductAudit("ortho", SqlFixture.Pms, clock.GetUtcNow());
+        foreach (var aggregate in audit.Aggregates)
+            foreach (var version in aggregate.Versions)
+                Assert.Contains(versions, value => value.Kind == aggregate.Kind &&
+                    value.Source == new VersionReference(aggregate.Id, version.Version, version.Hash) && value.PayloadHash == version.Hash);
+        output.WriteLine("COHORS_SIGNAL_IMPORT_AUDIT_CAPTURE_V1=" + Canonical.Serialize(new
+            { Phase = phase, SourcesHash = sourcesHash, CaptureHash = Canonical.Hash(audit), Aggregates = audit.Aggregates.Length }));
+        return audit;
+    }
+
+    private sealed record ImportAuditSource(string Kind, VersionReference Source, string PayloadHash, VersionReference[] References);
 
     private sealed class DocumentNoNetwork : IPublicSourceReader
     {
