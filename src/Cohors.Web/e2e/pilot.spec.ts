@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, EvidenceDocument, InformationRecipient, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalView, SummaryAgreement } from '../src/types'
 import type { ActorApplication, IntegrationWorkspace } from '../src/EudamedWorkspace'
 import type { DossierView, EudamedDossier } from '../src/EudamedDossiers'
+import type { DenominatorPreview, DistributionImport, Exposure, IntakeImport } from '../src/types'
 
 const home = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const artifacts = process.env.COHORS_UI_ARTIFACT_DIR ?? path.join(home, '.local')
@@ -2994,4 +2995,165 @@ test('T18: human lifecycle, hold, native I/O diagnosis and controlled raw reconc
   await page.screenshot({ path: path.join(artifacts, 'cohors-retention.png'), fullPage: true })
   await context.close()
   await client.dispose()
+})
+
+test('X01: synthetic channel batch keeps every row traceable, registered rows keep existing case deadlines and a separate Quality approval versions the delivery denominator', async ({ playwright, browser, baseURL }) => {
+  const stamp = Date.now()
+  const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex')
+  const awareness = new Date(stamp - 2 * 3_600_000).toISOString()
+  const occurred = new Date(stamp - 26 * 3_600_000).toISOString()
+  const reference = `HF-X01-${stamp}`
+  const signal = [reference, `IMP-X01-${stamp}`, 'ortho', 'DEMO-OL-M3-191', 'DEMO-OL-2026-A', 'IE', 'EU-IE', 'OtherSerious', occurred, awareness,
+    'Synthetische Haendlerrueckmeldung X01', 'SYNTHETISCH: Haendler meldet Lockerung nach Revision; kein realer Patient und keine reale Meldung.'].join(',')
+  const unaware = [`HF-X01R-${stamp}`, `IMP-X01R-${stamp}`, 'ortho', '', '', 'IE', 'EU-IE', 'OtherSerious', occurred, '',
+    'Synthetische Rueckmeldung ohne Kenntnisnahme', 'SYNTHETISCH: Der Kenntnisnahmezeitpunkt fehlt bewusst und wird nicht erfunden.'].join(',')
+  const intakeBytes = Buffer.from(['externalRef,incidentKey,productId,udi,batch,country,jurisdiction,seriousness,occurredAt,awarenessAt,title,description',
+    signal, signal, unaware, ''].join('\n'), 'utf8')
+  const intakeName = `x01-intake-${stamp}.csv`
+
+  const pms = await playwright.request.newContext({ baseURL })
+  await signIn(pms, 'pms.demo')
+  let context = await browser.newContext({ storageState: await pms.storageState() })
+  let page = await context.newPage()
+  await page.goto(baseURL!)
+  await page.getByRole('navigation').getByRole('button', { name: 'Datenimporte', exact: true }).click()
+  const intake = page.getByRole('region', { name: 'Synthetischer Kanal-Batchimport' })
+  await intake.getByLabel('Produktfamilie (Kanalimport)').selectOption('ortho')
+  await intake.getByLabel('Synthetische Kanaldatei (CSV, max. 256 KiB)').setInputFiles({ name: intakeName, mimeType: 'text/csv', buffer: intakeBytes })
+  await intake.getByRole('button', { name: 'Kanaldatei prüfen', exact: true }).click()
+  let dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('nichts wird still verworfen')
+  await dialog.locator('[name=reason]').fill('Synthetische Haendlerdatei X01 zeilenweise uebernehmen; Dubletten verknuepfen und unvollstaendige Zeilen begruendet abweisen.')
+  await submitDialog(dialog, 'Zeilen prüfen und übernehmen')
+  const rowTable = page.getByRole('table', { name: 'Importzeilen' })
+  await expect(rowTable.locator('tbody tr')).toHaveCount(3)
+  await expect(rowTable.locator('tr[data-line="2"]')).toHaveAttribute('data-outcome', 'Registered')
+  await expect(rowTable.locator('tr[data-line="2"]').getByRole('button', { name: /^Fall v\d+ öffnen$/ })).toBeVisible()
+  await expect(rowTable.locator('tr[data-line="3"]')).toHaveAttribute('data-outcome', 'Duplicate')
+  await expect(rowTable.locator('tr[data-line="3"]')).toHaveAttribute('data-code', 'row_duplicate')
+  await expect(rowTable.locator('tr[data-line="3"]')).toContainText('Kopie von Zeile 2')
+  await expect(rowTable.locator('tr[data-line="4"]')).toHaveAttribute('data-outcome', 'Rejected')
+  await expect(rowTable.locator('tr[data-line="4"]')).toHaveAttribute('data-code', 'row_awareness_missing')
+  await expect(rowTable.locator('tr[data-line="4"]')).toContainText('Kein Fall')
+
+  const listedIntake = (await (await pms.get('/api/imports/intake')).json() as IntakeImport[]).find(i => i.original.fileName === intakeName)
+  expect(listedIntake).toBeDefined()
+  const imported: IntakeImport = await (await pms.get(`/api/imports/intake/${encodeURIComponent(listedIntake!.id)}`)).json()
+  expect(imported).toMatchObject({ productId: 'ortho', channel: 'SyntheticDistributorFeedback', status: 'Processed',
+    original: { fileName: intakeName, hash: sha256(intakeBytes), bytes: intakeBytes.length },
+    counts: { rows: 3, registered: 1, duplicates: 1, rejected: 1, pending: 0, correctionRequired: 0 } })
+  const importRow = (line: number) => imported.rows.find(r => r.line === line)!
+  expect(importRow(2)).toMatchObject({ outcome: 'Registered', externalRef: reference, sourceId: `SyntheticDistributorFeedback:${reference}` })
+  expect(importRow(3)).toMatchObject({ outcome: 'Duplicate', code: 'row_duplicate', duplicateOf: 2 })
+  expect(importRow(3).case?.id).toBe(importRow(2).case!.id)
+  expect(importRow(4)).toMatchObject({ outcome: 'Rejected', code: 'row_awareness_missing', case: null })
+
+  const signalCase: SafetyCase = await (await pms.get(`/api/cases/${importRow(2).case!.id}`)).json()
+  expect(signalCase.sources.some(s => s.externalId === `SyntheticDistributorFeedback:${reference}`)).toBe(true)
+  expect(Date.parse(signalCase.firstAwarenessAt!)).toBe(Date.parse(awareness))
+  expect(signalCase.deadlines).toHaveLength(1)
+  const [deadline] = signalCase.deadlines
+  expect(deadline).toMatchObject({ jurisdiction: 'EU-IE', status: 'Open' })
+  expect(Date.parse(deadline.legalDue)).toBeGreaterThan(Date.now())
+  const month = `${calendarMonth(deadline.legalDue, 'Europe/Dublin')}-01`
+  let calendarEvent: CalendarSnapshot['events'][number] | undefined
+  for (let offset = 0; !calendarEvent;) {
+    const snapshot: CalendarSnapshot = await (await pms.get(`/api/deadline-calendar?productId=ortho&month=${month}&timeZone=Europe%2FDublin&kind=LegalDue&status=open&offset=${offset}`)).json()
+    expect(snapshot.pageSize).toBeGreaterThan(0)
+    calendarEvent = snapshot.events.find(e => e.obligationId === `case:${signalCase.id}:deadline:${deadline.id}`)
+    offset += snapshot.pageSize
+    if (offset >= snapshot.matchingEvents) break
+  }
+  expect(calendarEvent).toBeDefined()
+  expect(calendarEvent!.isOpen).toBe(true)
+  expect(Date.parse(calendarEvent!.dueAt!)).toBe(Date.parse(deadline.legalDue))
+
+  const today = new Date()
+  const quarter = Math.floor(today.getUTCMonth() / 3) * 3
+  const periodStart = new Date(Date.UTC(today.getUTCFullYear(), quarter - 3, 1))
+  const start = periodStart.toISOString().slice(0, 10)
+  const end = new Date(Date.UTC(today.getUTCFullYear(), quarter, 0)).toISOString().slice(0, 10)
+  const deliveredOn = (days: number) => new Date(periodStart.getTime() + days * 86_400_000).toISOString().slice(0, 10)
+  const batch = `DEMO-X01-${stamp}`
+  const distributionBytes = Buffer.from(['rowRef,productId,udiDi,batch,siteRef,country,jurisdiction,deliveredOn,unitsDelivered,unitsImplanted,recipients',
+    `X01-1,ortho,DEMO-OL-M3-DI,${batch},DEMO-SITE-IE-901,IE,EU-IE,${deliveredOn(5)},40,30,28`,
+    `X01-2,ortho,DEMO-OL-M3-DI,${batch},DEMO-SITE-GB-901,GB,NI,${deliveredOn(20)},20,12,12`,
+    `X01-3,ortho,DEMO-OL-M3-DI,DEMO-X01B-${stamp},DEMO-SITE-DE-901,DE,EU-DE,${deliveredOn(40)},10,6,6`, ''].join('\n'), 'utf8')
+  const distributionName = `x01-distribution-${stamp}.csv`
+  const deliveries = page.getByRole('region', { name: 'Liefer- und Expositionsdaten' })
+  await deliveries.getByLabel('Produktfamilie (Lieferimport)').selectOption('ortho')
+  await deliveries.getByLabel('Synthetische Lieferdatei (CSV, max. 256 KiB)').setInputFiles({ name: distributionName, mimeType: 'text/csv', buffer: distributionBytes })
+  await deliveries.getByRole('button', { name: 'Lieferdatei prüfen', exact: true }).click()
+  dialog = page.getByRole('dialog')
+  await dialog.locator('[name=reason]').fill('Synthetische aggregierte Lieferdaten X01 fuer Chargen- und Marktbezug pruefen; kein ERP und kein Personenbezug.')
+  await submitDialog(dialog, 'Lieferdatei prüfen und speichern')
+  let details = page.getByRole('region', { name: 'Lieferimport-Details' })
+  await expect(details).toContainText(distributionName)
+  await details.getByLabel('Chargen (kommagetrennt').fill(`${batch},DEMO-X01-UNKNOWN`)
+  await details.getByRole('button', { name: 'Lieferbezug prüfen', exact: true }).click()
+  await expect(details.getByRole('table', { name: 'Betroffene Chargen' }).locator(`tr[data-batch="${batch}"]`)).toContainText('60 / 42 / 40')
+  await expect(details.locator('p').filter({ hasText: 'Ohne Lieferzeile im geprüften Marktscope' })).toContainText('DEMO-X01-UNKNOWN')
+  await expect(details.getByLabel('Periodenbeginn')).toHaveValue(start)
+  await expect(details.getByLabel('Periodenende')).toHaveValue(end)
+  await details.getByRole('button', { name: 'Vorschlag berechnen', exact: true }).click()
+  let proposal = page.getByRole('status', { name: 'Nennervorschlag' })
+  await expect(proposal).toContainText(/Vorschlag, keine Freigabe: 48\b/)
+  await expect(proposal).toContainText('Freigabe ausschließlich durch eine menschliche Quality-Rolle.')
+  await expect(proposal.getByRole('button', { name: 'Nenner freigeben', exact: true })).toHaveCount(0)
+  await context.close()
+
+  const listedDistribution = (await (await pms.get('/api/imports/distribution')).json() as DistributionImport[]).find(i => i.original.fileName === distributionName)
+  expect(listedDistribution).toBeDefined()
+  const distribution: DistributionImport = await (await pms.get(`/api/imports/distribution/${encodeURIComponent(listedDistribution!.id)}`)).json()
+  expect(distribution).toMatchObject({ productId: 'ortho', status: 'Validated', findings: [],
+    original: { fileName: distributionName, hash: sha256(distributionBytes), bytes: distributionBytes.length },
+    totals: { rows: 3, validRows: 3, findings: 0, unitsDelivered: 70, unitsImplanted: 48, recipients: 46, additionalImplants: 2 } })
+
+  const quality = await playwright.request.newContext({ baseURL })
+  await signIn(quality, 'quality.demo')
+  const preview: DenominatorPreview = await (await quality.get(`/api/imports/distribution/${encodeURIComponent(distribution.id)}/denominator-proposal?region=Worldwide&start=${start}&end=${end}`)).json()
+  const target = `exposure-ortho-Worldwide-${start.replaceAll('-', '')}-${end.replaceAll('-', '')}`
+  expect(preview).toMatchObject({ targetExposureId: target, unchanged: false,
+    proposal: { productId: 'ortho', region: 'Worldwide', start, end, count: 48, recipients: 46, additionalImplants: 2, lines: [2, 3, 4],
+      import: { id: distribution.id, version: distribution.version } } })
+  context = await browser.newContext({ storageState: await quality.storageState() })
+  page = await context.newPage()
+  await page.goto(baseURL!)
+  await page.getByRole('navigation').getByRole('button', { name: 'Datenimporte', exact: true }).click()
+  await page.getByRole('table', { name: 'Lieferimporte' }).locator(`tr[data-import-id="${distribution.id}"]`)
+    .getByRole('button', { name: 'Details anzeigen', exact: true }).click()
+  details = page.getByRole('region', { name: 'Lieferimport-Details' })
+  await details.getByRole('button', { name: 'Vorschlag berechnen', exact: true }).click()
+  proposal = page.getByRole('status', { name: 'Nennervorschlag' })
+  await expect(proposal).toContainText(/Vorschlag, keine Freigabe: 48\b/)
+  await proposal.getByRole('button', { name: 'Nenner freigeben', exact: true }).click()
+  dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText(`${target} wird v${preview.targetVersion + 1}`)
+  await dialog.locator('[name=reason]').fill('Synthetischen Liefernenner X01 fuer das abgeschlossene Quartal nach Pruefung der Zeilen 2 bis 4 menschlich freigeben.')
+  await submitDialog(dialog, 'Nenner freigeben')
+  await expect(page.getByRole('status', { name: 'Freigegebener Nenner' })).toContainText(`Freigegeben: ${target} v${preview.targetVersion + 1}`)
+  await expect(page.getByRole('table', { name: 'Expositionsnenner' }).locator(`tr[data-exposure-id="${target}"]`))
+    .toHaveAttribute('data-version', String(preview.targetVersion + 1))
+  const exposure = (await (await quality.get('/api/exposures')).json() as Exposure[]).find(e => e.id === target)
+  expect(exposure).toMatchObject({ version: preview.targetVersion + 1, productId: 'ortho', region: 'Worldwide', count: 48, approved: true,
+    source: { import: { id: distribution.id, version: distribution.version }, lines: [2, 3, 4], recipients: 46, additionalImplants: 2 } })
+  expect(exposure!.source!.approvedBy).not.toBe(distribution.importedBy)
+  await page.screenshot({ path: path.join(artifacts, 'cohors-imports.png'), fullPage: true })
+  await context.close()
+
+  const auditor = await playwright.request.newContext({ baseURL })
+  const auditorCsrf = await signIn(auditor, 'auditor.demo')
+  const denied = await auditor.post('/api/imports/intake', { headers: { 'X-CSRF-Token': auditorCsrf, 'Idempotency-Key': crypto.randomUUID() },
+    data: { productId: 'ortho', channel: 'SyntheticDistributorFeedback', fileName: `x01-auditor-${stamp}.csv`,
+      content: intakeBytes.toString('utf8').replaceAll(reference, `HF-X01A-${stamp}`), reason: 'Auditor darf keine synthetische Kanaldatei uebernehmen.', synthetic: true } })
+  expect(denied.status()).toBe(403)
+  expect((await (await auditor.get('/api/imports/intake')).json() as IntakeImport[]).some(i => i.id === imported.id)).toBe(true)
+  context = await browser.newContext({ storageState: await auditor.storageState() })
+  page = await context.newPage()
+  await page.goto(baseURL!)
+  await page.getByRole('navigation').getByRole('button', { name: 'Datenimporte', exact: true }).click()
+  await expect(page.getByText('Kanalimporte startet ausschließlich eine menschliche PMS-Rolle; hier nur Lesestand.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Kanaldatei prüfen', exact: true })).toHaveCount(0)
+  await context.close()
+  await Promise.all([pms.dispose(), quality.dispose(), auditor.dispose()])
 })

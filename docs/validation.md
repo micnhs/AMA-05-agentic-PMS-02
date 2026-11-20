@@ -3476,6 +3476,110 @@ FSN-Recovery oder ein rollenabhaengiges Foundry-Modellprofil.
 Recovery07 bleibt auf b7/Build42, Recovery06 und Build48 bleiben
 negativ; die bestehende Vorschau wurde nicht promoviert.
 
+## Fachergaenzung Block 1: lokaler Kandidat, SQL und Browser NotRun
+
+Basis ist `abd1b9be1685d7cc941ba52c51a958f1b7989ff9`; Umfang und
+Grenzen stehen in `docs\implementation.md` unter "Fachergaenzung
+Block 1". Alle Originalstatus bleiben **Offen**. Fuer die SQL- und
+Browserfaelle steht kein freigegebenes isoliertes Loopback-Testziel
+bereit. Gemaess Auftrag wurde keine Engine und kein Container gestartet;
+der lokale SQL-Container der Nutzer-Demo ist geschuetzt und kein
+Testziel.
+
+Dieser Stand korrigiert den zurueckgewiesenen ersten Reviewpatch
+(SHA256 `ff490cffe59482076b5b49e4c2ec61a1e3706f97d63ec0cda7854cef61519d28`)
+um BLOCK1-IMPORT-R02 (unterbrochene und konkurrierende Importe),
+BLOCK1-IMPORT-R03 (Nennerfreigaben gegen veraltete Periodenstaende) und
+den Vergleich mit der Erstregistrierung nach einer menschlichen
+Reklassifikation. Geaendert wurden dafuer nur `Imports.cs`,
+`ImportService.cs`, `ImportRulesTests.cs`, `ImportTests.cs` und diese
+Dokumentation.
+
+Gegenueber dem Reviewkandidaten v3 (SHA256
+`c539612e58e9dd4e6794f92615b52a46651a60025fec0cf36aed276e14d4ce26`)
+korrigiert dieser Stand BLOCK1-IMPORT-R04: Die identische Kopie einer
+noch offenen Primaerzeile belegt keine Quellangaben mehr; nur an einen
+Fall gebundene uebernommene Zeilen und ihre mitgebundenen Kopien
+ersetzen die Pruefung gegen die Erstregistrierung. Dafuer geaendert
+wurden nur `Imports.cs`, `ImportRulesTests.cs`, `ImportTests.cs` und
+diese Dokumentation; `ImportService.cs` ist gegenueber v3 unveraendert,
+`CaseService.cs` und `SqlStateStore.cs` bleiben gegenueber der Basis
+unveraendert.
+
+Gegenueber dem Reviewkandidaten v5 (SHA256
+`70b8033e85b9f3609c4ef7841b159edb9c26034ea4b61670ed8bb62f0d2f0e7c`)
+ergaenzt dieser Stand nur den Wiederherstellungsnachweis: Die bestehende
+`RecoveryFixture` in `RecoveryTests.cs` erzeugt vor beiden Backups
+Kanal- und Lieferimport samt freigegebenem Nenner ueber die echten
+Dienste; der bestehende erste T20-Fall prueft sie nach der nativen
+Wiederherstellung ohne Quellinstanz
+([Beschreibung](recovery.md#fachergaenzung-block-1-importaggregate-im-t20-fall-notrun)).
+Geaendert wurden dafuer nur `RecoveryTests.cs` und die Dokumentation
+(`validation.md`, `implementation.md`, `recovery.md`); Produktionscode,
+UI, Skripte, CI und die uebrigen Tests sind gegenueber v5 unveraendert.
+
+Tatsaechlich lokal gelaufen (Kommando, Exitcode, Originalprotokoll und
+TRX liegen ausserhalb des Repositorys im lokalen Pruefordner). Build,
+`ImportRules` und Discovery liefen erneut nach der letzten Aenderung
+dieses Stands; der Lauf vor der R04-Korrektur gehoert zu v5 und bleibt
+als Vorher-Nachweis unveraendert:
+
+| Lauf | Ergebnis |
+| --- | --- |
+| `dotnet build tests\Cohors.Tests\Cohors.Tests.csproj --no-restore --no-incremental --disable-build-servers -m:1 -p:UseSharedCompilation=false` nach der letzten Codeaenderung (baut Domain, Application, Infrastructure, Agents, Api und Tests) | Exitcode 0, 0 Warnungen, 0 Fehler |
+| `dotnet test tests\Cohors.Tests\Cohors.Tests.csproj --no-restore --no-build --filter "Category=ImportRules"` mit TRX | Exitcode 0; 53/53 bestanden (TRX: total 53, passed 53, failed 0), darunter die Regeln zu R01, R02, R03, R04 und zur Erstregistrierung |
+| Derselbe Filter vor der R04-Korrektur (finale R04-Testquellen, `Imports.cs` aus v3, nach Neubau mit `--no-incremental`) mit TRX | Exitcode 1; 52/53 bestanden, genau `ImportRulesTests.IdenticalCopyOfAPendingRowConfirmsNoSourceFactsUntilItsPrimaryIsTakenOver` scheitert (erwartet `CorrectionRequired:source_changed:Source`, tatsaechlich `Pending:pending:Source`) |
+| `dotnet test tests\Cohors.Tests\Cohors.Tests.csproj --no-restore --no-build --list-tests` | Exitcode 0; 494 Eintraege mit derselben Namensliste wie fuer v5 (keine neue Testmethode), darunter 10 `ImportTests`, 53 `ImportRulesTests` und der erweiterte T20-Fall einmal |
+
+Nur diese Laeufe sind direkt betroffen: Unter den Tests verwenden nur
+`ImportRulesTests`, `ImportTests` und der erweiterte T20-Fall die
+geaenderten Klassen; ihre API-Anbindung in `Program.cs` ist unveraendert
+und wird im Build mitkompiliert. Fuer die T20-Ergaenzung sind gemaess
+Auftrag nur Build und Discovery ausgefuehrt, nicht der Fall selbst.
+UI-, Skript- und CI-Dateien sind gegenueber dem ersten
+Reviewpatch unveraendert. Fuer den ersten Reviewpatch wurden zusaetzlich berichtet,
+fuer diesen Stand aber **nicht wiederholt** und ohne aufbewahrte TRX
+(keine rueckwirkenden Nachweise): `dotnet build Cohors.slnx` mit
+0 Warnungen, Offline-Gesamtsatz der 23 SQL-freien Klassen 272/272
+(223 Bestand plus damals 49 `ImportRules`), `npm run build`,
+Typpruefung `e2e\pilot.spec.ts` (`tsc --noEmit --strict`) und
+`python -m unittest infra.tests.test_ci_browser` 9/9.
+
+Nicht ausgefuehrt (NotRun, Grund: kein freigegebenes isoliertes
+Loopback-SQL-Ziel fuer `SqlFixture` und kein Browserstack; eigene
+Container wurden nicht gestartet, die geschuetzte Nutzer-Demo wurde
+nicht verwendet):
+
+| Fall | Erwarteter Nachweis |
+| --- | --- |
+| `ImportTests.ChannelBatchRowsAreRegisteredLinkedOrRejectedAndKeepStatutoryDeadlinesUnderTheIndependentWatchdog` (`Sql`, `OperationsSqlBoundary`) | Registriert, verknuepft oder abgewiesen je Zeile; importierte Faelle behalten die bestehende Fallfrist unter dem echten eingeschraenkten Watchdog-`Tick`. |
+| `ImportTests.DeliveryDenominatorNeedsSeparateHumanApprovalAndBoundTrendsKeepTheirExposureVersion` (`Sql`) | Getrennte menschliche Quality-Freigabe, Vier-Augen-Abweisung, gebundene Trends behalten ihre Nennerversion. |
+| `ImportTests.ProductAuditExportCarriesImportOriginalsAndTheApprovedDenominator` (`Sql`) | Produktaudit mit Importoriginalen und freigegebenem Nenner; eigene Fixture je Test statt gemeinsamer Collection-Fixture. |
+| `ImportTests.SameChannelSourceWithEarlierAwarenessIsHeldForHumanCorrectionWhileAnIdenticalRepeatStaysADuplicate` (`Sql`) | R01: fruehere Kenntnis derselben Kanalquelle wird `CorrectionRequired`/`source_changed` ohne Fallaenderung; identische Wiederholung bleibt `source_known`; PMS-Korrektur `forbidden`, Medical-Korrektur ueber `POST /cases/{id}/awareness` mit Fristen gleich `DeadlineCalculator.Calculate` bei frueherer Rechtsfrist. |
+| `ImportTests.InterruptedImportRowBindsItsRegisteredSourceSoAChangedSeverityIsHeldAndTheResumeStaysIdempotent` (`Sql`) | R02: Import A stoppt nach der Fallregistrierung vor `IntakeImportProcessed` (Zeile offen, Fall v1). B mit gleicher Quelle, gleichem Text und gleichen Zeiten, aber `DeathOrSeriousDeterioration`, wird `CorrectionRequired`/`source_changed` gegen die offene Zeile; der Fall bleibt unveraendert. Die Wiederaufnahme von A mit eigenem Schluessel ergibt genau eine Registrierung (Fall v1); eine identische Wiederholung bleibt `source_known`/`row_duplicate`. |
+| `ImportTests.InterleavedImportsOfOneChannelSourceHoldDifferingRowsAndRegisterIdenticalRowsOnce` (`Sql`) | R02: Kontrolliertes Interleaving im Registrierungsfenster. Die abweichende Zeile wird ohne Fallanlage zurueckgestellt, die registrierende bleibt einzige Quelle; identische Zeilen registrieren den Vorfall genau einmal, die spaetere wird `source_known`. |
+| `ImportTests.ChannelRowIsComparedWithTheFirstRegistrationOfItsSourceAfterAMedicalReclassification` (`Sql`) | Ein ausserhalb eines Imports registrierter Fall wird von Medical reklassifiziert (Fall v2). Eine nur der Reklassifikation entsprechende Zeile wird gegen die Erstregistrierung `CorrectionRequired`/`source_changed`; die Originalzeile bleibt `source_known`, der Fall unveraendert. |
+| `ImportTests.OpenCopyOfAnUnfinishedImportConfirmsNoSourceFactsAgainstAManualFirstRegistration` (`Sql`) | R04: Import A speichert zwei identische schwere Zeilen (Primaerzeile `Pending`, Kopie `row_duplicate`, beide ohne Fall) und haelt vor dem Fall-Lesen seiner Registrierung. In diesem Fenster wird dieselbe Quelle manuell als `OtherSerious` registriert (Fall v1), danach liefert B die schwere Zeile einmal: `CorrectionRequired`/`source_changed` gegen die Erstregistrierung statt `source_known`. Der danach fortgesetzte Import A stellt beide Zeilen ebenfalls zurueck; der Fall bleibt unveraendert mit genau einer Registrierung. |
+| `ImportTests.ParallelDenominatorUpdatesOfOnePeriodCannotBothPassAgainstStaleSnapshotsAndBoundTrendsKeepTheirVersion` (`Sql`) | R03 Aktualisierung: Worldwide 100/EEA 40; zwei Freigaben gegen denselben Lesestand (Worldwide 50, EEA 80). EEA 80 committet, Worldwide 50 erhaelt 409 `dependency_version`, erneut geprueft `exposure_subset`; Worldwide bleibt v1/100, der gebundene Trend behaelt Nennerversion und Eingabehash. |
+| `ImportTests.ParallelFirstDenominatorApprovalsOfOnePeriodBindTheAbsenceOfTheOtherRegion` (`Sql`) | R03 Erstanlage: Beide Regionen fehlen beim Lesen. EEA 80 committet, Worldwide 50 erhaelt 409 `dependency_version` und wird nicht angelegt; erneut geprueft `exposure_subset`. |
+| Browserfall `X01: synthetic channel batch keeps every row traceable, registered rows keep existing case deadlines and a separate Quality approval versions the delivery denominator` | Arbeitsflaeche Datenimporte, Zeilenergebnisse, bestehende Fallfristen und getrennte Quality-Freigabe. |
+| `RecoveryTests.T20_RestoresHistoricalBytesFrozenPackageUnknownDeadlinesReceiptsAndLocalSearchWithoutSource` (`Sql`, `Recovery`), erweitert | Nach nativer Wiederherstellung ohne Quellinstanz: Original-CSV-Bytes und -Hash, beide Importaggregate mit Zeilenausgaengen, Versions-, Historien-, Audit- und Manifeststaende sowie die freigegebene Exposure mit Importquelle; erneuter Upload `import_duplicate_file` ohne Schreibzugriff. Ausfuehrung nur ueber einen gesondert gebundenen Lauf von `scripts\Test-Recovery.ps1` auf einem isolierten Ziel; lokal gemaess Auftrag kein Docker-, SQL- oder Restorelauf. |
+
+Zaehlungen dieses Schnitts: Die Basis `abd1b9be` hat 32 Browserfaelle,
+mit X01 sind es 33 (Preview 12); `Test-Ui.ps1`,
+`Invoke-CohorsCi.ps1` und `infra\tests\test_ci_browser.py` sind darauf
+abgestimmt. Primary `9a076b49` hat durch S05/S06 inzwischen 34. Es
+gab keinen Rebase und keinen Zaehlerabgleich; bei der gesonderten
+Integration bleiben beide Ergaenzungen erhalten, und die gemeinsamen
+Identitaeten werden neu gezaehlt. Die neuen SQL-Faelle aendern keine
+Zaehlung, weil die CI-Zaehlungen nur Browserfaelle betreffen. Die
+Kategorie `OperationsSqlBoundary`
+erhaelt einen weiteren Fall; der Native98-Nachweis oben betrifft
+weiterhin nur die damaligen fuenf Faelle. Die T20-Ergaenzung fuegt keine
+Testmethode hinzu: Die Discovery bleibt wie fuer v5 bei 494 Eintraegen,
+`Test-Recovery.ps1` verlangt unveraendert 17 Faelle, 11 Fixturegates
+und 5 Anwendungsassemblies.
+
 ## Nicht ausgefuehrt / keine Behauptung
 
 Keine Azure-Bereitstellung, keine Entra-Live-Freigabe, kein Foundry-Live-Modellergebnis, keine private Azure-Netzwerkabnahme, kein extern geschuetztes Ledger-Digestpublishing, keine produktive Retention, keine echte Behoerden-/BS-Akzeptanz.

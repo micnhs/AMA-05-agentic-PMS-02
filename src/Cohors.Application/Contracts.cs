@@ -199,6 +199,11 @@ public sealed record SummaryCaseSelection(string CaseId, int Version, string Sim
 public sealed record DraftSummaryCommand(int ExpectedVersion, string AgreementId, int AgreementVersion,
     DateOnly Start, DateOnly End, SummaryCaseSelection[]? Cases, SummaryContent? Content, string Reason);
 public sealed record ReclassifyCommand(int ExpectedVersion, Seriousness Seriousness, string Reason);
+public sealed record ImportIntakeCommand(string ProductId, IntakeImportChannel Channel, string FileName, string Content,
+    string Reason, bool Synthetic);
+public sealed record ImportDistributionCommand(string ProductId, string FileName, string Content, string Reason);
+public sealed record ApproveDenominatorCommand(string ImportId, int ImportVersion, string Region, DateOnly Start,
+    DateOnly End, int ExpectedCount, int ExpectedVersion, string Reason);
 
 public sealed class PolicyCatalog
 {

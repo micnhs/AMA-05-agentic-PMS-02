@@ -103,7 +103,8 @@ public sealed record ChangeRequest(string Id, int Version, string ProductId, str
     int SourceCaseVersion = 0, string? SourceEvidenceHash = null);
 
 public sealed record Exposure(string Id, int Version, string ProductId, string Region,
-    DateOnly Start, DateOnly End, string Unit, int Count, string Population, string Provenance, bool Approved);
+    DateOnly Start, DateOnly End, string Unit, int Count, string Population, string Provenance, bool Approved,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ExposureSource? Source = null);
 public sealed record VersionReference(string Id, int Version, string Hash);
 public sealed record TrendPolicy(string Version, string MethodVersion, decimal ReferenceRate, decimal Alpha, string Unit);
 public sealed record TrendInput(string ProductId, string Region, DateOnly Start, DateOnly End,

@@ -196,3 +196,26 @@ export interface RetentionView {
     retainedReferences: number; blockers: string[]; calculation: string[] };
   references: { kind: string; id: string; version: number; productId: string; versionHash: string }[];
 }
+export type IntakeImportChannel = 'SyntheticDistributorFeedback' | 'SyntheticClinicFeedback' | 'SyntheticCallCenterLog'
+export interface ImportOriginal { fileName: string; uri: string; hash: string; bytes: number }
+export interface ImportFinding { line: number; rowHash: string; code: string; message: string }
+export interface IntakeImportRow { line: number; rowHash: string; outcome: 'Pending' | 'Registered' | 'Duplicate' | 'Rejected' | 'CorrectionRequired'; code: string; reason: string;
+  externalRef: string | null; incidentKey: string | null; sourceId: string | null; known: 'None' | 'Source' | 'Case'; duplicateOf: number | null; case: VersionReference | null }
+export interface IntakeImport { id: string; version: number; productId: string; channel: IntakeImportChannel; original: ImportOriginal; receivedAt: string; importedBy: string;
+  reason: string; contract: string; boundary: string; status: 'Received' | 'Processed'; rows: IntakeImportRow[];
+  counts: { rows: number; registered: number; duplicates: number; rejected: number; pending: number; correctionRequired: number }; processedAt: string | null }
+export interface DistributionRow { line: number; rowHash: string; rowRef: string; udiDi: string; batch: string; siteRef: string; country: string; jurisdiction: string;
+  deliveredOn: string; unitsDelivered: number; unitsImplanted: number; recipients: number; additionalImplants: number }
+export interface DistributionImport { id: string; version: number; productId: string; original: ImportOriginal; receivedAt: string; importedBy: string; reason: string;
+  contract: string; boundary: string; status: 'Validated' | 'Rejected'; rows: DistributionRow[]; findings: ImportFinding[];
+  totals: { rows: number; validRows: number; findings: number; unitsDelivered: number; unitsImplanted: number; recipients: number; additionalImplants: number } }
+export interface DenominatorProposal { productId: string; import: VersionReference; region: string; start: string; end: string; unit: string; count: number; recipients: number;
+  additionalImplants: number; lines: number[]; coveredFrom: string; coveredThrough: string; dateBasis: string; boundary: string; hash: string }
+export interface DenominatorPreview { proposal: DenominatorProposal; targetExposureId: string; targetVersion: number; currentCount: number | null; unchanged: boolean }
+export interface DistributionAffected { productId: string; import: VersionReference; batches: string[]; jurisdictions: string[]; unknownBatches: string[];
+  matched: { batch: string; udiDi: string; rows: number; unitsDelivered: number; unitsImplanted: number; recipients: number; jurisdictions: string[]; firstDelivery: string; lastDelivery: string }[];
+  markets: { jurisdiction: string; country: string; scope: string; rows: number; unitsDelivered: number; unitsImplanted: number; recipients: number }[];
+  lines: number[]; method: string; boundary: string; hash: string }
+export interface Exposure { id: string; version: number; productId: string; region: string; start: string; end: string; unit: string; count: number; population: string;
+  provenance: string; approved: boolean; source?: { contract: string; import: VersionReference; dateBasis: string; proposalHash: string; lines: number[]; recipients: number;
+    additionalImplants: number; approvedBy: string; approvedAt: string; reason: string } }

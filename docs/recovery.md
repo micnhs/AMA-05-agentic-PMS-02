@@ -250,6 +250,50 @@ unveraenderten17 Gesamtszenarien. Die neue Quellkorrektur braucht einen
 eigenen gebundenen Build und ausgefuehrten Gesamtnachweis; die
 Recovery05-Teilzeiten werden nicht als deren Erfolg umgedeutet.
 
+## Fachergaenzung Block 1: Importaggregate im T20-Fall (NotRun)
+
+Der bestehende T20-Fall
+`T20_RestoresHistoricalBytesFrozenPackageUnknownDeadlinesReceiptsAndLocalSearchWithoutSource`
+prueft zusaetzlich die beiden Block-1-Importaggregate. Es gibt keine
+zweite Backup-/Restore-Infrastruktur und keine Mock-Wiederherstellung.
+Die bestehende `RecoveryFixture` erzeugt die Daten vor beiden Backups
+ueber die echten Import- und Freigabedienste, zwischen den konstanten
+Setupmarken `source-import-start` und `source-import-complete` nach
+`source-psur-history-complete`:
+
+- Lieferimport `demo\imports\ortho-distribution-2026-q3.csv` durch PMS
+  (validiert, Version 1);
+- Nennerfreigabe ortho/Worldwide/Q3 2026 durch Quality, nicht durch die
+  importierende Rolle (Nenner 178, Exposure Version 1 mit Importquelle);
+- synthetischer Kanal-Batch durch PMS mit je einer registrierten, einer
+  als Dublette verknuepften und einer mit Grund abgewiesenen Zeile
+  (Import Version 2).
+
+Nach der vorhandenen nativen Wiederherstellung und
+`RequireSourceUnavailable` liest der Fall nur das Ziel:
+Original-CSV-Bytes und -Hash beider Importe, beide Aggregate mit
+Zeilenausgaengen und Fallbindung, unveraenderte Versions-, Historien-,
+Audit- und Manifeststaende (auch des registrierten Falls) sowie die
+freigegebene Exposure mit ihrer Importquelle (Importfassung,
+Vorschlagshash, Zeilen). Der Nennervorschlag muss danach als
+unveraendert gelten; PMS liest denselben Kanalimport, Quality denselben
+Lieferimport. Ein erneuter Upload derselben Originale mit neuem
+Schluessel muss mit `import_duplicate_file` scheitern; der anschliessende
+bestehende Tabellenvergleich verlangt, dass die Pruefung nichts
+geschrieben hat. Nach statischer Lesart erfasst der bestehende
+Objektgraph des Backups die Originalreferenzen (`uri`/`hash`) ohne
+Skriptaenderung.
+
+`scripts\Test-Recovery.ps1`, Backup-/Restore- und Produktionscode bleiben
+unveraendert, ebenso 17 Faelle, 11 Fixturegates, 5 Anwendungsassemblies
+und die Laufzeitbudgets; der zusaetzliche Zeitbedarf ist nicht gemessen.
+`verified.json` entsteht nur, wenn auch die Importpruefung bestanden hat.
+Sein neuer Abschnitt `imports` enthaelt synthetische Kennungen,
+Versionen, Hashes, Status, Zaehlungen und Zeilenausgaenge, aber keine
+Akteurkennungen, Dateinamen oder Originaltexte. **NotRun:** Recovery07
+auf `b7ced182` enthaelt diese Erweiterung nicht; sie braucht einen
+eigenen gebundenen Lauf auf einem isolierten Ziel.
+
 ## Historische PSUR-/BS-Fixture-Uebergabe und Typpruefung
 
 `d0e864dc0f7ccdbfd3758499bc4a9b4d88f59684` wurde nach Abschluss des begrenzten

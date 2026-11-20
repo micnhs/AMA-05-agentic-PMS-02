@@ -5,6 +5,8 @@
 *.md text eol=lf
 *.json text eol=lf
 *.bicep text eol=lf
+# Synthetic import originals are content-hashed; keep identical bytes on every checkout.
+demo/imports/*.csv text eol=lf
 *.png binary
 *.mp4 binary
 *.docx binary

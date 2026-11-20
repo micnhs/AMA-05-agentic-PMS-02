@@ -116,6 +116,8 @@ public sealed class RecoveryTests : IDisposable
             Assert.Equal(0, (int)(await query.ExecuteScalarAsync())!);
         }
 
+        await fixture.Imports.Verify(fixture, target, sql, objects, service, clock);
+
         var duplicate = await service.Submit(restored.Id, fixture.UnknownCommand, SqlFixture.Ra, fixture.UnknownKey);
         Assert.Equal(Canonical.Serialize(fixture.UnknownReceipt), Canonical.Serialize(duplicate));
         var refused = await Assert.ThrowsAsync<DomainException>(() => service.Submit(restored.Id,
@@ -134,7 +136,8 @@ public sealed class RecoveryTests : IDisposable
         Assert.Equal(afterPending, await RecoveryFixture.Tables(target.Connection));
         Assert.Equal(Canonical.Serialize(fixture.SourceCase), Canonical.Serialize(await service.Get(restored.Id, SqlFixture.Ra)));
         await sql.Manifest(restored.Id);
-        fixture.Passed("positive: source unavailable; native SQL, historical/current evidence, retained raw, deleted absence and exact journal, frozen MIR, deadlines, unknown and idempotent outbox");
+        fixture.ImportRecoveryVerified = true;
+        fixture.Passed("positive: source unavailable; native SQL, historical/current evidence, retained raw, deleted absence and exact journal, frozen MIR, deadlines, unknown and idempotent outbox; Block-1 intake/distribution imports with original CSV bytes, row outcomes, history/audit and approved exposure source");
     }
 
     [Fact]
@@ -954,6 +957,9 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 await RecordSetupPhase("source-psur-history-start");
                 SourcePsurHistory = await PsurHistory(source.Store);
                 await RecordSetupPhase("source-psur-history-complete");
+                await RecordSetupPhase("source-import-start");
+                Imports = await ImportRecoveryData.Prepare(source, CaptureTime);
+                await RecordSetupPhase("source-import-complete");
                 const string retentionReason = "Menschlich kontrollierter isolierter T18/T20-Rohdaten-Test ohne Patienten oder produktive Loeschung.";
                 var retention = new RetentionService(source.Store, source.Store, source.Objects, source.Policies,
                     new(true), new TestClock(CaptureTime));
@@ -1265,7 +1271,7 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                 await RemoveOwnedContainer(container);
             foreach (var path in privateConfigs) File.Delete(path);
             await WriteOwnershipInventory(cleanupVerified: true);
-            if (checks.Count == 11 && PsurRecoveryVerified)
+            if (checks.Count == 11 && PsurRecoveryVerified && ImportRecoveryVerified)
             {
                 foreach (var item in applicationAssemblies)
                     Assert.Equal(item.Value, FileHash(Path.Combine(applicationDirectory, item.Key)));
@@ -1296,6 +1302,7 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
                             hash = Canonical.Hash(PendingPsurReview), PendingPsurReview.Status,
                             approvals = PendingPsurReview.Approvals.Length, submissions = PendingPsurReview.Submissions.Length }
                     },
+                    imports = Imports.Evidence(ImportRecoveryVerified),
                     historicalEvidenceHash = OriginalEvidence.Hash, currentEvidenceHash = CurrentEvidence.Hash,
                     frozenPackageSha256 = Canonical.HashText(SourceCase.CurrentReport!.FrozenJson!),
                     transmissionStatus = SourceCase.CurrentReport.State.ToString(), correlationId = UnknownCorrelation,
@@ -2038,4 +2045,208 @@ public sealed class RecoveryTarget(RecoveryFixture fixture, string home, string 
     public string ReadyPath => ObjectRoot + ".recovery-ready.json";
     public bool OwnsDatabase { get; set; }
     public async ValueTask DisposeAsync() => await fixture.Drop(this);
+}
+
+public sealed partial class RecoveryFixture
+{
+    internal ImportRecoveryData Imports { get; private set; } = null!;
+    public bool ImportRecoveryVerified { get; set; }
+}
+
+// Block-1 imports are created through the real import/approval services before the native backup;
+// verification reads only the restored target while the source is unavailable.
+internal sealed record ImportRecoveryData(IntakeImport Intake, string IntakeContent, DistributionImport Distribution,
+    string DistributionContent, DenominatorPreview Preview, Exposure Exposure, SafetyCase RegisteredCase,
+    SortedDictionary<string, string> History, SortedDictionary<string, string> Audit,
+    SortedDictionary<string, string> Manifests)
+{
+    private const string Product = "ortho";
+    private const string Region = "Worldwide";
+    private const string Reason =
+        "Synthetischer Kanal- und Lieferimport fuer den isolierten Wiederherstellungsnachweis; keine Echtdaten.";
+    private const string ApprovalReason =
+        "Lieferdatei, Region Worldwide und abgeschlossenes Q3 menschlich geprueft; synthetischer Recovery-Nenner.";
+    private const string IntakeFile = "recovery-intake-2026-11.csv";
+    private const string DistributionFile = "ortho-distribution-2026-q3.csv";
+    private const string Row = "HF-RECOVERY-1,IMP-RECOVERY-1,ortho,DEMO-OL-M3-101,DEMO-OL-2026-A,IE,EU-IE,OtherSerious," +
+        "2026-11-01T10:00:00Z,2026-11-10T08:00:00Z,Synthetische Lockerung Recovery," +
+        "SYNTHETISCH: Kanaltext zur Lockerung ohne Personenbezug.";
+    private const string Rejected = "HF-RECOVERY-2,IMP-RECOVERY-2,ortho,DEMO-OL-M3-104,DEMO-OL-2026-C,DE,EU-IE,OtherSerious,," +
+        "2026-11-06T11:00:00Z,Widerspruechliche Laenderangabe," +
+        "SYNTHETISCH: Land und Jurisdiktion widersprechen sich; keine stille Korrektur.";
+    private static readonly DateOnly Start = new(2026, 7, 1);
+    private static readonly DateOnly End = new(2026, 9, 30);
+    private static readonly string[] Outcomes =
+        ["2:Registered:registered", "3:Duplicate:row_duplicate", "4:Rejected:row_jurisdiction_country"];
+
+    internal static async Task<ImportRecoveryData> Prepare(SqlFixture source, DateTimeOffset at)
+    {
+        var clock = new TestClock(at);
+        var imports = new ImportService(source.Store, source.Objects, source.Policies, source.Service(clock), clock);
+
+        var distributionContent = await File.ReadAllTextAsync(
+            Path.Combine(RecoveryFixture.RepositoryRoot(), "demo", "imports", DistributionFile));
+        var distribution = await imports.ImportDistribution(new(Product, DistributionFile, distributionContent, Reason),
+            SqlFixture.Pms, CaseScenario.Key());
+        Assert.Equal(DistributionImportStatus.Validated, distribution.Status);
+        Assert.Equal(1, distribution.Version);
+        Assert.Equal(Canonical.HashText(distributionContent), distribution.Original.Hash);
+        Assert.Empty(distribution.Findings);
+        Assert.Equal(new DistributionTotals(7, 7, 0, 225, 186, 181, 5), distribution.Totals);
+
+        var preview = await imports.Proposal(distribution.Id, Region, Start, End, SqlFixture.Quality);
+        Assert.Equal(ImportRules.ExposureId(Product, Region, Start, End), preview.TargetExposureId);
+        Assert.Equal(0, preview.TargetVersion);
+        Assert.Null(preview.CurrentCount);
+        Assert.False(preview.Unchanged);
+        Assert.Equal(178, preview.Proposal.Count);
+        Assert.Equal(173, preview.Proposal.Recipients);
+        Assert.Equal(5, preview.Proposal.AdditionalImplants);
+        Assert.Equal(new[] { 2, 3, 4, 5, 6, 7 }, preview.Proposal.Lines);
+        var exposure = await imports.ApproveDenominator(new(distribution.Id, distribution.Version, Region, Start, End,
+            178, 0, ApprovalReason), SqlFixture.Quality, CaseScenario.Key());
+        Assert.Equal(preview.TargetExposureId, exposure.Id);
+        Assert.Equal(1, exposure.Version);
+        Assert.Equal(178, exposure.Count);
+        Assert.True(exposure.Approved);
+        Assert.Equal(new VersionReference(distribution.Id, distribution.Version, Canonical.Hash(distribution)),
+            exposure.Source!.Import);
+        Assert.Equal(preview.Proposal.Hash, exposure.Source.ProposalHash);
+
+        var intakeContent = ImportRules.IntakeHeader + "\n" + Row + "\n" + Row + "\n" + Rejected;
+        var intake = await imports.ImportIntake(new(Product, IntakeImportChannel.SyntheticDistributorFeedback, IntakeFile,
+            intakeContent, Reason, true), SqlFixture.Pms, CaseScenario.Key());
+        Assert.Equal(IntakeImportStatus.Processed, intake.Status);
+        Assert.Equal(2, intake.Version);
+        Assert.Equal(Canonical.HashText(intakeContent), intake.Original.Hash);
+        Assert.Equal(new IntakeImportCounts(3, 1, 1, 1, 0, 0), intake.Counts);
+        Assert.Equal(Outcomes, RowOutcomes(intake));
+        var registered = intake.Rows.Single(r => r.Line == 2);
+        var duplicate = intake.Rows.Single(r => r.Line == 3);
+        Assert.Equal(CaseIdentity.For(Product, "IMP-RECOVERY-1"), registered.Case!.Id);
+        Assert.Equal("SyntheticDistributorFeedback:HF-RECOVERY-1", registered.SourceId);
+        Assert.Equal(2, duplicate.DuplicateOf);
+        Assert.Equal(registered.Case, duplicate.Case);
+        Assert.Null(intake.Rows.Single(r => r.Line == 4).Case);
+
+        var registeredCase = await Current<SafetyCase>(source.Store, "case", registered.Case.Id);
+        Assert.Equal(registered.Case, PortfolioRules.Reference(await source.Store.GetVersion<SafetyCase>("case",
+            registered.Case.Id, registered.Case.Version) ?? throw new InvalidOperationException("Registered case version is missing.")));
+        Assert.Single(await source.Store.Audit(registeredCase.Id), a => a.Action == "ComplaintRegistered");
+        Assert.Equal(new[] { "IntakeImportReceived", "IntakeImportProcessed" },
+            (await source.Store.Audit(intake.Id)).Select(a => a.Action));
+        Assert.Equal(new[] { "DistributionImported" }, (await source.Store.Audit(distribution.Id)).Select(a => a.Action));
+        Assert.Equal(new[] { "ExposureDenominatorApproved" }, (await source.Store.Audit(exposure.Id)).Select(a => a.Action));
+
+        var (history, audit, manifests) = await Capture(source.Store, intake, distribution, exposure, registeredCase);
+        return new(intake, intakeContent, distribution, distributionContent, preview, exposure, registeredCase,
+            history, audit, manifests);
+    }
+
+    internal async Task Verify(RecoveryFixture fixture, RecoveryTarget target, SqlStateStore sql, IObjectStore objects,
+        CaseService cases, TimeProvider clock)
+    {
+        foreach (var (original, content) in new (ImportOriginal Original, string Content)[]
+            { (Intake.Original, IntakeContent), (Distribution.Original, DistributionContent) })
+        {
+            var path = Path.Combine(target.ObjectRoot, original.Hash);
+            var bytes = await File.ReadAllBytesAsync(path);
+            Assert.Equal(fixture.SourceBytes[original.Hash], bytes);
+            Assert.Equal(Encoding.UTF8.GetBytes(content), bytes);
+            Assert.Equal(original.Hash, RecoveryFixture.FileHash(path));
+            Assert.Equal(original.Bytes, bytes.Length);
+            Assert.Equal(content, await objects.Read(original.Hash));
+        }
+
+        var (history, audit, manifests) = await Capture(sql, Intake, Distribution, Exposure, RegisteredCase);
+        Assert.Equal(History, history);
+        Assert.Equal(Audit, audit);
+        Assert.Equal(Manifests, manifests);
+        var intake = await Current<IntakeImport>(sql, ImportService.IntakeKind, Intake.Id);
+        var distribution = await Current<DistributionImport>(sql, ImportService.DistributionKind, Distribution.Id);
+        var exposure = await Current<Exposure>(sql, "exposure", Exposure.Id);
+        Assert.Equal(Canonical.Serialize(Intake), Canonical.Serialize(intake));
+        Assert.Equal(Canonical.Serialize(Distribution), Canonical.Serialize(distribution));
+        Assert.Equal(Canonical.Serialize(Exposure), Canonical.Serialize(exposure));
+        Assert.Equal(Canonical.Serialize(RegisteredCase),
+            Canonical.Serialize(await Current<SafetyCase>(sql, "case", RegisteredCase.Id)));
+        Assert.Equal(new VersionReference(distribution.Id, distribution.Version, Canonical.Hash(distribution)),
+            exposure.Source!.Import);
+        Assert.Equal(Preview.Proposal.Hash, exposure.Source.ProposalHash);
+        Assert.Equal(Preview.Proposal.Lines, exposure.Source.Lines);
+        foreach (var row in intake.Rows.Where(r => r.Case is not null))
+            Assert.Equal(row.Case, PortfolioRules.Reference(await sql.GetVersion<SafetyCase>("case", row.Case!.Id,
+                row.Case.Version) ?? throw new InvalidOperationException("Bound case version is missing.")));
+
+        var imports = new ImportService(sql, objects, fixture.Policies, cases, clock);
+        Assert.Equal(Canonical.Serialize(Intake), Canonical.Serialize(await imports.GetIntake(Intake.Id, SqlFixture.Pms)));
+        Assert.Equal(Canonical.Serialize(Distribution),
+            Canonical.Serialize(await imports.GetDistribution(Distribution.Id, SqlFixture.Quality)));
+        var preview = await imports.Proposal(Distribution.Id, Region, Start, End, SqlFixture.Quality);
+        Assert.Equal(Exposure.Id, preview.TargetExposureId);
+        Assert.Equal(Exposure.Version, preview.TargetVersion);
+        Assert.Equal(Exposure.Count, preview.CurrentCount);
+        Assert.True(preview.Unchanged);
+        Assert.Equal(Canonical.Serialize(Preview.Proposal), Canonical.Serialize(preview.Proposal));
+        // Fresh-key replays of the same originals are refused before any object, row or SQL write.
+        var intakeReplay = await Assert.ThrowsAsync<DomainException>(() => imports.ImportIntake(new(Intake.ProductId,
+            Intake.Channel, IntakeFile, IntakeContent, Reason, true), SqlFixture.Pms, CaseScenario.Key()));
+        Assert.Equal("import_duplicate_file", intakeReplay.Code);
+        var distributionReplay = await Assert.ThrowsAsync<DomainException>(() => imports.ImportDistribution(new(
+            Distribution.ProductId, DistributionFile, DistributionContent, Reason), SqlFixture.Pms, CaseScenario.Key()));
+        Assert.Equal("import_duplicate_file", distributionReplay.Code);
+    }
+
+    internal object Evidence(bool verified) => new
+    {
+        sourceAndTargetContentVerified = verified,
+        intake = new { Intake.Id, Intake.Version, hash = Canonical.Hash(Intake), originalHash = Intake.Original.Hash,
+            originalBytes = Intake.Original.Bytes, status = Intake.Status.ToString(), counts = Intake.Counts,
+            rows = RowOutcomes(Intake).ToArray() },
+        distribution = new { Distribution.Id, Distribution.Version, hash = Canonical.Hash(Distribution),
+            originalHash = Distribution.Original.Hash, originalBytes = Distribution.Original.Bytes,
+            status = Distribution.Status.ToString(), totals = Distribution.Totals },
+        exposure = new { Exposure.Id, Exposure.Version, hash = Canonical.Hash(Exposure), Exposure.Count,
+            sourceImport = Exposure.Source!.Import, proposalHash = Exposure.Source.ProposalHash },
+        registeredCase = new { RegisteredCase.Id, RegisteredCase.Version, hash = Canonical.Hash(RegisteredCase) },
+        historyHashes = History.ToDictionary(item => item.Key, item => Canonical.HashText(item.Value)),
+        auditHashes = Audit.ToDictionary(item => item.Key, item => Canonical.HashText(item.Value)),
+        manifestHashes = Manifests.ToDictionary(item => item.Key, item => Canonical.HashText(item.Value))
+    };
+
+    private static IEnumerable<string> RowOutcomes(IntakeImport import) =>
+        import.Rows.Select(row => $"{row.Line}:{row.Outcome}:{row.Code}");
+
+    private static async Task<T> Current<T>(SqlStateStore store, string kind, string id) where T : class =>
+        await store.Get<T>(kind, id) ?? throw new InvalidOperationException($"Current {kind} state is missing.");
+
+    private static async Task<(SortedDictionary<string, string> History, SortedDictionary<string, string> Audit,
+        SortedDictionary<string, string> Manifests)> Capture(SqlStateStore store, IntakeImport intake,
+        DistributionImport distribution, Exposure exposure, SafetyCase registeredCase)
+    {
+        var history = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        var audit = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        var manifests = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        await Versions<IntakeImport>(store, history, audit, manifests, ImportService.IntakeKind, intake.Id, intake.Version);
+        await Versions<DistributionImport>(store, history, audit, manifests, ImportService.DistributionKind,
+            distribution.Id, distribution.Version);
+        await Versions<Exposure>(store, history, audit, manifests, "exposure", exposure.Id, exposure.Version);
+        await Versions<SafetyCase>(store, history, audit, manifests, "case", registeredCase.Id, registeredCase.Version);
+        return (history, audit, manifests);
+    }
+
+    private static async Task Versions<T>(SqlStateStore store, SortedDictionary<string, string> history,
+        SortedDictionary<string, string> audit, SortedDictionary<string, string> manifests, string kind, string id,
+        int current) where T : class
+    {
+        for (var version = 1; version <= current; version++)
+            history[$"{kind}/{id}/{version}"] = Canonical.Serialize(await store.GetVersion<T>(kind, id, version)
+                ?? throw new InvalidOperationException($"Historical {kind} version {version} is missing."));
+        audit[$"{kind}/{id}"] = Canonical.Serialize(await store.Audit(id));
+        var manifest = await store.Manifest(id, kind: kind);
+        Assert.True(manifest.CurrentStateVerified);
+        Assert.True(manifest.HashChainVerified);
+        Assert.Equal(current, manifest.CurrentVersion);
+        manifests[$"{kind}/{id}"] = Canonical.Serialize(manifest);
+    }
 }

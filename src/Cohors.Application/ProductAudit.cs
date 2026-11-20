@@ -27,7 +27,7 @@ public static class ProductAuditRules
         "source", "psurGroup", "psurReview", "agentInvocation", "retention", "productLifecycle", "delivery-recovery",
         "summaryAgreement", "summaryReport", "eudamedActor", "eudamedReferences",
         "eudamedConfiguration", "eudamedChannel", "domibusCheck", "eudamedDocument",
-        "eudamedDossier", "eudamedDelivery", "eudamedInbox"
+        "eudamedDossier", "eudamedDelivery", "eudamedInbox", "intakeImport", "distributionImport"
     ];
     private static readonly string[] JsonFields = ["Json", "json", "Payload", "Result", "frozenJson", "inputJson", "outputJson"];
 

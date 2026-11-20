@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarClock, CircleHelp, ClipboardCheck, FileClock, FileText, Inbox, LayoutDashboard, LogOut, Plus, Radio, Search, ShieldCheck, Sparkles, Waypoints } from 'lucide-react'
+import { Activity, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarClock, CircleHelp, ClipboardCheck, FileClock, FileText, FileUp, Inbox, LayoutDashboard, LogOut, Plus, Radio, Search, ShieldCheck, Sparkles, Waypoints } from 'lucide-react'
 import { api, loginEntra, logout, session as getSession } from './api'
 import type { CalendarEvent, CaseSummary, Device, EudamedFocus, PsurFocus, SafetyCase, Session, SignalView, Status } from './types'
 import { ActionDialog, Badge, CaseTable, date, ErrorBanner, Loading, roleNames, type Dialog } from './ui'
@@ -8,6 +8,7 @@ import { AuditWorkspace, EvidenceWorkspace, FeedbackWorkspace, PsurWorkspace, Re
 import { CockpitWorkspace, DeadlineCalendarWorkspace } from './WorkspaceViews'
 import SignalWorkspace, { signalPath } from './SignalWorkspace'
 import EudamedWorkspace from './EudamedWorkspace'
+import ImportWorkspace from './ImportWorkspace'
 
 const navigation = [
   { id: 'cockpit', title: 'PMS Cockpit', icon: LayoutDashboard },
@@ -21,6 +22,7 @@ const navigation = [
   { id: 'feedback', title: 'Trends & CAPA', icon: Activity },
   { id: 'psur', title: 'PSUR Workspace', icon: BookOpen },
   { id: 'evidence', title: 'Evidenzbibliothek', icon: Waypoints },
+  { id: 'imports', title: 'Datenimporte', icon: FileUp },
   { id: 'retention', title: 'Aufbewahrung', icon: FileClock },
   { id: 'audit', title: 'Audit Explorer', icon: FileClock },
 ]
@@ -162,6 +164,7 @@ export default function App() {
         {page === 'feedback' && <FeedbackWorkspace actor={actor} cases={cases} revision={revision} openDialog={setDialog} mutate={mutate} />}
         {page === 'psur' && <PsurWorkspace key={psurFocus ? `${psurFocus.reportId}:${psurFocus.reviewId ?? ''}:${psurFocus.round ?? ''}` : 'manual'} actor={actor} revision={revision} openDialog={setDialog} mutate={mutate} initialFocus={psurFocus ?? undefined} />}
         {page === 'evidence' && <EvidenceWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}
+        {page === 'imports' && <ImportWorkspace key={`${identity.current.key}:${identity.current.epoch}`} actor={actor} products={products} revision={revision} open={open} />}
         {page === 'retention' && <RetentionWorkspace actor={actor} revision={revision} mutate={mutate} openDialog={setDialog} />}
         {page === 'audit' && <AuditWorkspace cases={cases} products={products} revision={revision} />}
         <footer className="page-footer"><span>Cohors · Synthetic pilot 2026.1</span><span>118 Anforderungen zugeordnet · Fach-/Betriebsfreigabe offen · Keine Azure-Bereitstellung</span></footer>

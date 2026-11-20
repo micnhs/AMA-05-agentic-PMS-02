@@ -118,6 +118,7 @@ builder.Services.AddSingleton<EudamedService>();
 builder.Services.AddSingleton<ProductAuditService>();
 builder.Services.AddSingleton<IMirComposer, MirComposer>();
 builder.Services.AddSingleton<RegulatoryService>();
+builder.Services.AddSingleton<ImportService>();
 builder.Services.AddHttpClient<IPublicSourceReader, PublicSources>()
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 if (builder.Configuration.GetValue<bool>("Cohors:LocalOperations"))
@@ -339,6 +340,23 @@ api.MapGet("/evidence/{id}/versions/{version:int}/content", (string id, int vers
 api.MapPost("/evidence/{id}/revise", (string id, ReviseEvidenceCommand input, EvidenceService service, HttpContext ctx, CancellationToken ct) =>
     service.Revise(id, input, Who(ctx), Key(ctx), ct));
 api.MapGet("/exposures", (IStateStore store, HttpContext ctx, CancellationToken ct) => store.List<Exposure>("exposure", Who(ctx).Products, ct));
+api.MapPost("/exposures/denominator-approval", (ApproveDenominatorCommand input, ImportService service, HttpContext ctx,
+    CancellationToken ct) => service.ApproveDenominator(input, Who(ctx), Key(ctx), ct));
+api.MapGet("/imports/intake", (ImportService service, HttpContext ctx, CancellationToken ct) => service.ListIntake(Who(ctx), ct));
+api.MapPost("/imports/intake", (ImportIntakeCommand input, ImportService service, HttpContext ctx, CancellationToken ct) =>
+    service.ImportIntake(input, Who(ctx), Key(ctx), ct));
+api.MapGet("/imports/intake/{id}", (string id, ImportService service, HttpContext ctx, CancellationToken ct) =>
+    service.GetIntake(id, Who(ctx), ct));
+api.MapGet("/imports/distribution", (ImportService service, HttpContext ctx, CancellationToken ct) =>
+    service.ListDistribution(Who(ctx), ct));
+api.MapPost("/imports/distribution", (ImportDistributionCommand input, ImportService service, HttpContext ctx, CancellationToken ct) =>
+    service.ImportDistribution(input, Who(ctx), Key(ctx), ct));
+api.MapGet("/imports/distribution/{id}", (string id, ImportService service, HttpContext ctx, CancellationToken ct) =>
+    service.GetDistribution(id, Who(ctx), ct));
+api.MapGet("/imports/distribution/{id}/affected", (string id, string? batches, string? jurisdictions, ImportService service,
+    HttpContext ctx, CancellationToken ct) => service.Affected(id, batches, jurisdictions, Who(ctx), ct));
+api.MapGet("/imports/distribution/{id}/denominator-proposal", (string id, string region, DateOnly start, DateOnly end,
+    ImportService service, HttpContext ctx, CancellationToken ct) => service.Proposal(id, region, start, end, Who(ctx), ct));
 api.MapPost("/cases/{id}/mir", (string id, MirCommand input, RegulatoryService service, HttpContext ctx, CancellationToken ct) =>
     service.AttachMir(id, input, Who(ctx), Key(ctx), ct));
 api.MapGet("/cases/{id}/mir", (string id, RegulatoryService service, HttpContext ctx, CancellationToken ct) => service.Export(id, Who(ctx), ct));

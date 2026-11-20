@@ -40,7 +40,7 @@ function Get-CiSqlPassword {
 
 function Get-CiBrowserProfiles {
     return [ordered]@{
-        Preview = @{ project = 'preview'; tests = 11 }
+        Preview = @{ project = 'preview'; tests = 12 }
         AuditExport = @{ project = 'audit-export'; tests = 1 }
         SummaryReport = @{ project = 'summary-report'; tests = 1 }
         CaseDocuments = @{ project = 'case-documents'; tests = 2 }
@@ -226,7 +226,7 @@ try {
         Assert-Exit 'Chromium installation'
     } finally { Pop-Location }
     $profiles = Get-CiBrowserProfiles
-    [xml]$junit = '<testsuites name="Cohors isolated Hosted CI, derived aggregate: 11 projects / 32 required cases" tests="0" failures="0" skipped="0" errors="0" time="0" />'
+    [xml]$junit = '<testsuites name="Cohors isolated Hosted CI, derived aggregate: 11 projects / 33 required cases" tests="0" failures="0" skipped="0" errors="0" time="0" />'
     $reportedProfiles = 0
     foreach ($profile in $profiles.Keys) {
         $artifacts = Join-Path $browserRoot $profile
@@ -261,8 +261,8 @@ try {
         $junit.Save($junitPath)
         if (-not $browserCleanupProven) { break }
     }
-    if ($reportedProfiles -ne $profiles.Count -or [int]$junit.DocumentElement.GetAttribute('tests') -ne 32) {
-        throw 'Browser acceptance is incomplete: all 11 existing projects and all 32 cases are required.'
+    if ($reportedProfiles -ne $profiles.Count -or [int]$junit.DocumentElement.GetAttribute('tests') -ne 33) {
+        throw 'Browser acceptance is incomplete: all 11 existing projects and all 33 cases are required.'
     }
     if (-not $executionErrors.Count -and -not $cleanupErrors.Count) {
         & (Join-Path $PSScriptRoot 'Test-CohorsResults.ps1') -TrxPath $trxPath -JUnitPath $junitPath

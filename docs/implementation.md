@@ -628,6 +628,190 @@ FSN-Verteilungsfassung; das ist erst nach eigenem Lauf ein Nachweis.
 Die beschriebenen neuen FSN-Ergaenzungen sind noch nicht Bestandteil
 des separat bestandenen Recovery07/Build42.
 
+## Fachergaenzung Block 1: Lieferdaten, Exposition und Kanalimport
+
+Pilotumfang sind B-06, E-06, J-02 (Soll) und K-06. Alle
+Originalstatus bleiben **Offen**; dieser Schnitt ist ein Pilotnachweis,
+keine Erfuellungsfeststellung. Es gibt keinen ERP-, CRM-, E-Mail-,
+Haendler- oder Registerzugang, keine generische Dokument-/Evidenzaufnahme
+und keine KI-Extraktion. Der On-Demand-Signaldokumentimport der
+Pilot-Lane bleibt ein getrennter Mechanismus.
+
+**Kanal-Batchimport (B-06).** `POST /imports/intake` nimmt fuer eine
+Produktfamilie im eigenen Scope eine synthetische CSV-Datei eines der
+Kanaele `SyntheticDistributorFeedback`, `SyntheticClinicFeedback` oder
+`SyntheticCallCenterLog` an; nur menschliche PMS-Konten, Begruendung
+ab 30 Zeichen. Die Kopfzeile lautet exakt
+`externalRef,incidentKey,productId,udi,batch,country,jurisdiction,seriousness,occurredAt,awarenessAt,title,description`;
+hoechstens 100 Zeilen und 256 KiB, striktes UTF-8, LF oder CRLF als
+Zeilenende, keine Steuerzeichen und keine mehrzeiligen Felder. Die Originaldatei liegt
+hashgebunden im Objektspeicher; Dateiname, Hash und Bytezahl stehen im
+Import (`cohors-channel-intake-import-1`). Dieselbe Datei fuer Produkt
+und Kanal wird mit `import_duplicate_file` abgewiesen; einen
+unterbrochenen Import setzt nur die importierende Person fort.
+
+Jede Zeile traegt Zeilennummer und Zeilenhash und endet in genau einem
+Ergebnis: **registriert**, **Dublette** mit Fallversion (`row_duplicate`,
+`case_known`, `case_linked`, `source_known`), **abgewiesen** mit Code und
+Grund (`row_*`, `source_incident_conflict`, `source_revision` oder
+Abweisung des bestehenden Eingangspfads) oder **zur menschlichen
+Korrektur zurueckgestellt** (`source_changed`). Nichts wird still
+verworfen; die Zaehler weisen alle Ergebnisse und offene Zeilen aus.
+Validierte Zeilen laufen ausschliesslich ueber den bestehenden
+`CaseService.Register`: Sie sind Eingangssignale/Beschwerden in der
+Stufe Intake, keine bestaetigten Sicherheitsfaelle. Audit:
+`IntakeImportReceived` und `IntakeImportProcessed`.
+
+**Gleiche Kanalquelle mit geaenderten Angaben (BLOCK1-IMPORT-R01/R02/R04).**
+Die Kanalquelle ist `Kanal:externalRef`. Eine identische Dublette
+(`source_known`, "Vorfall unveraendert") liegt nur vor, wenn
+Beschreibungshash, Titel, Ereigniszeitpunkt und erste Kenntnis der
+erfassten Quelle entsprechen und auch ihre erfassten Zeilenangaben
+(Schweregrad, Rechtsraum, Land, UDI, Charge, Schreibweise) belegt gleich
+sind. Ein abweichender Text bleibt `source_revision`. Verglichen wird
+mit den Rohzeilen anderer Importe derselben Quelle, die uebernommen oder
+**noch nicht abgeschlossen** sind, etwa ein nach der Registrierung und
+vor `IntakeImportProcessed` unterbrochener Import; jede Abweichung
+stellt zurueck. Ist keine dieser Zeilen bereits uebernommen, belegt die
+Erstregistrierung des Vorfalls (Fallversion 1) die Angaben. Als
+uebernommen gilt nur eine an einen Fall gebundene registrierte oder
+verknuepfte Zeile oder ihre identische Kopie, die mit dieser
+Primaerzeile an denselben Fall gebunden ist (BLOCK1-IMPORT-R04). Die
+Kopie einer noch offenen Primaerzeile bleibt selbst offen; das Ergebnis
+`Duplicate` allein belegt keine Angaben. Nach einer
+spaeteren menschlichen Aenderung, etwa einer
+Medical-Reklassifikation, wird gegen diese Erstregistrierung verglichen,
+nicht gegen den aktuellen Fall: Die unveraenderte Originalzeile bleibt
+Dublette, eine nur der Reklassifikation entsprechende Zeile wird
+zurueckgestellt. Weicht eine Angabe ab oder ist sie nicht belegbar
+(Quelle ist nicht Erstquelle des Vorfalls, Erstregistrierung nicht
+lesbar), wird die Zeile mit `source_changed` an die bestehende
+Fallversion gebunden und mit den konkreten Abweichungen als **zur
+menschlichen Korrektur zurueckgestellt** ausgewiesen; ohne bestehenden
+Fall wird nichts angelegt. Das ist keine erledigte Fristkorrektur: Der
+Import aendert weder Fall, Quelle, Kenntnis, Klassifikation noch Frist.
+Eine fruehere Kenntnis korrigieren nur Medical oder RA ueber die
+bestehende Kenntniskorrektur `POST /cases/{id}/awareness`; dort gelten
+unveraendert `DeadlineCalculator`, `ProtectEarlier`, kein Fristneustart
+durch spaetere Kenntnis und M01. PMS-Importrechte wurden nicht
+erweitert, einen zweiten Fristenrechner gibt es nicht. Weil der
+Eingangspfad eine bereits erfasste Quelle unveraendert zurueckgibt, wird
+die Pruefung nach der Registrierung mit neu gelesenen anderen Importen
+wiederholt; so wird auch eine Quelle erkannt, die ein paralleler Import
+nach dem eigenen Lesestand registriert hat. Ein fortgesetzter Import
+erkennt seine eigene Registrierung am Auditschluessel der Zeile und
+schliesst sie idempotent ab, statt sie gegen spaetere Importe zu werten;
+die Wiederaufnahme erzeugt keine weitere Registrierung und keine neue
+Fallversion.
+
+Grenzen von R01/R02/R04: Parallele Importe derselben Quelle mit
+abweichenden Zeilen koennen beide konservativ zurueckgestellt werden;
+hoechstens eine der abweichenden Zeilen wird uebernommen. Identische
+parallele Zeilen registrieren den Vorfall genau einmal, die weitere
+Zeile wird `source_known`. Ausserhalb des Imports erfasste Quellen
+(manuell oder Seed) werden gegen die Fallversion 1 geprueft; ist die
+Quelle nicht Erstquelle des Falls, wird jede Zeile dazu zurueckgestellt.
+Zurueckgestellte und abgewiesene Zeilen belegen keine Quellangaben.
+Offene Zeilen eines unterbrochenen Imports und ihre identischen Kopien
+belegen ebenfalls keine; eine gleichlautende Zeile wird dann gegen die
+Erstregistrierung geprueft, etwa nach einer zwischenzeitlichen
+manuellen Registrierung derselben Quelle mit anderem Schweregrad (R04).
+Nach einer menschlichen Kenntniskorrektur behaelt die Quelle ihren
+urspruenglichen Kenntniszeitpunkt; ein erneuter Import der abweichenden
+Zeile wird wieder zurueckgestellt.
+
+**Liefer-/Expositionsimport (E-06, J-02, K-06).** `POST /imports/distribution`
+(menschliche PMS- oder Quality-Konten im Produktscope) nimmt
+aggregierte synthetische Lieferzeilen
+`rowRef,productId,udiDi,batch,siteRef,country,jurisdiction,deliveredOn,unitsDelivered,unitsImplanted,recipients`
+an, hoechstens 500 Zeilen. Standorte sind nur pseudonym
+(`DEMO-SITE-LAND-000`); es gibt keine Patienten- oder Personenbezuege.
+Geprueft werden Produkt, synthetische UDI-DI zum Modellpraefix, Charge,
+Land/Jurisdiktion/Standortland, freigegebener Markt, Lieferdatum und
+die Mengenfolge geliefert >= implantiert >= Empfaenger. Jeder Befund
+weist die ganze Datei mit Zeilenbefunden ab (`Rejected`); nur eine
+vollstaendig valide Datei (`Validated`) ist Nenner- oder
+Betroffenheitsquelle. Gelieferte und implantierte Einheiten sowie
+Empfaenger bleiben getrennt, Mehrfachimplantate sind ausgewiesen.
+
+`GET /imports/distribution/{id}/affected` gleicht Chargen und
+Jurisdiktionen exakt gegen validierte Lieferzeilen ab und nennt das
+Marktprofil (EU, GB als Drittland, NI getrennt). Ergebnis ist moegliche
+Exposition, keine festgestellte Betroffenheit einzelner Personen; keine
+Textaehnlichkeit, keine Field-Safety-Massnahme, keine Meldung.
+`GET /imports/distribution/{id}/denominator-proposal` schlaegt nur fuer
+abgeschlossene Perioden einen Nenner vor (implantierte Einheiten nach
+Lieferdatum, kein Nullnenner). Wirksam wird er ausschliesslich ueber
+`POST /exposures/denominator-approval`: menschliches Quality-Konto,
+nicht die importierende Person (`four_eyes`), Begruendung ab
+40 Zeichen, gebundene Import-, Nenner- und Zaehlerfassung
+(`import_version`, `denominator_changed`, `denominator_unchanged`) und
+keine Teilregion groesser als Worldwide derselben Periode
+(`exposure_subset`). Die anderen Nenner derselben Produktperiode, gegen
+die diese Pruefung laeuft, sind in die geschuetzte Commitpruefung des
+bestehenden Speichers gebunden (BLOCK1-IMPORT-R03): vorhandene mit
+Version und Hash, fehlende Regionen (`Worldwide`, `EEA-Turkey-NI`) als
+leere Reservierung ihrer deterministischen Kennung. Hat sich ein
+gebundener Nenner seit dem Lesen geaendert oder wurde ein fehlender
+inzwischen angelegt, wird die Freigabe mit 409 `dependency_version`
+sichtbar verweigert ("bitte neu lesen und erneut pruefen"). Zwei
+parallele Freigaben verschiedener Regionen derselben Periode, auch bei
+erstmaliger Anlage, koennen so nicht beide gegen einen veralteten Stand
+bestehen. Die neue
+`Exposure`-Version traegt `Source` (`cohors-exposure-source-1`) mit
+Importreferenz und -hash, Datumsbasis, Vorschlagshash, Zeilen,
+Empfaengern, Mehrfachimplantaten, Freigabeperson, Zeitpunkt und
+Begruendung; Audit `ExposureDenominatorApproved` haengt an der
+Importfassung. Bestehende Expositionen ohne `Source` serialisieren
+unveraendert. Gebundene Trend-/PSUR-Ergebnisse behalten ihre
+Nennerversion; es gibt keine stille Neuberechnung.
+
+**Verdrahtung.** `ProductAuditRules.Kinds` umfasst `intakeImport` und
+`distributionImport`; der Produktaudit enthaelt Importoriginale und den
+freigegebenen Nenner. Die Arbeitsflaeche **Datenimporte**
+(`ImportWorkspace.tsx`) zeigt Zeilenergebnisse, Betroffenheitsabfrage,
+Nennervorschlag und die getrennte Quality-Freigabe. Synthetische
+Beispieldateien liegen unter `demo\imports` (LF per `.gitattributes`).
+
+**Fristen (N-FRIST).** Block 1 fuehrt keine neue Fristart ein.
+Importierte Faelle erhalten ueber den bestehenden Eingangspfad die
+bestehende Fallfrist und stehen damit im Cockpitkalender und unter
+derselben unabhaengigen Watchdog-Eskalation wie manuell erfasste Faelle.
+Fristen fuer Behoerdenrueckmeldungen, Auflagen und Dokumentaufgaben
+(A-08, C-13, E-04, K-04, G-05, G-08, G-12) sind nicht umgesetzt; dafuer
+wird keine N-FRIST-Abdeckung behauptet.
+
+**Wiederherstellung (T20).** Die bestehende `RecoveryFixture` erzeugt
+vor beiden Backups Kanal- und Lieferimport samt freigegebenem Nenner
+ueber die echten Dienste mit getrennten Rollen (PMS importiert, Quality
+gibt frei). Der bestehende erste T20-Fall prueft nach der nativen
+Wiederherstellung ohne Quellinstanz Originalbytes, Zeilenausgaenge,
+Versions- und Auditgeschichte sowie die Importquelle der Exposure
+([Details](recovery.md#fachergaenzung-block-1-importaggregate-im-t20-fall-notrun)).
+Skripte und Produktionscode bleiben unveraendert; der Fall ist
+definiert, aber nicht ausgefuehrt (NotRun).
+
+**Offene Punkte je ID.**
+
+| ID | Offen |
+| --- | --- |
+| B-06 | Nur synthetische Kanaele per Datei, keine produktiven Zugaenge; UDI nur gegen den Modellpraefix geprueft; R01-/R02-/R04-Grenzen wie oben. |
+| E-06 | Datumsbasis ist das Lieferdatum, keine Implantationsdaten je Person; Empfaenger sind eine pseudonyme Obergrenze. Die Trendansicht nutzt weiter ihren festen Worldwide-Nenner `exposure-<Produkt>-2026-Worldwide`; die PSUR-Ergaenzung fuehrt importfreigegebene Nenner mit abweichender Periode als ausgeschlossen. R03 reserviert fehlende Regionen nur unter ihrer deterministischen Kennung; ein gleichzeitig auf anderem Weg mit anderer Kennung angelegter Nenner derselben Periode (im Piloten nur die Demo-Grundlast) faellt nicht darunter. |
+| J-02 (Soll) | Betroffenheit ist moegliche Exposition je Charge/Jurisdiktion; die Verknuepfung mit FSCA/FSN gehoert zu Block 2 (Produktion). |
+| K-06 | Konsistenzpruefung je Datei; kein ERP-Abgleich, keine Teilannahme fehlerhafter Dateien. |
+| alle | Erweiterter T20-Fall fuer die Importaggregate definiert, aber nicht ausgefuehrt (NotRun); EUDAMED-Erhaltung unberuehrt. |
+
+**Produktionsbacklog.** Verbindlich, mit unveraenderten IDs und
+Matrixprioritaeten und ohne Erfuellungsvermerk: Block 2 Field Safety
+(A-07, B-02, C-04, C-11, E-07, E-08, E-09, E-10, E-12, J-05, K-02, K-05;
+F-14 Soll), Block 3 Trendpaket (B-04, D-01, D-04, D-06, I-02, K-01),
+Block 4 Behoerdenrueckmeldungen (A-08, C-13, D-05, E-04, K-04) sowie die
+offenen Ausbauteile von Block 5 (G-05, G-07, G-08, G-11, G-12, H-02,
+H-04). Der Pilot nutzt dafuer die vorhandene PMCF-/SSCP-Evidenz und den
+vorhandenen fallbezogenen Aenderungsablauf; der vollstaendige
+Dokument-Lebenszyklus folgt fuer die Produktion. Bestehende Funktionen,
+Fristen und Freigabewege bleiben unveraendert.
+
 ## Eingangsstand und bereinigte Repository-Fassungen
 
 `source\Konzept_PMS-System_Klasse-III-Implantate_MDR.docx`: urspruenglicher Eingangsstand SHA256 `677ed659cd08d1b45d1b9c0e98ff84c9aadd358be5142ac544eebabd0e24857b`; metadatenbereinigte Repository-Fassung SHA256 `f9525b8c04665e69e39e1dafb0f5c5d1e085ddf5b5d86f654aa7a05ef6b95cf2`.
