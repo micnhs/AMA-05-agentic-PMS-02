@@ -1,0 +1,132 @@
+{
+  "Foundry": {
+    "Roles": {
+      "Ingestion": {
+        "Binding": {
+          "Role": "Ingestion",
+          "Model": { "Endpoint": null, "Deployment": null, "ModelVersion": null, "ProcessingBoundary": "EU-Member-States", "BoundaryApproval": null },
+          "ModelFamily": null,
+          "CapabilityClass": null,
+          "SelectionPolicy": "QualityFirst",
+          "PromptVersion": null,
+          "PromptSha256": null,
+          "PipelineConfigurationSha256": null,
+          "WorkloadTenantId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadClientId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadPrincipalId": "00000000-0000-0000-0000-000000000000",
+          "PrivatePathReviewSha256": null,
+          "EvidencePreservationReviewSha256": null,
+          "Assurance": null,
+          "Authentication": null,
+          "ResponseIdentity": null
+        },
+        "QualityReview": null
+      },
+      "TrendSignal": {
+        "Binding": {
+          "Role": "TrendSignal",
+          "Model": { "Endpoint": null, "Deployment": null, "ModelVersion": null, "ProcessingBoundary": "EU-Member-States", "BoundaryApproval": null },
+          "ModelFamily": null,
+          "CapabilityClass": null,
+          "SelectionPolicy": "QualityFirst",
+          "PromptVersion": null,
+          "PromptSha256": null,
+          "PipelineConfigurationSha256": null,
+          "WorkloadTenantId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadClientId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadPrincipalId": "00000000-0000-0000-0000-000000000000",
+          "PrivatePathReviewSha256": null,
+          "EvidencePreservationReviewSha256": null,
+          "Assurance": null,
+          "Authentication": null,
+          "ResponseIdentity": null
+        },
+        "QualityReview": null
+      },
+      "CausalityRisk": {
+        "Binding": {
+          "Role": "CausalityRisk",
+          "Model": { "Endpoint": null, "Deployment": null, "ModelVersion": null, "ProcessingBoundary": "EU-Member-States", "BoundaryApproval": null },
+          "ModelFamily": null,
+          "CapabilityClass": null,
+          "SelectionPolicy": "QualityFirst",
+          "PromptVersion": null,
+          "PromptSha256": null,
+          "PipelineConfigurationSha256": null,
+          "WorkloadTenantId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadClientId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadPrincipalId": "00000000-0000-0000-0000-000000000000",
+          "PrivatePathReviewSha256": null,
+          "EvidencePreservationReviewSha256": null,
+          "Assurance": null,
+          "Authentication": null,
+          "ResponseIdentity": null
+        },
+        "QualityReview": null
+      },
+      "EvidenceAssurance": {
+        "Binding": {
+          "Role": "EvidenceAssurance",
+          "Model": { "Endpoint": null, "Deployment": null, "ModelVersion": null, "ProcessingBoundary": "EU-Member-States", "BoundaryApproval": null },
+          "ModelFamily": null,
+          "CapabilityClass": null,
+          "SelectionPolicy": "QualityFirst",
+          "PromptVersion": null,
+          "PromptSha256": null,
+          "PipelineConfigurationSha256": null,
+          "WorkloadTenantId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadClientId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadPrincipalId": "00000000-0000-0000-0000-000000000000",
+          "PrivatePathReviewSha256": null,
+          "EvidencePreservationReviewSha256": null,
+          "Assurance": null,
+          "Authentication": null,
+          "ResponseIdentity": null
+        },
+        "QualityReview": null
+      },
+      "VigilanceAuthoring": {
+        "Binding": {
+          "Role": "VigilanceAuthoring",
+          "Model": { "Endpoint": null, "Deployment": null, "ModelVersion": null, "ProcessingBoundary": "EU-Member-States", "BoundaryApproval": null },
+          "ModelFamily": null,
+          "CapabilityClass": null,
+          "SelectionPolicy": "QualityFirst",
+          "PromptVersion": null,
+          "PromptSha256": null,
+          "PipelineConfigurationSha256": null,
+          "WorkloadTenantId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadClientId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadPrincipalId": "00000000-0000-0000-0000-000000000000",
+          "PrivatePathReviewSha256": null,
+          "EvidencePreservationReviewSha256": null,
+          "Assurance": null,
+          "Authentication": null,
+          "ResponseIdentity": null
+        },
+        "QualityReview": null
+      },
+      "PsurAuthoring": {
+        "Binding": {
+          "Role": "PsurAuthoring",
+          "Model": { "Endpoint": null, "Deployment": null, "ModelVersion": null, "ProcessingBoundary": "EU-Member-States", "BoundaryApproval": null },
+          "ModelFamily": null,
+          "CapabilityClass": null,
+          "SelectionPolicy": "QualityFirst",
+          "PromptVersion": null,
+          "PromptSha256": null,
+          "PipelineConfigurationSha256": null,
+          "WorkloadTenantId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadClientId": "00000000-0000-0000-0000-000000000000",
+          "WorkloadPrincipalId": "00000000-0000-0000-0000-000000000000",
+          "PrivatePathReviewSha256": null,
+          "EvidencePreservationReviewSha256": null,
+          "Assurance": null,
+          "Authentication": null,
+          "ResponseIdentity": null
+        },
+        "QualityReview": null
+      }
+    }
+  }
+}

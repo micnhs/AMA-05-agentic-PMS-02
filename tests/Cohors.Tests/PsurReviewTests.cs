@@ -14,7 +14,7 @@ public sealed class PsurReviewTests : IAsyncLifetime
     private readonly TestClock clock = new(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
     private const string Reason = "Der synthetische Rueckfragevorgang wird anhand der konkret gebundenen Quellen und Massnahmen nachvollziehbar geprueft; keine klinische Risikoakzeptanz.";
     private const string Response = "SYNTHETISCHE ANTWORT. Die getrennten Produktfamilien, Nenner und Quellversionen des eingefrorenen Berichts bleiben unveraendert. Die ausgewaehlten Quellen begruenden diese Praezisierung; eine gepoolte Inzidenz oder reale klinische Eignung wird nicht behauptet.";
-    private AnalyticsService Analytics() => new(fixture.Store, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+    private AnalyticsService Analytics() => new(fixture.Store, new AgentRunner(), fixture.Policies, clock);
     private PsurReviewService Service() => new(fixture.Store, Analytics(), clock);
     public Task InitializeAsync() => fixture.InitializeAsync();
     public Task DisposeAsync() => fixture.DisposeAsync();

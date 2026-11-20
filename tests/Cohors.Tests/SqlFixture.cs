@@ -76,7 +76,7 @@ public sealed class SqlFixture : IAsyncLifetime
     }
 
     public CaseService Service(TimeProvider clock, IKnowledgeSearch? knowledge = null) =>
-        new(Store, Objects, Policies, new AgentRunner(new(null, null, null, null)),
+        new(Store, Objects, Policies, new AgentRunner(),
             knowledge ?? new KnowledgeSearch(Store, Objects, Store), clock, new MirComposer());
 
     public async Task DisposeAsync()

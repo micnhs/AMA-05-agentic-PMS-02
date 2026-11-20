@@ -77,13 +77,13 @@ builder.Services.AddHttpClient("agent-runtime", client => client.Timeout = TimeS
 builder.Services.AddSingleton<IAgentRunner>(sp =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
+    var profiles = config.GetSection("Foundry").Get<FoundryProfiles>() ?? new();
     var localAllowed = builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing");
     var transport = config["Cohors:AgentTransport"] ?? (localAllowed ? "Local" : "Remote");
     if (transport == "Local")
     {
         if (!localAllowed) throw new InvalidOperationException("In-process agents are Development/Testing-only.");
-        return new AgentRunner(new(config["Foundry:Endpoint"], config["Foundry:Deployment"], config["Foundry:ModelVersion"],
-            config["Foundry:ProcessingBoundary"], config.GetSection("Foundry:BoundaryReview").Get<FoundryBoundaryApproval>()));
+        return new AgentRunner(profiles);
     }
     if (transport != "Remote") throw new InvalidOperationException("Unknown agent transport.");
     var endpoint = new Uri(config["Agents:Endpoint"] ?? throw new InvalidOperationException("Internal agent endpoint required."));
@@ -94,8 +94,9 @@ builder.Services.AddSingleton<IAgentRunner>(sp =>
         endpoint.AbsolutePath != "/" || (endpoint.Scheme != "https" && !(localKey is not null && endpoint.IsLoopback)))
         throw new InvalidOperationException("Agent runtime must be a fixed HTTPS origin.");
     var scope = config["Agents:Scope"] ?? (localKey is null ? throw new InvalidOperationException("Agent application scope required.") : "");
-    return new RemoteAgentRunner(sp.GetRequiredService<IHttpClientFactory>().CreateClient("agent-runtime"),
-        new(endpoint, scope, localKey), new DefaultAzureCredential());
+    return new FoundryRemoteActivationRunner(profiles, () =>
+        new RemoteAgentRunner(sp.GetRequiredService<IHttpClientFactory>().CreateClient("agent-runtime"),
+            new(endpoint, scope, localKey), new DefaultAzureCredential()));
 });
 builder.Services.AddSingleton<CaseService>();
 builder.Services.AddSingleton<WorkspaceReadService>();
@@ -268,7 +269,8 @@ api.MapGet("/status", async (IStateStore store, HttpContext ctx, CancellationTok
 {
     _ = Who(ctx);
     var heartbeat = await store.Get<OperationsHeartbeat>("operations", "heartbeat", ct);
-    return Results.Ok(new { mode = "Synthetic pilot", agentDefault = "Replay", foundryConfigured = !string.IsNullOrEmpty(app.Configuration["Foundry:Endpoint"]),
+    return Results.Ok(new { mode = "Synthetic pilot", agentDefault = "Replay", foundryConfigured = Enum.GetNames<AgentRole>().All(role =>
+        !string.IsNullOrEmpty(app.Configuration[$"Foundry:Roles:{role}:QualityReview:BindingSha256"])),
         persistence = "SQL Server", objects = app.Configuration["Cohors:ObjectStore"], search = app.Configuration["Cohors:Search"],
         orchestration = app.Configuration.GetValue<bool>("Cohors:LocalOperations") ? "Local operations emulator (SQL outbox)" : "Durable Functions",
         agentRuntime = app.Configuration["Cohors:AgentTransport"] ??

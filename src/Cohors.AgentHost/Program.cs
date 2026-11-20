@@ -10,17 +10,25 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
 
-var boundaryHashOnly = args.Contains("--boundary-hash");
-var builder = WebApplication.CreateBuilder(args.Where(arg => arg != "--boundary-hash").ToArray());
+var hashCommand = args.FirstOrDefault() is "--boundary-hash" or "--runtime-hashes";
+var builder = WebApplication.CreateBuilder(hashCommand ? args.Skip(2).ToArray() : args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 2 * 1024 * 1024);
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 var config = builder.Configuration;
-if (boundaryHashOnly)
+var profiles = config.GetSection("Foundry").Get<FoundryProfiles>() ?? new();
+if (hashCommand)
 {
-    var review = config.GetSection("Foundry:BoundaryReview").Get<FoundryBoundaryApproval>()
-        ?? throw new InvalidOperationException("Foundry:BoundaryReview required; set ConfigurationHash to 'pending' when computing.");
-    var settings = new FoundryOptions(config["Foundry:Endpoint"], config["Foundry:Deployment"],
-        config["Foundry:ModelVersion"], config["Foundry:ProcessingBoundary"], review);
+    if (args.Length < 2 || !Enum.TryParse<AgentRole>(args[1], out var role) || !Enum.IsDefined(role))
+        throw new DomainException("model_profile_role", "Hash command requires an explicit AgentRole.");
+    if (args[0] == "--runtime-hashes")
+    {
+        Console.WriteLine(Canonical.Serialize(FoundryActivation.RuntimeHashes(role, language: config["FoundryHash:Language"] ?? "de")));
+        return;
+    }
+    if (!profiles.Roles.TryGetValue(role.ToString(), out var profile) || profile.Binding is not { } binding ||
+        binding.Role != role || binding.Model?.BoundaryApproval is not { } review)
+        throw new DomainException("model_boundary", "Foundry:Roles:<role>:Binding:Model:BoundaryApproval required; ConfigurationHash may be pending.");
+    var settings = binding.Model;
     var hash = FoundryBoundary.ConfigurationHash(settings, review);
     FoundryBoundary.RequireApproved(settings with { BoundaryApproval = review with { ConfigurationHash = hash } });
     Console.WriteLine(hash);
@@ -60,9 +68,7 @@ if (!local)
     });
     builder.Services.AddAuthorization();
 }
-builder.Services.AddSingleton<IAgentRunner>(new AgentRunner(new(config["Foundry:Endpoint"], config["Foundry:Deployment"],
-    config["Foundry:ModelVersion"], config["Foundry:ProcessingBoundary"],
-    config.GetSection("Foundry:BoundaryReview").Get<FoundryBoundaryApproval>())));
+builder.Services.AddSingleton<IAgentRunner>(new AgentRunner(profiles));
 var products = config.GetSection("Agents:Products").Get<string[]>() ?? (local ? ["ortho", "cardio"] :
     throw new InvalidOperationException("Explicit agent product grants required."));
 var app = builder.Build();

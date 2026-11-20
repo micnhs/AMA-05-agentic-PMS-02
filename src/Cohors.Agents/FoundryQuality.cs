@@ -1,3 +1,4 @@
+using Cohors.Application;
 using Cohors.Domain;
 
 namespace Cohors.Agents;
@@ -5,11 +6,16 @@ namespace Cohors.Agents;
 public sealed record FoundryAssuranceSeparation(string AnalysisBindingSha256,
     string OriginalReadPathReviewSha256, string IndependenceReviewSha256);
 
+public sealed record FoundryWorkloadAuthentication(string Kind, string? FederatedTokenFile = null);
+
+public sealed record FoundryResponseIdentityBinding(string ModelId, string VersionEvidenceReviewSha256);
+
 public sealed record FoundryTaskBinding(AgentRole Role, FoundryOptions Model, string ModelFamily,
     string CapabilityClass, string SelectionPolicy, string PromptVersion, string PromptSha256,
     string PipelineConfigurationSha256, Guid WorkloadTenantId, Guid WorkloadClientId, Guid WorkloadPrincipalId,
     string PrivatePathReviewSha256, string EvidencePreservationReviewSha256,
-    FoundryAssuranceSeparation? Assurance = null);
+    FoundryAssuranceSeparation? Assurance = null, FoundryWorkloadAuthentication? Authentication = null,
+    FoundryResponseIdentityBinding? ResponseIdentity = null);
 
 public sealed record FoundryQualityMeasurements(int TruePositive, int FalsePositive, int FalseNegative, int TrueNegative,
     int ClaimsReviewed, int UnsupportedClaims, int CitationsReviewed, int FabricatedCitations)
@@ -59,13 +65,26 @@ public static class FoundryQuality
             binding.WorkloadPrincipalId == Guid.Empty || !Hash(binding.PrivatePathReviewSha256) ||
             !Hash(binding.EvidencePreservationReviewSha256),
             "model_quality_runtime", "Eigene Workloadidentitaet, Privatpfad und verlustfreie Evidenzbehandlung muessen gebunden sein.");
+        Guard.Against(binding.Authentication is null ||
+            (binding.Authentication.Kind == "ManagedIdentity" ? binding.Authentication.FederatedTokenFile is not null :
+             binding.Authentication.Kind != "WorkloadIdentity" ||
+             string.IsNullOrWhiteSpace(binding.Authentication.FederatedTokenFile) ||
+             !Path.IsPathFullyQualified(binding.Authentication.FederatedTokenFile)),
+            "model_workload_authentication", "Nur die explizit gebundene Workloadidentitaet ist erlaubt; keine ambiente Credentialkette.");
         Guard.Against(binding.SelectionPolicy is not ("QualityFirst" or "TaskProvenCostOptimized") ||
             binding.CapabilityClass is not ("Strong" or "Frontier" or "TaskQualified"),
             "model_quality_selection", "Nicht gebundene Modellauswahl; kein automatischer Billigmodell-Fallback.");
-        var critical = binding.Role is AgentRole.CausalityRisk or AgentRole.TrendSignal or AgentRole.EvidenceAssurance;
+        var critical = binding.Role is AgentRole.CausalityRisk or AgentRole.TrendSignal or AgentRole.EvidenceAssurance
+            or AgentRole.VigilanceAuthoring or AgentRole.PsurAuthoring;
         Guard.Against(critical && (binding.SelectionPolicy != "QualityFirst" || binding.CapabilityClass == "TaskQualified"),
             "model_quality_priority", "Analyse, Risiko, Empfehlungen und Assurance werden nach Fachqualitaet ausgewaehlt.");
         FoundryBoundary.RequireApproved(binding.Model!);
+        Guard.Against(binding.ResponseIdentity is null || !Hash(binding.ResponseIdentity.VersionEvidenceReviewSha256),
+            "model_response_identity_binding", "Eine qualifizierte Provider-Snapshotkennung und ihr Versionssemantiknachweis fehlen.", 409);
+        var responseVersion = AgentModelIdentity.RequireDatedSnapshotVersion(binding.ResponseIdentity!.ModelId,
+            "model_response_identity_binding");
+        Guard.Against(responseVersion != binding.Model!.ModelVersion, "model_response_identity_binding",
+            "Provider-Snapshotkennung und qualifizierte Modellversion widersprechen sich.", 409);
 
         if (binding.Role == AgentRole.EvidenceAssurance)
         {

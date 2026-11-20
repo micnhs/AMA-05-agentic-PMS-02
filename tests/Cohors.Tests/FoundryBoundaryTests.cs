@@ -3,13 +3,13 @@ using Cohors.Domain;
 
 namespace Cohors.Tests;
 
-public sealed class FoundryBoundaryTests
+public sealed partial class FoundryBoundaryTests
 {
     private static FoundryOptions Settings(string sku = "Standard", string boundary = "EU-Member-States",
         string[]? countries = null)
     {
         var review = new FoundryBoundaryApproval("synthetic-review-2026-001", "", sku, "germanywestcentral", "Germany", countries ?? ["DE"]);
-        var settings = new FoundryOptions("https://synthetic-not-provisioned.openai.azure.com/", "unprovisioned", "test-version", boundary, review);
+        var settings = new FoundryOptions("https://synthetic-not-provisioned.openai.azure.com/", "unprovisioned", SyntheticResponseVersion, boundary, review);
         return settings with { BoundaryApproval = review with { ConfigurationHash = FoundryBoundary.ConfigurationHash(settings, review) } };
     }
 
@@ -40,6 +40,8 @@ public sealed class FoundryBoundaryTests
     [InlineData(AgentRole.CausalityRisk)]
     [InlineData(AgentRole.TrendSignal)]
     [InlineData(AgentRole.EvidenceAssurance)]
+    [InlineData(AgentRole.VigilanceAuthoring)]
+    [InlineData(AgentRole.PsurAuthoring)]
     public void CriticalRolesCannotTradeQualityForACostLabel(AgentRole role)
     {
         var binding = Binding(role) with { SelectionPolicy = "TaskProvenCostOptimized" };
@@ -127,7 +129,8 @@ public sealed class FoundryBoundaryTests
     private const string Pipeline = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     private static FoundryTaskBinding Binding(AgentRole role) => new(role, Settings(), "synthetic-unselected-family",
         "Strong", "QualityFirst", AgentRunner.PromptVersion, Hash, Pipeline, Guid.NewGuid(), Guid.NewGuid(),
-        Guid.NewGuid(), Hash, Hash);
+        Guid.NewGuid(), Hash, Hash, Authentication: new("ManagedIdentity"),
+        ResponseIdentity: new(SyntheticResponseModelId, Hash));
     private static FoundryQualityReview Review(FoundryTaskBinding binding) => new(FoundryQuality.Contract,
         FoundryQuality.BindingHash(binding), Hash, Hash, "ProfessionallyAdjudicated", Hash,
         "IntakeRetrievalAnalysisAssurance", Hash, 20, FoundryQuality.RequiredCoverage.ToDictionary(name => name, _ => 1),

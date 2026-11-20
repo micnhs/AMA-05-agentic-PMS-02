@@ -187,7 +187,7 @@ public sealed class SpecimenInvestigationTests(SqlFixture fixture)
             scenario.Service.ApproveSpecimen(c.Id, id, new(c.Version, SpecimenTestData.Text),
                 SqlFixture.Ra with { Id = SqlFixture.Medical.Id }, CaseScenario.Key()))).Code);
         var service = new CaseService(fixture.Store, new WrongObjectBytes(fixture.Objects), fixture.Policies,
-            new AgentRunner(new(null, null, null, null)), new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store),
+            new AgentRunner(), new KnowledgeSearch(fixture.Store, fixture.Objects, fixture.Store),
             scenario.Clock, new MirComposer());
         Assert.Equal("evidence_object_hash", (await Assert.ThrowsAsync<DomainException>(() =>
             service.ApproveSpecimen(c.Id, id, new(c.Version, SpecimenTestData.Text), SqlFixture.Ra, CaseScenario.Key()))).Code);

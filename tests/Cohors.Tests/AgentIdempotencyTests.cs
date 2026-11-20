@@ -121,7 +121,7 @@ public sealed class AgentIdempotencyTests(SqlFixture fixture)
         public Task<AgentOutput> Run(AgentInput input, CancellationToken ct = default)
         {
             Interlocked.Increment(ref count);
-            return new AgentRunner(new(null, null, null, null)).Run(input, ct);
+            return new AgentRunner().Run(input, ct);
         }
     }
 

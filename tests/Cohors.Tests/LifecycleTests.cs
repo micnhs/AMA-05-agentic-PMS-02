@@ -79,7 +79,7 @@ public sealed class LifecycleTests(SqlFixture fixture)
         s.Case = await service.AbandonRun(s.Case.Id, runId, new(s.Case.Version,
             "Ungeklaerter Lauf nach kontrollierter Pruefung abbrechen; Ergebnisse nicht nachtraeglich annehmen."), SqlFixture.Quality, CaseScenario.Key());
         var due = s.Case.Deadlines.Single().LegalDue;
-        runner.Complete(await new AgentRunner(new(null, null, null, null)).Run(input));
+        runner.Complete(await new AgentRunner().Run(input));
         var finished = await pending.WaitAsync(TimeSpan.FromSeconds(15));
         Assert.Equal("Abandoned", finished.AgentRuns.Single(r => r.Id == runId).Status);
         Assert.Empty(finished.Assessments);
@@ -107,7 +107,7 @@ public sealed class LifecycleTests(SqlFixture fixture)
         s.Clock.Now = s.Clock.Now.AddMinutes(11);
         await operations.AbandonInvocation(id, new(invocation.Version,
             "Ungeklaerten Providerauftrag kontrolliert abbrechen; keine verdeckte Wiederholung zulassen."), SqlFixture.Quality, CaseScenario.Key());
-        runner.Complete(await new AgentRunner(new(null, null, null, null)).Run(input));
+        runner.Complete(await new AgentRunner().Run(input));
         var error = await Assert.ThrowsAsync<DomainException>(() => pending);
         Assert.Equal("invocation_abandoned", error.Code);
         invocation = (await fixture.Store.Get<AgentInvocation>("agentInvocation", id))!;

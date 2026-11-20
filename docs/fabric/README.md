@@ -1351,6 +1351,179 @@ Real UI/accessibility, API/authentication, transactional concurrency, stored
 original availability and end-to-end simulator acceptance remain unproven here.
 G01-G04 and all deployment/adapter gates remain open.
 
+## Role-bound model quality and live activation
+
+The API and AgentHost now use `Foundry:Roles:<AgentRole>`, not a shared
+`Foundry:Endpoint`/`Deployment` configuration. Each entry contains its own
+`Binding` (`FoundryTaskBinding`, including `Model:BoundaryApproval`) and
+`QualityReview` (`FoundryQualityReview`). The
+[unbound profile template](../../fabric/foundry/profiles.template.json) names
+all six roles but selects no model, version, region, SKU, identity or price.
+It is not loaded automatically and cannot activate Live. Supply the reviewed
+`Foundry` section through each process's normal application configuration
+(including `Foundry__Roles__<Role>__...` environment keys); for the API, its
+explicit `.local/settings.json` overlay remains Development/Testing setup.
+There is no migration from, inheritance of, or fallback to the old global model
+keys. A parameterless `AgentRunner` supports Replay/Failure, not unbound Live.
+
+`CausalityRisk`, `TrendSignal`, `EvidenceAssurance`, `VigilanceAuthoring` and
+`PsurAuthoring` require `QualityFirst` and an evaluated `Strong` or `Frontier`
+candidate. The two authoring roles generate authority-relevant analysis and
+recommendations and are not lower-quality formatting tasks. Only `Ingestion`
+may use `TaskProvenCostOptimized`/`TaskQualified`, and only with the same bound,
+professionally adjudicated end-to-end review. Intake cannot discard signals,
+close cases, stop deadlines or decide nonreportability. Cost is not a substitute
+for professional quality or evidence-preserving intake and retrieval.
+
+Before **each** Live call, `FoundryActivation.Require` selects exactly the
+requested role, requires its EU deployment-boundary approval and calls
+`FoundryQuality.ValidateActivationReview`. Missing/foreign profiles fail as
+`model_profile_missing`/`model_profile_role`; missing reviews, stale runtime
+hashes, changed model bindings, invalid selection, reference or coverage have
+their own `model_quality_*` codes. EU-country and regional-SKU checks remain
+unchanged. No credential, model client or model request is created on refusal.
+The API's remote wrapper also validates before lazily creating its internal
+transport or caller credential, then sends `ExpectedActivation`. The AgentHost
+must match it before creating its model credential/client; mismatches fail as
+`model_activation_mismatch`. API-to-AgentHost caller authentication remains a
+separate existing service boundary, not the model credential.
+
+The actual prompt hash is computed from the exact system instructions used by
+the client, role, prompt version, actual task instruction and output language.
+The task instruction strings were moved into `AgentInstructions` without
+changing their text. The actual drafting-pipeline hash includes SHA-256/MVID of
+the running Agents, Application and Domain binaries and their model/identity
+SDK binaries, the .NET runtime version, the enforced 90-second budget,
+zero retries, no tools and the output limit. It is not copied from the review or
+configuration. Unreadable binaries fail closed. Changes to model/version,
+identity, boundary, prompt/language, executing binaries or pipeline policy
+require new bound regression evidence. Data-specific input/evidence hashes
+remain separate from the prompt/pipeline version: new case contents are not
+silently treated as a new approved prompt. Published and reviewed runtime bytes
+must match in API and AgentHost; Debug/Release, runtime patches or independently
+built images must not reuse approvals on the assumption of equivalent source.
+
+The existing offline `--boundary-hash` AgentHost command now requires a role,
+for example `--boundary-hash CausalityRisk`, and reads that role's
+`Binding:Model:BoundaryApproval`. `--runtime-hashes CausalityRisk` reports
+computed hashes for the compiled task instruction (default language `de`;
+`FoundryHash:Language` selects the language for this offline calculation).
+Neither command creates a credential/client, validates clinical quality or
+activates a model. Nonstandard task instructions must be evaluated and hashed
+as actually passed to `FoundryActivation.RuntimeHashes`; a configuration label
+alone cannot authorize them.
+
+Model authentication has no `DefaultAzureCredential` chain: the binding selects
+`Authentication:Kind=ManagedIdentity` with its exact user-assigned client ID,
+or `WorkloadIdentity` with explicit tenant/client IDs and an absolute
+`FederatedTokenFile` path. The path is not a secret and token contents are never
+configuration or output. The acquired model token must match the bound tenant,
+client and principal, the Cognitive Services audience and app-only claims.
+Only the model scope is allowed; mismatches stop before the model request.
+These identity-claim checks do not replace the provider's token-signature
+validation or prove actual effective grants.
+
+### Qualified model binding versus observed response identity
+
+The deployment name and configured model version are **requested/qualified
+values**, not proof of what served a request. Each task binding also requires
+`ResponseIdentity:ModelId` (the exact qualified provider snapshot ID) and
+`ResponseIdentity:VersionEvidenceReviewSha256` (the reviewed evidence that this
+provider/endpoint/API's response ID denotes that model version). Both are
+covered by `BindingSha256` and its quality regression. Missing, unsupported or
+inconsistent configuration fails as `model_response_identity_binding` before
+credentials or clients are created. The template supplies neither value.
+
+The current narrow identity contract accepts only an explicit
+`<provider-model-name>-YYYY-MM-DD` snapshot, with a valid date matching the
+qualified `ModelVersion`. It selects no model. Unversioned aliases, short
+numeric versions, fine-tuned identifiers and other unproven formats remain
+**not activatable through this adapter**, even when a deployment-boundary or
+quality review otherwise passes. Do not equate an alias, a default model ID
+or a system fingerprint with model-version evidence.
+
+For the installed Azure.AI.OpenAI 2.1.0 / OpenAI 2.14.0 / Extensions.AI 10.11.0 /
+Agents 1.28.0 path, the adapter requires the original
+`AgentResponse.RawRepresentation -> ChatResponse.RawRepresentation ->
+ChatCompletion`. It reads `ChatCompletion.Model` and `Id`, checks the
+`ChatResponse.ModelId`/response IDs and single-response text agree, and derives
+the version only from the observed snapshot ID. It does **not** call
+`AgentResponse.AsChatResponse` to manufacture missing metadata: that method can
+return a newly constructed wrapper when the original is absent. The
+`ChatResponse.ModelId` XML description says it is the model used to create the
+response; that alone does not guarantee version precision.
+
+Microsoft's [structured-output response example](https://learn.microsoft.com/azure/foundry/openai/how-to/structured-outputs)
+distinguishes the request's deployment name from a dated provider response
+model. That example supports this restricted format, not a universal promise
+for every model or future API. The profile-specific semantic evidence and
+actual service readback are still required before real activation; none was
+obtained here. SDK adapter tests use explicitly synthetic intercepted HTTP and
+real SDK response types, not an available or evaluated real model.
+
+`IFoundryDraftClient` retains a typed `FoundryDraftResponse`, including the
+observed source, response ID, model ID and parsed version. `AgentRunner`
+compares it with the qualified binding **before accepting/parsing the generated
+draft as a successful output**. Missing, insufficient, conflicting and
+different identities fail respectively as `model_response_identity_missing`,
+`model_response_identity_insufficient`, `model_response_identity_ambiguous`
+and `model_response_identity_mismatch`. No configuration, deployment alias,
+`DefaultModelId` or generated JSON supplies missing observations. Rejections
+produce no successful output or Completed invocation and do not replay.
+
+Assurance additionally validates the current `CausalityRisk` profile and review,
+its `Assurance:AnalysisBindingSha256`, separate client/principal in the same
+tenant, and the original-read/independence review references. `CaseService`
+passes the analysis output's `AnalysisProvenance`; the assurance input must
+contain the identical, integrity-checked original-evidence snapshot, not an
+analysis summary in its place. Assurance uses its own role credential and
+independent model call. This is not a service proof of independent storage
+grants: original retrieval remains the existing application read path; private
+access, original-read rights and the external retrieval/index configuration
+still need real end-to-end evaluation and service evidence. The drafting-code
+fingerprint does not inspect a remote search index or validate those reports.
+The analysis provenance must also contain a valid matching provider
+observation; a config-only analysis binding cannot authorize Assurance.
+
+The runtime, never identity fields generated inside the model's JSON, writes
+`ModelProvenance` into `AgentOutput`: role, qualified deployment/model version,
+task-binding hash, full review hash, qualified-review reference, actual
+prompt/pipeline hashes, workload IDs and original-evidence hash.
+`ExpectedResponseModelId` explicitly records the qualified provider ID;
+`ObservedModel` separately records the actual SDK metadata source, response ID,
+model ID and version. The legacy `Model` display value remains
+`Deployment@Version`, with the version taken from the verified observation.
+`ExpectedActivation` has no observation: API/Host compare the qualified fields,
+then require the result's observation to match. Existing `AgentInvocation.OutputJson`,
+`AgentRun.OutputJson` and completed invocation/audit commands retain this
+provenance under their existing canonical hashes. There is **no SQL migration
+or new aggregate column**. The only wire/persisted-JSON extensions are nullable
+`AgentOutput.ModelProvenance` and `AgentInput.AnalysisProvenance`/
+`ExpectedActivation`, plus the nested nullable `ExpectedResponseModelId` and
+`ObservedModel`, all omitted when null; historical and Replay canonical
+payloads retain their original shape. Historical outputs are not retroactively
+converted into approved Live evidence. Human Medical/RA approval and the
+explicit Failure/Replay modes are unchanged; no provider failure triggers
+Replay, a different role or a different model.
+
+The Fabric C1 bootstrap currently creates no model runtime configuration; its
+direct MCP probe remains model-free and unchanged. Role-profile handover into
+a future Fabric runtime deployment therefore remains **open**. The inherited
+primary-style `infra/modules/runtime.bicep` global model settings are not such
+a handover and cannot enable the new runtime. No bootstrap, deployment or
+model action is implied by the template or this hook.
+
+Offline positive fixtures are explicitly synthetic contract doubles, including
+invented review references and measurements, not clinical evaluations.
+Pre-call negative cases count credential/client/transport creation and require
+zero calls before rejection. Response-identity negatives instead run one
+synthetic request and prove Failed, not Completed, with no replay; they cannot
+be evaluated before a response exists. The work provides **no measured clinical quality, no
+model or region selection, no cost commitment, no live/private-path acceptance**.
+The real evaluation dataset, qualified adjudication, external review contents,
+effective independent source access, model provisioning and Live activation
+remain unperformed and require separate evidence and authorization.
+
 ## Execution and deployment
 
 The bounded [C1 client](c1-preparation.md) supplies the synthetic source,
@@ -1359,7 +1532,7 @@ entry in the API executable, before its normal startup/DI. Existing .NET/Azure
 Identity libraries implement fixed app-only credentials, bounded JSON/HTTP/SSE,
 private-address binding, persisted original request/task/cursor state and the
 separate Hosted Invocations entry/client. No storage/IQ/runtime adapter is
-activated. No new package, local SDK/SQL/browser run or cloud allocation is used.
+activated. That C1 delivery used no new package, local SDK/SQL/browser run or cloud allocation.
 
 General cost approval and the bounded C1 execution request are recorded;
 concrete private targets, identities/grants, model/budget/retention and cleanup
@@ -1378,7 +1551,7 @@ The [deployment plan](../../.azure/deployment-plan.md) records approval
 boundaries. The Fabric-only push workflow runs one allocated standard hosted
 build/contract job against the exact commit, with private temporary package/cache
 directories. Inherited primary workflows are disabled in this branch only.
-Local native execution and service validation remain unallocated. Before cloud execution, approve distinct
+C1 native execution and service validation remain unallocated. Before cloud execution, approve distinct
 subscriptions/resources, regions, Fabric capacities/workspaces, identities,
 network paths, costs and retention. Use synthetic data only.
 

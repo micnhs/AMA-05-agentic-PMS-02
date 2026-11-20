@@ -46,7 +46,7 @@ public sealed class RecoveryTests : IDisposable
         var search = new KnowledgeSearch(sql, objects, sql);
         var clock = new TestClock(DateTimeOffset.Parse("2026-12-16T15:00:00Z"));
         var service = new CaseService(sql, objects, fixture.Policies,
-            new AgentRunner(new(null, null, null, null)), search, clock, new MirComposer());
+            new AgentRunner(), search, clock, new MirComposer());
         var regulatory = new RegulatoryService(sql, objects, service, new MirComposer(), fixture.Policies, clock);
 
         Assert.Equal(fixture.SourceTables, await RecoveryFixture.Tables(target.Connection));
@@ -146,7 +146,7 @@ public sealed class RecoveryTests : IDisposable
         var sql = new SqlStateStore(target.Connection);
         var objects = new LocalObjectStore(target.ObjectRoot);
         var clock = new TestClock(DateTimeOffset.Parse("2028-12-16T15:00:00Z"));
-        var analytics = new AnalyticsService(sql, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+        var analytics = new AnalyticsService(sql, new AgentRunner(), fixture.Policies, clock);
         var reviews = new PsurReviewService(sql, analytics, clock);
         Assert.Equal(fixture.SourceTables, await RecoveryFixture.Tables(target.Connection));
         Assert.Equal(fixture.SourcePsurHistory, await RecoveryFixture.PsurHistory(sql));
@@ -902,7 +902,7 @@ public sealed partial class RecoveryFixture : IAsyncLifetime
         const string reason = "SYNTHETISCH: Die getrennten Produktquellen, unveraenderten Berichtsfassungen und vereinbarten BS-Antworten werden ausschliesslich fuer den isolierten Recovery-Test nachvollziehbar geprueft; keine klinische Risikoakzeptanz.";
         const string response = "SYNTHETISCHE ANTWORT: Die beiden Basic-UDI-Familien und ihre belegten Nenner bleiben getrennt. Diese begruendete Praezisierung bindet die konkret ausgewaehlten historischen Dokumentfassungen, ohne eingefrorene Berichtsbytes oder fruehere Pflichten zu aendern.";
         var clock = new TestClock(CaptureTime);
-        var analytics = new AnalyticsService(source.Store, new AgentRunner(new(null, null, null, null)), source.Policies, clock);
+        var analytics = new AnalyticsService(source.Store, new AgentRunner(), source.Policies, clock);
         var reviews = new PsurReviewService(source.Store, analytics, clock);
         var quality = new QualityService(source.Store, source.Objects, clock);
         RecordPsurGroupCommand Definition(string lead) => new(0,

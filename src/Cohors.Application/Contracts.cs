@@ -78,11 +78,20 @@ public sealed record RetentionOptions(bool EnableSyntheticRawDeletion);
 public sealed record RetentionView(RetentionRecord Record, RetentionEvaluation Evaluation, ObjectDependency[] References);
 
 public sealed record AgentInput(AgentRole Role, AgentMode Mode, SafetyCase? Case, PsurSnapshot? Snapshot,
-    TrendRun? Trend, Evidence[] Evidence, string Instruction, int Revision, string Language = "de");
+    TrendRun? Trend, Evidence[] Evidence, string Instruction, int Revision, string Language = "de",
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AgentModelProvenance? AnalysisProvenance = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AgentModelProvenance? ExpectedActivation = null);
+public sealed record AgentModelProvenance(AgentRole Role, string Deployment, string ModelVersion, string BindingSha256,
+    string ReviewSha256, string QualifiedReviewSha256, string PromptSha256, string PipelineConfigurationSha256,
+    Guid WorkloadTenantId, Guid WorkloadClientId, Guid WorkloadPrincipalId, string EvidenceSha256,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ExpectedResponseModelId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AgentModelObservation? ObservedModel = null);
+public sealed record AgentModelObservation(string Source, string ResponseId, string ModelId, string ModelVersion);
 public sealed record AgentOutput(string Model, string PromptVersion, AssessmentContent? Assessment,
     string Narrative, QualityFinding[] Findings, string[] Tools,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] VigilanceFields? Vigilance = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalTriageProposal? Triage = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SignalTriageProposal? Triage = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AgentModelProvenance? ModelProvenance = null);
 public interface IAgentRunner
 {
     Task<AgentOutput> Run(AgentInput input, CancellationToken ct = default);

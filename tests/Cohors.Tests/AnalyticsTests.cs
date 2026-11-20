@@ -12,7 +12,7 @@ public sealed class AnalyticsTests : IAsyncLifetime
     public Task InitializeAsync() => fixture.InitializeAsync();
     public Task DisposeAsync() => fixture.DisposeAsync();
     private AnalyticsService Service(TimeProvider clock, IAgentRunner? runner = null) =>
-        new(fixture.Store, runner ?? new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+        new(fixture.Store, runner ?? new AgentRunner(), fixture.Policies, clock);
 
     [Fact]
     public async Task T15_TrendBindsUniqueCaseVersionsAndRejectsMismatchedDenominators()
@@ -156,7 +156,7 @@ public sealed class AnalyticsTests : IAsyncLifetime
         public Task<AgentOutput> Run(AgentInput input, CancellationToken ct = default)
         {
             Interlocked.Increment(ref count);
-            return new AgentRunner(new(null, null, null, null)).Run(input, ct);
+            return new AgentRunner().Run(input, ct);
         }
     }
 }

@@ -11,7 +11,7 @@ public sealed class PsurSeriesTests : IAsyncLifetime
     private readonly TestClock clock = new(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
     public Task InitializeAsync() => fixture.InitializeAsync();
     public Task DisposeAsync() => fixture.DisposeAsync();
-    private AnalyticsService Service() => new(fixture.Store, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+    private AnalyticsService Service() => new(fixture.Store, new AgentRunner(), fixture.Policies, clock);
     private static FreezePsurCommand Initial() => new("ortho", "ortho", new(2025, 11, 15), new(2026, 11, 14), "Worldwide");
     private static FreezePsurCommand Refreeze(Psur prior) => Initial() with { PreviousReportId = prior.Id,
         PreviousReportVersion = prior.Version, RevisionReason = "Kontrollierte neue Datenbasis explizit gegen die gebundene Vorfassung vergleichen." };

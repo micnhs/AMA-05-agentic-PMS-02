@@ -177,9 +177,9 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
                 EvidenceRules.RequireIntegrity(item);
                 await objects.Read(item.Hash, ct);
             }
-            var ingestion = await execution.Run(runId + "-ingestion", c.ProductId, new(AgentRole.Ingestion, run.Mode, c, null, null, evidence, "Produktzuordnung und Quellenunabhaengigkeit pruefen.", 0), ct);
+            var ingestion = await execution.Run(runId + "-ingestion", c.ProductId, new(AgentRole.Ingestion, run.Mode, c, null, null, evidence, AgentInstructions.For(AgentRole.Ingestion), 0), ct);
             await RequireRunCurrent(c, runId, owner, ct);
-            var output = await execution.Run(runId + "-assessment", c.ProductId, new(AgentRole.CausalityRisk, run.Mode, c, null, null, evidence, "Begruendeten medizinisch-technischen Entwurf erstellen.", 0), ct);
+            var output = await execution.Run(runId + "-assessment", c.ProductId, new(AgentRole.CausalityRisk, run.Mode, c, null, null, evidence, AgentInstructions.For(AgentRole.CausalityRisk), 0), ct);
             var content = output.Assessment ?? throw new DomainException("model_output", "Strukturiertes Assessment fehlt.");
             var assessmentVersion = (c.CurrentAssessment?.Version ?? 0) + 1;
             var proposed = new Assessment(assessmentVersion, clock.GetUtcNow(), "agent:CausalityRisk", run.Mode.ToString(),
@@ -187,7 +187,8 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
             await RequireRunCurrent(c, runId, owner, ct);
             var assurance = await execution.Run(runId + "-assurance", c.ProductId, new(AgentRole.EvidenceAssurance, run.Mode,
                 c with { Assessments = [.. c.Assessments, proposed], Evidence = evidence }, null, null,
-                evidence, "Unabhaengig Belege, Gegenhypothesen und Datenluecken pruefen.", 0), ct);
+                evidence, AgentInstructions.For(AgentRole.EvidenceAssurance), 0,
+                AnalysisProvenance: output.ModelProvenance), ct);
             var findings = AssessmentRules.Check(content, evidence).Concat(assurance.Findings)
                 .DistinctBy(f => new { f.Code, f.ClaimId }).ToArray();
             var quality = new QualityReview(Guid.NewGuid().ToString("N"), assessmentVersion, clock.GetUtcNow(),
@@ -312,7 +313,7 @@ public sealed partial class CaseService(IStateStore store, IObjectStore objects,
             ? new AgentOutput("none", "human-report-2", null, VigilanceNarrative.FromAssessment(c, input.Language), [], [],
                 VigilanceNarrative.Fields(c, input.Language))
             : await execution.Run(Canonical.Hash(new { actorId = actor.Id, caseId = id, key, input }), c.ProductId, new(AgentRole.VigilanceAuthoring, mode, c, null, null, c.Evidence,
-                "Bericht und strukturierte Vigilance-Texte aus bestehendem Assessment mit exakten Claim-Referenzen; keine neuen Sicherheitsbehauptungen, Fakten oder Termine.", 0, input.Language), ct);
+                AgentInstructions.For(AgentRole.VigilanceAuthoring), 0, input.Language), ct);
         var now = clock.GetUtcNow();
         var run = new AgentRun(Guid.NewGuid().ToString("N"), AgentRole.VigilanceAuthoring, mode, "Completed",
             started, now, authored.Model, authored.PromptVersion, Canonical.Hash(assessment), Canonical.Hash(authored),

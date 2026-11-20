@@ -16,7 +16,7 @@ public sealed class PsurExportTests : IAsyncLifetime
     private readonly TestClock clock = new(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
     public Task InitializeAsync() => fixture.InitializeAsync();
     public Task DisposeAsync() => fixture.DisposeAsync();
-    private AnalyticsService Service() => new(fixture.Store, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+    private AnalyticsService Service() => new(fixture.Store, new AgentRunner(), fixture.Policies, clock);
     private Task<Psur> Freeze() => Service().Freeze(new("ortho", "ortho", new(2025, 11, 15), new(2026, 11, 14), "Worldwide"),
         SqlFixture.Pms, CaseScenario.Key());
 

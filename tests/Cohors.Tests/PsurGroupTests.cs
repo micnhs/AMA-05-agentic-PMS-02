@@ -13,7 +13,7 @@ public sealed class PsurGroupTests : IAsyncLifetime
     private readonly SqlFixture fixture = new() { SeedCases = false };
     private readonly TestClock clock = new(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
     private const string Reason = "Die vollstaendige synthetische Gruppe wird mit getrennten Basic-UDI-Daten, Quellen und offenen Unsicherheiten geprueft.";
-    private AnalyticsService Service() => new(fixture.Store, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+    private AnalyticsService Service() => new(fixture.Store, new AgentRunner(), fixture.Policies, clock);
     public Task InitializeAsync() => fixture.InitializeAsync();
     public Task DisposeAsync() => fixture.DisposeAsync();
     private static RecordPsurGroupCommand Definition(string lead = "ortho") => new(0,

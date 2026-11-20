@@ -140,7 +140,7 @@ public sealed class RetentionTests(Xunit.Abstractions.ITestOutputHelper output) 
             ObjectKey = hash, RecordedAt = clock.Now, ValidFrom = clock.Now.AddDays(-1) };
         await fixture.Store.Execute<Evidence>(new(evidence.Id, "evidence", "ortho", 0, CaseScenario.Key(),
             "RetentionReferenceFixture", Reason, SqlFixture.Quality, evidence, clock.Now), _ => evidence);
-        var analytics = new AnalyticsService(fixture.Store, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+        var analytics = new AnalyticsService(fixture.Store, new AgentRunner(), fixture.Policies, clock);
         var report = await analytics.Freeze(new("ortho", "ortho", new(2025, 11, 15), new(2026, 11, 14), "Worldwide"),
             SqlFixture.Pms, CaseScenario.Key());
         Assert.Contains(report.Snapshot.Documents, e => e.Hash == hash && e.Id == evidence.Id);

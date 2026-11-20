@@ -40,7 +40,7 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
         {
             var output = await executions.Run(owner, input.ProductId,
                 new(AgentRole.TrendSignal, input.Mode, null, null, trend, [],
-                    "Erlaeutere die deterministischen Werte, Nennerpassung, ausgeschlossene unbekannte Daten, Annahmen und Unsicherheit. Keine automatische Art.-88-Entscheidung.", 0), ct);
+                    AgentInstructions.For(AgentRole.TrendSignal), 0), ct);
             return await store.Execute<TrendRun>(context with { ExpectedVersion = 1, IdempotencyKey = key + "-result",
                 Action = "TrendNarrativeDrafted", Request = output, At = clock.GetUtcNow() }, current =>
                     current! with { Version = 2, Interpretation = output.Narrative, Status = "Candidate" }, ct);
@@ -166,7 +166,7 @@ public sealed class AnalyticsService(IStateStore store, IAgentRunner runner, Pol
         {
             var output = await executions.Run(owner, input.ProductId,
                 new(AgentRole.PsurAuthoring, input.Mode, null, snapshot, null, PsurGroupRules.Documents(snapshot),
-                    "Deutscher PSUR-Entwurf mit N/N2/N3/N4, getrennten Regionen und unbekannten Daten. Alle Kennzahlen mit [metric:Periode:Region:events|exposure=Wert] (unknown wenn unbekannt), heutige F02-Kodierungen mit [metric:Periode:Region:deathCoded=Wert], historische nicht releasevalidierte F02-Angaben separat mit [metric:Periode:Region:historicalDeathClaimed=Wert]. Bei einer gebundenen Gruppe alle Marker zusaetzlich mit Produkt qualifizieren: [metric:Produkt:Periode:Region:Kennzahl=Wert]. Jede Basic-UDI einzeln auswerten; keine produktuebergreifende Ratenaddition. Historische Originalangabe und heute vorgenommene retrospektive Kodierung strikt trennen; weder alte Release-Gueltigkeit noch alte Hierarchie aus heutigen Metadaten erfinden. Unvollstaendige Kodierung ist kein Null-Todesfallnachweis. Fallbelege [case:ID@Version], Dokumentbelege [evidence:ID@Version]. Jeden relevanten offenen/aktualisierten/nachtraeglichen BS-Vorgang mit [psurReview:ID@Version] belegen; Stichtagsstatus, Freeze-Status und Antwortzeitpunkt getrennt benennen. Gruppenweite BS-Historie nicht als Einzelfamilieninformation darstellen; fruehere Serienpflichten nicht schliessen. Medizinisch-technisch begruenden, keine autonome Risikoakzeptanz.", 0), ct);
+                    AgentInstructions.For(AgentRole.PsurAuthoring), 0), ct);
             return await store.Execute<Psur>(context with { ExpectedVersion = 1, IdempotencyKey = key + "-result",
                 Action = "PsurDrafted", Request = output, At = clock.GetUtcNow() }, value =>
             {

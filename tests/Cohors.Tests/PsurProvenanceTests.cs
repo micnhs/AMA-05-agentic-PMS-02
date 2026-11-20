@@ -12,7 +12,7 @@ public sealed class PsurProvenanceTests : IAsyncLifetime
     private readonly TestClock clock = new(DateTimeOffset.Parse("2026-11-16T15:00:00Z"));
     public Task InitializeAsync() => fixture.InitializeAsync();
     public Task DisposeAsync() => fixture.DisposeAsync();
-    private AnalyticsService Service() => new(fixture.Store, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+    private AnalyticsService Service() => new(fixture.Store, new AgentRunner(), fixture.Policies, clock);
     private static JsonDocument References() => JsonDocument.Parse(File.ReadAllText(
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "cohors-acceptance-references.json")));
     private static DateOnly Day(JsonElement item, string key) => DateOnly.Parse(item.GetProperty(key).GetString()!);

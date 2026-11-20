@@ -19,7 +19,7 @@ public sealed partial class ProductAuditTests : IAsyncLifetime
     private const string Reason = "Synthetischer produktbezogener Auditnachweis mit Originalversionen, Quellen und getrennten Berechtigungen; keine reale Annahme.";
     private static readonly Actor Auditor = new("audit-reader", "Synthetic auditor", [Roles.Auditor], ["ortho", "cardio"], true);
     private ProductAuditService Exporter() => new(fixture.Store, fixture.Objects, fixture.Policies, clock);
-    private AnalyticsService Analytics() => new(fixture.Store, new AgentRunner(new(null, null, null, null)), fixture.Policies, clock);
+    private AnalyticsService Analytics() => new(fixture.Store, new AgentRunner(), fixture.Policies, clock);
     public Task InitializeAsync() => fixture.InitializeAsync();
     public Task DisposeAsync() => fixture.DisposeAsync();
 
