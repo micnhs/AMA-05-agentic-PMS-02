@@ -319,6 +319,12 @@ des Frontends, nicht am SQL-/Browserablauf. Diese Diagnostik belegt weder die Ur
 frueheren Timeouts noch eine bestandene R01-Abnahme. Upload-Allowlist,
 Retries und Runner-/Stop-/Streambudgets bleiben unveraendert.
 
+Das vorbelegte Schlussfolgerungsfeld im erneuten Human-Review adressiert R01
+ueber die Rolle `textbox` und den exakten zugaenglichen Namen. Vor dem Befuellen
+muss der Wert dem `conclusion`-Abschnitt der aktuellen Fallbewertung entsprechen.
+Der vollstaendige umschliessende Labeltext ist kein Ersatz fuer diesen Namen:
+Er kann auch den urspruenglichen Text des enthaltenen `textarea` umfassen.
+
 ### X-12: abschliessende gebundene Versanduebersicht
 
 Unmittelbar vor dem nativen Simulatorversand liest RA
