@@ -1064,6 +1064,59 @@ for (const variant of [
         caseId: c.id, version: current.version, elapsedMs, tenSecondPollingDisabled: true, manualReloads: navigations,
         noNewAgentRun: true, awarenessAndDeadlinesPreserved: true, assessmentVersion: current.currentAssessment?.version ?? null,
       }, null, 2))
+      await test.step('Case-bound signal review preserves original reasons and uses real versioned commands', async () => {
+        await page.getByRole('tab', { name: 'Disposition & Neubewertung', exact: true }).click()
+        const source = page.getByTestId(`case-signal-${signal.sourceId}`)
+        await expect(source).toContainText('Quellenreview erforderlich')
+        await expect(source).toContainText(signal.history.at(-1)!.reason)
+        await expect(source).toContainText(variant.agent ? 'Agentenvorschlag' : 'Menschlicher Review')
+        const casesBefore = await (await reviewer.get('/api/cases')).json() as CaseSummary[]
+        let version = current.version
+        const casePosts = posts.length
+        for (const step of [
+          { button: 'Quellenrelevanz bestaetigen', submit: 'Relevanz bestaetigen', action: 'confirm-relevance', status: 'Relevant' },
+          { button: 'Quellensignal ablehnen', submit: 'Signal ablehnen', action: 'reject', status: 'Rejected' },
+          { button: 'Quellensignal erneut pruefen', submit: 'Signal zum Review wiederaufnehmen', action: 'reopen', status: 'ReviewRequired' },
+        ]) {
+          await source.getByRole('button', { name: step.button, exact: true }).click()
+          const dialog = page.getByRole('dialog')
+          const originalReason = `${signalReason}\nNeuer menschlicher Pruefschritt: ${step.action}; keine neue Quellenkorrelation.`
+          await dialog.getByLabel('Fachliche Signalbegruendung', { exact: true }).fill(originalReason)
+          const actual = page.waitForResponse(response => response.request().method() === 'POST' &&
+            response.url().endsWith(`/api/signals/case/${c.id}/${step.action}`))
+          await submitDialog(dialog, step.submit)
+          const response = await actual
+          expect(response.status()).toBe(200)
+          expect(response.request().postDataJSON()).toEqual({ expectedVersion: version, sourceId: signal.sourceId, reason: originalReason })
+          const saved = await (await reviewer.get(`/api/cases/${c.id}`)).json() as SafetyCase
+          version = saved.version
+          const review = saved.signalReviews!.find(value => value.sourceId === signal.sourceId)!
+          expect(review.sourceHash).toBe(signal.sourceHash)
+          expect(review.status).toBe(step.status)
+          expect(review.history.at(-1)?.reason).toBe(originalReason)
+          expect(saved.sources).toEqual(current.sources)
+          expect(saved.deadlines).toEqual(current.deadlines)
+          expect(saved.firstAwarenessAt).toBe(current.firstAwarenessAt)
+          expect(saved.assessments).toEqual(current.assessments)
+          expect(saved.approvals).toEqual(current.approvals)
+          expect(saved.agentRuns).toEqual(current.agentRuns)
+          await expect(source.getByText(originalReason, { exact: true })).toBeVisible()
+        }
+        const after = await (await reviewer.get(`/api/cases/${c.id}`)).json() as SafetyCase
+        expect(after.stage).toBe('AwaitingMedicalReview')
+        expect(after.evidence).toHaveLength(current.evidence.length + 1)
+        expect(after.signalReviews!.find(review => review.sourceId === signal.sourceId)!.history.slice(0, 2))
+          .toEqual(current.signalReviews!.find(review => review.sourceId === signal.sourceId)!.history)
+        expect((await (await reviewer.get('/api/cases')).json() as CaseSummary[]).map(value => value.id).sort())
+          .toEqual(casesBefore.map(value => value.id).sort())
+        expect(posts.slice(casePosts)).toEqual(['confirm-relevance', 'reject', 'reopen'].map(action => `/api/signals/case/${c.id}/${action}`))
+        expect(errors).toEqual([])
+        writeFileSync(path.join(artifacts, `signal-${variant.image}-case-disposition-proof.json`), JSON.stringify({
+          caseId: c.id, beforeVersion: current.version, afterVersion: after.version, sourceId: signal.sourceId,
+          sourceHash: signal.sourceHash, history: after.signalReviews, existingCorrelationOnly: true,
+          deadlinesPreserved: true, noNewAgentRun: true, noReactivatedApprovals: true, posts: posts.slice(casePosts),
+        }, null, 2))
+      })
     } finally { await context?.close(); await pms.dispose(); await reviewer.dispose(); await limited.dispose() }
   })
 }
@@ -1588,6 +1641,7 @@ test('R01: named recipient, independent simulated dispatch and original-bound re
   const medical = await playwright.request.newContext({ baseURL })
   const ra = await playwright.request.newContext({ baseURL })
   const limited = await playwright.request.newContext({ baseURL })
+  const auditor = await playwright.request.newContext({ baseURL })
   const contexts: BrowserContext[] = []
   const pageErrors: string[] = []
   const posts: string[] = []
@@ -1595,9 +1649,10 @@ test('R01: named recipient, independent simulated dispatch and original-bound re
   const trace: { version: number; status: string }[] = []
   try {
     const pmsCsrf = await signIn(pms, 'pms.demo')
-    await signIn(medical, 'medical.demo')
+    const medicalCsrf = await signIn(medical, 'medical.demo')
     const raCsrf = await signIn(ra, 'ra.demo')
     const limitedCsrf = await signIn(limited, 'rfi-cardio.demo')
+    const auditorCsrf = await signIn(auditor, 'auditor.demo')
     const stamp = `RFI-${Date.now()}`
     const input = signalInput(stamp)
     let c = await command(pms, pmsCsrf, '/cases', input)
@@ -1774,9 +1829,202 @@ test('R01: named recipient, independent simulated dispatch and original-bound re
       preservedMissingReferences: response.declaredRequestId === '' && response.envelope.correlationId === null,
       separateMedicalSourceReview: true, deadlinesPreserved: true, originalAwarenessPreserved: true,
       automaticAnalyses: 0, realTransmissions: 0, currentCaseApprovals: 0, pageErrors }, null, 2))
+    await test.step('Case disposition, independent RA review and explicit reopening require fresh assessment and approval', async () => {
+      const investigationReason = 'SYNTHETISCH: Weitere Untersuchung der konkreten klinischen und technischen Befunde.\nDie bestehende Frist bleibt unveraendert; keine Nichtmeldepflichtentscheidung.'
+      const monitorReason = 'SYNTHETISCH: Begruendete Beobachtung des aktuellen Befundstands ohne Schluss auf Nichtmeldepflicht.\nNeue Erkenntnisse werden erneut medizinisch geprueft.'
+      const nonReportableReason = 'SYNTHETISCHER PRUEFFALL: Medizinischer Nichtmeldevorschlag auf der gebundenen klinischen Quelle.\nDies ist weder eine Signalablehnung noch eine unzureichende Beweislage.'
+      const raReason = 'SYNTHETISCHER PRUEFFALL: Unabhaengige RA-Pruefung des aktuellen medizinischen Vorschlags und seiner Evidenz-/Einzelpflichtenbindung.'
+      const reopenReason = 'SYNTHETISCH: Eine neue fachliche Fragestellung erfordert die erneute menschliche Bewertung.\nDieser Befehl erfasst nur die Begruendung, keinen ausgewaehlten neuen Quellenbeleg.'
+      const finalReason = 'SYNTHETISCHER PRUEFFALL: Neuer medizinischer Vorschlag nach dokumentierter Wiederaufnahme und erneuter Bewertung; alte Signaturen reichen nicht aus.'
+      const dispositionPosts = posts.length
+      async function openDisposition(page: Page) {
+        await showCase(page, stamp, input.title)
+        await page.getByRole('tab', { name: 'Disposition & Neubewertung', exact: true }).click()
+        return page.getByRole('region', { name: 'Fall-Disposition und Neubewertung', exact: true })
+      }
+      async function medicalDecision(button: string, disposition: string, originalReason: string) {
+        await openDisposition(medicalPage)
+        const expectedVersion = c.version
+        await medicalPage.getByRole('button', { name: button, exact: true }).click()
+        const dialog = medicalPage.getByRole('dialog')
+        await dialog.getByLabel('Fachliche Dispositionsbegruendung', { exact: true }).fill(originalReason)
+        const actual = medicalPage.waitForResponse(response => response.request().method() === 'POST' &&
+          response.url().endsWith(`/api/cases/${c.id}/disposition`))
+        await submitDialog(dialog, 'Medical-Entscheidung speichern')
+        const response = await actual
+        expect(response.status()).toBe(200)
+        expect(response.request().postDataJSON()).toEqual({ expectedVersion, disposition, reason: originalReason })
+        await read()
+        expect(c.decisions.at(-1)?.rationale).toBe(originalReason)
+      }
+      await medicalPage.getByRole('tab', { name: 'Analyse & Evidenz', exact: true }).click()
+      await medicalPage.getByRole('button', { name: 'Ohne KI: eigener Mindestbericht', exact: true }).click()
+      let dialog = medicalPage.getByRole('dialog')
+      await dialog.getByLabel('Eigene medizinisch-technische Erstbewertung', { exact: true }).fill(investigationReason)
+      await dialog.getByLabel('Begründete vorläufige Empfehlung und Grenzen', { exact: true }).fill(monitorReason)
+      await dialog.getByLabel('Fachliche Begründung', { exact: true }).fill(reason)
+      await submitDialog(dialog)
+      await read()
+      expect(c.currentAssessment?.mode).toBe('Human')
+      expect(c.currentAssessment!.quality.findings.filter(f => ['Critical', 'Major'].includes(f.severity))).toEqual([])
+      const auditorPage = await pageFor(auditor)
+      for (const page of [pmsPage, raPage, auditorPage]) {
+        const panel = await openDisposition(page)
+        await expect(panel.getByRole('button', { name: /^(Weitere Untersuchung begruenden|Beobachtung begruenden|Nichtmeldepflicht vorschlagen)$/ })).toHaveCount(0)
+      }
+      for (const [client, csrf] of [[pms, pmsCsrf], [ra, raCsrf], [auditor, auditorCsrf]] as const) {
+        const denied = await client.post(`/api/cases/${c.id}/disposition`, {
+          headers: { 'X-CSRF-Token': csrf, 'Idempotency-Key': crypto.randomUUID() },
+          data: { expectedVersion: c.version, disposition: 'Investigate', reason: investigationReason },
+        })
+        expect(denied.status()).toBe(403)
+      }
+      await medicalDecision('Weitere Untersuchung begruenden', 'Investigate', investigationReason)
+      expect(c.stage).toBe('Investigating')
+      expect(c.disposition).toBe('Investigate')
+      expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+      await medicalPage.getByRole('button', { name: 'Beobachtung begruenden', exact: true }).click()
+      dialog = medicalPage.getByRole('dialog')
+      await dialog.getByLabel('Fachliche Dispositionsbegruendung', { exact: true }).fill(monitorReason)
+      c = await command(medical, medicalCsrf, `/cases/${c.id}/disposition`, { expectedVersion: c.version,
+        disposition: 'Investigate', reason: investigationReason + '\nKonkurrierende neue Medical-Revision vor Formularbestaetigung.' })
+      const beforeConflict = JSON.stringify(c)
+      const conflict = medicalPage.waitForResponse(response => response.request().method() === 'POST' &&
+        response.url().endsWith(`/api/cases/${c.id}/disposition`))
+      await dialog.getByRole('button', { name: 'Medical-Entscheidung speichern', exact: true }).click()
+      const rejected = await conflict
+      expect(rejected.status()).toBe(409)
+      expect((await rejected.json()).code).toBe('version_conflict')
+      await expect(dialog.getByRole('alert')).toContainText('Veraltete Version')
+      expect(JSON.stringify(await read())).toBe(beforeConflict)
+      await dialog.getByRole('button', { name: 'Abbrechen', exact: true }).click()
+      await medicalDecision('Beobachtung begruenden', 'Monitor', monitorReason)
+      expect(c.stage).toBe('Monitoring')
+      expect(c.disposition).toBe('Monitor')
+      expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+      await medicalDecision('Nichtmeldepflicht vorschlagen', 'NonReportable', nonReportableReason)
+      expect(c.disposition).toBe('Undetermined')
+      expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+      expect(c.approvals).toHaveLength(0)
+      const firstDecision = c.decisions.at(-1)!
+      const medicalCannotApprove = await medical.post(`/api/cases/${c.id}/disposition/approve`, {
+        headers: { 'X-CSRF-Token': medicalCsrf, 'Idempotency-Key': crypto.randomUUID() },
+        data: { expectedVersion: c.version, reason: raReason },
+      })
+      expect(medicalCannotApprove.status()).toBe(403)
+      const raPanel = await openDisposition(raPage)
+      await expect(raPanel).toContainText(nonReportableReason)
+      await raPanel.getByRole('button', { name: 'Nichtmeldepflicht unabhaengig pruefen', exact: true }).click()
+      dialog = raPage.getByRole('dialog')
+      await expect(dialog).toContainText(nonReportableReason)
+      await dialog.getByLabel('Regulatorische Pruefbegruendung', { exact: true }).fill(raReason)
+      await submitDialog(dialog, 'Nichtmeldepflicht bestaetigen')
+      await read()
+      expect(c.disposition).toBe('NonReportable')
+      expect(c.stage).not.toBe('Closed')
+      expect(c.approvals).toHaveLength(1)
+      expect(c.approvals[0].actorId).not.toBe(firstDecision.actorId)
+      expect(c.approvals[0].scopeHash).toBe(firstDecision.scopeHash)
+      expect(c.deadlines.every(value => value.status === 'NonReportableReviewed')).toBe(true)
+      expect(c.deadlines.map(value => ({ ...value, status: 'Open' }))).toEqual(JSON.parse(deadlines))
+      c = await command(ra, raCsrf, `/cases/${c.id}/close`, { expectedVersion: c.version,
+        reason: 'SYNTHETISCH: Abschluss des vollstaendig geprueften Testfalls zur anschliessenden realen UI-Wiederaufnahme; Produktbeobachtung bleibt separat.' })
+      const closed = structuredClone(c)
+      expect(closed.stage).toBe('Closed')
+      expect(closed.closedAt).toBeTruthy()
+      await openDisposition(auditorPage)
+      await expect(auditorPage.getByRole('button', { name: 'Abgeschlossenen Fall wiederaufnehmen', exact: true })).toHaveCount(0)
+      const deniedReopen = await auditor.post(`/api/cases/${c.id}/reopen`, {
+        headers: { 'X-CSRF-Token': auditorCsrf, 'Idempotency-Key': crypto.randomUUID() },
+        data: { expectedVersion: c.version, reason: reopenReason },
+      })
+      expect(deniedReopen.status()).toBe(403)
+      const panel = await openDisposition(medicalPage)
+      await expect(panel.getByRole('button', { name: 'Nichtmeldepflicht vorschlagen', exact: true })).toHaveCount(0)
+      await panel.getByRole('button', { name: 'Abgeschlossenen Fall wiederaufnehmen', exact: true }).click()
+      dialog = medicalPage.getByRole('dialog')
+      await expect(dialog).toContainText('Er bindet keinen ausgewaehlten neuen Quellenbeleg.')
+      await expect(dialog.getByRole('combobox')).toHaveCount(0)
+      await dialog.getByLabel('Neue Erkenntnisse und Wiederaufnahmebegruendung', { exact: true }).fill(reopenReason)
+      const reopening = medicalPage.waitForResponse(response => response.request().method() === 'POST' &&
+        response.url().endsWith(`/api/cases/${c.id}/reopen`))
+      await submitDialog(dialog, 'Begruendet wiederaufnehmen')
+      expect((await reopening).request().postDataJSON()).toEqual({ expectedVersion: closed.version, reason: reopenReason })
+      await read()
+      expect(c.stage).toBe('AwaitingMedicalReview')
+      expect(c.closedAt).toBeUndefined()
+      expect(c.deadlines).toEqual(closed.deadlines)
+      expect(c.firstAwarenessAt).toBe(awareness)
+      expect(c.decisions).toEqual(closed.decisions)
+      expect(c.approvals).toEqual(closed.approvals)
+      expect(c.currentAssessment).toEqual(closed.currentAssessment)
+      expect(c.evidence).toHaveLength(closed.evidence.length + 1)
+      const reopeningEvidence = c.evidence.at(-1)!
+      expect(reopeningEvidence.kind).toBe('Reopening')
+      expect(reopeningEvidence.content).toBe('SYNTHETISCHE WIEDERAUFNAHME: ' + reopenReason)
+      await expect(panel.getByText(reopeningEvidence.content, { exact: true })).toBeVisible()
+      await expect(panel.getByRole('button', { name: 'Nichtmeldepflicht vorschlagen', exact: true })).toBeDisabled()
+      await expect(panel).toContainText('Er ist allein kein Nachweis einer aktuellen Freigabe')
+      const readOnlyBefore = JSON.stringify(c)
+      const postCount = posts.length
+      for (const width of [390, 360]) {
+        await medicalPage.setViewportSize({ width, height: 900 })
+        const metadata = panel.locator('details').filter({ has: medicalPage.getByText('Technische Dispositionsbindung', { exact: true }) }).first()
+        await expect(metadata).not.toHaveAttribute('open', '')
+        await metadata.locator('summary').focus()
+        await medicalPage.keyboard.press('Enter')
+        await expect(metadata).toHaveAttribute('open', '')
+        await expect(metadata.locator('summary')).toBeFocused()
+        expect(await metadata.locator('summary').evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none')
+        await expect(metadata).toContainText(firstDecision.scopeHash)
+        expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+        await medicalPage.keyboard.press('Space')
+        await expect(metadata).not.toHaveAttribute('open', '')
+      }
+      await medicalPage.setViewportSize({ width: 1512, height: 982 })
+      expect(JSON.stringify(await read())).toBe(readOnlyBefore)
+      expect(posts.length).toBe(postCount)
+      await medicalPage.getByRole('tab', { name: 'Chronologie & Läufe', exact: true }).click()
+      const history = medicalPage.getByRole('region', { name: 'Dispositions- und Wiederaufnahmehistorie', exact: true })
+      await expect(history.getByText(nonReportableReason, { exact: true })).toBeVisible()
+      await expect(history.getByText(reopeningEvidence.content, { exact: true })).toBeVisible()
+      await medicalPage.getByRole('tab', { name: 'Analyse & Evidenz', exact: true }).click()
+      await medicalPage.getByRole('button', { name: 'Menschlich überarbeiten', exact: true }).click()
+      dialog = medicalPage.getByRole('dialog')
+      await dialog.getByLabel('Überarbeitete medizinisch-technische Schlussfolgerung', { exact: true }).fill(finalReason)
+      await dialog.getByLabel('Fachliche Begründung', { exact: true }).fill(finalReason)
+      await submitDialog(dialog)
+      await read()
+      expect(c.currentAssessment!.version).toBe(closed.currentAssessment!.version + 1)
+      expect(c.currentAssessment!.evidenceIds).toContain(reopeningEvidence.id)
+      expect(c.currentAssessment!.evidenceHash).not.toBe(closed.currentAssessment!.evidenceHash)
+      await medicalDecision('Nichtmeldepflicht vorschlagen', 'NonReportable', finalReason)
+      expect(c.disposition).toBe('Undetermined')
+      expect(c.approvals).toEqual(closed.approvals)
+      expect(c.decisions.at(-1)!.scopeHash).not.toBe(firstDecision.scopeHash)
+      const process = await (await ra.get(`/api/cases/${c.id}/process`)).json() as CaseProcessView
+      expect(process.steps.find(step => step.id === 'regulatory')?.state).toBe('current')
+      const freshRaPanel = await openDisposition(raPage)
+      await expect(freshRaPanel.getByTestId(`disposition-${firstDecision.id}`).getByText(nonReportableReason, { exact: true })).toBeVisible()
+      await expect(freshRaPanel.getByRole('button', { name: 'Nichtmeldepflicht unabhaengig pruefen', exact: true })).toBeEnabled()
+      expect(c.agentRuns).toHaveLength(0)
+      expect(c.submissions).toHaveLength(0)
+      expect(c.sources).toEqual(closed.sources)
+      expect(c.deadlines).toEqual(closed.deadlines)
+      expect(posts.slice(dispositionPosts).some(value => /\/assessment$|\/report$|\/submit$/.test(value))).toBe(false)
+      expect(pageErrors).toEqual([])
+      writeFileSync(path.join(artifacts, 'case-disposition-reassessment-proof.json'), JSON.stringify({
+        caseId: c.id, beforeClosureVersion: closed.version, finalVersion: c.version, firstDecision,
+        reopenedEvidence: reopeningEvidence, decisions: c.decisions, preservedApprovals: c.approvals, process,
+        rolesChecked: ['PmsSpecialist', 'MedicalSafetyReviewer', 'RegulatoryAffairs', 'Auditor'],
+        staleDialogRejected: true, readOnlyTogglesPreservedPayload: true, narrowWidths: [390, 360],
+        newIndependentRaApprovalStillRequired: true, deadlinesPreservedAfterReopen: true,
+        noNewAgentRun: true, posts: posts.slice(dispositionPosts), pageErrors,
+      }, null, 2))
+    })
   } finally {
     for (const context of contexts) await context.close()
-    await pms.dispose(); await medical.dispose(); await ra.dispose(); await limited.dispose()
+    await pms.dispose(); await medical.dispose(); await ra.dispose(); await limited.dispose(); await auditor.dispose()
   }
 })
 

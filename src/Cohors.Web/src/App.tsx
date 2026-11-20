@@ -160,7 +160,7 @@ export default function App() {
         </>}
         {['inbox', 'rejected', 'reviews'].includes(page) && <SignalWorkspace key={`${identity.current.key}:${identity.current.epoch}:${page}`} mode={page === 'reviews' ? 'review' : page === 'rejected' ? 'rejected' : 'inbox'}
           actor={actor} revision={revision} reviewItems={reviewSignals} openDialog={setDialog} mutate={mutate} reopen={reopenSignal} openCase={open} />}
-        {page === 'workbench' && selected && <Workbench key={selected.id} value={selected} actor={actor} openDialog={setDialog} mutate={mutate} busy={working} back={() => setPage('cases')} />}
+        {page === 'workbench' && selected && <Workbench key={selected.id} value={selected} actor={actor} openDialog={setDialog} mutate={mutate} busy={working} back={() => setPage('cases')} openSignals={() => setPage('inbox')} />}
         {page === 'deadlines' && <DeadlineCalendarWorkspace key={`${identity.current.key}:${identity.current.epoch}`} products={products} revision={revision} open={openCalendarEvent} />}
         {page === 'eudamed' && <EudamedWorkspace key={`${identity.current.key}:${identity.current.epoch}:${eudamedFocus?.correspondenceId ?? ''}`}
           actor={actor} products={products} initialFocus={eudamedFocus ?? undefined} />}

@@ -234,6 +234,79 @@ V01 ergaenzt den bestehenden Rueckgabe-/Korrektur-/Neureview-Pfad um diese
 Leseansicht, ihre Chronologie, unveraenderte API-/Paketbindungen und weiterhin
 ausstehende neue Freigaben; die Browserausfuehrung ist separat nachzuweisen.
 
+### Fall-Disposition und spaetere Neubewertung: begrenzter UI-Folgeabschnitt
+
+Die Fallansicht **Disposition & Neubewertung** verwendet ausschliesslich die
+vorhandenen versionierten Befehle. Medical kann eine begruendete
+`Investigate`-/`Monitor`-Entscheidung speichern. Diese Werte bedeuten
+Untersuchung bzw. Beobachtung, nicht fehlende Relevanz oder Nichtmeldepflicht;
+Fristen laufen weiter. Der Vertrag hat fuer diese beiden Entscheidungen
+keinen gesonderten RA-Freigabeschritt.
+
+`NonReportable` ist dagegen ein formeller medizinischer Vorschlag
+(`POST /cases/{id}/disposition`). Aktuelle Evidenz und eine reviewbare
+Bewertung ohne Major-/Critical-Befunde sind serverseitig erforderlich.
+Erst `POST /cases/{id}/disposition/approve` durch eine andere RA-Identitaet
+bestaetigt den unveraenderten Entscheidungs-/Assessment-/Einzelpflichtenscope
+und setzt offene Einzelpflichten auf `NonReportableReviewed`. Dies ist keine
+Paketfreigabe und schliesst den Fall nicht automatisch. Die UI zeigt
+bekannte Versionsabweichungen bzw. neue, noch nicht bewertete Beleg-IDs als
+Sperre; sie rekonstruiert keinen kanonischen Evidenz- oder Dispositionshash.
+Auch bei unveraenderten IDs bleiben die exakten Serverpruefungen massgeblich.
+Es gibt keinen direkten Agentenweg; Auditoren sehen keine Schreibaktionen.
+
+Die gespeicherten `decisions`, gebundenen RA-Signaturen und
+`Evidence.Kind == "Reopening"` bleiben in der Fallansicht und Chronologie
+lesbar. Originalbegruendungen und Zeilenumbrueche bleiben erhalten; volle
+Identitaeten/Hashes sind standardmaessig einklappbar. Der Medical-Vertrag
+speichert nur `ActorId`, keinen Anzeigenamen; die UI erfindet keinen.
+Der gespeicherte Dispositionswert kann nach neuer Evidenz fortbestehen.
+Er wird deshalb nicht allein als aktuelle Freigabe ausgegeben. Historische
+Signaturen werden weder reaktiviert noch als neue Meldefreigaben bezeichnet.
+
+Die reine Fallwiederaufnahme (`POST /cases/{id}/reopen`) ist nur bei
+`Closed` und fuer Medical/RA verfuegbar. `VersionCommand` nimmt lediglich
+Version und Begruendung an. Der Server legt diese als synthetischen
+Wiederaufnahmebeleg ab und verlangt eine neue aktuelle Bewertung. Es gibt
+in diesem Befehl **keine strukturierte Auswahl eines neuen externen
+Evidenzbelegs**; die UI bietet keinen wirkungslosen Belegselektor.
+Abschlussbefehle und die gesonderte `AwarenessCommand`-Ausnahme fuer neue
+Meldepflichtinformation werden in diesem Schnitt nicht neu bedient.
+Keine automatische Fristpause, Loeschung oder Fristneueroeffnung.
+
+Vorhandene `sources` zeigen ihren gespeicherten `matchReason`, Originalbezug
+und exakt gebundene `signalReviews`. Menschliche Medical-/RA-Konten koennen
+ueber die bestehenden `/signals/case/{id}/reject`, `/reopen` und
+`/confirm-relevance` nur dieses konkrete Signal triagieren. Der Vertrag
+bindet `SourceId`, den bestehenden Quellenhash und die aktuelle Fallversion.
+Signal-Reopen verlangt eine vorherige Ablehnung, fuehrt direkt zum
+menschlichen Review, gibt laufende Agentenauftraege auf und ersetzt keine
+Bewertung/Freigabe. Nicht eindeutige oder hashfremde Zuordnungen bleiben
+lesbar, aber ohne Schreibaktion. Die Signalhistorie trennt Agentenvorschlag
+und menschlichen Review; eine Relevanzbestaetigung ist keine
+Nichtmeldepflichtentscheidung oder Meldungsrueckgabe.
+
+**Offene Backendgrenzen:** `DispositionCommand`/`MedicalDecision` kennen
+keine getrennten fachlichen Grundcodes fuer *derzeit nicht relevant* und
+*Beweislage noch unzureichend*. Menschliche Signaltriage kennt nur
+`Reject`/`Reopen`/`ConfirmRelevance` mit Freitextgrund; die
+Agenten-Triagewerte `NotRelevant`/`Uncertain` sind kein entsprechender
+Fallbefehl. Es gibt hier auch keinen neuen Signal-zu-Fall-Korrelationsbefehl.
+Die UI nennt diese Luecken statt Textpraefixen, stillen Mappings oder
+erfundener Korrelation. Der echte bestehende Weg bleibt Signal Inbox,
+medizinische Quellenpruefung und explizite Verknuepfung freigegebener
+Produkt-Evidenz unter Analyse & Evidenz; Nachforderungsruecklaeufe behalten
+ihren separaten Zuordnungs-/Quellenpruefweg. Der breitere Neubewertungsauftrag
+ist mit diesem Frontendschnitt daher nicht insgesamt abgeschlossen.
+
+Die bestehenden Browseridentitaeten **R01** sowie **S01/S02** erhalten
+zusaetzliche Schritte fuer Fall-Disposition, Rollen/Revisionen,
+historische Gruende und echte Wiederaufnahmebefehle. Die bisherigen
+34 Identitaeten/11 Profile und V01 bleiben erhalten; keine neue Zaehlung,
+kein Testersatz und kein Mock-Fachzustand. Die reale Ausfuehrung des neuen
+Kandidaten ist separat nachzuweisen und bis dahin **NotRun**. Ein lokaler
+Build, Typpruefung oder Offline-Render-/Befehlscheck ersetzt sie nicht.
+
 ### X-12: abschliessende gebundene Versanduebersicht
 
 Unmittelbar vor dem nativen Simulatorversand liest RA
