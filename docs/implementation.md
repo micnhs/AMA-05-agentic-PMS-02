@@ -307,6 +307,18 @@ kein Testersatz und kein Mock-Fachzustand. Die reale Ausfuehrung des neuen
 Kandidaten ist separat nachzuweisen und bis dahin **NotRun**. Ein lokaler
 Build, Typpruefung oder Offline-Render-/Befehlscheck ersetzt sie nicht.
 
+R01 begrenzt seine Seitenaktionen und Response-Waits lokal auf 25 Sekunden.
+Benannte Dispositions-Teilschritte haben hoechstens 45 Sekunden innerhalb des
+unveraenderten Gesamtbudgets von 210 Sekunden. Jeder erworbene API-/Browserkontext
+wird sofort fuer die eigene Bereinigung registriert. Alle Bereinigungen werden
+auch nach einem Fehler versucht; urspruenglicher Testfehler und weitere
+Cleanup-Fehler bleiben gemeinsam samt Stacks im Fehlertext erhalten. Der
+Offline-Vertragstest `node tests/scripts/Test-R01Diagnostics.mjs` prueft diese
+Fehlerbehandlung am tatsaechlichen Helper mit dem bestehenden TypeScript-Paket
+des Frontends, nicht am SQL-/Browserablauf. Diese Diagnostik belegt weder die Ursache eines
+frueheren Timeouts noch eine bestandene R01-Abnahme. Upload-Allowlist,
+Retries und Runner-/Stop-/Streambudgets bleiben unveraendert.
+
 ### X-12: abschliessende gebundene Versanduebersicht
 
 Unmittelbar vor dem nativen Simulatorversand liest RA
