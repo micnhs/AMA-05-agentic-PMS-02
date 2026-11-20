@@ -63,6 +63,26 @@ const systemNames: Record<string, string> = { $reference: 'Hersteller-Fallrefere
   submitterIsManufacturerContact: 'Melder ist der belegte Herstellerkontakt', similarIncidents: 'Ähnliche Ereignisse / Perioden / Nenner',
   $contact: 'Hersteller-/Melderkontakt', $target: 'Zielprofil und nationale Pflichtangaben', $schema: 'Formularstruktur / Werteprüfung',
   $reportHistory: 'Abgeglichener Vorbericht', evidenceIds: 'Konkrete freigegebene Fallbelege', rationale: 'Medizinisch-technische Begründung' }
+const reviewGroups: { key: string; title: string; fields: string[] }[] = [
+  { key: 'assessment', title: 'Bewertung, Ursachen- und Risikoanalyse', fields: [
+    'preliminaryAnalysis', 'rootCauses', 'rootCauseConfirmed', 'riskAssessmentReviewed', 'riskAssessmentAdequate',
+    'riskAssessmentResults', 'rationaleNoRiskReview', 'eventClassification', 'deviceProblemCode', 'investigationTypeCode',
+    'investigationFindingCode', 'investigationConclusionCode', 'componentCode', 'similarIncidents', 'rationale',
+  ] },
+  { key: 'actions', title: 'Begründete Maßnahmen und Nachverfolgung', fields: [
+    'initialCorrectiveAction', 'correctiveAction', 'furtherInvestigation', 'nextReportDate', 'finalComments',
+  ] },
+  { key: 'incident', title: 'Ereignis und betroffenes Produkt', fields: [
+    '$description', 'eventDateFrom', 'eventDateTo', 'eventDateRationale', '$country', '$device', 'deviceLocation',
+    'distribution', 'udiDi', 'udiPi', '$batch', '$basicUdi', 'udiEntity', 'basicUdiEntity',
+  ] },
+  { key: 'administration', title: 'Hersteller, Kontakt und Meldeverwaltung', fields: [
+    '$reference', 'manufacturerName', 'manufacturerSrn', 'manufacturerCountry', 'contactFirstName', 'contactLastName',
+    'contactStreet', 'contactCity', 'contactPostcode', 'contactPhone', 'contactEmail', 'submitterIsManufacturerContact',
+    '$contact', '$firstAwareness', '$reportabilityAwareness', 'authorityReference', 'authorityReferenceRationale',
+    '$authority', '$simulator', '$reportDate', '$target', '$schema', '$reportHistory', 'evidenceIds',
+  ] },
+]
 const issueReasons: Record<string, string> = { MissingSource: 'Fehlende oder nicht verwendbare Quelle', ConflictingSources: 'Widersprüchliche Angaben',
   HumanDecision: 'Menschliche Entscheidung erforderlich', Unsupported: 'Derzeit nicht unterstützte Konstellation' }
 function fieldLabel(name: string) { return facts.find(f => f.name === name)?.label ?? systemNames[name] ?? 'Weitere Meldeangabe' }
@@ -111,11 +131,17 @@ export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate,
   const issues = mir?.checks?.completionIssues ?? preparation?.problems ?? []
   const legacyGaps = mir?.checks?.completionIssues == null ? (mir?.checks?.contentErrors ?? mir?.errors ?? []).filter(e => !e.startsWith('XSD ')) : []
   const visibleFacts = facts.filter(f => (f.final === undefined || f.final === (report.kind === 'Final')) && (!f.afterInitial || report.kind !== 'Initial'))
-  const visibleFields = preparation?.fields.filter(f => report.jurisdiction === 'GB'
-    ? f.field.startsWith('$') || ['preliminaryAnalysis', 'furtherInvestigation'].includes(f.field)
-    : f.field.startsWith('$') || f.field === 'udiDi' && f.value !== null ||
-    visibleFacts.some(fact => fact.name === f.field) || f.field === 'submitterIsManufacturerContact' ||
-    f.field === 'similarIncidents' && report.kind === 'Final') ?? []
+  const visibleFields = preparation?.fields.filter(field => {
+    const knownFact = facts.some(f => f.name === field.field) || ['submitterIsManufacturerContact', 'similarIncidents'].includes(field.field)
+    if (field.value !== null || !knownFact) return true
+    if (report.jurisdiction === 'GB') return ['preliminaryAnalysis', 'furtherInvestigation'].includes(field.field)
+    return visibleFacts.some(f => f.name === field.field) || field.field === 'submitterIsManufacturerContact' ||
+      field.field === 'similarIncidents' && report.kind === 'Final'
+  }) ?? []
+  const groupedFields = [
+    ...reviewGroups.map(group => ({ ...group, fields: group.fields.flatMap(name => visibleFields.filter(field => field.field === name)) })),
+    { key: 'other', title: 'Weitere Meldeangaben', fields: visibleFields.filter(field => !reviewGroups.some(group => group.fields.includes(field.field))) },
+  ].filter(group => group.fields.length > 0)
   function edit(requested?: string) {
     const final = report.kind === 'Final'
     const focus = requested === '$contact' ? 'contactFirstName' : requested
@@ -221,15 +247,17 @@ export default function MirPanel({ c, report, canEdit, busy, openDialog, mutate,
         {editable && <button disabled={busy} className="button secondary" onClick={() => edit()}>Vorhandene Angaben belegen</button>}</>}
     </section>}
     {!!mir?.errors.length && <details ref={technical}><summary>Technische Originalbefunde der Pflicht- und XSD-Prüfung</summary>{mir.errors.map((e, i) => <p key={i}>{e}</p>)}</details>}
-    {visibleFields.length > 0 && <div className="prepared-fields" aria-label="Vorausgefüllte Felder und Herkunft">{visibleFields.map(field => <article key={field.field} data-field={field.field}>
-      <div className="row-between"><h4>{facts.find(f => f.name === field.field)?.label ?? systemNames[field.field] ?? field.field}</h4>
-        <Badge tone={field.origin === 'AgentDraft' || field.origin === 'Missing' ? 'amber' : 'neutral'}>{originNames[field.origin] ?? field.origin}</Badge></div>
+    {groupedFields.length > 0 && <div className="prepared-fields" aria-label="Vorausgefüllte Felder und Herkunft">{groupedFields.map(group =>
+      <section key={group.key} data-field-group={group.key} aria-label={group.title}><h3>{group.title}</h3>{group.fields.map(field => <article key={field.field} data-field={field.field}>
+      <div className="row-between"><h4>{facts.find(f => f.name === field.field)?.label ?? (Object.hasOwn(systemNames, field.field) ? systemNames[field.field] : field.field)}</h4>
+        <Badge tone={field.origin === 'AgentDraft' || field.origin === 'Missing' ? 'amber' : 'neutral'}>{Object.hasOwn(originNames, field.origin) ? originNames[field.origin] : field.origin}</Badge></div>
       {field.field === 'similarIncidents' && mir?.facts.similarIncidents ? <SimilarReview value={mir.facts.similarIncidents} /> :
         <p className="prepared-value">{field.value === null ? 'Nicht belegt / offen' : field.field === 'submitterIsManufacturerContact' ? field.value === 'true' ? 'Ja, ausdrücklich dokumentiert' : 'Nein' : field.value}</p>}
-      <p className="muted">{field.rationale}</p><small className="mono">{field.source}</small>
+      <p className="muted">{field.rationale}</p>
+      <details className="field-metadata"><summary>Technische Herkunft und Metadaten</summary><p className="mono">{field.source}</p></details>
       <div className="citation-row">{field.claimIds.map(id => <button key={id} className="citation" disabled={report.assessmentVersion !== c.currentAssessment?.version} onClick={() => showClaim(id)}><Link2 size={11} />{id} · Originalbeleg</button>)}</div>
-      {field.citations.length > 0 && <details><summary>Wortgetreue Fundstellen dieses Vorschlags</summary>{field.citations.map((citation, i) => <div key={i}><small>{citation.evidenceId} · {hash(citation.hash)} · {citation.locator}</small><blockquote>{citation.quote}</blockquote></div>)}</details>}
-    </article>)}</div>}
+      {field.citations.length > 0 && <details><summary>Wortgetreue Fundstellen dieses Vorschlags</summary>{field.citations.map((citation, i) => <div key={i}><small className="mono">{citation.evidenceId} · {citation.hash} · {citation.locator}</small><blockquote>{citation.quote}</blockquote></div>)}</details>}
+    </article>)}</section>)}</div>}
     {mir && <details><summary>Prüfstand, Herkunft und Grenzen</summary><p className="mono">{mir.schemaFile}<br />Schema {mir.schemaHash}<br />XML {mir.xmlHash}<br />Mapping {mir.mappingVersion}</p><p>{mir.facts.rationale}</p>{mir.limitations.map(s => <p key={s}>{s}</p>)}</details>}
     {mir?.followUpSchedule && <div className="callout"><b>Bei bestätigtem simulierten Empfang verbindlich nachverfolgen</b><p>{date(mir.followUpSchedule.dueAt, true, mir.followUpSchedule.timeZone)} · {mir.followUpSchedule.timeZone}<br />Interne SafetyDue: {date(mir.followUpSchedule.safetyDue, true, mir.followUpSchedule.timeZone)}</p><small>{mir.followUpSchedule.calendarVersion} · {mir.followUpSchedule.ruleVersion}. Keine neue Initialfrist.</small></div>}
     {!!report.followUpObligationIds?.length && <p className="mono">Dieser Bericht erledigt ausschließlich: {report.followUpObligationIds.join(', ')}</p>}

@@ -187,7 +187,52 @@ Eine automatisch nutzbare Kontaktquelle ist eine **bereits gebundene**, aktuell 
 
 Die separate UI-Sektion **Nicht automatisch befuellbar - Angaben oder Belege erforderlich** zeigt deutsche Feldbezeichnungen, fehlende Quelle, widerspruechliche Angaben, menschliche Entscheidung oder nicht unterstuetzte Konstellation, jeweils mit benoetigtem Beleg und Bearbeitungs-/Nachforderungsweg. Die Befunde entstehen aus denselben tatsaechlichen Meldeart-/Zielpruefungen wie das MIR-Artefakt, nicht aus einer zweiten Pflichtfeldliste. Quellenkonflikte bleiben auch beim blossen Speichern offen; eine explizite menschliche Klaerung mit Begruendung und ausgewaehlten Belegen ist gesondert aufzuzeichnen. Dies ist keine Freigabe. Technische Originalfehler bleiben in Details erhalten; historische Berichte erhalten beim Lesen keinen nachtraeglich behaupteten Vervollstaendigungsnachweis.
 
+Die vorausgefuellten Felder stehen in einer festen fachlichen Lesereihenfolge:
+**Bewertung, Ursachen- und Risikoanalyse**, **begruendete Massnahmen und
+Nachverfolgung**, **Ereignis und betroffenes Produkt**, danach **Hersteller,
+Kontakt und Meldeverwaltung**. Innerhalb dieser Gruppen gilt eine explizite
+Feldreihenfolge, keine alphabetische oder zufaellige API-Reihenfolge.
+Unbekannte Felder bleiben unter **Weitere Meldeangaben** in ihrer bisherigen
+Reihenfolge erhalten, auch ohne Wert. Bereits vorhandene Werte werden auch
+dann angezeigt, wenn das Feld bei dieser Meldeart oder im GB-Narrativ nicht
+als leere Eingabe angeboten wird. Nur bekannte leere Felder folgen weiterhin
+der bisherigen Initial-/FollowUp-/Final-/GB-Auswahl. Das ist keine neue
+Pflichtfeld- oder GB-MIR-Unterstuetzung; Altstaende ohne Vorbereitung behalten
+ihren ausdruecklichen Minimal-Mapping-Hinweis.
+
+Pro Eintrag ist nur **Technische Herkunft und Metadaten** standardmaessig
+geschlossen. Der vollstaendige Quelltext einschliesslich Versionen und Hashes
+bleibt ueber ein natives, tastaturbedienbares `details`/`summary` erreichbar.
+Feldwert, fachliche Begruendung und Herkunftsstatus (insbesondere unbestaetigte
+Vorschlaege), Freigabegrenzen und offene Befunde bleiben sichtbar.
+Originalbeleg-Schaltflaechen und wortgetreue Zitate bleiben erhalten; die
+Zitatdetails zeigen den vollen Hash. Bestehende Fokus- und Umbruchregeln
+werden genutzt, Herkunftslabels und Belegschaltflaechen koennen schmal umbrechen.
+Gruppierung und Aufklappen aendern weder API-Arrayreihenfolge noch Payload,
+Versionen, Hashes oder Signaturen. Der bestehende Browserfall **V01** ergaenzt
+dazu Reihenfolge-, Originaltext-, Tastatur-, Schmalansichts- und
+Mutationsschutzassertionen, ohne neue Testidentitaet oder Profilzaehlung.
+
 RA sieht eine Pruefansicht statt einer verpflichtenden Dateneingabemaske. Fehlende Pflichtangaben sperren die Freigabe; Medical Safety oder RA koennen das konkrete Paket begruendet zur Korrektur an PMS zurueckgeben. Die Rueckgabe ist versionierte Zusatzmetadaten eines Drafts, kein neuer persistenter Enumwert und keine Simulator-Ablehnung. Korrektur erzeugt eine neue Fassung und verlangt beide getrennten Signaturen erneut. Produktprofilwechsel blockiert neue Freigabe/Sendung, veraendert aber keinen idempotenten alten Command-Receipt. Optionale Nullfelder bleiben bei Altberichten ungeschrieben; deren urspruenglicher Hashvertrag, XML und FrozenJson werden nicht beim Lesen neu komponiert. Kein SQL-Schemawechsel und kein Seed/Migrationsauftrag.
+
+Fruehere Rueckgaben werden im erneuten **Human Review & Meldung** direkt aus
+den vorhandenen `reports[].reviewReturn` gelesen; die **Chronologie & Laeufe**
+zeigt auch eine gegebenenfalls aktuelle Rueckgabe. Die Reihenfolge ist die
+absteigende dokumentierte Berichtsversion, ohne die API-Liste umzusortieren.
+Originalbegruendung einschliesslich Zeilenumbruechen, Rolle, Zeitpunkt und
+Version der Rueckgabe bleiben sichtbar. Eine Version des zurueckgegebenen
+Pakets wird nur genannt, wenn genau eine fruehere gespeicherte Berichtsfassung
+zum `previousScopeHash` passt; andernfalls bleibt diese Zuordnung ausdruecklich
+unbelegt. Die aufgezeichnete Identitaet, der Originalzeitpunkt und beide
+vollstaendigen Pakethashes stehen in einklappbaren technischen Angaben.
+Ein Anzeigename wird nicht aus einem Konto oder einer anderen Signatur
+abgeleitet. Eine Folgerevision beweist keine Erledigung der Rueckgabe, und
+historische Signaturen sind keine aktuelle Freigabe. Die aktuelle
+Rueckgabesperre, Medical-vor-RA- und Kontogrenzen bleiben unveraendert.
+Es gibt keinen neuen Historienstore, Endpunkt oder Fachbefehl.
+V01 ergaenzt den bestehenden Rueckgabe-/Korrektur-/Neureview-Pfad um diese
+Leseansicht, ihre Chronologie, unveraenderte API-/Paketbindungen und weiterhin
+ausstehende neue Freigaben; die Browserausfuehrung ist separat nachzuweisen.
 
 ### X-12: abschliessende gebundene Versanduebersicht
 

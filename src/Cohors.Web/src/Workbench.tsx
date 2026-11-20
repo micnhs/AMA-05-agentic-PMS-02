@@ -9,6 +9,39 @@ import DocumentDialog, { type DocumentRequest } from './DocumentDialog'
 import CaseProcessBar from './CaseProcessBar'
 import SubmissionPreviewPanel from './SubmissionPreviewPanel'
 
+function ReviewReturnHistory({ reports, current, historicalOnly = false }: {
+  reports: SafetyCase['reports']; current: SafetyCase['currentReport']; historicalOnly?: boolean
+}) {
+  const entries = reports.flatMap(report => report.reviewReturn &&
+    (!historicalOnly || report.version !== current?.version || report.scopeHash !== current.scopeHash)
+    ? [{ report, returned: report.reviewReturn }] : []).sort((a, b) => b.report.version - a.report.version)
+  if (!entries.length) return null
+  const title = historicalOnly ? 'Frühere Review-Rückgaben' : 'Dokumentierte Review-Rückgaben'
+  return <section className="review-return-history" data-testid="review-return-history" aria-label={title}>
+    <h3>{title}</h3>
+    <p className="muted">Eine Folgerevision allein belegt keine Erledigung der Rückgabe. Historische Signaturen sind keine aktuelle Freigabe.</p>
+    {entries.map(({ report, returned }) => {
+      const sources = reports.filter(source => source.version < report.version && source.scopeHash === returned.previousScopeHash)
+      const source = sources.length === 1 ? sources[0] : null
+      return <article className="history-entry" key={`${report.version}-${report.scopeHash}`} data-return-version={report.version}>
+        <div className="row-between"><h4>Rückgabe dokumentiert in Bericht v{report.version}</h4>
+          <Badge tone={report.version === current?.version && report.scopeHash === current.scopeHash ? 'amber' : 'neutral'}>
+            {report.version === current?.version && report.scopeHash === current.scopeHash ? 'Aktuelle Rückgabe' : 'Historische Rückgabe'}</Badge></div>
+        <p><b>{Object.hasOwn(roleNames, returned.role) ? roleNames[returned.role] : returned.role}</b> · <time dateTime={returned.at}>{date(returned.at, true)}</time></p>
+        <p className="review-return-reason">{returned.reason}</p>
+        <p>{source ? `Zurückgegebenes Paket: Bericht v${source.version} · ${source.kind} · ${source.jurisdiction}` :
+          'Version des zurückgegebenen Pakets in dieser Fallansicht nicht eindeutig belegt; der gespeicherte Paket-Hash bleibt zugänglich.'}</p>
+        <details className="review-return-metadata"><summary>Technische Rückgabebindung</summary>
+          <p>Aufgezeichnete Identität: <span className="mono">{returned.actorId}</span><br />Rolle: {returned.role}<br />
+            Originalzeitpunkt: <span className="mono">{returned.at}</span></p>
+          <p className="mono">Zurückgegebenes Paket: {returned.previousScopeHash}<br />
+            Rückgabefassung v{report.version}: {report.scopeHash}<br />Gebundener Assessmentstand: v{report.assessmentVersion}</p>
+        </details>
+      </article>
+    })}
+  </section>
+}
+
 export default function Workbench({ value: c, actor, openDialog, mutate, busy, back }: {
   value: SafetyCase; actor: Actor; openDialog: (d: Dialog) => void; mutate: (path: string, body: unknown) => Promise<void>; busy: boolean; back: () => void
 }) {
@@ -119,7 +152,8 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
       </aside></div>}
     {tab === 'report' && <div className="review-grid"><section className="panel"><div className="row-between"><h2>Das konkrete Freigabepaket</h2>{report && <Badge tone={report.reviewReturn ? 'amber' : 'blue'}>{report.reviewReturn ? 'Zur Korrektur' : label(report.state)}</Badge>}</div><p className="muted">Assessment, Evidenz, Bericht, Sprache, Formular, Jurisdiktion und Empfänger sind gebunden. Neue Inhalte brauchen neue Freigaben.</p>
       {report ? <><div className="report-metadata"><span><small>BERICHT</small><b>v{report.version} · {report.kind}</b></span><span><small>PILOTEMPFÄNGER</small><b>{report.recipient}</b></span><span><small>SPRACHE / FORMULAR</small><b>{report.language} · {report.formVersion}</b></span><span><small>PAKET-HASH</small><b className="mono">{hash(report.scopeHash)}</b></span></div>
-        {report.reviewReturn && <div className="callout" role="status"><b>Zur Korrektur zurückgegeben · {roleNames[report.reviewReturn.role]}</b><p>{report.reviewReturn.reason}</p><small>{date(report.reviewReturn.at, true)} · bisherige Freigaben gelten nicht für die Korrektur.</small></div>}
+        {report.reviewReturn && <div className="callout" role="status" data-testid="current-review-return"><b>Zur Korrektur zurückgegeben · {roleNames[report.reviewReturn.role]}</b><p className="review-return-reason">{report.reviewReturn.reason}</p><small>{date(report.reviewReturn.at, true)} · bisherige Freigaben gelten nicht für die Korrektur.</small></div>}
+        <ReviewReturnHistory reports={c.reports} current={report} historicalOnly />
         <MirPanel c={c} report={report} canEdit={editor} busy={busy} openDialog={openDialog} mutate={mutate} showClaim={showClaim} navigate={navigateTab} />
         <details className="report-preview"><summary>Vollständiger Autorenbericht und offene Untersuchungsfragen</summary><Badge tone="amber">NUR SIMULIERTER VERSAND</Badge><pre>{report.narrative}</pre><h4>Offene Untersuchungsfragen</h4><p>{report.openQuestions}</p></details>
         <div className="row"><button className="button secondary" onClick={() => downloadApi(`/cases/${c.id}/manifest`, `${c.reference}-audit.json`).catch(e => setError(e instanceof Error ? e.message : 'Audit-Export nicht bestätigt.'))}><Fingerprint size={16} />Audit-Manifest herunterladen</button></div>{error && <ErrorBanner message={error} />}</> : <Empty title="Noch kein Berichtsentwurf">Zuerst Assessment prüfen und ein konkretes Paket vorbereiten.</Empty>}
@@ -136,6 +170,6 @@ export default function Workbench({ value: c, actor, openDialog, mutate, busy, b
       {c.submissions.map(s => <div className="receipt" key={s.id}><Badge tone={s.status === 'TransmissionUnknown' ? 'amber' : 'blue'}>{label(s.status)}</Badge><b>{s.receiptReference ?? 'Noch kein bestätigter Empfang'}</b><span className="mono">{s.correlationId}</span><small>SIMULIERT · {s.attempts} Sendeversuch · {date(s.attemptedAt, true)}</small></div>)}
     </aside></div>}
     {tab === 'information' && <InformationPanel value={c} actor={actor} openDialog={openDialog} mutate={mutate} busy={busy} />}
-    {tab === 'history' && <div className="review-grid"><section className="panel"><h2>Kenntnis & Versionsgeschichte</h2>{c.awareness.map(a => <article className="history-entry" key={a.id}><b>{a.kind} · {date(a.at, true)}</b><p>{a.reason}</p><small>Systemaufzeichnung {date(a.recordedAt, true)} · Quelle {a.source}</small></article>)}{c.approvals.map(a => <article className="history-entry" key={a.id}><b>{a.actorName} · {roleNames[a.role]}</b><p>{a.rationale}</p><small>{date(a.at, true)} · Hash {hash(a.scopeHash)}</small></article>)}</section><section className="panel"><h2>Agentenläufe</h2><p className="muted">Sechs logische Rollen, keine sechs unnötigen Microservices. Fehlgeschlagene Live-Läufe werden nicht durch Replay ersetzt.</p>{c.agentRuns.map(r => <article className="history-entry" key={r.id}><div className="row-between"><b>{r.role}</b><Badge tone={r.status === 'Failed' ? 'danger' : 'blue'}>{label(r.status)}</Badge></div><p>{r.mode} · {r.model}</p><small>{date(r.startedAt, true)}{r.errorCode && ` · ${r.errorCode}`}</small></article>)}{!c.agentRuns.length && <Empty title="Noch kein Lauf">Menschliche Bearbeitung ist auch ohne KI möglich.</Empty>}</section></div>}
+    {tab === 'history' && <div className="review-grid"><section className="panel"><h2>Kenntnis & Versionsgeschichte</h2>{c.awareness.map(a => <article className="history-entry" key={a.id}><b>{a.kind} · {date(a.at, true)}</b><p>{a.reason}</p><small>Systemaufzeichnung {date(a.recordedAt, true)} · Quelle {a.source}</small></article>)}<ReviewReturnHistory reports={c.reports} current={report} />{c.approvals.map(a => <article className="history-entry" key={a.id}><b>{a.actorName} · {roleNames[a.role]}</b><p>{a.rationale}</p><small>{date(a.at, true)} · Hash {hash(a.scopeHash)}</small></article>)}</section><section className="panel"><h2>Agentenläufe</h2><p className="muted">Sechs logische Rollen, keine sechs unnötigen Microservices. Fehlgeschlagene Live-Läufe werden nicht durch Replay ersetzt.</p>{c.agentRuns.map(r => <article className="history-entry" key={r.id}><div className="row-between"><b>{r.role}</b><Badge tone={r.status === 'Failed' ? 'danger' : 'blue'}>{label(r.status)}</Badge></div><p>{r.mode} · {r.model}</p><small>{date(r.startedAt, true)}{r.errorCode && ` · ${r.errorCode}`}</small></article>)}{!c.agentRuns.length && <Empty title="Noch kein Lauf">Menschliche Bearbeitung ist auch ohne KI möglich.</Empty>}</section></div>}
   </div>
 }

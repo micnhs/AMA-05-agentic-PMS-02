@@ -1,10 +1,10 @@
-import { expect, test, type APIRequestContext, type APIResponse, type BrowserContext, type Locator, type Page } from '@playwright/test'
+import { expect, test, type APIRequestContext, type APIResponse, type BrowserContext, type Locator, type Page, type Request } from '@playwright/test'
 import { appendFileSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, EvidenceDocument, InformationRecipient, PeriodicSummaryReport, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, RetentionRecord, RetentionView, SafetyCase, SignalDocumentImportResult, SignalView, SummaryAgreement } from '../src/types'
+import type { CalendarSnapshot, Capa, CaseProcessView, CaseSummary, ChangeRequest, CockpitSnapshot, Evidence, EvidenceDocument, InformationRecipient, PeriodicSummaryReport, PreparedReportField, ProductGovernance, Psur, PsurGroupDefinition, PsurMonthlyView, PsurReview, Report, RetentionRecord, RetentionView, SafetyCase, SignalDocumentImportResult, SignalView, SummaryAgreement } from '../src/types'
 import type { ActorApplication, IntegrationWorkspace } from '../src/EudamedWorkspace'
 import type { DossierView, EudamedDossier } from '../src/EudamedDossiers'
 
@@ -1787,6 +1787,76 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
   const ra = await playwright.request.newContext({ baseURL })
   const contexts: BrowserContext[] = []
   const pageErrors: string[] = []
+  async function checkFieldDisclosure(page: Page, field: PreparedReportField) {
+    const writes: string[] = []
+    const recordWrite = (request: Request) => { if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) writes.push(request.url()) }
+    page.on('request', recordWrite)
+    try {
+      const entry = page.locator(`[data-field="${field.field}"]`)
+      const value = entry.locator(':scope > .prepared-value')
+      const rationale = entry.locator(':scope > p.muted')
+      await expect(value).toBeVisible()
+      expect(await value.textContent()).toBe(field.value)
+      await expect(rationale).toBeVisible()
+      expect(await rationale.textContent()).toBe(field.rationale)
+      const metadata = entry.locator('.field-metadata')
+      const source = metadata.locator('.mono')
+      const summary = metadata.locator('summary')
+      await expect(metadata).toHaveJSProperty('open', false)
+      await expect(source).not.toBeVisible()
+      await summary.focus()
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      await expect(summary).toBeFocused()
+      expect(await summary.evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid')
+      await page.keyboard.press('Enter')
+      await expect(metadata).toHaveJSProperty('open', true)
+      await expect(source).toBeVisible()
+      expect(await source.textContent()).toBe(field.source)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await page.keyboard.press('Space')
+      await expect(metadata).toHaveJSProperty('open', false)
+      await expect(source).not.toBeVisible()
+      await expect(value).toBeVisible()
+      await expect(rationale).toBeVisible()
+      expect(writes).toEqual([])
+    } finally { page.off('request', recordWrite) }
+  }
+  async function checkReturnHistory(page: Page, returnedReport: Report, sourceReport: Report) {
+    const writes: string[] = []
+    const recordWrite = (request: Request) => { if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) writes.push(request.url()) }
+    page.on('request', recordWrite)
+    try {
+      const history = page.getByTestId('review-return-history')
+      const entry = history.locator(`[data-return-version="${returnedReport.version}"]`)
+      const returned = returnedReport.reviewReturn!
+      await expect(entry.locator('.review-return-reason')).toBeVisible()
+      expect(await entry.locator('.review-return-reason').textContent()).toBe(returned.reason)
+      await expect(entry.getByText('Regulatory Affairs', { exact: true })).toBeVisible()
+      await expect(entry.locator('time')).toHaveAttribute('datetime', returned.at)
+      await expect(entry.getByText(`Zurückgegebenes Paket: Bericht v${sourceReport.version} · ${sourceReport.kind} · ${sourceReport.jurisdiction}`, { exact: true })).toBeVisible()
+      await expect(history).toContainText('Eine Folgerevision allein belegt keine Erledigung der Rückgabe. Historische Signaturen sind keine aktuelle Freigabe.')
+      const metadata = entry.locator('.review-return-metadata')
+      await expect(metadata).toHaveJSProperty('open', false)
+      await expect(entry.getByText(returned.actorId, { exact: true })).not.toBeVisible()
+      await metadata.locator('summary').focus()
+      await page.keyboard.press('Tab')
+      await page.keyboard.press('Shift+Tab')
+      await expect(metadata.locator('summary')).toBeFocused()
+      expect(await metadata.locator('summary').evaluate(element => getComputedStyle(element).outlineStyle)).toBe('solid')
+      await page.keyboard.press('Enter')
+      await expect(metadata).toHaveJSProperty('open', true)
+      await expect(entry.getByText(returned.actorId, { exact: true })).toBeVisible()
+      await expect(metadata).toContainText(returned.previousScopeHash)
+      await expect(metadata).toContainText(returnedReport.scopeHash)
+      await expect(metadata).toContainText(returned.at)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+      await page.keyboard.press('Space')
+      await expect(metadata).toHaveJSProperty('open', false)
+      await expect(entry.locator('.review-return-reason')).toBeVisible()
+      expect(writes).toEqual([])
+    } finally { page.off('request', recordWrite) }
+  }
   try {
     const pmsCsrf = await signIn(pms, 'pms.demo')
     await signIn(medical, 'medical.demo')
@@ -1844,6 +1914,27 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     await pmsPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-agent-draft.png') })
     const proposed = pmsPage.locator('[data-field="preliminaryAnalysis"]')
     await expect(proposed).toContainText('Agentenvorschlag · unbestätigt')
+    await expect(proposed.locator('.badge')).toBeVisible()
+    expect(await pmsPage.locator('[data-field-group]').evaluateAll(groups => groups.map(group => group.getAttribute('data-field-group'))))
+      .toEqual(['assessment', 'actions', 'incident', 'administration'])
+    const displayOrder = await pmsPage.locator('.prepared-fields [data-field]').evaluateAll(fields => fields.map(field => field.getAttribute('data-field')))
+    expect(displayOrder[0]).toBe('preliminaryAnalysis')
+    expect(displayOrder.indexOf('furtherInvestigation')).toBeLessThan(displayOrder.indexOf('manufacturerName'))
+    const proposedField = draft.preparation!.fields.find(field => field.field === 'preliminaryAnalysis')!
+    await checkFieldDisclosure(pmsPage, proposedField)
+    await expect(pmsPage.getByTestId('report-gaps')).toBeVisible()
+    const quotations = proposed.locator('details').filter({ has: pmsPage.getByText('Wortgetreue Fundstellen dieses Vorschlags', { exact: true }) })
+    await quotations.locator('summary').click()
+    expect(proposedField.citations.length).toBeGreaterThan(0)
+    for (const [index, citation] of proposedField.citations.entries()) {
+      expect(await quotations.locator('blockquote').nth(index).textContent()).toBe(citation.quote)
+      expect(await quotations.locator('small').nth(index).textContent()).toBe(`${citation.evidenceId} · ${citation.hash} · ${citation.locator}`)
+    }
+    await quotations.locator('summary').click()
+    const afterDisclosure = await (await pms.get(`/api/cases/${c.id}`)).json() as SafetyCase
+    expect(afterDisclosure.version).toBe(c.version)
+    expect(afterDisclosure.currentReport).toEqual(draft)
+    expect(afterDisclosure.approvals).toEqual(c.approvals)
     await proposed.scrollIntoViewIfNeeded()
     await pmsPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-field-origin.png') })
     await proposed.getByRole('button', { name: /Originalbeleg/ }).first().click()
@@ -1857,7 +1948,7 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     await expect(raPage.getByRole('button', { name: 'Regulatorisch freigeben', exact: true })).toHaveCount(0)
     await raPage.getByRole('button', { name: 'Zur Korrektur zurückgeben', exact: true }).click()
     dialog = raPage.getByRole('dialog')
-    const returnReason = 'PMS: Belegten Herstellerkontakt, Geräteverbleib, genaue Ereignisfolge und ausdrücklich menschlich zugesagten Folgetermin ergänzen. Keine Daten erfinden.'
+    const returnReason = 'PMS: Belegten Herstellerkontakt, Geräteverbleib, genaue Ereignisfolge und ausdrücklich menschlich zugesagten Folgetermin ergänzen.\nKeine Daten erfinden.'
     await dialog.locator('[name=reason]').fill(returnReason)
     await submitDialog(dialog, 'Zur Korrektur zurückgeben')
     c = await (await pms.get(`/api/cases/${c.id}`)).json()
@@ -1865,6 +1956,15 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     expect(c.currentReport?.scopeHash).not.toBe(draft.scopeHash)
     expect(c.currentReport?.reviewReturn?.reason).toBe(returnReason)
     expect(JSON.stringify(c.deadlines)).toBe(deadlines)
+    const returnedReport = c.currentReport!
+    expect(returnedReport.reviewReturn!.previousScopeHash).toBe(draft.scopeHash)
+    await expect(raPage.getByTestId('current-review-return').locator('.review-return-reason')).toBeVisible()
+    expect(await raPage.getByTestId('current-review-return').locator('.review-return-reason').textContent()).toBe(returnReason)
+    const medicalPage = await pageFor(medical)
+    await medicalPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await expect(medicalPage.getByRole('button', { name: 'Medizinisch freigeben', exact: true })).toBeDisabled()
+    await medicalPage.getByRole('tab', { name: 'Chronologie & Läufe' }).click()
+    await checkReturnHistory(medicalPage, returnedReport, draft)
 
     await pmsPage.reload()
     await showCase(pmsPage, incidentKey, input.title)
@@ -1897,10 +1997,30 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     expect(c.currentReport?.mir?.followUpSchedule?.reportDate).toBe(nextDate)
     expect(c.currentReport?.mir?.facts.initialCorrectiveAction).toBeNull()
     expect(c.currentReport?.mir?.facts.udiDi).toBe(input.udi)
+    expect(c.reports.find(report => report.version === returnedReport.version)?.reviewReturn).toEqual(returnedReport.reviewReturn)
+    expect(c.approvals.filter(approval => approval.scopeHash === c.currentReport?.scopeHash)).toHaveLength(0)
+    await expect(pmsPage.getByTestId('current-review-return')).toHaveCount(0)
+    await expect(pmsPage.locator('.approval-step p')).toHaveText(['Freigabe ausstehend', 'Freigabe ausstehend'])
+    await checkReturnHistory(pmsPage, returnedReport, draft)
+    await pmsPage.getByRole('tab', { name: 'Chronologie & Läufe' }).click()
+    await checkReturnHistory(pmsPage, returnedReport, draft)
+    await pmsPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    const afterHistory = await (await pms.get(`/api/cases/${c.id}`)).json() as SafetyCase
+    expect(afterHistory.version).toBe(c.version)
+    expect(afterHistory.currentReport).toEqual(c.currentReport)
+    expect(afterHistory.reports).toEqual(c.reports)
+    expect(afterHistory.approvals).toEqual(c.approvals)
     await pmsPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-corrected.png') })
 
-    const medicalPage = await pageFor(medical)
+    await raPage.reload()
+    await showCase(raPage, incidentKey, input.title)
+    await raPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await expect(raPage.getByRole('button', { name: 'Regulatorisch freigeben', exact: true })).toHaveCount(0)
+    await medicalPage.reload()
+    await showCase(medicalPage, incidentKey, input.title)
     await medicalPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await checkReturnHistory(medicalPage, returnedReport, draft)
+    await expect(medicalPage.getByRole('button', { name: 'Medizinisch freigeben', exact: true })).toBeEnabled()
     await medicalPage.getByRole('button', { name: 'Medizinisch freigeben', exact: true }).click()
     dialog = medicalPage.getByRole('dialog')
     await dialog.locator('[name=reason]').fill('Quellen, synthetische Pflichtangaben, Unsicherheit und konkretes Berichtspaket medizinisch geprüft.')
@@ -1930,6 +2050,19 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     await expect(target).toBeInViewport()
     expect(await raPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await raPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-ra-narrow.png') })
+    const contactField = c.currentReport!.preparation!.fields.find(field => field.field === 'contactFirstName')!
+    expect(contactField.origin).toBe('HumanEntry')
+    expect(contactField.source).toContain('SHA-256')
+    for (const width of [390, 360]) {
+      await raPage.setViewportSize({ width, height: 844 })
+      await checkFieldDisclosure(raPage, contactField)
+      await expect(raPage.locator('[data-field="contactFirstName"] .badge')).toBeVisible()
+      await checkReturnHistory(raPage, returnedReport, draft)
+    }
+    const afterNarrowDisclosure = await (await ra.get(`/api/cases/${c.id}`)).json() as SafetyCase
+    expect(afterNarrowDisclosure.version).toBe(c.version)
+    expect(afterNarrowDisclosure.currentReport).toEqual(c.currentReport)
+    expect(afterNarrowDisclosure.approvals).toEqual(c.approvals)
     const frozen = c.currentReport!
     const originalApprovals = JSON.stringify(c.approvals)
     const originalFacts = JSON.stringify(frozen.mir!.facts)
@@ -1956,6 +2089,17 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
     expect(JSON.stringify(c.deadlines)).toBe(deadlines)
     expect(c.submissions).toHaveLength(0)
     await expect(medicalPage.getByRole('button', { name: 'Medizinisch freigeben', exact: true })).toBeEnabled()
+    await expect(medicalPage.locator('.approval-step p')).toHaveText(['Freigabe ausstehend', 'Freigabe ausstehend'])
+    await checkReturnHistory(medicalPage, returnedReport, draft)
+    const afterNewReview = await (await medical.get(`/api/cases/${c.id}`)).json() as SafetyCase
+    expect(afterNewReview.version).toBe(c.version)
+    expect(afterNewReview.currentReport).toEqual(c.currentReport)
+    expect(afterNewReview.reports).toEqual(c.reports)
+    expect(afterNewReview.approvals).toEqual(c.approvals)
+    await raPage.reload()
+    await showCase(raPage, incidentKey, input.title)
+    await raPage.getByRole('tab', { name: 'Human Review & Meldung' }).click()
+    await expect(raPage.getByRole('button', { name: 'Regulatorisch freigeben', exact: true })).toHaveCount(0)
     await medicalPage.screenshot({ path: path.join(artifacts, 'cohors-prefill-medical-completion.png') })
     expect(pageErrors).toEqual([])
     writeFileSync(path.join(artifacts, 'prefill-workflow.json'), JSON.stringify({ caseId: c.id, version: c.version,
@@ -1963,6 +2107,9 @@ test('V01: agent-prefilled report, grounded fields, missing-data return and sepa
       target: c.currentReport?.preparation?.target, roles: approvals.map(a => a.role), differentIdentities: true,
       initialGapsPreserved: true, agentTextPreserved: true, deadlinePreserved: true, hiddenUdiPreserved: true,
       medicalCompletionWithoutRetyping: true, historicalApprovalsPreserved: true, currentApprovals: 0,
+      assessmentFirst: true, keyboardMetadataToggle: true, fullSourceAndQuotesPreserved: true,
+      fieldRationaleVisible: true, narrowFieldMetadata: true, presentationReadOnly: true,
+      earlierReturnsVisibleAfterCorrection: true, returnHistoryVisibleInChronology: true, newApprovalsStillRequired: true,
       automaticSubmissions: 0, pageErrors }, null, 2))
   } finally {
     for (const context of contexts) await context.close()

@@ -321,12 +321,17 @@ blockquote { border-left: 2px solid var(--cp-accent); padding-left: 14px; margin
 .report-preview p { font-size: 12px; }
 .report-target { border: 1px solid var(--cp-border); border-radius: 10px; padding: 16px; margin: 12px 0; background: var(--cp-surface-soft); overflow-wrap: anywhere; }
 .prepared-fields { margin: 20px 0; }
-.prepared-fields article { padding: 16px 0; border-top: 1px solid var(--cp-border); min-width: 0; }
+.prepared-fields > section + section { margin-top: 24px; }
+.prepared-fields article { padding: 16px 0; border-top: 1px solid var(--cp-border); min-width: 0; overflow-wrap: anywhere; }
 .prepared-fields .row-between { flex-wrap: wrap; gap: 8px; }
+.prepared-fields .badge { white-space: normal; }
+.prepared-fields .citation-row { flex-wrap: wrap; }
 .prepared-fields h4 { margin: 0; font-size: 12px; }
 .prepared-fields .prepared-value, .prepared-fields blockquote { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 .prepared-fields small { display: block; overflow-wrap: anywhere; }
 .prepared-fields .table-wrap { max-width: 100%; overflow-x: auto; }
+.review-return-history { margin: 20px 0; overflow-wrap: anywhere; }
+.review-return-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
 .approval-step { display: flex; align-items: flex-start; gap: 12px; padding: 23px 0; border-bottom: 1px solid var(--cp-border); }
 .approval-step > span { border: 1px solid var(--cp-border-strong); border-radius: 50%; width: 27px; height: 27px; display: grid; place-items: center; font-size: 10px; flex-shrink: 0; }
 .approval-step b { font-size: 12px; }
